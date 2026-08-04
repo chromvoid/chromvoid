@@ -69,7 +69,11 @@ pub use pairing_store::{
 pub use record_transport::{
     MobileUsbByteStream, MobileUsbRemoteTransport, MAX_USB_REMOTE_RECORD_BYTES,
 };
-pub use secret_store::{KeyringMobileUsbSecretStore, MobileUsbSecretStore};
+pub use secret_store::{
+    mobile_usb_secret_service_for_app_identifier, KeyringMobileUsbSecretStore,
+    MobileUsbSecretStore, MOBILE_USB_DEV_SECRET_SERVICE, MOBILE_USB_PRODUCTION_SECRET_SERVICE,
+    MOBILE_USB_SMOKE_SECRET_SERVICE,
+};
 #[cfg(desktop)]
 pub(crate) use session_coordinator::{
     disconnect_mobile_usb_and_restore_local, disconnect_mobile_usb_for_system_sleep,
@@ -78,8 +82,8 @@ pub(crate) use session_coordinator::{
 };
 pub use types::{
     ClientKeyRef, HostId, MobileUsbBridgeKind, MobileUsbCommand, MobileUsbDetectCandidate,
-    MobileUsbDetectedDevice, MobileUsbDetectedPairedMatch, MobileUsbDisconnectReason,
-    MobileUsbError, MobileUsbErrorCode, MobileUsbHostApprovalDecision,
+    MobileUsbDetectedDevice, MobileUsbDetectedPairedMatch, MobileUsbDetectedPairingState,
+    MobileUsbDisconnectReason, MobileUsbError, MobileUsbErrorCode, MobileUsbHostApprovalDecision,
     MobileUsbHostPairingApprovalView, MobileUsbHostSessionApprovalView, MobileUsbHostView,
     MobileUsbOperationKind, MobileUsbOperationToken, MobileUsbPairConfirmRequest,
     MobileUsbPairRequest, MobileUsbPairedHostRecord, MobileUsbPairingApprovalView,

@@ -6,11 +6,20 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 import {remoteSessionModel} from '../../src/routes/remote/remote-session.model'
 import {runtimeModeModel} from '../../src/core/runtime/runtime-mode.model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import {moduleAccessModel} from '../../src/core/pro/module-access.model'
 
 const tauriInvoke = vi.fn()
 const tauriListeners = new Map<string, (payload: unknown) => void>()
 
-function mobileUsbStatus(sessionState: string) {
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve
+  })
+  return {promise, resolve}
+}
+
+function mobileUsbStatus(sessionState: string, errorCode: string | null = null) {
   return {
     transport_family: 'usb_mobile',
     available_transports: ['usb_mobile'],
@@ -28,7 +37,7 @@ function mobileUsbStatus(sessionState: string) {
     paired_hosts: [],
     pairing_approval: null,
     in_flight: null,
-    error_code: null,
+    error_code: errorCode,
   }
 }
 
@@ -50,6 +59,7 @@ describe('remoteSessionModel', () => {
     tauriListeners.clear()
     navigationModel.disconnect()
     runtimeModeModel.handleTransportDisconnect()
+    moduleAccessModel.reset()
     setRuntimeCapabilities({platform: 'macos', desktop: true, mobile: false})
     clearAppContext()
   })
@@ -58,8 +68,10 @@ describe('remoteSessionModel', () => {
     remoteSessionModel.disconnect()
     navigationModel.disconnect()
     runtimeModeModel.handleTransportDisconnect()
+    moduleAccessModel.reset()
     resetRuntimeCapabilities()
     clearAppContext()
+    vi.restoreAllMocks()
   })
 
   it('tracks waiting and ready states from remote vault:status', async () => {
@@ -138,6 +150,7 @@ describe('remoteSessionModel', () => {
     expect(remoteSessionState()).toBe('waiting_host_unlock')
     expect(remoteSessionPeerId()).toBe('peer-1')
     expect(runtimeModeModel.remoteCoreMode()).toBe(true)
+    expect(moduleAccessModel.activeCoreReadiness()).toBe('pending')
     expect(handleRemoteHostLocked).not.toHaveBeenCalled()
     expect(resetSpy).not.toHaveBeenCalled()
 
@@ -145,11 +158,18 @@ describe('remoteSessionModel', () => {
     await remoteSessionModel.syncNow()
     expect(remoteSessionState()).toBe('ready')
     expect(remoteSessionPeerId()).toBe('peer-1')
+    expect(moduleAccessModel.activeCoreContext()).toEqual({
+      sourceCore: 'remote_host',
+      peerId: 'tauri_remote_wss:peer-1',
+      transportSessionGeneration: null,
+    })
+    expect(moduleAccessModel.activeCoreReadiness()).toBe('ready')
     expect(resetSpy).toHaveBeenCalledTimes(1)
 
     vaultUnlocked = false
     await remoteSessionModel.syncNow()
     expect(remoteSessionState()).toBe('waiting_host_unlock')
+    expect(moduleAccessModel.activeCoreReadiness()).toBe('pending')
     expect(handleRemoteHostLocked).toHaveBeenCalledTimes(1)
 
     remoteMode = false
@@ -157,6 +177,8 @@ describe('remoteSessionModel', () => {
     expect(remoteSessionState()).toBe('inactive')
     expect(remoteSessionPeerId()).toBe(null)
     expect(runtimeModeModel.coreMode()).toBe('local')
+    expect(moduleAccessModel.activeCoreContext()).toEqual({sourceCore: 'local'})
+    expect(moduleAccessModel.activeCoreReadiness()).toBe('ready')
 
     resetSpy.mockRestore()
   })
@@ -392,12 +414,17 @@ describe('remoteSessionModel', () => {
     expect(remoteSessionState()).toBe('waiting_phone_approval')
     expect(remoteSessionPeerId()).toBe('usb-host-1')
     expect(tauriInvoke.mock.calls.some(([command]) => command === 'rpc_dispatch')).toBe(false)
+    expect(tauriInvoke.mock.calls.some(([command]) => command === 'module_access_snapshot')).toBe(false)
+    expect(tauriInvoke.mock.calls.some(([command]) => command === 'license_status')).toBe(false)
   })
 
   it('syncs immediately when mobile_usb_status_changed is emitted', async () => {
     const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
     const remoteSessionPeerId = atom<string | null>(null)
     let usbSessionState = 'transport_ready_host_locked'
+    const ensureActiveCoreAccess = vi
+      .spyOn(moduleAccessModel, 'ensureActiveCoreAccess')
+      .mockResolvedValue()
 
     initAppContext(
       createMockAppContext({
@@ -466,6 +493,8 @@ describe('remoteSessionModel', () => {
 
     await remoteSessionModel.connect()
     expect(remoteSessionState()).toBe('waiting_host_unlock')
+    expect(moduleAccessModel.activeCoreReadiness()).toBe('pending')
+    expect(ensureActiveCoreAccess).not.toHaveBeenCalled()
 
     usbSessionState = 'remote_dashboard_open'
     tauriListeners.get('mobile_usb_status_changed')?.(mobileUsbStatus('remote_dashboard_open'))
@@ -473,11 +502,135 @@ describe('remoteSessionModel', () => {
 
     expect(remoteSessionState()).toBe('ready')
     expect(remoteSessionPeerId()).toBe('usb-host-1')
+    expect(moduleAccessModel.activeCoreContext()).toEqual({
+      sourceCore: 'remote_host',
+      peerId: 'mobile_usb:usb-host-1',
+      transportSessionGeneration: 11,
+    })
+    expect(moduleAccessModel.activeCoreReadiness()).toBe('ready')
+    expect(ensureActiveCoreAccess).toHaveBeenCalledTimes(1)
   })
 
-  it('does not call desktop mode_status on mobile runtime', async () => {
+  it('waits for explicit read-only consent when the USB writer is locked', async () => {
+    const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'ready'>('inactive')
+    const remoteSessionPeerId = atom<string | null>(null)
+    const remoteSessionGeneration = atom<number | null>(null)
+    let usbSessionState = 'transport_ready_host_locked'
+    let usbErrorCode: string | null = null
+    let deferredUsbStatus: ReturnType<typeof deferred<ReturnType<typeof mobileUsbStatus>>> | null = null
+    const setRemoteSessionReady = vi.fn((peerId: string | null) => {
+      remoteSessionPeerId.set(peerId)
+      remoteSessionState.set('ready')
+    })
+
+    initAppContext(
+      createMockAppContext({
+        ws: {
+          connected: () => true,
+        } as never,
+        store: {
+          remoteSessionState,
+          remoteSessionPeerId,
+          remoteSessionGeneration,
+          setRemoteSessionWaiting: (peerId: string | null) => {
+            remoteSessionPeerId.set(peerId)
+            remoteSessionState.set('waiting_host_unlock')
+          },
+          setRemoteSessionReady,
+          resetRemoteSession: () => {
+            remoteSessionPeerId.set(null)
+            remoteSessionState.set('inactive')
+          },
+          handleRemoteHostLocked: vi.fn(),
+        } as never,
+      }),
+    )
+
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'mode_status') {
+        return {
+          mode: {
+            remote: {
+              host: {
+                type: 'mobile_usb',
+                host_id: 'usb-host-1',
+                label: 'Pixel Host',
+                platform: 'android',
+              },
+            },
+          },
+          connection_state: 'ready',
+          transport_type: 'usb_mobile',
+          remote_core_features: [],
+          transport_session_generation: 12,
+        }
+      }
+
+      if (command === 'mobile_usb_status') {
+        if (deferredUsbStatus) return deferredUsbStatus.promise
+        return mobileUsbStatus(usbSessionState, usbErrorCode)
+      }
+
+      if (command === 'rpc_dispatch') {
+        return {
+          ok: true,
+          result: {
+            command: 'vault:status',
+            result: {is_unlocked: true, session_started_at: 42},
+          },
+        }
+      }
+
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    await remoteSessionModel.connect()
+    expect(remoteSessionState()).toBe('waiting_host_unlock')
+
+    usbSessionState = 'remote_dashboard_open'
+    usbErrorCode = 'ERR_USB_MOBILE_WRITER_LOCKED'
+    tauriListeners.get('mobile_usb_status_changed')?.(mobileUsbStatus(usbSessionState, usbErrorCode))
+    await remoteSessionModel.syncNow()
+
+    expect(setRemoteSessionReady).not.toHaveBeenCalled()
+    expect(remoteSessionState()).toBe('waiting_host_unlock')
+    expect(remoteSessionModel.usbRecoveryRequired()).toBe(true)
+    expect(tauriInvoke.mock.calls.some(([command]) => command === 'rpc_dispatch')).toBe(false)
+
+    remoteSessionState.set('inactive')
+    remoteSessionPeerId.set(null)
+    remoteSessionModel.usbRecoveryRequired.set(false)
+    await remoteSessionModel.syncNow()
+
+    expect(remoteSessionState()).toBe('waiting_host_unlock')
+    expect(remoteSessionPeerId()).toBe('usb-host-1')
+    expect(remoteSessionModel.usbRecoveryRequired()).toBe(true)
+
+    const statusCallsBeforeConsent = tauriInvoke.mock.calls.filter(
+      ([command]) => command === 'mobile_usb_status',
+    ).length
+    deferredUsbStatus = deferred()
+    const syncDuringConsent = remoteSessionModel.syncNow()
+    await vi.waitFor(() => {
+      expect(tauriInvoke.mock.calls.filter(([command]) => command === 'mobile_usb_status')).toHaveLength(
+        statusCallsBeforeConsent + 1,
+      )
+    })
+    setRemoteSessionReady('usb-host-1')
+    deferredUsbStatus.resolve(mobileUsbStatus(usbSessionState, usbErrorCode))
+    await syncDuringConsent
+
+    expect(remoteSessionState()).toBe('ready')
+    expect(remoteSessionPeerId()).toBe('usb-host-1')
+    expect(remoteSessionModel.usbRecoveryRequired()).toBe(false)
+  })
+
+  it('does not call desktop mode_status or invalidate local Core access on mobile runtime', async () => {
     setRuntimeCapabilities({platform: 'android', desktop: false, mobile: true})
     const resetRemoteSession = vi.fn()
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
+    await moduleAccessModel.ensureActiveCoreAccess()
+    expect(moduleAccessModel.activeCoreLifecycle()).toBe('resolved')
 
     initAppContext(
       createMockAppContext({
@@ -494,5 +647,8 @@ describe('remoteSessionModel', () => {
 
     expect(resetRemoteSession).toHaveBeenCalledTimes(1)
     expect(tauriInvoke).not.toHaveBeenCalledWith('mode_status')
+    expect(moduleAccessModel.activeCoreContext()).toEqual({sourceCore: 'local'})
+    expect(moduleAccessModel.activeCoreReadiness()).toBe('ready')
+    expect(moduleAccessModel.activeCoreLifecycle()).toBe('resolved')
   })
 })

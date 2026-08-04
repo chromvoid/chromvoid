@@ -127,6 +127,7 @@ export class PMAvatarIcon extends ReatomLitElement {
       --pm-avatar-image-padding: 3px;
       --pm-avatar-image-fit: contain;
       --_pm-avatar-image-background: var(--cv-color-surface-3);
+      --_pm-avatar-image-border-color: var(--pm-avatar-border-source);
       --pm-avatar-contrast-base: 90%;
       --pm-avatar-contrast: var(--pm-avatar-contrast-base);
       --pm-avatar-border-source: var(--cv-color-border);
@@ -167,7 +168,7 @@ export class PMAvatarIcon extends ReatomLitElement {
     .surface.image {
       padding: var(--pm-avatar-image-padding);
       background: var(--_pm-avatar-image-background);
-      border: 1px solid var(--pm-avatar-border-source);
+      border: 1px solid var(--_pm-avatar-image-border-color);
       box-shadow:
         inset 0 0 0 1px var(--pm-avatar-image-inset-shadow-color),
         var(--pm-avatar-image-shadow);
@@ -272,9 +273,11 @@ export class PMAvatarIcon extends ReatomLitElement {
     this.appliedImageBackground = value
     if (value.length > 0) {
       this.style.setProperty('--_pm-avatar-image-background', value)
+      this.style.setProperty('--_pm-avatar-image-border-color', value)
       return
     }
     this.style.removeProperty('--_pm-avatar-image-background')
+    this.style.removeProperty('--_pm-avatar-image-border-color')
   }
 
   private renderFallback() {

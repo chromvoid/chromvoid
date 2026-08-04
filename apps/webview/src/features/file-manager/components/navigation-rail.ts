@@ -165,6 +165,8 @@ export class NavigationRail extends ReatomLitElement {
         font-family: var(--cv-font-family-body, 'Inter', system-ui);
         font-size: var(--app-editorial-text-small, 0.8125rem);
         font-weight: var(--app-editorial-font-weight-medium, 500);
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
         transition:
           background-color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1)),
           color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart);
@@ -199,18 +201,6 @@ export class NavigationRail extends ReatomLitElement {
           transition: opacity var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart);
         }
 
-        &:hover {
-          background: var(--app-editorial-interaction-hover-overlay, var(--cv-alpha-white-4));
-          color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
-        }
-
-        &:focus-visible {
-          outline: none;
-          box-shadow:
-            0 0 0 2px var(--app-editorial-surface-base),
-            0 0 0 4px var(--app-editorial-accent, var(--cv-color-primary));
-        }
-
         &.active {
           background: var(--app-editorial-accent-muted, var(--cv-color-accent-surface));
           color: var(--app-editorial-accent, var(--cv-color-primary));
@@ -221,13 +211,13 @@ export class NavigationRail extends ReatomLitElement {
           cursor: wait;
           pointer-events: none;
         }
+      }
 
-        &.danger {
-          &:hover {
-            background: var(--app-editorial-status-error-muted, var(--cv-color-danger-surface));
-            color: var(--app-editorial-status-error, var(--cv-color-danger));
-          }
-        }
+      button.item {
+        appearance: none;
+        -webkit-appearance: none;
+        box-sizing: border-box;
+        inline-size: 100%;
       }
 
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item,
@@ -322,6 +312,8 @@ export class NavigationRail extends ReatomLitElement {
         font-family: var(--cv-font-family-body, 'Inter', system-ui);
         font-size: var(--app-editorial-text-small, 0.8125rem);
         font-weight: var(--app-editorial-font-weight-medium, 500);
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
         transition:
           background-color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart),
           color var(--cv-duration-fast, 150ms) var(--app-editorial-easing-out-quart);
@@ -352,10 +344,33 @@ export class NavigationRail extends ReatomLitElement {
           white-space: nowrap;
         }
 
-        &:hover {
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .item:not(.active):hover,
+        .theme-toggle:hover {
           background: var(--app-editorial-interaction-hover-overlay, var(--cv-alpha-white-4));
           color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
         }
+
+        .item.danger:hover {
+          background: var(--app-editorial-status-error-muted, var(--cv-color-danger-surface));
+          color: var(--app-editorial-status-error, var(--cv-color-danger));
+        }
+      }
+
+      .item:active:not([disabled]),
+      .theme-toggle:active:not([disabled]),
+      .item:not([disabled])::part(base):active,
+      .theme-toggle:not([disabled])::part(base):active {
+        background: var(--app-editorial-interaction-active-overlay, var(--cv-alpha-white-8));
+        color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
+        transition-duration: var(--cv-duration-instant, 0ms);
+      }
+
+      .item.danger:active:not([disabled]) {
+        background: var(--app-editorial-interaction-active-overlay, var(--cv-alpha-white-8));
+        color: var(--app-editorial-status-error, var(--cv-color-danger));
       }
 
       :host([expanded]) .theme-toggle .label {
@@ -491,6 +506,7 @@ export class NavigationRail extends ReatomLitElement {
     const isSshKeys = navigationRailModel.isSshKeysActive()
     const isPasskeys = navigationRailModel.isPasskeysActive()
     const isWallet = navigationRailModel.isWalletActive()
+    const supportsSshKeys = navigationRailModel.supportsSshKeys()
     const supportsPasskeys = navigationRailModel.supportsPasskeys()
     const supportsWallet = navigationRailModel.supportsWallet()
     const walletAccess = navigationRailModel.walletAccess()
@@ -533,7 +549,7 @@ export class NavigationRail extends ReatomLitElement {
           <cv-icon slot="prefix" name="shield-check"></cv-icon>
           <span class="label">${i18n('navigation:otp-codes' as any)}</span>
         </cv-button>
-        ${isMobileLayout
+        ${isMobileLayout && supportsSshKeys
           ? html`
               <cv-button
                 unstyled
@@ -656,19 +672,18 @@ export class NavigationRail extends ReatomLitElement {
           <span class="label">${i18n('navigation:settings')}</span>
         </cv-button>
 
-        <cv-button
-          unstyled
+        <button
+          id="app.vault.lock"
+          type="button"
           class="item danger"
           ?disabled=${vaultLockPending}
           aria-busy=${vaultLockPending ? 'true' : 'false'}
           @click=${this.handleLockClick}
         >
-          <cv-icon slot="prefix" name="lock"></cv-icon>
+          <cv-icon name="lock"></cv-icon>
           <span class="label">${i18n(vaultLockActionLabelKey)}</span>
-          ${vaultLockShortcutLabel
-            ? html`<span slot="suffix" class="hint">${vaultLockShortcutLabel}</span>`
-            : ''}
-        </cv-button>
+          ${vaultLockShortcutLabel ? html`<span class="hint">${vaultLockShortcutLabel}</span>` : ''}
+        </button>
       </nav>
     `
   }

@@ -213,3 +213,113 @@ fn store_generated_key_rolls_back_secrets_when_metadata_fails() {
         ]
     );
 }
+
+#[cfg(desktop)]
+#[test]
+fn remote_mode_persists_generated_key_on_the_mobile_host_without_a_local_save() {
+    use crate::core_adapter::{RemoteCoreAdapter, RemoteHost};
+    use std::sync::mpsc;
+
+    #[derive(Debug)]
+    struct HostState {
+        calls: Vec<String>,
+        private_key_is_openssh: bool,
+        public_key: Option<String>,
+        metadata: Option<Value>,
+    }
+
+    let (remote_tx, mut remote_rx) =
+        tokio::sync::mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(8);
+    let (state_tx, state_rx) = mpsc::channel();
+    let host_worker = std::thread::spawn(move || {
+        let mut state = HostState {
+            calls: Vec::new(),
+            private_key_is_openssh: false,
+            public_key: None,
+            metadata: None,
+        };
+
+        for _ in 0..4 {
+            let request = remote_rx.blocking_recv().expect("remote SSH RPC");
+            state.calls.push(request.request.command.clone());
+
+            let response = match request.request.command.as_str() {
+                "passmanager:ssh:list" => RpcResponse::success(json!({"sshKeys": []})),
+                "passmanager:ssh:secret:save" => {
+                    let secret_type =
+                        RecordingAdapter::required_string(&request.request.data, "secret_type");
+                    let value = RecordingAdapter::required_string(&request.request.data, "value");
+                    match secret_type.as_str() {
+                        "ssh_private_key" => {
+                            state.private_key_is_openssh =
+                                ssh_key::PrivateKey::from_openssh(value.as_bytes()).is_ok();
+                        }
+                        "ssh_public_key" => state.public_key = Some(value),
+                        other => panic!("unexpected remote secret type: {other}"),
+                    }
+                    RpcResponse::success(Value::Null)
+                }
+                "passmanager:ssh:key:update" => {
+                    state.metadata = request.request.data.get("key").cloned();
+                    RpcResponse::success(Value::Null)
+                }
+                other => panic!("unexpected remote command: {other}"),
+            };
+
+            assert!(request.reply_tx.send(RpcReply::Json(response)).is_ok());
+        }
+
+        state_tx.send(state).expect("host state result");
+    });
+
+    let mut adapter = RemoteCoreAdapter::from_remote_sender(
+        RemoteHost::MobileUsb {
+            host_id: "phone-host".to_string(),
+            label: Some("Pixel".to_string()),
+            platform: "android".to_string(),
+        },
+        remote_tx,
+    );
+    adapter.apply_startup_state(Vec::new(), true);
+    assert!(matches!(adapter.mode(), CoreMode::Remote { .. }));
+
+    let material = generate_ssh_key_material("ed25519", "remote@example.test")
+        .expect("generate remote key material");
+    let result = store_generated_ssh_key(
+        &mut adapter,
+        material,
+        Some("Remote deploy key"),
+        "remote@example.test",
+        None,
+    )
+    .expect("store key on remote mobile host");
+
+    let state = state_rx.recv().expect("remote host state");
+    host_worker.join().expect("remote host worker");
+
+    assert_eq!(
+        state.calls,
+        [
+            "passmanager:ssh:list",
+            "passmanager:ssh:secret:save",
+            "passmanager:ssh:secret:save",
+            "passmanager:ssh:key:update",
+        ]
+    );
+    assert!(state.private_key_is_openssh);
+    assert_eq!(
+        state.public_key.as_deref(),
+        Some(&*result.public_key_openssh)
+    );
+    assert_eq!(
+        state.metadata,
+        Some(json!({
+            "id": result.key_id,
+            "type": "ed25519",
+            "fingerprint": result.fingerprint,
+            "name": "Remote deploy key",
+            "comment": "remote@example.test",
+            "sourceEntryId": null,
+        }))
+    );
+}

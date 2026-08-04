@@ -5,13 +5,16 @@ import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 import {resolveLicensePublicKeyEnv} from './license-public-key-env.mjs'
+import {findDeveloperIdApplicationIdentity} from './macos-signing.mjs'
 import {loadWalletEnvFromRoot} from './wallet-env.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.resolve(scriptDir, '..')
 const repoRoot = path.resolve(appRoot, '..', '..')
 loadWalletEnvFromRoot(repoRoot)
-const forwardedArgs = process.argv.slice(2)
+const rawArgs = process.argv.slice(2)
+const distributionMode = rawArgs.includes('--distribution')
+const forwardedArgs = rawArgs.filter((arg) => arg !== '--distribution')
 const bundlesMacosApp = process.platform === 'darwin' && !forwardedArgs.includes('--no-bundle')
 const localTauriBinary = path.join(
   appRoot,
@@ -27,6 +30,14 @@ if (bundlesMacosApp && forwardedArgs.includes('--no-sign')) {
   console.error(
     '[tauri-build-runner] --no-sign is incompatible with the bundled macOS Credential Provider',
   )
+  process.exit(2)
+}
+if (distributionMode && process.platform !== 'darwin') {
+  console.error('[tauri-build-runner] --distribution is only supported on macOS')
+  process.exit(2)
+}
+if (distributionMode && !bundlesMacosApp) {
+  console.error('[tauri-build-runner] --distribution requires a signed macOS app bundle')
   process.exit(2)
 }
 
@@ -126,7 +137,7 @@ function stageMacosProductCli(signing) {
   console.log(`[tauri-build-runner] staged signed CLI sidecar ${destination}`)
 }
 
-function stageMacosCredentialProvider() {
+function stageMacosCredentialProvider(distributionIdentity) {
   if (!bundlesMacosApp) {
     return undefined
   }
@@ -144,8 +155,14 @@ function stageMacosCredentialProvider() {
   const script = path.join(scriptDir, 'build-credential-extension.sh')
   runChecked('bash', [script, '--release'], repoRoot, {
     ...(architectures ? {CHROMVOID_MACOS_ARCHS: architectures} : {}),
-    ...(process.env.APPLE_SIGNING_IDENTITY
-      ? {CODESIGN_IDENTITY: process.env.APPLE_SIGNING_IDENTITY}
+    ...(distributionMode
+      ? {
+          CHROMVOID_MACOS_DISTRIBUTION: '1',
+          CHROMVOID_MACOS_DISTRIBUTION_IDENTITY: distributionIdentity.hash,
+        }
+      : {}),
+    ...(distributionIdentity?.name || process.env.APPLE_SIGNING_IDENTITY
+      ? {CODESIGN_IDENTITY: distributionIdentity?.name ?? process.env.APPLE_SIGNING_IDENTITY}
       : {}),
   })
 
@@ -164,6 +181,9 @@ function stageMacosCredentialProvider() {
   const certificateName = fs.readFileSync(certificateNamePath, 'utf8').trim()
   if (!identity || !certificateName) {
     throw new Error(`empty Apple signing identity at ${identityPath}`)
+  }
+  if (distributionMode && !certificateName.startsWith('Developer ID Application:')) {
+    throw new Error(`distribution build requires Developer ID Application, got ${certificateName}`)
   }
   return {identity, certificateName}
 }
@@ -216,6 +236,13 @@ function publishMacosAppBundle() {
     runChecked('ditto', ['--rsrc', '--extattr', '--acl', source, destination])
   }
   runChecked('codesign', ['--verify', '--deep', '--strict', '--verbose=2', destination])
+  if (distributionMode) {
+    runChecked(process.execPath, [
+      path.join(scriptDir, 'verify-macos-signing.mjs'),
+      '--app-bundle',
+      destination,
+    ])
+  }
   console.log(`[tauri-build-runner] published macOS app bundle ${destination}`)
 }
 
@@ -248,7 +275,16 @@ function defaultBundleArgs() {
 }
 
 try {
-  const macosSigning = stageMacosCredentialProvider()
+  let distributionIdentity
+  if (distributionMode) {
+    distributionIdentity = findDeveloperIdApplicationIdentity(
+      commandOutput('security', ['find-identity', '-v', '-p', 'codesigning']),
+    )
+    if (!distributionIdentity) {
+      throw new Error('Developer ID Application signing identity is required for build:dmg')
+    }
+  }
+  const macosSigning = stageMacosCredentialProvider(distributionIdentity)
   if (macosSigning && !process.env.APPLE_CERTIFICATE) {
     process.env.APPLE_SIGNING_IDENTITY = macosSigning.identity
   }

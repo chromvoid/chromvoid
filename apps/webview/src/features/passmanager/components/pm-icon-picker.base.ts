@@ -55,7 +55,7 @@ export const pmIconPickerBaseStyles = css`
     block-size: var(--pm-avatar-picker-preview-size);
     --pm-avatar-radius: var(--pm-avatar-picker-radius);
     --pm-avatar-image-fit: contain;
-    --pm-avatar-image-padding: var(--pm-avatar-picker-preview-image-padding);
+    --pm-avatar-image-padding: 0px;
     --pm-avatar-icon-size: var(--pm-avatar-picker-preview-icon-size);
     --pm-avatar-icon-color: var(--cv-color-text-strong);
   }
@@ -307,7 +307,7 @@ export const pmIconPickerBaseStyles = css`
     height: var(--pm-avatar-picker-dialog-preview-size);
     --pm-avatar-radius: var(--pm-avatar-picker-radius);
     --pm-avatar-image-fit: contain;
-    --pm-avatar-image-padding: var(--pm-avatar-picker-dialog-image-padding);
+    --pm-avatar-image-padding: 0px;
     --pm-avatar-icon-size: var(--pm-avatar-picker-dialog-icon-size);
   }
 

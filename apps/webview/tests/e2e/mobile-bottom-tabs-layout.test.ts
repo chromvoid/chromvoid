@@ -113,6 +113,11 @@ async function readBottomTabLayout(
         return list?.shadowRoot?.querySelector('.list-container') as HTMLElement | null
       }
 
+      if (targetSurface === 'passwords') {
+        const group = deepFind(document, 'pm-group-mobile') as HTMLElement | null
+        return group?.shadowRoot?.querySelector('lit-virtualizer.group-virtual-list') as HTMLElement | null
+      }
+
       const host = getSurfaceHost()
       if (!host?.shadowRoot) return null
       const surfaceLayout = host.shadowRoot.querySelector('mobile-surface-layout') as HTMLElement | null

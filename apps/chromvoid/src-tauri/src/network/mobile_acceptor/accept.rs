@@ -17,7 +17,7 @@ use super::{
         DirectTransportTimelineContext, HostRpcShutdownSource,
     },
     now_ms, rpc_loop, set_handshaking_if_current, AcceptorState, ConnectedPeer,
-    MobileAcceptorRuntimeState, NetworkConnectionManager, PeerConnection,
+    MobileAcceptorRuntimeState, NetworkConnectionManager, PeerConnection, PeerRegistrationResult,
 };
 #[cfg(desktop)]
 use super::{force_wss_acceptor_for_test, WEBRTC_RESPONDER_TIMEOUT};
@@ -262,7 +262,16 @@ async fn accept_transport_connection_for_generation(
             &local_identity,
         )
         .await
-        .map_err(DirectTransportAcceptFailure::protocol_error)?,
+        .map_err(|error| match error {
+            pairing::UsbMobilePairingError::Cancelled => {
+                DirectTransportAcceptFailure::PairingCancelled {
+                    message: "USB mobile pairing cancelled by client".to_string(),
+                }
+            }
+            pairing::UsbMobilePairingError::Failed(message) => {
+                DirectTransportAcceptFailure::protocol_error(message)
+            }
+        })?,
         HandshakeOutcome::UnknownPeer {
             noise: _,
             remote_pubkey,
@@ -313,13 +322,21 @@ async fn accept_transport_connection_for_generation(
         shutdown_tx: Some(shutdown_tx),
         task_handle: None,
     };
-    if !runtime
+    match runtime
         .add_peer_if_current(generation, peer, connection)
         .map_err(DirectTransportAcceptFailure::data_plane_error)?
     {
-        return Err(DirectTransportAcceptFailure::data_plane_error(
-            "stale acceptor generation",
-        ));
+        PeerRegistrationResult::Added => {}
+        PeerRegistrationResult::StaleGeneration => {
+            return Err(DirectTransportAcceptFailure::data_plane_error(
+                "stale acceptor generation",
+            ));
+        }
+        PeerRegistrationResult::Revoked => {
+            return Err(DirectTransportAcceptFailure::protocol_error(
+                "peer access was revoked",
+            ));
+        }
     }
 
     spawn_touch_paired_peer_store(store_path, peer_id.clone());
@@ -363,6 +380,9 @@ async fn accept_transport_connection_for_generation(
     let task_storage_root = storage_root.to_path_buf();
     let task_peer_id = peer_id.clone();
     let task_runtime = runtime.clone();
+    let derivative_ensure_services = runtime
+        .derivative_ensure_services()
+        .map_err(DirectTransportAcceptFailure::data_plane_error)?;
     let rpc_shutdown_source = shutdown_source.clone();
     let peer_loop = async move {
         let result = rpc_loop::run_host_rpc_loop_with_shutdown_source(
@@ -374,6 +394,7 @@ async fn accept_transport_connection_for_generation(
             task_peer_id.clone(),
             rpc_shutdown_rx,
             usb_session_approval,
+            derivative_ensure_services,
             rpc_shutdown_source,
         )
         .await;
@@ -488,9 +509,7 @@ fn bridge_peer_shutdown(
                 }
             } => HostRpcShutdownSource::ExternalStop(reason),
         };
-        *task_shutdown_source
-            .lock()
-            .expect("host rpc shutdown source lock") = Some(source);
+        direct_transport::record_shutdown_source_first(&task_shutdown_source, source);
         let _ = rpc_shutdown_tx.send(());
     });
     (rpc_shutdown_rx, handle, shutdown_source)

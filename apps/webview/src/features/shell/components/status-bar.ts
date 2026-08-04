@@ -62,8 +62,9 @@ export class StatusBar extends ReatomLitElement {
 
       .status-summary-slot pm-summary-rail.status-context-summary {
         flex: 0 1 auto;
-        min-inline-size: min(360px, 100%);
-        max-inline-size: min(720px, 100%);
+        inline-size: max-content;
+        max-inline-size: 100%;
+        min-inline-size: 0;
       }
 
       .status-indicator {
@@ -309,6 +310,7 @@ export class StatusBar extends ReatomLitElement {
       <div class="status-summary-slot">
         <pm-summary-rail
           class="status-context-summary"
+          density="compact"
           .items=${summary.items}
           .label=${summary.label}
           .busy=${Boolean(summary.busy)}

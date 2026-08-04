@@ -6,7 +6,7 @@ import {i18n} from '@project/passmanager/i18n'
 import {formatPasswordStrengthLabel} from '@project/passmanager/i18n/format'
 import {estimatePasswordStrength, generatePassword} from '@project/passmanager/password-utils'
 import type {IEntry, PassManagerEntryType, UrlRule} from '@project/passmanager/types'
-import {formatLink, isLink, transformUrls} from '@project/passmanager/urls'
+import {formatLink} from '@project/passmanager/urls'
 import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
 import {
   finishAndroidPasswordSave,
@@ -15,11 +15,9 @@ import {
 import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credential-tags.model'
 import {getPassmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
 import {dialogService} from 'root/shared/services/dialog-service'
-import {
-  isPaymentCardExpYearInput,
-  parsePaymentCardExpYearInput,
-} from '../payment-card-expiry'
+import {isPaymentCardExpYearInput, parsePaymentCardExpYearInput} from '../payment-card-expiry'
 import {PMEntryOtpCreateModel} from '../entry-otp-create/entry-otp-create.model'
+import {PMEntryWebsiteEditorModel} from '../entry-website-editor'
 const LOGIN_OPTIONAL_DETAILS = ['icon', 'tags', 'otp', 'note'] as const
 const PAYMENT_CARD_OPTIONAL_DETAILS = ['icon', 'tags'] as const
 
@@ -50,6 +48,7 @@ export type PMEntryCreateSubmitResult =
         | 'invalid_payment_card'
         | 'invalid_target_group'
         | 'passmanager_unavailable'
+        | 'persistence_failed'
         | 'aborted'
       field?: PMEntryCreateValidationField
       message?: string
@@ -68,15 +67,15 @@ function isActionAbort(error: unknown): boolean {
 }
 
 function deriveTitleFromWebsite(value: string): string {
-  const firstUrl = transformUrls(value)[0]
-  if (!firstUrl) return ''
+  const website = value.trim()
+  if (!website) return ''
 
-  const normalized = formatLink(firstUrl)
+  const normalized = formatLink(website)
   let host = ''
   try {
     host = new URL(normalized).hostname
   } catch {
-    host = firstUrl.replace(/^https?:\/\//i, '').split('/')[0] ?? ''
+    host = website.replace(/^https?:\/\//i, '').split('/')[0] ?? ''
   }
 
   const base = host.replace(/^www\./i, '').split('.')[0] ?? ''
@@ -97,8 +96,7 @@ export class PMEntryCreateModel {
   readonly username = atom('')
   readonly password = atom('')
   readonly note = atom('')
-  readonly urls = atom('')
-  readonly website = this.urls
+  readonly websiteEditor = new PMEntryWebsiteEditorModel({onChange: () => this.onWebsitesChanged()})
   readonly cardholderName = atom('')
   readonly cardNumber = atom('')
   readonly cardExpMonth = atom('')
@@ -118,12 +116,14 @@ export class PMEntryCreateModel {
   readonly iconRef = atom<string | undefined>(undefined)
   readonly avatarId = this.iconRef
   readonly targetGroupId = atom<string | undefined>(undefined, 'passmanager.entryCreate.targetGroupId')
-  readonly pendingTargetGroupId = atom<string | undefined>(undefined, 'passmanager.entryCreate.pendingTargetGroupId')
+  readonly pendingTargetGroupId = atom<string | undefined>(
+    undefined,
+    'passmanager.entryCreate.pendingTargetGroupId',
+  )
   readonly targetGroupError = atom('', 'passmanager.entryCreate.targetGroupError')
   readonly tags = atom<string[]>([], 'passmanager.entryCreate.tags')
   readonly titleError = atom('')
   readonly usernameError = atom('')
-  readonly websiteError = atom('')
   readonly passwordError = atom('')
   readonly cardholderNameError = atom('')
   readonly cardNumberError = atom('')
@@ -149,15 +149,12 @@ export class PMEntryCreateModel {
     () => this.configuredOptionalDetails().length,
     'passmanager.entryCreate.configuredDetailCount',
   )
-  readonly targetGroupLabel = computed(
-    () => {
-      const root = getPassmanagerRoot()
-      const targetGroupId = this.targetGroupId()
-      if (!root || !targetGroupId || targetGroupId === root.id) return root?.name ?? ''
-      return root.getGroup(targetGroupId)?.name ?? ''
-    },
-    'passmanager.entryCreate.targetGroupLabel',
-  )
+  readonly targetGroupLabel = computed(() => {
+    const root = getPassmanagerRoot()
+    const targetGroupId = this.targetGroupId()
+    if (!root || !targetGroupId || targetGroupId === root.id) return root?.name ?? ''
+    return root.getGroup(targetGroupId)?.name ?? ''
+  }, 'passmanager.entryCreate.targetGroupLabel')
   readonly isSubmitting = computed(
     () => this.submitAction.pending() > 0,
     'passmanager.entryCreate.isSubmitting',
@@ -169,24 +166,24 @@ export class PMEntryCreateModel {
     if (this.entryType() === 'payment_card') {
       return Boolean(
         this.cardholderName().trim() &&
-          normalizeCardDigits(this.cardNumber()) &&
-          this.cardExpMonth().trim() &&
-          this.cardExpYear().trim(),
+        normalizeCardDigits(this.cardNumber()) &&
+        this.cardExpMonth().trim() &&
+        this.cardExpYear().trim(),
       )
     }
 
-    const website = this.website().trim()
-    if (website && !this.isValidWebsiteList(website)) return false
+    const hasWebsite = this.websiteEditor.rows().some((row) => Boolean(row.value.trim()))
 
     if (this.useOtp() && !this.otp.canSubmit()) {
       return false
     }
 
-    return Boolean(this.password() && (this.username().trim() || website))
+    return Boolean(this.password() && (this.username().trim() || hasWebsite))
   }, 'passmanager.entryCreate.canSubmit')
 
   private submitPromise: Promise<PMEntryCreateSubmitResult> | undefined
   private pendingDiscardResume: (() => void) | undefined
+  private tagSelectionActive = false
 
   constructor() {
     this.reset()
@@ -231,39 +228,30 @@ export class PMEntryCreateModel {
         '',
         '',
         undefined,
+        {
+          cardPan: normalizeCardDigits(this.cardNumber()),
+          cardCvv: this.cardCvv().trim() || undefined,
+        },
       )
 
-      if (entry) {
+      try {
         await wrap(entry.flushPendingPersistence())
-
-        const cardPanSaved = await wrap(entry.saveCardPan(normalizeCardDigits(this.cardNumber())))
-        if (!cardPanSaved) {
-          return {
-            ok: false,
-            reason: 'invalid_payment_card',
-            message: i18n('payment-card:error-save-number'),
-          }
+        if (passmanager.getEntry(entry.id) !== entry) {
+          throw new Error('Entry creation was rolled back')
         }
-
-        const normalizedCvv = this.cardCvv().trim()
-        const cardCvvSaved = await wrap(
-          normalizedCvv ? entry.saveCardCvv(normalizedCvv) : entry.cleanCardCvv(),
-        )
-        if (!cardCvvSaved) {
-          return {
-            ok: false,
-            reason: 'invalid_payment_card',
-            message: i18n('payment-card:error-save-cvv'),
-          }
-        }
+      } catch (error) {
+        return this.createPersistenceFailure(error)
       }
 
+      if (getPassmanagerRoot() === passmanager) {
+        passmanagerNavigationController.presentCreatedEntry(entry)
+      }
       return {ok: true}
     }
 
-    const loginFormError = this.validateLoginForm(title)
-    if (loginFormError) {
-      return loginFormError
+    const loginForm = this.validateLoginForm(title)
+    if (loginForm.error) {
+      return loginForm.error
     }
 
     if (this.useOtp() && !(await wrap(this.otp.validateWithCore()))) {
@@ -280,32 +268,55 @@ export class PMEntryCreateModel {
     if (targetError) return targetError
 
     const otp = this.useOtp() ? this.otp.getFormData() : undefined
-    const rawUrls = this.urls().trim()
-    const urls = this.buildUrlRules(rawUrls)
-
     const entryData: Partial<IEntry> = {
       entryType: 'login',
       title,
       username: this.username(),
-      urls,
+      urls: loginForm.urls,
       iconRef: this.iconRef() || undefined,
       tags: this.tags(),
     }
 
-    passmanager.createEntry(entryData, this.password(), this.note(), otp)
+    const entry = passmanager.createEntry(entryData, this.password(), this.note(), otp)
+    try {
+      await wrap(entry.flushPendingPersistence())
+      if (passmanager.getEntry(entry.id) !== entry) {
+        throw new Error('Entry creation was rolled back')
+      }
+    } catch (error) {
+      return this.createPersistenceFailure(error)
+    }
 
+    if (getPassmanagerRoot() === passmanager) {
+      passmanagerNavigationController.presentCreatedEntry(entry)
+    }
     return {ok: true}
   }, 'passmanager.entryCreate.submit').extend(withAbort('first-in-win'), withAsync({status: true}))
 
-  reset(): void {
+  private createPersistenceFailure(error: unknown): PMEntryCreateSubmitResult {
+    if (isActionAbort(error)) {
+      throw error
+    }
+
+    return {
+      ok: false,
+      reason: 'persistence_failed',
+      message: i18n('error:save'),
+    }
+  }
+
+  reset(): boolean {
+    if (this.isSubmitting()) return false
+
     this.submitAction.abort('entry-create reset')
+    this.cancelTagSelection()
 
     this.entryType.set('login')
     this.title.set('')
     this.username.set('')
     this.password.set('')
     this.note.set('')
-    this.urls.set('')
+    this.websiteEditor.reset()
     this.cardholderName.set('')
     this.cardNumber.set('')
     this.cardExpMonth.set('')
@@ -333,6 +344,7 @@ export class PMEntryCreateModel {
     this.pendingDiscardResume = undefined
     this.dirty.set(false)
     this.submitPromise = undefined
+    return true
   }
 
   setTitle(value: string): void {
@@ -372,27 +384,6 @@ export class PMEntryCreateModel {
     if (value) {
       this.passwordError.set('')
     }
-  }
-
-  setUrls(value: string): void {
-    if (this.urls() === value) return
-    this.urls.set(value)
-    this.markDirty()
-    if (!value.trim() || this.isValidWebsiteList(value)) {
-      this.websiteError.set('')
-      if (value.trim()) this.usernameError.set('')
-    }
-  }
-
-  setWebsite(value: string): void {
-    this.setUrls(value)
-    const nextTitle = deriveTitleFromWebsite(value)
-    if (!nextTitle) return
-    if (this.title().trim() && !this.titleWasAutofilled()) return
-
-    this.title.set(nextTitle)
-    this.titleWasAutofilled.set(true)
-    this.titleError.set('')
   }
 
   setNote(value: string): void {
@@ -453,6 +444,31 @@ export class PMEntryCreateModel {
     }
 
     this.disableOtp()
+  }
+
+  private openTagEditor(): void {
+    pmCredentialTagsModel.openEntryTagSelection(
+      this.tags(),
+      {
+        onConfirm: (tags) => {
+          this.tagSelectionActive = false
+          this.setTags(tags)
+        },
+        onCancel: () => {
+          this.tagSelectionActive = false
+        },
+      },
+      {presentation: 'embedded'},
+    )
+    this.tagSelectionActive = true
+    this.detailsSheetView.set('tags')
+    this.detailsSheetOpen.set(true)
+  }
+
+  private cancelTagSelection(): void {
+    if (!this.tagSelectionActive) return
+    pmCredentialTagsModel.cancelEntryTagSelection()
+    this.tagSelectionActive = false
   }
 
   private openOtpEditor(): void {
@@ -534,12 +550,16 @@ export class PMEntryCreateModel {
   }
 
   openDetailsSheet(): void {
+    this.cancelTagSelection()
     this.detailsSheetView.set('hub')
     this.detailsSheetOpen.set(true)
   }
 
   closeDetailsSheet(): void {
     if (this.detailsSheetView() === 'otp' && this.otp.qrScannerScanning()) return
+    if (this.detailsSheetView() === 'tags') {
+      this.cancelTagSelection()
+    }
     if (this.detailsSheetView() === 'otp') {
       this.otp.actions.closeAdvanced()
     }
@@ -556,12 +576,20 @@ export class PMEntryCreateModel {
       this.openOtpEditor()
       return
     }
+    if (detail === 'tags') {
+      this.openTagEditor()
+      return
+    }
     this.detailsSheetView.set(detail)
     this.detailsSheetOpen.set(true)
   }
 
   closeDetailsEditor(): void {
     if (this.detailsSheetView() === 'hub') return
+    if (this.detailsSheetView() === 'tags') {
+      this.cancelTagEditor()
+      return
+    }
     if (this.detailsSheetView() === 'otp') {
       this.closeOtpEditor()
       return
@@ -569,7 +597,26 @@ export class PMEntryCreateModel {
     this.detailsSheetView.set('hub')
   }
 
+  async confirmTagEditor(): Promise<boolean> {
+    if (!this.tagSelectionActive) return false
+    if (!(await pmCredentialTagsModel.confirmEntryTagSelection())) return false
+
+    this.detailsSheetView.set('hub')
+    return true
+  }
+
+  cancelTagEditor(): void {
+    this.cancelTagSelection()
+    if (this.detailsSheetView() === 'tags') {
+      this.detailsSheetView.set('hub')
+    }
+  }
+
   removeOptionalDetail(detail: PMEntryCreateOptionalDetail): void {
+    if (detail === 'tags') {
+      this.cancelTagSelection()
+    }
+
     switch (detail) {
       case 'icon':
         this.iconRef.set(undefined)
@@ -663,7 +710,8 @@ export class PMEntryCreateModel {
   }
 
   requestDiscard(resume: () => void): boolean {
-    if (!this.dirty() || this.isSubmitting()) return false
+    if (this.isSubmitting()) return true
+    if (!this.dirty()) return false
     if (this.discardSheetOpen()) return true
     this.pendingDiscardResume = resume
     this.discardSheetOpen.set(true)
@@ -677,7 +725,7 @@ export class PMEntryCreateModel {
 
   confirmDiscard(): void {
     const resume = this.pendingDiscardResume
-    this.reset()
+    if (!this.reset()) return
     void finishAndroidPasswordSave('dismissed')
     resume?.()
   }
@@ -688,7 +736,9 @@ export class PMEntryCreateModel {
       return true
     }
     if (this.detailsSheetOpen()) {
-      if (this.detailsSheetView() === 'hub') {
+      if (this.detailsSheetView() === 'otp' && this.otp.view() === 'advanced') {
+        this.otp.actions.closeAdvanced()
+      } else if (this.detailsSheetView() === 'hub') {
         this.closeDetailsSheet()
       } else {
         this.closeDetailsEditor()
@@ -718,7 +768,7 @@ export class PMEntryCreateModel {
       this.setPassword(prefill.password)
     }
     if (prefill.urls.trim()) {
-      this.setWebsite(prefill.urls.trim())
+      this.websiteEditor.setFirstValue(prefill.urls.trim())
     }
     this.dirty.set(true)
   }
@@ -731,7 +781,11 @@ export class PMEntryCreateModel {
     const promise = this.submitAction()
       .then(async (result) => {
         if (result.ok) this.dirty.set(false)
-        if (!result.ok && !result.field && result.reason === 'invalid_payment_card') {
+        if (
+          !result.ok &&
+          !result.field &&
+          (result.reason === 'invalid_payment_card' || result.reason === 'persistence_failed')
+        ) {
           await dialogService
             .showAlertDialog({
               title: i18n('error:save'),
@@ -759,18 +813,9 @@ export class PMEntryCreateModel {
     return promise
   }
 
-  private buildUrlRules(rawUrls: string): UrlRule[] {
-    if (!rawUrls) {
-      return []
-    }
-
-    return transformUrls(rawUrls).map((value) => ({value: formatLink(value), match: 'base_domain'}))
-  }
-
   private clearFormErrors(): void {
     this.titleError.set('')
     this.usernameError.set('')
-    this.websiteError.set('')
     this.passwordError.set('')
     this.cardholderNameError.set('')
     this.cardNumberError.set('')
@@ -789,9 +834,9 @@ export class PMEntryCreateModel {
     try {
       const route = passmanagerNavigationController.readRoute()
       if (route.kind === 'create-entry' && route.targetGroupPath) {
-        const target = root.entriesList().find(
-          (item): item is Group => item instanceof Group && item.name === route.targetGroupPath,
-        )
+        const target = root
+          .entriesList()
+          .find((item): item is Group => item instanceof Group && item.name === route.targetGroupPath)
         if (target) return target.id
       }
     } catch {
@@ -808,7 +853,9 @@ export class PMEntryCreateModel {
         return
       case 'username':
         this.usernameError.set(
-          this.entryType() === 'login' && !this.username().trim() && !this.website().trim()
+          this.entryType() === 'login' &&
+            !this.username().trim() &&
+            !this.websiteEditor.rows().some((row) => row.value.trim())
             ? i18n('error:username_or_website_required')
             : '',
         )
@@ -819,12 +866,8 @@ export class PMEntryCreateModel {
         )
         return
       case 'urls': {
-        const website = this.website().trim()
-        this.websiteError.set(
-          this.entryType() === 'login' && website && !this.isValidWebsiteList(website)
-            ? i18n('error:valid_website_required')
-            : '',
-        )
+        const firstRowId = this.websiteEditor.rows()[0]?.id
+        if (firstRowId) this.websiteEditor.markTouched(firstRowId)
         return
       }
       case 'cardholderName':
@@ -864,7 +907,9 @@ export class PMEntryCreateModel {
   private validateTargetGroup(): boolean {
     const root = getPassmanagerRoot()
     const targetGroupId = this.targetGroupId()
-    const valid = Boolean(root && targetGroupId && (targetGroupId === root.id || root.getGroup(targetGroupId)))
+    const valid = Boolean(
+      root && targetGroupId && (targetGroupId === root.id || root.getGroup(targetGroupId)),
+    )
     this.targetGroupError.set(valid ? '' : i18n('entry:create:location-unavailable' as never))
     return valid
   }
@@ -889,30 +934,44 @@ export class PMEntryCreateModel {
     return null
   }
 
-  private isValidWebsiteList(value: string): boolean {
-    return transformUrls(value).every((url) => isLink(url))
-  }
-
-  private validateLoginForm(title: string): PMEntryCreateSubmitResult | null {
+  private validateLoginForm(title: string): {error: PMEntryCreateSubmitResult | null; urls: UrlRule[]} {
     this.clearFormErrors()
 
-    const rawUrls = this.website().trim()
+    const websiteResult = this.websiteEditor.buildRules()
     const hasTitle = Boolean(title)
-    const hasLocator = Boolean(this.username().trim() || rawUrls)
+    const hasLocator = Boolean(
+      this.username().trim() || this.websiteEditor.rows().some((row) => row.value.trim()),
+    )
     const hasPassword = Boolean(this.password())
-    const websiteValid = !rawUrls || this.isValidWebsiteList(rawUrls)
 
     this.titleError.set(hasTitle ? '' : i18n('error:title_required'))
     this.usernameError.set(hasLocator ? '' : i18n('error:username_or_website_required'))
     this.passwordError.set(hasPassword ? '' : i18n('error:password_required'))
-    this.websiteError.set(websiteValid ? '' : i18n('error:valid_website_required'))
 
-    if (!hasTitle) return {ok: false, reason: 'missing_title', field: 'title'}
-    if (!hasLocator) return {ok: false, reason: 'missing_login_locator', field: 'username'}
-    if (!hasPassword) return {ok: false, reason: 'missing_password', field: 'password'}
-    if (!websiteValid) return {ok: false, reason: 'invalid_website', field: 'urls'}
+    if (!hasTitle) return {error: {ok: false, reason: 'missing_title', field: 'title'}, urls: []}
+    if (!hasLocator) {
+      return {error: {ok: false, reason: 'missing_login_locator', field: 'username'}, urls: []}
+    }
+    if (!hasPassword) {
+      return {error: {ok: false, reason: 'missing_password', field: 'password'}, urls: []}
+    }
+    if (!websiteResult.ok) {
+      return {error: {ok: false, reason: 'invalid_website', field: 'urls'}, urls: []}
+    }
 
-    return null
+    return {error: null, urls: websiteResult.rules}
+  }
+
+  private onWebsitesChanged(): void {
+    this.markDirty()
+    const website = this.websiteEditor.primaryValue()
+    if (website) this.usernameError.set('')
+
+    const nextTitle = deriveTitleFromWebsite(website)
+    if (!nextTitle || (this.title().trim() && !this.titleWasAutofilled())) return
+    this.title.set(nextTitle)
+    this.titleWasAutofilled.set(true)
+    this.titleError.set('')
   }
 
   private buildPaymentCardMeta():
@@ -974,5 +1033,4 @@ export class PMEntryCreateModel {
       console.warn('[entry-create] failed to estimate password strength', error)
     }
   }
-
 }

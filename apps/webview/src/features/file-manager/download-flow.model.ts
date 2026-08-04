@@ -148,33 +148,43 @@ export class FileDownloadFlow {
     if (!caps.supports_photo_library_save) return
     if (resolveFileFormat(item).openBehavior.kind !== 'gallery') return
 
-    const dismissSaving = toast.loading(
+    const toastKey = `files.save-to-gallery:${item.id}`
+    const savingToast = toast.loading(
       i18n('file-manager:saving-to-gallery', {name: item.name}),
       undefined,
       {
+        key: toastKey,
         position: 'bottom-center',
       },
     )
 
     try {
       await wrap(saveImageToGallery(item.id, item.name, item.mimeType))
-      dismissSaving()
       const message =
         caps.platform === 'android'
           ? i18n('file-manager:saved-to-gallery-android', {name: item.name})
           : i18n('file-manager:saved-to-gallery', {name: item.name})
       this.notify('success', message)
-      toast.success(message, undefined, {
+      savingToast.update({
+        key: toastKey,
+        message,
+        variant: 'success',
         position: 'bottom-center',
         duration: SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS,
       })
     } catch (error) {
-      dismissSaving()
       const message = i18n('file-manager:save-to-gallery-failed', {
         message: error instanceof Error ? error.message : String(error),
       })
       this.notify('error', message)
-      toast.error(message, undefined, {position: 'bottom-center'})
+      savingToast.update({
+        key: toastKey,
+        message,
+        variant: 'error',
+        persistent: true,
+        closable: true,
+        position: 'bottom-center',
+      })
     }
   }
 

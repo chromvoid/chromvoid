@@ -31,20 +31,9 @@ import type {SearchFilters} from 'root/shared/contracts/file-manager'
 import {getFileManagerModel} from 'root/features/file-manager/file-manager.model'
 import {WorkspaceDashboardHeader} from 'root/features/file-manager/components/workspace-dashboard-header'
 import {notesQuickViewHeaderControlsModel} from 'root/features/file-manager/components/notes-quick-view/notes-quick-view-base'
-import {
-  definePasswordManagerDesktopToolbarContent,
-  executePasswordManagerDesktopToolbarButtonEvent,
-  executePasswordManagerDesktopToolbarMenuInput,
-  renderPasswordManagerDesktopToolbarContent,
-} from 'root/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar-content'
+import {PasswordManagerDesktopToolbar} from 'root/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar'
 import {passwordManagerDesktopLayoutModel} from 'root/features/passmanager/components/password-manager-layout/password-manager-layout.model'
-import {pmCredentialsIconPreloadModel} from 'root/features/passmanager/models/pm-credentials-icon-preload.model'
-import {
-  pmMotionModel,
-  type PassmanagerMotionIntent,
-} from 'root/features/passmanager/models/pm-motion.model'
 import {pmModel} from 'root/features/passmanager/password-manager.model'
-import {remoteStorageModel} from './remote-storage/remote-storage.model'
 import {viewTransitionCoordinator} from 'root/utils/view-transitions'
 import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 
@@ -99,7 +88,7 @@ export class ChromVoidApp extends ReatomLitElement {
     OtpImportReview.define()
     BiometricAppGate.define()
     WorkspaceDashboardHeader.define()
-    definePasswordManagerDesktopToolbarContent()
+    PasswordManagerDesktopToolbar.define()
   }
   static styles = appRouteStyles
 
@@ -107,7 +96,6 @@ export class ChromVoidApp extends ReatomLitElement {
   private unsubscribeFileCommand?: () => void
   private unbindRouteTransition?: () => void
   private unbindNavigationPresenter?: () => void
-  private unbindPassmanagerMotionPresenter?: () => void
   private startupRouteReadinessTimerId = 0
 
   connectedCallback(): void {
@@ -126,8 +114,6 @@ export class ChromVoidApp extends ReatomLitElement {
     this.unbindRouteTransition = undefined
     this.unbindNavigationPresenter?.()
     this.unbindNavigationPresenter = undefined
-    this.unbindPassmanagerMotionPresenter?.()
-    this.unbindPassmanagerMotionPresenter = undefined
     window.clearTimeout(this.startupRouteReadinessTimerId)
     this.unsubscribeFileCommand?.()
     this.unsubscribeFileCommand = undefined
@@ -142,9 +128,6 @@ export class ChromVoidApp extends ReatomLitElement {
     this.scheduleStartupReadinessForRoute(getRouter().route())
     this.unbindNavigationPresenter = navigationModel.registerCommitPresenter((request) =>
       this.presentNavigationCommit(request),
-    )
-    this.unbindPassmanagerMotionPresenter = pmMotionModel.registerPresenter(({intent, commit}) =>
-      this.presentPassmanagerCommit(intent, commit),
     )
   }
 
@@ -214,35 +197,6 @@ export class ChromVoidApp extends ReatomLitElement {
     })
   }
 
-  private async presentPassmanagerCommit(
-    intent: Exclude<PassmanagerMotionIntent, {kind: 'none'}>,
-    commit: () => void,
-  ): Promise<void> {
-    await pmCredentialsIconPreloadModel.prepareIntent(intent)
-    const {store} = getAppContext()
-    if (store.layoutMode() !== 'mobile' || mobileKeyboardOccluding()) {
-      commit()
-      return
-    }
-
-    const direction =
-      intent.direction === 'forward' || intent.direction === 'open'
-        ? 'forward'
-        : intent.direction === 'back' || intent.direction === 'close'
-          ? 'back'
-          : 'replace'
-    const targetNames = ['pm-page', 'mobile-toolbar'] as const
-    await viewTransitionCoordinator.run({
-      presentation: {scope: 'pm-page', direction},
-      targets: viewTransitionTargets.resolve(targetNames),
-      update: commit,
-      settle: async () => {
-        await this.updateComplete
-        await viewTransitionTargets.settle(targetNames)
-      },
-    })
-  }
-
   private installGuidanceE2EBridge(): void {
     if (window.env !== 'dev') return
     try {
@@ -300,9 +254,10 @@ export class ChromVoidApp extends ReatomLitElement {
     }
 
     if (route === 'dashboard') {
-      const moduleAccess = moduleAccessModel.surfaceAccess(surface)
-      if (moduleAccess && moduleAccess.status !== 'enabled') {
-        return this.renderModuleAccessState(surface, moduleAccess)
+      const moduleAccessGate = moduleAccessModel.surfaceGate(surface)
+      if (moduleAccessGate.kind === 'checking') return this.renderModuleAccessChecking()
+      if (moduleAccessGate.kind === 'blocked') {
+        return this.renderModuleAccessState(surface, moduleAccessGate.access)
       }
 
       if (surface === 'remote') {
@@ -366,7 +321,9 @@ export class ChromVoidApp extends ReatomLitElement {
         ? i18n('pro-access:unsupported-title')
         : access.status === 'disabled_by_rollout'
           ? i18n('pro-access:disabled-title')
-          : i18n('pro-access:required-title')
+          : access.status === 'entitlement_unavailable'
+            ? i18n('pro-access:unavailable-title')
+            : i18n('pro-access:required-title')
     const detail =
       access.status === 'entitlement_unavailable'
         ? i18n('pro-access:entitlement-unavailable')
@@ -376,14 +333,32 @@ export class ChromVoidApp extends ReatomLitElement {
     const guidanceSurface = this.getProAccessGuidanceSurface(surface)
 
     const content = html`
-      <section class="pro-access-state" aria-live="polite">
-        <cv-icon name=${access.status === 'unsupported' ? 'circle-slash' : 'lock'}></cv-icon>
+      <section
+        class="pro-access-state"
+        aria-live=${access.status === 'entitlement_unavailable' ? nothing : 'polite'}
+        role=${access.status === 'entitlement_unavailable' ? 'alert' : nothing}
+      >
+        <cv-icon
+          name=${access.status === 'unsupported'
+            ? 'circle-slash'
+            : access.status === 'entitlement_unavailable'
+              ? 'triangle-alert'
+              : 'lock'}
+        ></cv-icon>
         <h1>${title}</h1>
         <p>${detail}</p>
         <div class="pro-access-state__actions">
-          <button class="pro-access-state__button" @click=${this.handleOpenSettings}>
-            ${i18n('navigation:settings')}
-          </button>
+          ${access.status === 'entitlement_unavailable'
+            ? html`
+                <button class="pro-access-state__button" @click=${this.handleRetryModuleAccess}>
+                  ${i18n('pro-access:retry')}
+                </button>
+              `
+            : html`
+                <button class="pro-access-state__button" @click=${this.handleOpenSettings}>
+                  ${i18n('navigation:settings')}
+                </button>
+              `}
           ${guidanceSurface
             ? html`
                 <button
@@ -409,8 +384,22 @@ export class ChromVoidApp extends ReatomLitElement {
     `
   }
 
+  private renderModuleAccessChecking(): TemplateResult {
+    return html`
+      <section class="pro-access-state" aria-live="polite" role="status">
+        <cv-icon name="refresh-cw"></cv-icon>
+        <h1>${i18n('pro-access:checking-title')}</h1>
+        <p>${i18n('pro-access:checking-detail')}</p>
+      </section>
+    `
+  }
+
   private handleOpenSettings() {
     navigationModel.navigateToSurface('settings')
+  }
+
+  private handleRetryModuleAccess() {
+    void moduleAccessModel.refresh()
   }
 
   private handleBlockedAccessHelp(event: Event): void {
@@ -480,7 +469,6 @@ export class ChromVoidApp extends ReatomLitElement {
       case 'notes':
         return {
           title: i18n('navigation:notes' as never),
-          subtitle: i18n('notes:quick_view:subtitle' as never),
         }
       case 'passwords':
         return {title: i18n('navigation:passwords')}
@@ -495,36 +483,26 @@ export class ChromVoidApp extends ReatomLitElement {
         return {
           title: i18n('wallet:title'),
           subtitle: i18n('wallet:subtitle'),
-          backLabel: i18n('nav:back'),
-          onBack: this.handleDesktopNavigationBack,
         }
       case 'settings':
         return {
           title: i18n('settings:title'),
           subtitle: i18n('settings:subtitle'),
-          backLabel: i18n('nav:back'),
-          onBack: this.handleDesktopNavigationBack,
         }
       case 'remote':
         return {
           title: i18n('remote:title'),
           subtitle: i18n('remote:subtitle'),
-          backLabel: i18n('navigation:files'),
-          onBack: this.handleDesktopNavigationBack,
         }
       case 'gateway':
         return {
           title: i18n('gateway:page-title'),
           subtitle: i18n('gateway:page-subtitle'),
-          backLabel: i18n('gateway:back-to-files'),
-          onBack: this.handleDesktopNavigationBack,
         }
       case 'remote-storage':
         return {
           title: i18n('remote-storage:page-title'),
           subtitle: i18n('remote-storage:page-subtitle'),
-          backLabel: i18n('remote-storage:back-to-storage'),
-          onBack: this.handleDesktopRemoteStorageBack,
         }
       case 'files':
       default:
@@ -553,7 +531,7 @@ export class ChromVoidApp extends ReatomLitElement {
         @navigate=${this.handleDesktopFilesNavigate}
         @filters-change=${this.handleDesktopFilesFiltersChange}
         @create-dir=${this.handleDesktopFilesCreateDir}
-        @create-note=${this.handleDesktopFilesCreateNote}
+        @create-note=${this.handleDesktopCreateNote}
         @upload-requested=${this.handleDesktopFilesUploadRequested}
         @upload-paths-requested=${this.handleDesktopFilesUploadPathsRequested}
         @native-upload-requested=${this.handleDesktopFilesNativeUploadRequested}
@@ -572,30 +550,19 @@ export class ChromVoidApp extends ReatomLitElement {
         slot="desktop-topbar"
         surface="notes"
         .controlsModel=${notesQuickViewHeaderControlsModel}
+        @create-note=${this.handleDesktopCreateNote}
       >
         <span slot="title">${i18n('navigation:notes' as never)}</span>
-        <span slot="subtitle">${i18n('notes:quick_view:subtitle' as never)}</span>
       </workspace-dashboard-header>
     `
   }
 
   private renderPasswordsDesktopTopbar(): TemplateResult {
     return html`
-      <workspace-dashboard-header
+      <password-manager-desktop-toolbar
         slot="desktop-topbar"
-        class="passwords-desktop-toolbar"
-        surface="passwords"
-        ?two-row=${
-          passwordManagerDesktopLayoutModel.getCurrentShowElement() !== 'otpView' &&
-          passwordManagerDesktopLayoutModel.getCurrentShowElement() !== 'envRuntimeView'
-        }
-      >
-        ${renderPasswordManagerDesktopToolbarContent({
-          model: passwordManagerDesktopLayoutModel,
-          onToolbarButtonClick: this.handlePasswordManagerToolbarButtonClick,
-          onActionsMenuInput: this.handlePasswordManagerActionsMenuInput,
-        })}
-      </workspace-dashboard-header>
+        .model=${passwordManagerDesktopLayoutModel}
+      ></password-manager-desktop-toolbar>
     `
   }
 
@@ -609,9 +576,6 @@ export class ChromVoidApp extends ReatomLitElement {
 
     return html`
       <desktop-shell-toolbar slot="desktop-topbar" class="wallet-desktop-toolbar" single-row>
-        <div slot="leading">
-          ${renderRouteBackLink({label: i18n('nav:back'), onBack: this.handleDesktopNavigationBack})}
-        </div>
         <span slot="title">${i18n('wallet:title')}</span>
         <div slot="start" class="wallet-desktop-context">
           ${context.walletCount > 1
@@ -723,10 +687,6 @@ export class ChromVoidApp extends ReatomLitElement {
     navigationModel.goBack()
   }
 
-  private handleDesktopRemoteStorageBack() {
-    remoteStorageModel.closePage()
-  }
-
   private handleDesktopFilesNavigate(event: CustomEvent<{path?: string}>) {
     const path = event.detail?.path
     if (typeof path !== 'string') return
@@ -741,7 +701,7 @@ export class ChromVoidApp extends ReatomLitElement {
     void getFileManagerModel(getAppContext()).handleCreateDir()
   }
 
-  private handleDesktopFilesCreateNote() {
+  private handleDesktopCreateNote() {
     void getFileManagerModel(getAppContext()).handleCreateMarkdownNote()
   }
 
@@ -781,14 +741,6 @@ export class ChromVoidApp extends ReatomLitElement {
 
   private handleDesktopFilesSelectionModeRequested(event: CustomEvent<{enabled?: boolean}>) {
     getFileManagerModel(getAppContext()).setSelectionMode(Boolean(event.detail?.enabled))
-  }
-
-  private handlePasswordManagerToolbarButtonClick(event: Event): void {
-    executePasswordManagerDesktopToolbarButtonEvent(passwordManagerDesktopLayoutModel, event)
-  }
-
-  private handlePasswordManagerActionsMenuInput(event: CVMenuButtonInputEvent): void {
-    executePasswordManagerDesktopToolbarMenuInput(passwordManagerDesktopLayoutModel, event)
   }
 
   private handleWalletToolbarButtonClick(event: Event): void {
@@ -835,8 +787,9 @@ export class ChromVoidApp extends ReatomLitElement {
         ?data-details-open=${isDetailsOpen}
         ?data-sidebar-open=${store.sidebarOpen()}
         ?data-dual-pane=${store.dualPaneMode()}
-        .edgeBackDisabled=${this.model.galleryOpen()}
+        .edgeBackDisabled=${this.model.galleryOpen() || mobileToolbar.backDisabled}
         .contentScrollMode=${contentScrollMode}
+        .hideMobileTabBar=${mobileToolbar.hideTabBar}
         @close-sidebar=${this.onShellCloseSidebar}
         @close-details=${this.onShellCloseDetails}
         @open-sidebar=${this.onShellOpenSidebar}

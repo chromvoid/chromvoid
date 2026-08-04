@@ -99,6 +99,13 @@ pub fn is_agent_only_core_command(command: &str) -> bool {
     command.starts_with("env_runtime:")
 }
 
+/// Authenticated device-peer RPCs are not part of the browser extension or
+/// agent Gateway surface, even when their capability name is discoverable
+/// through the shared Core capability document.
+pub fn is_private_peer_core_command(command: &str) -> bool {
+    matches!(command, "catalog:derivative:ensure")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum AllowedCommands {

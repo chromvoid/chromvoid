@@ -5,6 +5,7 @@ import {atom} from '@reatom/core'
 import {i18n} from '../../src/i18n'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
+import {remoteSessionModel} from '../../src/routes/remote/remote-session.model'
 
 function initWelcomeContext(needUserInitialization: boolean) {
   const remoteSessionState = atom<'inactive' | 'waiting_host_unlock' | 'waiting_phone_approval' | 'ready'>(
@@ -28,10 +29,12 @@ function initWelcomeContext(needUserInitialization: boolean) {
 
 describe('WelcomeSetupModel', () => {
   beforeEach(() => {
+    remoteSessionModel.usbRecoveryRequired.set(false)
     initWelcomeContext(true)
   })
 
   afterEach(() => {
+    remoteSessionModel.usbRecoveryRequired.set(false)
     clearAppContext()
   })
 
@@ -120,5 +123,149 @@ describe('WelcomeSetupModel', () => {
     expect(model.remoteWaitReason()).toBe('phone_approval')
 
     model.disconnect()
+  })
+
+  it('returns from wait to hosts when an observed remote transport becomes inactive', async () => {
+    clearAppContext()
+    const {remoteSessionState} = initWelcomeContext(true)
+    const model = new WelcomeSetupModel()
+    const showHosts = vi.spyOn(model.remote, 'showHosts')
+
+    model.connect()
+    expect(model.setupStep()).toBeNull()
+
+    remoteSessionState.set('waiting_phone_approval')
+    await Promise.resolve()
+    expect(model.setupStep()).toBe('remote-wait')
+
+    remoteSessionState.set('inactive')
+    await Promise.resolve()
+
+    expect(showHosts).toHaveBeenCalledTimes(1)
+    expect(model.remote.view()).toBe('hosts')
+    expect(model.setupStep()).toBe('remote-connect')
+    model.disconnect()
+  })
+
+  it('returns a writer-locked USB handoff from wait to focused recovery', () => {
+    const model = new WelcomeSetupModel()
+    let onUsbRecoveryRequired: (() => void) | undefined
+    vi.spyOn(model.remote, 'connect').mockImplementation((callbacks) => {
+      onUsbRecoveryRequired = callbacks.onUsbRecoveryRequired
+    })
+    model.remote.view.set('usb-mobile')
+    model.setupStep.set('remote-wait')
+
+    model.connect()
+    onUsbRecoveryRequired?.()
+
+    expect(model.remote.view()).toBe('usb-mobile')
+    expect(model.setupStep()).toBe('remote-connect')
+    model.disconnect()
+  })
+
+  it('opens focused USB recovery for a cold writer-locked remote session', () => {
+    clearAppContext()
+    const {remoteSessionState} = initWelcomeContext(false)
+    remoteSessionState.set('waiting_host_unlock')
+    remoteSessionModel.usbRecoveryRequired.set(true)
+    const model = new WelcomeSetupModel()
+    const openUsb = vi.spyOn(model.remote, 'openUsbMobile').mockImplementation(() => {
+      model.remote.view.set('usb-mobile')
+      return true
+    })
+
+    model.connect()
+
+    expect(openUsb).toHaveBeenCalledWith()
+    expect(model.remote.view()).toBe('usb-mobile')
+    expect(model.setupStep()).toBe('remote-connect')
+    model.disconnect()
+  })
+
+  it('does not treat the initial inactive remote session as transport loss', () => {
+    const model = new WelcomeSetupModel()
+    const showHosts = vi.spyOn(model.remote, 'showHosts')
+
+    model.connect()
+
+    expect(showHosts).not.toHaveBeenCalled()
+    expect(model.setupStep()).toBeNull()
+    model.disconnect()
+  })
+
+  it.each(['remote-connect', 'remote-pair', 'remote-wait'] as const)(
+    'closes the active %s pre-auth step when the remote vault becomes ready',
+    async (step) => {
+      clearAppContext()
+      const {remoteSessionState} = initWelcomeContext(false)
+      const model = new WelcomeSetupModel()
+      vi.spyOn(model.remote, 'connect').mockImplementation(() => {})
+      vi.spyOn(model.remote, 'disconnect').mockImplementation(() => {})
+      model.setupStep.set(step)
+      model.connect()
+
+      remoteSessionState.set('ready')
+      await Promise.resolve()
+
+      expect(model.setupStep()).toBe(null)
+      model.disconnect()
+    },
+  )
+
+  it('does not reopen the wait step when the remote session becomes ready during connect', async () => {
+    clearAppContext()
+    const {remoteSessionState} = initWelcomeContext(false)
+    const model = new WelcomeSetupModel()
+    model.setupStep.set('remote-connect')
+    vi.spyOn(model.remote, 'connectToPeer').mockImplementation(async () => {
+      remoteSessionState.set('ready')
+      await Promise.resolve()
+      return true
+    })
+
+    model.onConnectRemotePeer('peer-1')
+
+    await vi.waitFor(() => expect(model.setupStep()).toBeNull())
+  })
+
+  it('closes the USB flow through its cleanup boundary before returning to hosts', async () => {
+    const model = new WelcomeSetupModel()
+    model.setupStep.set('remote-connect')
+    model.remote.view.set('usb-mobile')
+    const closeSpy = vi.spyOn(model.remote, 'closeUsbMobile').mockResolvedValue(true)
+    const loadSpy = vi.spyOn(model.remote, 'loadPeers').mockResolvedValue()
+
+    model.onBackFromRemoteUsb()
+
+    await vi.waitFor(() => {
+      expect(closeSpy).toHaveBeenCalledTimes(1)
+      expect(loadSpy).toHaveBeenCalledTimes(1)
+      expect(model.setupStep()).toBe('remote-connect')
+    })
+  })
+
+  it('keeps the current remote step when its close boundary rejects a busy back action', async () => {
+    const model = new WelcomeSetupModel()
+    model.setupStep.set('remote-pair')
+    const closeSpy = vi.spyOn(model.remote, 'closePairIos').mockResolvedValue(false)
+    const loadSpy = vi.spyOn(model.remote, 'loadPeers').mockResolvedValue()
+
+    model.onBackFromRemotePair()
+    await vi.waitFor(() => expect(closeSpy).toHaveBeenCalledTimes(1))
+
+    expect(loadSpy).not.toHaveBeenCalled()
+    expect(model.setupStep()).toBe('remote-pair')
+  })
+
+  it('keeps the hosts screen when a busy remote model rejects opening network pairing', () => {
+    const model = new WelcomeSetupModel()
+    model.setupStep.set('remote-connect')
+    const openPairSpy = vi.spyOn(model.remote, 'openPairIos').mockReturnValue(false)
+
+    model.onOpenRemotePair()
+
+    expect(openPairSpy).toHaveBeenCalledTimes(1)
+    expect(model.setupStep()).toBe('remote-connect')
   })
 })

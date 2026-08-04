@@ -538,6 +538,7 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
       return {ok: true, result}
     }
 
+    case 'passmanager:entry:create':
     case 'passmanager:entry:save':
     case 'passmanager:entry:read':
     case 'passmanager:entry:delete':

@@ -1,6 +1,6 @@
 import {expect, test} from 'vitest'
 
-import type {Browser, Page} from 'playwright'
+import type {Browser, CDPSession, Locator, Page} from 'playwright'
 import type * as AppContextModule from '../../src/shared/services/app-context'
 import type * as RuntimeCapabilitiesModule from '../../src/core/runtime/runtime-capabilities'
 import {seedWalletFixture} from './wallet-fixture'
@@ -58,6 +58,133 @@ async function waitForDeepSelector(page: Page, selector: string): Promise<void> 
     }
     return deepFind(document, sel) !== null
   }, selector)
+}
+
+async function waitForMobileShellReady(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(
+          () => !document.documentElement.hasAttribute('loading') && !document.body.hasAttribute('loading'),
+        ),
+      {timeout: 15_000},
+    )
+    .toBe(true)
+
+  await Promise.all(
+    [
+      'file-app-shell-mobile-layout',
+      'mobile-top-toolbar',
+      'cv-drawer.mobile-nav-drawer',
+      'navigation-rail.mobile-nav-rail',
+      'mobile-top-toolbar [id="app.navigation.menu"]',
+      'navigation-rail.mobile-nav-rail cv-button.item',
+    ].map((selector) => page.locator(selector).first().waitFor({state: 'attached', timeout: 15_000})),
+  )
+}
+
+async function waitForSidebarState(page: Page, open: boolean): Promise<void> {
+  const shell = page.locator('file-app-shell').first()
+  const drawer = page.locator('cv-drawer.mobile-nav-drawer').first()
+
+  await expect
+    .poll(
+      async () => {
+        const [shellOpen, drawerOpen] = await Promise.all([
+          shell.evaluate((element) => element.hasAttribute('data-sidebar-open')),
+          drawer.evaluate((element) => Boolean((element as HTMLElement & {open?: boolean}).open)),
+        ])
+        return shellOpen === open && drawerOpen === open
+      },
+      {timeout: 5_000},
+    )
+    .toBe(true)
+}
+
+async function waitForDrawerPresence(page: Page, open: boolean): Promise<void> {
+  const drawer = page.locator('cv-drawer.mobile-nav-drawer').first()
+
+  await expect
+    .poll(
+      () =>
+        drawer.evaluate((element, expectedOpen) => {
+          const overlay = element.shadowRoot?.querySelector('[part="overlay"]') as HTMLElement | null
+          const panel = element.shadowRoot?.querySelector('[part="panel"]') as HTMLElement | null
+
+          if (!expectedOpen) {
+            return overlay?.hidden === true && panel?.dataset['state'] === 'closed'
+          }
+          if (overlay?.hidden !== false || panel?.dataset['state'] !== 'open') return false
+
+          const panelStyles = getComputedStyle(panel)
+          const transform = new DOMMatrixReadOnly(panelStyles.transform)
+          const transitions = [...overlay.getAnimations(), ...panel.getAnimations()]
+          return (
+            Number.parseFloat(panelStyles.opacity) >= 0.999 &&
+            Math.abs(transform.m41) < 0.5 &&
+            Math.abs(transform.m42) < 0.5 &&
+            transitions.every((animation) => animation.playState === 'finished')
+          )
+        }, open),
+      {timeout: 5_000},
+    )
+    .toBe(true)
+}
+
+async function dispatchTouch(
+  client: CDPSession,
+  type: 'touchStart' | 'touchEnd' | 'touchCancel',
+  point?: {x: number; y: number},
+): Promise<void> {
+  await client.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: point ? [{x: point.x, y: point.y, id: 1, radiusX: 1, radiusY: 1, force: 1}] : [],
+  })
+}
+
+async function dispatchEmulatedTouchPointer(
+  client: CDPSession,
+  type: 'mousePressed' | 'mouseReleased',
+  point: {x: number; y: number},
+): Promise<void> {
+  await client.send('Input.emulateTouchFromMouseEvent', {
+    type,
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+    button: 'left',
+    clickCount: 1,
+  })
+}
+
+interface InteractionVisualState {
+  active: boolean
+  background: string
+  focusVisible: boolean
+  hover: boolean
+  outlineVisible: boolean
+  transitionDuration: string
+}
+
+async function getInteractionVisualState(element: Locator): Promise<InteractionVisualState> {
+  return element.evaluate((target) => {
+    const styles = getComputedStyle(target)
+    return {
+      active: target.matches(':active'),
+      background: styles.backgroundColor,
+      focusVisible: target.matches(':focus-visible'),
+      hover: target.matches(':hover'),
+      outlineVisible: styles.outlineStyle !== 'none' && styles.outlineWidth !== '0px',
+      transitionDuration: styles.transitionDuration,
+    }
+  })
+}
+
+function hasOnlyInstantTransitions(duration: string): boolean {
+  return duration.split(',').every((entry) => entry.trim() === '0s')
+}
+
+function getMobileRailButton(page: Page, label: string): Locator {
+  return page.locator('navigation-rail.mobile-nav-rail cv-button.item').filter({hasText: label}).first()
 }
 
 async function getDesktopNavigationRailMetrics(page: Page) {
@@ -196,6 +323,7 @@ async function deepClickRailButton(page: Page, label: string): Promise<boolean> 
 }
 
 async function ensureToolbarMenuMode(page: Page): Promise<void> {
+  await waitForMobileShellReady(page)
   await page.evaluate(async () => {
     const modulePath = '/shared/services/app-context.ts'
     const dynamicImport = new Function('path', 'return import(path)') as (
@@ -211,7 +339,33 @@ async function ensureToolbarMenuMode(page: Page): Promise<void> {
     store.isShowPasswordManager?.set?.(false)
     store.setSidebarOpen?.(false)
   })
-  await page.waitForTimeout(80)
+  const shell = page.locator('file-app-shell').first()
+  const toolbar = page.locator('mobile-top-toolbar').first()
+  const drawer = page.locator('cv-drawer.mobile-nav-drawer').first()
+
+  await expect
+    .poll(
+      async () => {
+        const [leading, sidebarOpen, drawerState] = await Promise.all([
+          toolbar.evaluate((element) => (element as HTMLElement & {leading?: string}).leading),
+          shell.evaluate((element) => element.hasAttribute('data-sidebar-open')),
+          drawer.evaluate((element) => ({
+            open: Boolean((element as HTMLElement & {open?: boolean}).open),
+            overlayHidden:
+              (element.shadowRoot?.querySelector('[part="overlay"]') as HTMLElement | null)?.hidden ?? false,
+          })),
+        ])
+
+        return (
+          leading === 'menu' &&
+          sidebarOpen === false &&
+          drawerState.open === false &&
+          drawerState.overlayHidden
+        )
+      },
+      {timeout: 5_000},
+    )
+    .toBe(true)
 }
 
 async function getToolbarLeadingMode(page: Page): Promise<string | null> {
@@ -431,6 +585,13 @@ test('desktop dashboard surfaces render one shell toolbar and no mobile toolbar'
     expect(await deepQuerySelectorCount(page, 'desktop-shell-toolbar'), surface).toBe(1)
     expect(await deepQuerySelector(page, 'mobile-top-toolbar'), surface).toBe(false)
     expect(await deepQuerySelector(page, 'file-app-shell-mobile-layout'), surface).toBe(false)
+
+    if (['settings', 'remote', 'gateway', 'remote-storage'].includes(surface)) {
+      expect(
+        await deepQuerySelector(page, 'desktop-shell-toolbar [slot="leading"] .back-link'),
+        surface,
+      ).toBe(false)
+    }
   }
 })
 
@@ -560,6 +721,7 @@ test('mobile wallet toolbar runs Send, Receive, switch, and transaction-safe act
   await seedWalletFixture(page, {multipleWallets: true})
 
   const sendAction = page.locator('mobile-top-toolbar [data-action="send"]')
+  const sendButton = sendAction.locator('button')
   const receiveAction = page.locator('mobile-top-toolbar [data-action="receive"]')
   const receiveButton = receiveAction.locator('button')
   const titleAction = page.locator('mobile-top-toolbar .title-action')
@@ -567,8 +729,16 @@ test('mobile wallet toolbar runs Send, Receive, switch, and transaction-safe act
 
   expect(await getMobileToolbarTitle(page)).toBe('Personal Wallet')
   expect(await getMobileToolbarActionIds(page)).toEqual(['send', 'receive'])
-  await sendAction.click()
-  await page.locator('[role="tab"][data-tab="send"][aria-selected="true"]').waitFor()
+  await sendButton.focus()
+  await sendButton.click()
+  await waitForDeepSelector(page, 'cv-bottom-sheet.send-sheet[open]')
+  const sendSheet = page.locator('cv-bottom-sheet.send-sheet')
+  const afterSendHide = sendSheet.evaluate(
+    (sheet) => new Promise<void>((resolve) => sheet.addEventListener('cv-after-hide', () => resolve(), {once: true})),
+  )
+  await page.keyboard.press('Escape')
+  await afterSendHide
+  expect(await sendButton.evaluate((button) => button.matches(':focus'))).toBe(true)
 
   await receiveButton.focus()
   await receiveButton.click()
@@ -628,21 +798,264 @@ test('switching from files to passwords shows password toolbar actions without o
 test('navigation-rail selection auto-closes mobile drawer', async () => {
   const page = globalThis.__E2E_PAGE__!
   await page.setViewportSize({width: 390, height: 844})
-  await page.goto(`${BASE_URL}?layout=mobile`)
-  await page.waitForTimeout(900)
+  await page.goto(`${BASE_URL}?layout=mobile`, {waitUntil: 'domcontentloaded'})
 
   await ensureToolbarMenuMode(page)
   expect(await getToolbarLeadingMode(page)).toBe('menu')
 
   expect(await clickMobileLeading(page)).toBe(true)
-  await page.waitForTimeout(120)
+  await waitForSidebarState(page, true)
+  await waitForDrawerPresence(page, true)
   const sidebarOpenBeforeSelect = await isSidebarOpen(page)
   expect(sidebarOpenBeforeSelect).toBe(true)
 
   expect(await deepClickRailButton(page, 'Credentials')).toBe(true)
-  await page.waitForTimeout(120)
+  await waitForSidebarState(page, false)
+  await waitForDrawerPresence(page, false)
   const sidebarOpenAfterSelect = await isSidebarOpen(page)
   expect(sidebarOpenAfterSelect).toBe(false)
+})
+
+test('mobile drawer interaction states: touch release, cancel, and focus restore', async () => {
+  const browser = globalThis.__E2E_BROWSER__!
+  const context = await browser.newContext({
+    viewport: {width: 390, height: 844},
+    isMobile: true,
+    hasTouch: true,
+  })
+  const page = await context.newPage()
+
+  try {
+    await page.goto(`${BASE_URL}?layout=mobile`, {waitUntil: 'domcontentloaded'})
+    await ensureToolbarMenuMode(page)
+
+    expect(await page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches)).toBe(false)
+
+    const opener = page.locator('mobile-top-toolbar [id="app.navigation.menu"]')
+    await opener.tap()
+    await waitForSidebarState(page, true)
+    await waitForDrawerPresence(page, true)
+
+    const client = await context.newCDPSession(page)
+    const credentials = getMobileRailButton(page, 'Credentials')
+    const credentialsBase = credentials.locator('[part="base"]')
+
+    const themeToggle = page.locator('navigation-rail-actions.mobile-nav-actions cv-button.theme-toggle')
+    const themeBase = themeToggle.locator('[part="base"]')
+    const themeBox = await themeToggle.boundingBox()
+    expect(themeBox).not.toBeNull()
+    const themePoint = {
+      x: themeBox!.x + themeBox!.width / 2,
+      y: themeBox!.y + themeBox!.height / 2,
+    }
+    const themeRestingBackground = {
+      host: (await getInteractionVisualState(themeToggle)).background,
+      base: (await getInteractionVisualState(themeBase)).background,
+    }
+
+    await dispatchEmulatedTouchPointer(client, 'mousePressed', themePoint)
+    await expect
+      .poll(async () => {
+        const [host, base] = await Promise.all([
+          getInteractionVisualState(themeToggle),
+          getInteractionVisualState(themeBase),
+        ])
+        return host.active && base.active
+      })
+      .toBe(true)
+
+    const [heldTouchHost, heldTouchBase] = await Promise.all([
+      getInteractionVisualState(themeToggle),
+      getInteractionVisualState(themeBase),
+    ])
+    expect(
+      heldTouchHost.background !== themeRestingBackground.host ||
+        heldTouchBase.background !== themeRestingBackground.base,
+    ).toBe(true)
+    expect(
+      hasOnlyInstantTransitions(heldTouchHost.transitionDuration) ||
+        hasOnlyInstantTransitions(heldTouchBase.transitionDuration),
+    ).toBe(true)
+
+    await dispatchEmulatedTouchPointer(client, 'mouseReleased', themePoint)
+    await expect
+      .poll(async () => {
+        const [host, base] = await Promise.all([
+          getInteractionVisualState(themeToggle),
+          getInteractionVisualState(themeBase),
+        ])
+        return (
+          !host.active &&
+          !base.active &&
+          host.background === themeRestingBackground.host &&
+          base.background === themeRestingBackground.base
+        )
+      })
+      .toBe(true)
+
+    await dispatchTouch(client, 'touchStart', themePoint)
+    await dispatchTouch(client, 'touchCancel')
+    await expect
+      .poll(async () => {
+        const [host, base] = await Promise.all([
+          getInteractionVisualState(themeToggle),
+          getInteractionVisualState(themeBase),
+        ])
+        return !host.active && !base.active
+      })
+      .toBe(true)
+
+    expect(await isSidebarOpen(page)).toBe(true)
+    const themeReleaseState = await getInteractionVisualState(themeBase)
+    expect(themeReleaseState.focusVisible).toBe(false)
+    expect(themeReleaseState.outlineVisible).toBe(false)
+
+    await credentials.tap()
+    await waitForSidebarState(page, false)
+    await waitForDrawerPresence(page, false)
+
+    const [credentialsBaseState, openerState] = await Promise.all([
+      getInteractionVisualState(credentialsBase),
+      getInteractionVisualState(opener),
+    ])
+    expect(credentialsBaseState.active).toBe(false)
+    expect(await credentials.evaluate((element) => element.classList.contains('active'))).toBe(true)
+    expect(credentialsBaseState.focusVisible).toBe(false)
+    expect(await opener.evaluate((element) => element.matches(':focus'))).toBe(true)
+    expect(openerState.focusVisible).toBe(false)
+    expect(openerState.outlineVisible).toBe(false)
+  } finally {
+    await context.close()
+  }
+})
+
+test('mobile drawer interaction states: keyboard focus and fine-pointer hover', async () => {
+  const browser = globalThis.__E2E_BROWSER__!
+  const context = await browser.newContext({viewport: {width: 390, height: 844}})
+  const page = await context.newPage()
+
+  try {
+    await page.goto(`${BASE_URL}?layout=mobile`, {waitUntil: 'domcontentloaded'})
+    await ensureToolbarMenuMode(page)
+
+    expect(await page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches)).toBe(true)
+
+    const opener = page.locator('mobile-top-toolbar [id="app.navigation.menu"]')
+    await page.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    })
+
+    for (
+      let attempt = 0;
+      attempt < 12 && !(await opener.evaluate((element) => element.matches(':focus')));
+      attempt += 1
+    ) {
+      await page.keyboard.press('Tab')
+    }
+
+    const keyboardOpenerState = await getInteractionVisualState(opener)
+    expect(await opener.evaluate((element) => element.matches(':focus'))).toBe(true)
+    expect(keyboardOpenerState.focusVisible).toBe(true)
+    expect(keyboardOpenerState.outlineVisible).toBe(true)
+
+    await page.keyboard.press('Space')
+    await waitForSidebarState(page, true)
+    await waitForDrawerPresence(page, true)
+
+    const credentials = getMobileRailButton(page, 'Credentials')
+    const credentialsBase = credentials.locator('[part="base"]')
+    await credentialsBase.focus()
+
+    const focusedCredentialsState = await getInteractionVisualState(credentialsBase)
+    expect(focusedCredentialsState.focusVisible).toBe(true)
+    expect(focusedCredentialsState.outlineVisible).toBe(true)
+
+    await page.keyboard.press('Enter')
+    await waitForSidebarState(page, false)
+    await waitForDrawerPresence(page, false)
+
+    expect(await credentials.evaluate((element) => element.classList.contains('active'))).toBe(true)
+    const restoredKeyboardOpenerState = await getInteractionVisualState(opener)
+    expect(await opener.evaluate((element) => element.matches(':focus'))).toBe(true)
+    expect(restoredKeyboardOpenerState.focusVisible).toBe(true)
+    expect(restoredKeyboardOpenerState.outlineVisible).toBe(true)
+
+    await opener.click()
+    await waitForSidebarState(page, true)
+    await waitForDrawerPresence(page, true)
+
+    const selectedBackground = (await getInteractionVisualState(credentials)).background
+    await credentials.hover()
+    expect((await getInteractionVisualState(credentials)).background).toBe(selectedBackground)
+
+    const files = getMobileRailButton(page, 'Files')
+    const filesBase = files.locator('[part="base"]')
+    const filesBackgroundBefore = (await getInteractionVisualState(files)).background
+
+    await files.hover()
+    await expect
+      .poll(async () => (await getInteractionVisualState(files)).background)
+      .not.toBe(filesBackgroundBefore)
+
+    const hoveredFilesState = await getInteractionVisualState(files)
+    expect(hoveredFilesState.hover).toBe(true)
+    expect(hoveredFilesState.background).not.toBe(filesBackgroundBefore)
+
+    const filesBox = await files.boundingBox()
+    expect(filesBox).not.toBeNull()
+    await page.mouse.move(filesBox!.x + filesBox!.width / 2, filesBox!.y + filesBox!.height / 2)
+    await page.mouse.down()
+    await expect
+      .poll(async () => {
+        const [host, base] = await Promise.all([
+          getInteractionVisualState(files),
+          getInteractionVisualState(filesBase),
+        ])
+        return host.active || base.active
+      })
+      .toBe(true)
+
+    const [pressedFilesState, pressedFilesBaseState] = await Promise.all([
+      getInteractionVisualState(files),
+      getInteractionVisualState(filesBase),
+    ])
+    expect(
+      hasOnlyInstantTransitions(pressedFilesState.transitionDuration) ||
+        hasOnlyInstantTransitions(pressedFilesBaseState.transitionDuration),
+    ).toBe(true)
+    expect(pressedFilesBaseState.focusVisible).toBe(false)
+    expect(pressedFilesBaseState.outlineVisible).toBe(false)
+
+    await page.mouse.move(2, 2, {steps: 2})
+    await page.mouse.up()
+    await expect
+      .poll(async () => {
+        const [host, base] = await Promise.all([
+          getInteractionVisualState(files),
+          getInteractionVisualState(filesBase),
+        ])
+        return !host.active && !base.active
+      })
+      .toBe(true)
+    expect(await isSidebarOpen(page)).toBe(true)
+
+    await files.hover()
+    await files.click()
+    await waitForSidebarState(page, false)
+    await waitForDrawerPresence(page, false)
+
+    expect(await files.evaluate((element) => element.classList.contains('active'))).toBe(true)
+    const [releasedFilesBaseState, pointerOpenerState] = await Promise.all([
+      getInteractionVisualState(filesBase),
+      getInteractionVisualState(opener),
+    ])
+    expect(releasedFilesBaseState.focusVisible).toBe(false)
+    expect(await opener.evaluate((element) => element.matches(':focus'))).toBe(true)
+    expect(pointerOpenerState.focusVisible).toBe(false)
+    expect(pointerOpenerState.outlineVisible).toBe(false)
+  } finally {
+    await context.close()
+  }
 })
 
 test('mobile navigation drawer closes when dragged left', async () => {

@@ -292,7 +292,7 @@ export class CatalogMirror implements CatalogMirrorApi {
           name,
           size: (md['size'] as number) ?? 0,
           birthtime: typeof md['birthtime'] === 'number' ? md['birthtime'] : event.timestamp,
-          modtime: Date.now(),
+          modtime: typeof md['modtime'] === 'number' ? md['modtime'] : event.timestamp,
           isDir: t === 0 || t === 255,
           isFile: t === 1,
           isSymlink: t === 2,
@@ -356,22 +356,49 @@ export class CatalogMirror implements CatalogMirrorApi {
         const sourceRevision = md['sourceRevision'] as number | undefined
         const mediaInspectedRevision = md['mediaInspectedRevision'] as number | undefined
         const hasMediaInfo = Object.prototype.hasOwnProperty.call(md, 'mediaInfo')
-        if (size !== undefined) (node as unknown as {size: number}).size = size
-        if (mime !== undefined) (node as unknown as {mimeType?: string}).mimeType = mime
-        if (modtime !== undefined) (node as unknown as {modtime: number}).modtime = modtime
-        if (sourceRevision !== undefined) {
-          ;(node as unknown as {sourceRevision?: number}).sourceRevision = sourceRevision
+        if (
+          sourceRevision !== undefined &&
+          node.sourceRevision !== undefined &&
+          sourceRevision < node.sourceRevision
+        ) {
+          break
         }
-        if (mediaInspectedRevision !== undefined) {
+
+        let changed = false
+        if (size !== undefined && size !== node.size) {
+          ;(node as unknown as {size: number}).size = size
+          changed = true
+        }
+        if (mime !== undefined && mime !== node.mimeType) {
+          ;(node as unknown as {mimeType?: string}).mimeType = mime
+          changed = true
+        }
+        if (modtime !== undefined && modtime !== node.modtime) {
+          ;(node as unknown as {modtime: number}).modtime = modtime
+          changed = true
+        }
+        if (sourceRevision !== undefined && sourceRevision !== node.sourceRevision) {
+          ;(node as unknown as {sourceRevision?: number}).sourceRevision = sourceRevision
+          changed = true
+        }
+        if (
+          mediaInspectedRevision !== undefined &&
+          mediaInspectedRevision !== node.mediaInspectedRevision
+        ) {
           ;(node as unknown as {mediaInspectedRevision?: number}).mediaInspectedRevision =
             mediaInspectedRevision
+          changed = true
         }
         if (hasMediaInfo) {
-          ;(node as unknown as {mediaInfo?: ReturnType<typeof normalizeFileMediaInfo>}).mediaInfo =
-            normalizeFileMediaInfo(md['mediaInfo'])
+          const mediaInfo = normalizeFileMediaInfo(md['mediaInfo'])
+          if (JSON.stringify(mediaInfo) !== JSON.stringify(node.mediaInfo ?? null)) {
+            ;(node as unknown as {mediaInfo?: ReturnType<typeof normalizeFileMediaInfo>}).mediaInfo =
+              mediaInfo
+            changed = true
+          }
         }
+        if (!changed) break
         this.invalidateFolder(node.parentPath ?? '/')
-        this.emit()
         break
       }
       case CatalogEventType.NODE_DELETED: {

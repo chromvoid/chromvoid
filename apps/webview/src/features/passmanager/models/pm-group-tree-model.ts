@@ -8,6 +8,7 @@ import type {GroupTree} from './group-tree'
 import {buildGroupTreeNodes} from './group-tree-builder'
 import {pmRootSearchProjectionModel} from './pm-root-search-projection'
 import {pmModel} from '../password-manager.model'
+import {passmanagerNavigationController} from '../passmanager-navigation.controller'
 
 type SelectedPath = string | null
 
@@ -51,6 +52,7 @@ class PMGroupTreeModel {
         .map((g) => {
           const nodeId = Number.isFinite(Number(g.id)) ? Number(g.id) : undefined
           return {
+            id: g.id,
             path: g.name,
             entryCount: rootProjection.groupMatchCounts.get(g.id) ?? 0,
             nodeId,
@@ -130,7 +132,12 @@ class PMGroupTreeModel {
     if (!currentRoot || currentRoot !== initialRoot || currentRoot.isReadOnly()) return
 
     const fullPath = parentPath ? `${parentPath}/${trimmed}` : trimmed
-    currentRoot.createGroup({name: fullPath, icon: undefined, entries: []})
+    const group = await wrap(
+      currentRoot.createGroup(
+        {name: fullPath, icon: undefined, entries: []},
+        {presentation: 'defer'},
+      ),
+    )
 
     // Expand parent so the new group is visible.
     if (parentPath) {
@@ -140,6 +147,10 @@ class PMGroupTreeModel {
         next.add(parentPath)
         this.expandedPaths.set(next)
       }
+    }
+
+    if (group && pmModel.root() === currentRoot) {
+      passmanagerNavigationController.presentCreatedGroup(group)
     }
   }
 }

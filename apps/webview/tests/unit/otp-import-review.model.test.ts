@@ -27,6 +27,7 @@ vi.mock('root/shared/services/subscribed-signal', () => ({
 
 vi.mock('root/features/passmanager/models/pm-root.adapter', () => ({
   getPassmanagerRoot: () => testState.root,
+  getPassmanagerShowElement: () => testState.root?.showElement?.(),
   passmanagerRoot: () => testState.root,
 }))
 
@@ -51,6 +52,14 @@ import {
 
 const validUri =
   'otpauth://totp/Example:alice%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example&digits=6&period=30'
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return {promise, resolve}
+}
 
 function pendingMetadata(expiresAt = Date.now() + 120_000): PendingOtpImportMetadata {
   return {
@@ -208,12 +217,23 @@ describe('OtpImportReviewModel', () => {
   })
 
   it('creates a new login without guessing a website from the issuer', async () => {
-    const savedEntry = {id: 'entry-new', flushPendingPersistence: vi.fn(async () => true)}
+    const persistenceStarted = deferred<void>()
+    const persistence = deferred<void>()
+    const savedEntry = {
+      id: 'entry-new',
+      flushPendingPersistence: vi.fn(() => {
+        persistenceStarted.resolve()
+        return persistence.promise
+      }),
+    }
     const createEntry = vi.fn(() => savedEntry)
+    const presentCreatedEntry = vi.fn()
     testState.root = {
       isReadOnly: () => false,
       allEntries: [],
       createEntry,
+      getEntry: vi.fn((id: string) => (id === savedEntry.id ? savedEntry : undefined)),
+      presentCreatedEntry,
       setShowElement: vi.fn(),
     }
     const model = createModel()
@@ -222,13 +242,31 @@ describe('OtpImportReviewModel', () => {
     await vi.waitFor(() => expect(model.phase()).toBe('review'))
 
     model.setTargetMode('new')
-    model.setNewWebsite(',')
+    model.websiteEditor.setFirstValue(',')
     await expect(model.submit()).resolves.toBe(false)
-    expect(model.websiteError()).not.toBe('')
+    expect(Object.values(model.websiteEditor.rowErrors())[0]).not.toBe('')
     expect(createEntry).not.toHaveBeenCalled()
 
-    model.setNewWebsite('')
-    await expect(model.submit()).resolves.toBe(true)
+    model.websiteEditor.setFirstValue('')
+    const submit = model.submit()
+    await persistenceStarted.promise
+
+    expect(model.isCommitting()).toBe(true)
+    expect(presentCreatedEntry).not.toHaveBeenCalled()
+    expect(testState.root.setShowElement).not.toHaveBeenCalled()
+    expect(testState.navigateToSurface).not.toHaveBeenCalled()
+    expect(model.pending()).not.toBeNull()
+
+    await expect(model.cancel()).resolves.toBe(false)
+    model.receivePending({...pendingMetadata(), pending_id: 'pending-replacement'})
+    model.disconnect()
+
+    expect(model.pending()?.pending_id).toBe('pending-1')
+    expect(model.otpDraft.secret()).toBe('JBSWY3DPEHPK3PXP')
+    expect(model.isCommitting()).toBe(true)
+
+    persistence.resolve()
+    await expect(submit).resolves.toBe(true)
 
     expect(createEntry).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -241,5 +279,52 @@ describe('OtpImportReviewModel', () => {
       '',
       expect.objectContaining({secret: 'JBSWY3DPEHPK3PXP', type: 'TOTP'}),
     )
+    expect(presentCreatedEntry).toHaveBeenCalledWith(savedEntry)
+    expect(testState.root.setShowElement).not.toHaveBeenCalled()
+    expect(testState.navigateToSurface).toHaveBeenCalledWith('passwords')
+    expect(model.isCommitting()).toBe(false)
+    expect(model.pending()).toBeNull()
+  })
+
+  it('does not present a committed login through a replacement root', async () => {
+    const persistenceStarted = deferred<void>()
+    const persistence = deferred<void>()
+    const savedEntry = {
+      id: 'entry-new',
+      flushPendingPersistence: vi.fn(() => {
+        persistenceStarted.resolve()
+        return persistence.promise
+      }),
+    }
+    const presentCreatedEntry = vi.fn()
+    testState.root = {
+      isReadOnly: () => false,
+      allEntries: [],
+      createEntry: vi.fn(() => savedEntry),
+      presentCreatedEntry,
+      setShowElement: vi.fn(),
+    }
+    const model = createModel()
+    model.connect()
+    model.receivePending(pendingMetadata())
+    await vi.waitFor(() => expect(model.phase()).toBe('review'))
+    model.setTargetMode('new')
+
+    const submit = model.submit()
+    await persistenceStarted.promise
+    testState.root = {
+      isReadOnly: () => false,
+      allEntries: [],
+      presentCreatedEntry: vi.fn(),
+      setShowElement: vi.fn(),
+    }
+    persistence.resolve()
+
+    await expect(submit).resolves.toBe(true)
+    expect(presentCreatedEntry).not.toHaveBeenCalled()
+    expect(testState.root.presentCreatedEntry).not.toHaveBeenCalled()
+    expect(testState.navigateToSurface).not.toHaveBeenCalled()
+    expect(model.isCommitting()).toBe(false)
+    expect(model.pending()).toBeNull()
   })
 })

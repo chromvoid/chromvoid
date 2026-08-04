@@ -11,7 +11,8 @@ use super::io::{
     read_entry_meta_json, stage_entry_meta_json,
 };
 use super::request::{
-    timestamp_from_map, EntryIdRequest, EntryMoveRequest, EntryRenameRequest, EntrySaveRequest,
+    timestamp_from_map, EntryCreateRequest, EntryIdRequest, EntryMoveRequest, EntryRenameRequest,
+    EntrySaveRequest,
 };
 use super::resolver::resolve_entry_node_id;
 use super::sanitize::{
@@ -19,21 +20,84 @@ use super::sanitize::{
 };
 use super::types::{EntryListResult, EntryReadResult, EntrySaveResult};
 
+struct StagedEntry {
+    result: EntrySaveResult,
+    node_id: u64,
+}
+
+pub(super) fn create_entry(
+    s: &VaultSession,
+    storage: &crate::storage::Storage,
+    uow: &mut DomainUnitOfWork<'_>,
+    mut request: EntryCreateRequest,
+) -> Result<EntrySaveResult, PassmanagerCommandError> {
+    if request.entry.entry_type == "payment_card" {
+        let card_pan = request
+            .secrets
+            .iter()
+            .find(|secret| secret.secret_type == "card_pan")
+            .map(|secret| secret.value.as_str())
+            .ok_or_else(|| {
+                PassmanagerCommandError::empty_payload(
+                    "secrets.card_pan is required for entry_type=payment_card",
+                )
+            })?;
+        let last4 = &card_pan[card_pan.len() - 4..];
+        let payment_card = request.entry.payment_card.as_mut().ok_or_else(|| {
+            PassmanagerCommandError::empty_payload("payment_card metadata is required")
+        })?;
+        let payment_card = payment_card.as_object_mut().ok_or_else(|| {
+            PassmanagerCommandError::empty_payload("payment_card must be an object")
+        })?;
+        payment_card.insert(
+            "last4".to_string(),
+            serde_json::Value::String(last4.to_string()),
+        );
+    }
+
+    // Entry IDs created by the product are UUIDs. Avoid the legacy resolver
+    // here: it decrypts every entry metadata file and would make point-create
+    // O(total vault size). Updates and deletes still resolve legacy IDs.
+    let staged = stage_entry(s, storage, uow, request.entry, None)?;
+    let entry_path = uow
+        .catalog()
+        .get_path(staged.node_id)
+        .ok_or_else(|| PassmanagerCommandError::node_not_found("Entry not found"))?;
+
+    for secret in request.secrets {
+        let secret_name = super::super::secret::secret_filename(secret.secret_type)
+            .ok_or_else(|| PassmanagerCommandError::empty_payload("Unsupported secret type"))?;
+        super::super::secret::stage_secret_value(uow, &entry_path, &secret_name, &secret.value)?;
+    }
+
+    Ok(staged.result)
+}
+
 pub(super) fn save_entry(
     s: &VaultSession,
     storage: &crate::storage::Storage,
     uow: &mut DomainUnitOfWork<'_>,
     request: EntrySaveRequest,
 ) -> Result<EntrySaveResult, PassmanagerCommandError> {
+    let existing_node_id = request
+        .requested_entry_id
+        .as_deref()
+        .and_then(|id| resolve_entry_node_id(s, storage, id));
+    stage_entry(s, storage, uow, request, existing_node_id).map(|staged| staged.result)
+}
+
+fn stage_entry(
+    s: &VaultSession,
+    storage: &crate::storage::Storage,
+    uow: &mut DomainUnitOfWork<'_>,
+    request: EntrySaveRequest,
+    existing_node_id: Option<u64>,
+) -> Result<StagedEntry, PassmanagerCommandError> {
     uow.ensure_dir("/.passmanager").map_err(|error| {
         PassmanagerCommandError::from_domain_uow_error(error, "Failed to ensure PassManager root")
     })?;
 
     let requested_entry_id = request.requested_entry_id.clone();
-    let existing_node_id = requested_entry_id
-        .as_deref()
-        .and_then(|id| resolve_entry_node_id(s, storage, id));
-
     let group_path_opt = request.group_path.as_deref();
     let target_parent_path = if let Some(node_id) = existing_node_id {
         if request.has_group_path {
@@ -52,6 +116,12 @@ pub(super) fn save_entry(
     if !is_passmanager_path(&target_parent_path) {
         return Err(PassmanagerCommandError::access_denied("Access denied"));
     }
+    uow.ensure_dir(&target_parent_path).map_err(|error| {
+        PassmanagerCommandError::from_domain_uow_error(
+            error,
+            "Failed to ensure PassManager entry group",
+        )
+    })?;
 
     let node_id = if let Some(node_id) = existing_node_id {
         let current_parent_path = uow
@@ -157,7 +227,10 @@ pub(super) fn save_entry(
     sanitize_entry_meta_for_wire(meta_obj);
     stage_entry_meta_json(uow, node_id, &meta)?;
 
-    Ok(EntrySaveResult::new(out_entry_id))
+    Ok(StagedEntry {
+        result: EntrySaveResult::new(out_entry_id),
+        node_id,
+    })
 }
 
 pub(super) fn read_entry(

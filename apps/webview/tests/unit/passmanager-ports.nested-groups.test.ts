@@ -5,6 +5,7 @@ import {CatalogPasswordsRepository, CatalogTransport} from '../../src/core/state
 function createRepo() {
   const sendCatalog = vi.fn().mockImplementation(async (cmd: string, data: Record<string, unknown>) => {
     switch (cmd) {
+      case 'passmanager:entry:create':
       case 'passmanager:entry:save':
         return {ok: true, result: {entry_id: data['entry_id'] ?? crypto.randomUUID()}}
       case 'passmanager:entry:delete':
@@ -54,7 +55,7 @@ describe('CatalogPasswordsRepository (nested groups)', () => {
     ctx = createRepo()
   })
 
-  it('creates entry in nested group path', async () => {
+  it('delegates nested group creation to the atomic backend entry save', async () => {
     const ok = await ctx.repo.saveEntryMeta({
       id: 'test-1',
       title: 'GitHub',
@@ -66,22 +67,53 @@ describe('CatalogPasswordsRepository (nested groups)', () => {
 
     expect(ok).toBe(true)
 
-    // Verify group:ensure was called with the full group path
     const ensureCalls = ctx.sendCatalog.mock.calls.filter(
       ([cmd]: [string]) => cmd === 'passmanager:group:ensure',
     )
-    expect(
-      ensureCalls.some(([, d]: [string, Record<string, unknown>]) => d.path === 'Work/Development'),
-    ).toBe(true)
+    expect(ensureCalls).toHaveLength(0)
 
-    // Verify entry:save was called
     const saveCalls = ctx.sendCatalog.mock.calls.filter(([cmd]: [string]) => cmd === 'passmanager:entry:save')
     expect(saveCalls.length).toBeGreaterThanOrEqual(1)
     expect(saveCalls[0]![1]).toMatchObject({
       entry_id: 'test-1',
       title: 'GitHub',
       username: 'user',
+      group_path: 'Work/Development',
     })
+  })
+
+  it('creates metadata and entry secrets with one domain command', async () => {
+    const ok = await ctx.repo.createEntry({
+      entryType: 'login',
+      meta: {
+        id: 'atomic-1',
+        entryType: 'login',
+        title: 'Production',
+        urls: [],
+        username: 'alice',
+        otps: [],
+        groupPath: 'Work/Production',
+      },
+      secrets: {
+        password: 'secret',
+        note: 'private',
+      },
+    })
+
+    expect(ok).toBe(true)
+    expect(ctx.sendCatalog).toHaveBeenCalledTimes(1)
+    expect(ctx.sendCatalog).toHaveBeenCalledWith(
+      'passmanager:entry:create',
+      expect.objectContaining({
+        entry_id: 'atomic-1',
+        group_path: 'Work/Production',
+        secrets: {
+          password: 'secret',
+          note: 'private',
+        },
+      }),
+    )
+    expect(ctx.catalog.queueRefresh).toHaveBeenCalledWith(150)
   })
 
   it('queues catalog refresh after point entry write without awaiting full refresh', async () => {

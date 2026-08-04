@@ -73,7 +73,9 @@ describe('Store vault lock cleanup notifications', () => {
 
     store.handleRemoteHostLocked()
 
-    expect(warningSpy).toHaveBeenCalledWith('Remote vault locked on host device')
+    expect(warningSpy).toHaveBeenCalledWith('Remote vault locked on host device', undefined, {
+      key: 'remote.vault-locked',
+    })
     expect(store.statusMessage()).toBeNull()
   })
 })

@@ -1,4 +1,6 @@
 export interface GroupTreeNode {
+  /** Stable backing group id, or a deterministic path id for placeholder ancestors. */
+  id: string
   /** Full group path, e.g. 'Work/Jira' */
   path: string
   /** Last segment name, e.g. 'Jira' */

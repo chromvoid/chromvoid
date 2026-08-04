@@ -134,7 +134,11 @@ export class PMGroupTargetPickerModel {
     }
 
     const nodes = buildGroupTreeNodes(
-      groups.map((group) => ({path: group.name, entryCount: group.entriesList().length})),
+      groups.map((group) => ({
+        id: group.id,
+        path: group.name,
+        entryCount: group.entriesList().length,
+      })),
       this.expandedPaths(),
     )
 

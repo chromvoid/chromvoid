@@ -23,7 +23,7 @@ impl MobileUsbController {
 
         let host_id = new_host_id();
         transport_context.set_host_id(host_id.clone());
-        let challenge = Self::begin_usb_pairing_with_remote(
+        let (challenge, supports_graceful_cancel) = Self::begin_usb_pairing_with_remote(
             transport.as_mut(),
             &mut noise_transport,
             &host_id,
@@ -32,17 +32,7 @@ impl MobileUsbController {
         )
         .await?;
 
-        let approval = MobileUsbPairingApprovalView {
-            attempt_id: challenge.attempt_id.clone(),
-            peer_label: request
-                .label
-                .clone()
-                .unwrap_or_else(|| "Mobile USB host".to_string()),
-            peer_fingerprint: challenge.peer_fingerprint.clone(),
-            attempts_left: challenge.attempts_left,
-            locked_until_ms: None,
-            expires_at_ms: challenge.expires_at_ms,
-        };
+        let approval = pairing_approval_view(&request, &challenge);
         let pending = PendingMobileUsbPairingSession {
             attempt_id: challenge.attempt_id.clone(),
             host_id,
@@ -50,6 +40,7 @@ impl MobileUsbController {
             client_private_key: keypair.private,
             client_public_key: keypair.public,
             peer_pubkey,
+            supports_graceful_cancel,
             challenge,
             transport,
             noise_transport,
@@ -80,13 +71,14 @@ impl MobileUsbController {
         host_id: &HostId,
         client_pubkey: &[u8],
         peer_pubkey: &[u8],
-    ) -> Result<MobileUsbPairingApprovalChallenge, MobileUsbError> {
+    ) -> Result<(MobileUsbPairingApprovalChallenge, bool), MobileUsbError> {
         let client_peer_id = format!("{host_id}:desktop");
         let hello = MobileUsbPairingHello {
             peer_id: client_peer_id,
             peer_label: desktop_usb_pairing_label(),
             peer_pubkey_hex: mobile_usb_hex_encode(client_pubkey),
             platform: "desktop".to_string(),
+            capabilities: vec![USB_PAIRING_CANCEL_V1.to_string()],
         };
         send_mobile_usb_pairing_hello(transport, noise_transport, &hello)
             .await
@@ -107,7 +99,11 @@ impl MobileUsbController {
                 "remote approval challenge pubkey mismatch".to_string(),
             ));
         }
-        Ok(challenge)
+        let supports_graceful_cancel = remote
+            .capabilities
+            .iter()
+            .any(|capability| capability == USB_PAIRING_CANCEL_V1);
+        Ok((challenge, supports_graceful_cancel))
     }
 
     pub(super) async fn confirm_pairing_inner(
@@ -157,6 +153,7 @@ impl MobileUsbController {
             &MobileUsbPairingApprovalProof {
                 attempt_id: pending.attempt_id.clone(),
                 proof_hex,
+                action: MobileUsbPairingApprovalAction::Confirm,
             },
         )
         .await
@@ -167,14 +164,30 @@ impl MobileUsbController {
                 .map_err(mobile_usb_pairing_confirmation_error)?;
         if !ack.accepted {
             if ack.attempts_left > 0 {
-                let mut pending_pairing = self.pending_pairing.lock().map_err(|_| {
-                    MobileUsbError::new(
-                        MobileUsbErrorCode::InvalidState,
-                        "mobile USB pending pairing lock poisoned",
-                    )
-                })?;
                 pending.challenge.attempts_left = ack.attempts_left;
-                *pending_pairing = Some(pending);
+                let approval = pairing_approval_view(&pending.request, &pending.challenge);
+                {
+                    let mut pending_pairing = self.pending_pairing.lock().map_err(|_| {
+                        MobileUsbError::new(
+                            MobileUsbErrorCode::InvalidState,
+                            "mobile USB pending pairing lock poisoned",
+                        )
+                    })?;
+                    *pending_pairing = Some(pending);
+                }
+
+                let (state_from, state_to) = self.with_state(|state| {
+                    let state_from = state.session_state();
+                    state.require_pairing_approval(token, approval);
+                    (state_from, state.session_state())
+                })?;
+                self.record_state_transition(
+                    state_from,
+                    state_to,
+                    Some(MobileUsbErrorCode::PairingApprovalRejected),
+                    None,
+                    None,
+                );
             }
             return Err(MobileUsbError::new(
                 MobileUsbErrorCode::PairingApprovalRejected,
@@ -355,5 +368,22 @@ impl MobileUsbController {
                 "mobile USB XX handshake failed before opening USB stream",
             )
         }))
+    }
+}
+
+fn pairing_approval_view(
+    request: &MobileUsbPairRequest,
+    challenge: &MobileUsbPairingApprovalChallenge,
+) -> MobileUsbPairingApprovalView {
+    MobileUsbPairingApprovalView {
+        attempt_id: challenge.attempt_id.clone(),
+        peer_label: request
+            .label
+            .clone()
+            .unwrap_or_else(|| "Mobile USB host".to_string()),
+        peer_fingerprint: challenge.peer_fingerprint.clone(),
+        attempts_left: challenge.attempts_left,
+        locked_until_ms: None,
+        expires_at_ms: challenge.expires_at_ms,
     }
 }

@@ -1,5 +1,17 @@
 use super::types::{ClientKeyRef, HostId, MobileUsbError, MobileUsbErrorCode};
 
+pub const MOBILE_USB_PRODUCTION_SECRET_SERVICE: &str = "chromvoid.mobile_usb";
+pub const MOBILE_USB_DEV_SECRET_SERVICE: &str = "chromvoid.dev.mobile_usb";
+pub const MOBILE_USB_SMOKE_SECRET_SERVICE: &str = "chromvoid.dev.mobile_usb.smoke";
+
+pub fn mobile_usb_secret_service_for_app_identifier(identifier: &str) -> Option<&'static str> {
+    match identifier {
+        "com.chromvoid.app" => Some(MOBILE_USB_PRODUCTION_SECRET_SERVICE),
+        "com.chromvoid.app.dev" => Some(MOBILE_USB_DEV_SECRET_SERVICE),
+        _ => None,
+    }
+}
+
 pub trait MobileUsbSecretStore: Send + Sync {
     fn save_client_key(&self, host_id: &HostId, key: &[u8])
         -> Result<ClientKeyRef, MobileUsbError>;
@@ -13,7 +25,36 @@ pub struct KeyringMobileUsbSecretStore {
 
 impl Default for KeyringMobileUsbSecretStore {
     fn default() -> Self {
-        Self::new("chromvoid.mobile_usb")
+        Self::new(MOBILE_USB_PRODUCTION_SECRET_SERVICE)
+    }
+}
+
+#[cfg(test)]
+mod service_tests {
+    use super::*;
+
+    #[test]
+    fn mobile_usb_secret_services_are_isolated_by_runtime_identity() {
+        assert_eq!(
+            mobile_usb_secret_service_for_app_identifier("com.chromvoid.app"),
+            Some(MOBILE_USB_PRODUCTION_SECRET_SERVICE)
+        );
+        assert_eq!(
+            mobile_usb_secret_service_for_app_identifier("com.chromvoid.app.dev"),
+            Some(MOBILE_USB_DEV_SECRET_SERVICE)
+        );
+        assert_ne!(
+            MOBILE_USB_PRODUCTION_SECRET_SERVICE,
+            MOBILE_USB_DEV_SECRET_SERVICE
+        );
+        assert_ne!(
+            MOBILE_USB_DEV_SECRET_SERVICE,
+            MOBILE_USB_SMOKE_SECRET_SERVICE
+        );
+        assert_eq!(
+            mobile_usb_secret_service_for_app_identifier("com.example.chromvoid"),
+            None
+        );
     }
 }
 
@@ -161,6 +202,7 @@ pub(crate) struct InMemoryMobileUsbSecretStore {
     keys: std::sync::Mutex<std::collections::HashMap<ClientKeyRef, Vec<u8>>>,
     fail_save: std::sync::Mutex<bool>,
     fail_load: std::sync::Mutex<bool>,
+    load_attempts: std::sync::Mutex<Vec<ClientKeyRef>>,
     delete_attempts: std::sync::Mutex<Vec<ClientKeyRef>>,
 }
 
@@ -183,6 +225,10 @@ impl InMemoryMobileUsbSecretStore {
             .lock()
             .expect("delete_attempts")
             .clone()
+    }
+
+    pub(crate) fn load_attempts(&self) -> Vec<ClientKeyRef> {
+        self.load_attempts.lock().expect("load_attempts").clone()
     }
 
     pub(crate) fn saved_refs(&self) -> Vec<ClientKeyRef> {
@@ -212,6 +258,10 @@ impl MobileUsbSecretStore for InMemoryMobileUsbSecretStore {
     }
 
     fn load_client_key(&self, key_ref: &ClientKeyRef) -> Result<Vec<u8>, MobileUsbError> {
+        self.load_attempts
+            .lock()
+            .expect("load_attempts")
+            .push(key_ref.clone());
         if *self.fail_load.lock().expect("fail_load") {
             return Err(MobileUsbError::new(
                 MobileUsbErrorCode::SecretRefInvalid,

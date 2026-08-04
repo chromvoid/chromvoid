@@ -5,7 +5,11 @@ import {i18n} from '@project/passmanager/i18n'
 
 import type {PMEntryMobileRenderContext} from './context'
 import {renderPaymentCardFace} from '../payment-card-face'
-import {renderInlineEditSubmitButtons, renderInlinePasswordGeneratorPanel, renderInlinePasswordStrength} from './shared'
+import {
+  renderInlineEditSubmitButtons,
+  renderInlinePasswordGeneratorPanel,
+  renderInlinePasswordStrength,
+} from './shared'
 import {renderPMCopyButton} from '../../../pm-copy-button'
 
 export function renderPaymentCardPrimarySection(context: PMEntryMobileRenderContext) {
@@ -66,7 +70,10 @@ export function renderPaymentCardPrimarySection(context: PMEntryMobileRenderCont
   }
 
   return html`
-    <section class="section-block section-block-primary payment-card-surface" aria-label=${i18n('entry:type:payment_card')}>
+    <section
+      class="section-block section-block-primary payment-card-surface"
+      aria-label=${i18n('entry:type:payment_card')}
+    >
       ${renderPaymentCardFace({
         title: card.title,
         brandLabel: data.paymentCardBrandLabel,
@@ -128,8 +135,10 @@ export function renderMobileUsernameField(context: PMEntryMobileRenderContext) {
             >
               <span class="field-label">${i18n('username')}</span>
               <span
+                id="passwords.entry.username"
                 class="field-value ${card.username ? '' : 'empty'}"
                 dir="ltr"
+                aria-label=${data.username}
                 data-credential-edit-value=${data.canEditFields ? 'username' : nothing}
               >
                 ${data.username}
@@ -175,7 +184,8 @@ export function renderMobilePasswordField(context: PMEntryMobileRenderContext) {
                   ></cv-input>
                 </cv-field>
                 <div class="password-inline-tools">
-                  <cv-button unstyled
+                  <cv-button
+                    unstyled
                     class="generator-toggle-button"
                     type="button"
                     aria-label=${i18n('password:generator_settings')}
@@ -225,11 +235,14 @@ export function renderMobilePasswordField(context: PMEntryMobileRenderContext) {
                 : isReady
                   ? html`
                       <cv-input
+                        control-id="passwords.entry.password"
                         class="password-input"
                         dir="ltr"
                         type="password"
                         password-toggle
                         readonly
+                        readonly-scrollable
+                        aria-label=${i18n('password')}
                         data-credential-edit-value=${data.canEditFields ? 'password' : nothing}
                         .value=${passwordResource.value}
                         size="small"

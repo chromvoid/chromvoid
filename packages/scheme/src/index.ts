@@ -40,6 +40,7 @@ export type {
   CredentialSecret,
   CredentialSecurityAuditEntrySummary,
   CredentialSecurityAuditArtifactV1,
+  PassmanagerGroupSummary,
   ProviderStatus,
 } from './command-maps'
 export type {CredentialOtpOption} from './generated/CredentialOtpOption'

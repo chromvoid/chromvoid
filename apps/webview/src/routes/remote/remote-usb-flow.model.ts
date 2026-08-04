@@ -5,6 +5,19 @@ import {i18n} from 'root/i18n'
 import {tryGetAppContext} from 'root/shared/services/app-context'
 
 import {
+  deriveDesktopUsbSummaryPresentation,
+  type DesktopUsbSummaryPresentation,
+} from './remote-desktop-preauth.contract'
+import {
+  deriveDesktopUsbPresentation,
+  type DesktopUsbAction,
+  type DesktopUsbPairedRow,
+  type DesktopUsbPresentation,
+  type DesktopUsbScannedRow,
+  type DesktopUsbUiAction,
+  type MobileUsbFlowState,
+} from './remote-usb-desktop-presentation'
+import {
   mobileUsbConfirmPairing,
   mobileUsbConnect,
   mobileUsbDetect,
@@ -27,22 +40,6 @@ import type {
   MobileUsbStatus,
 } from './remote.model'
 
-export type MobileUsbFlowState =
-  | 'unsupported'
-  | 'idle'
-  | 'scanning'
-  | 'unpaired'
-  | 'paired'
-  | 'pairing'
-  | 'pairing_approval'
-  | 'session_approval'
-  | 'connecting'
-  | 'waiting_host_unlock'
-  | 'ready'
-  | 'disconnected'
-  | 'recovery'
-  | 'error'
-
 export type MobileUsbScanClassificationKind = 'unpaired' | 'paired' | 'broken_local_state' | 'ambiguous'
 export type MobileUsbPendingAction =
   | 'refresh_status'
@@ -54,18 +51,7 @@ export type MobileUsbPendingAction =
   | 'disconnect'
   | 'remove'
 
-export interface MobileUsbScannedHostView {
-  source: MobileUsbScannedHost
-  label: string | null
-  platform: string
-  classification: MobileUsbScanClassificationKind
-  pairedHostId: string | null
-  brokenHostId: string | null
-  canPair: boolean
-  canConnect: boolean
-  canRemoveBroken: boolean
-  canListPaired: boolean
-}
+export type MobileUsbScannedHostView = DesktopUsbScannedRow
 
 export interface MobileUsbDetectedDeviceView {
   source: MobileUsbDetectedDevice
@@ -74,17 +60,18 @@ export interface MobileUsbDetectedDeviceView {
   accessoryMode: boolean
   pairedHostId: string | null
   pairedLabel: string | null
-  connectable: boolean
+  pairingState: 'confirmed' | 'incomplete' | null
 }
 
-export interface MobileUsbPairedHostViewModel {
-  source: MobileUsbHostView
-  label: string
-  platform: string
-  pairingState: MobileUsbHostView['pairing_state']
-  canConnect: boolean
-  canRemove: boolean
-}
+export type MobileUsbPairedHostViewModel = DesktopUsbPairedRow
+
+export type {
+  DesktopUsbAction,
+  DesktopUsbPresentation,
+  DesktopUsbRecoveryCta,
+  DesktopUsbUiAction,
+  MobileUsbFlowState,
+} from './remote-usb-desktop-presentation'
 
 const MOBILE_USB_ERROR_RECOVERY_ACTIONS: Record<MobileUsbErrorCode, MobileUsbRecoveryAction> = {
   ERR_USB_MOBILE_UNSUPPORTED_PLATFORM: 'hide_usb_entry',
@@ -166,17 +153,25 @@ function formatMobileUsbErrorText(code: MobileUsbErrorCode | null, fallback: str
 }
 
 export class RemoteUsbFlowModel {
-  readonly status = atom<MobileUsbStatus | null>(null)
-  readonly scanResults = atom<MobileUsbScannedHost[]>([])
-  readonly scanFoundNothing = atom(false)
-  readonly detectedDevices = atom<MobileUsbDetectedDevice[]>([])
-  readonly detectingDevices = atom(false)
-  readonly pairedHosts = atom<MobileUsbHostView[]>([])
-  readonly busy = atom(false)
-  readonly pendingAction = atom<MobileUsbPendingAction | null>(null)
-  readonly errorText = atom<string | null>(null)
-  readonly lastErrorCode = atom<MobileUsbErrorCode | null>(null)
-  readonly pairingApprovalPin = atom('')
+  readonly status = atom<MobileUsbStatus | null>(null, 'remote.usb.status')
+  readonly lastActiveHost = atom<MobileUsbHostView | null>(null, 'remote.usb.lastActiveHost')
+  readonly scanResults = atom<MobileUsbScannedHost[]>([], 'remote.usb.scanResults')
+  readonly scanFoundNothing = atom(false, 'remote.usb.scanFoundNothing')
+  readonly detectedDevices = atom<MobileUsbDetectedDevice[]>([], 'remote.usb.detectedDevices')
+  readonly detectingDevices = atom(false, 'remote.usb.detectingDevices')
+  readonly pairedHosts = atom<MobileUsbHostView[]>([], 'remote.usb.pairedHosts')
+  readonly busy = atom(false, 'remote.usb.busy')
+  readonly pendingAction = atom<MobileUsbPendingAction | null>(null, 'remote.usb.pendingAction')
+  readonly errorText = atom<string | null>(null, 'remote.usb.errorText')
+  readonly lastErrorCode = atom<MobileUsbErrorCode | null>(null, 'remote.usb.lastErrorCode')
+  readonly dismissedErrorCode = atom<MobileUsbErrorCode | null>(null, 'remote.usb.dismissedErrorCode')
+  readonly pairingApprovalPin = atom('', 'remote.usb.pairingApprovalPin')
+  readonly pairingApprovalSubmitAttempted = atom(false, 'remote.usb.pairingApprovalSubmitAttempted')
+  readonly pairingApprovalPinFocusRequest = atom(0, 'remote.usb.pairingApprovalPinFocusRequest')
+  readonly lastFailedAction = atom<DesktopUsbAction | null>(null, 'remote.usb.lastFailedAction')
+  private readonly repairScanHostId = atom<string | null>(null, 'remote.usb.repairScanHostId')
+  private inventoryActive = false
+  private inventoryGeneration = 0
 
   readonly available = computed<boolean>(() => getRuntimeMobileUsbAvailable())
   readonly availableTransports = computed<Array<'usb_mobile'>>(
@@ -189,17 +184,32 @@ export class RemoteUsbFlowModel {
   readonly pairingApproval = computed<MobileUsbPairingApprovalView | null>(
     () => this.status()?.pairing_approval ?? null,
   )
+  readonly pairingApprovalPinError = computed<string | null>(() => {
+    if (!this.pairingApprovalSubmitAttempted()) return null
+    const pin = this.pairingApprovalPin()
+    if (!pin) return i18n('network-pair:error-pin-required')
+    if (!/^\d{6}$/.test(pin)) return i18n('network-pair:error-pin-format')
+    return null
+  }, 'remote.usb.pairingApprovalPinError')
   readonly canConfirmPairing = computed<boolean>(() => {
     const approval = this.pairingApproval()
-    const pin = this.pairingApprovalPin()
-    return approval !== null && /^\d{6}$/.test(pin) && !this.actionBusy()
+    return approval !== null && !this.actionBusy()
   })
-  readonly activeErrorCode = computed<MobileUsbErrorCode | null>(
-    () => this.lastErrorCode() ?? this.status()?.error_code ?? null,
-  )
+  readonly activeErrorCode = computed<MobileUsbErrorCode | null>(() => {
+    const code = this.lastErrorCode() ?? this.status()?.error_code ?? null
+    return code === this.dismissedErrorCode() ? null : code
+  })
   readonly recoveryAction = computed<MobileUsbRecoveryAction | null>(() => {
     const code = this.activeErrorCode()
-    return code ? MOBILE_USB_ERROR_RECOVERY_ACTIONS[code] : null
+    if (code) return MOBILE_USB_ERROR_RECOVERY_ACTIONS[code]
+
+    const brokenScan = this.scanResults().some(
+      ({classification}) => getClassificationKind(classification) === 'broken_local_state',
+    )
+    const brokenPairing = this.pairedHosts().some(
+      ({pairing_state}) => pairing_state === 'broken_local_state',
+    )
+    return brokenScan || brokenPairing ? 'remove_and_repair' : null
   })
   readonly scannedHostViews = computed<MobileUsbScannedHostView[]>(() => {
     return this.scanResults().map((source) => {
@@ -234,7 +244,7 @@ export class RemoteUsbFlowModel {
         accessoryMode: source.accessory_mode,
         pairedHostId: source.paired_match?.host_id ?? null,
         pairedLabel: source.paired_match?.label ?? null,
-        connectable: source.paired_match?.connectable ?? false,
+        pairingState: source.paired_match?.pairing_state ?? null,
       }
     })
   })
@@ -286,7 +296,8 @@ export class RemoteUsbFlowModel {
         case 'disconnected':
           return 'disconnected'
         case 'error':
-          return status.error_code ? 'recovery' : 'error'
+          if (this.activeErrorCode()) return 'recovery'
+          break
         case 'idle_usb_mobile':
         case 'locked_shell':
         case 'transport_select':
@@ -310,53 +321,94 @@ export class RemoteUsbFlowModel {
     if (paired.length > 0 || scanned.some((host) => host.classification === 'paired')) return 'paired'
     return 'idle'
   })
-
+  readonly desktopSummary = computed<DesktopUsbSummaryPresentation>(
+    () =>
+      deriveDesktopUsbSummaryPresentation({
+        supported: this.available(),
+        checking: this.detectingDevices(),
+        devices: this.detectedDevices(),
+      }),
+    'remote.usb.desktopSummary',
+  )
+  readonly desktopPresentation = computed<DesktopUsbPresentation>(
+    () =>
+      deriveDesktopUsbPresentation({
+        flowState: this.flowState(),
+        actionBusy: this.actionBusy(),
+        canConfirmPairing: this.canConfirmPairing(),
+        recoveryAction: this.recoveryAction(),
+        lastFailedAction: this.lastFailedAction(),
+        activeHost: this.status()?.active_host ?? null,
+        repairScanPending: this.repairScanHostId() !== null,
+        scannedHosts: this.scannedHostViews(),
+        detectedDevices: this.detectedDeviceViews(),
+        pairedHosts: this.pairedHostViews(),
+      }),
+    'remote.usb.desktopPresentation',
+  )
   private activeSessionHostId: string | null = null
 
   async refreshStatus(): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
-    return await this.run('refresh_status', async () => {
-      const status = await wrap(mobileUsbStatus())
-      this.applyStatus(status)
-    })
+    return await wrap(
+      this.run({kind: 'refresh_status'}, async () => {
+        const status = await wrap(mobileUsbStatus())
+        this.applyStatus(status)
+      }),
+    )
   }
 
   async scan(): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
     this.scanFoundNothing.set(false)
-    return await this.run('scan', async () => {
-      const results = await wrap(mobileUsbScan())
-      this.scanResults.set(results)
-      this.scanFoundNothing.set(results.length === 0)
-    })
+    const result = await wrap(
+      this.run({kind: 'scan'}, async () => {
+        const results = await wrap(mobileUsbScan())
+        this.scanResults.set(results)
+        this.scanFoundNothing.set(results.length === 0)
+      }),
+    )
+    this.repairScanHostId.set(null)
+    return result
   }
 
-  /**
-   * Passive inventory preview (`mobile_usb_detect`): safe on page mount and
-   * hotplug events. Deliberately bypasses `run()` — it must not flash the busy
-   * state or clobber errors of an explicit user action, and its own failures
-   * stay silent because it is a background preview, not a user-initiated flow.
-   */
+  activateDetectedInventory(): boolean {
+    if (this.inventoryActive) return false
+    this.inventoryActive = true
+    this.inventoryGeneration += 1
+    return true
+  }
+
+  deactivateDetectedInventory(): void {
+    this.inventoryActive = false
+    this.inventoryGeneration += 1
+    this.detectingDevices.set(false)
+    this.detectedDevices.set([])
+  }
+
+  /** Passive descriptor/metadata inventory owned by the visible Remote surface. */
   async refreshDetectedDevices(): Promise<boolean> {
-    if (!this.available()) return false
+    if (!this.available() || !this.inventoryActive) return false
     if (this.detectingDevices()) return false
+    const generation = this.inventoryGeneration
     this.detectingDevices.set(true)
     try {
-      this.detectedDevices.set(await wrap(mobileUsbDetect()))
+      const devices = await wrap(mobileUsbDetect())
+      if (!this.inventoryActive || generation !== this.inventoryGeneration) return false
+      this.detectedDevices.set(devices)
       return true
     } catch {
       return false
     } finally {
-      this.detectingDevices.set(false)
+      if (generation === this.inventoryGeneration) this.detectingDevices.set(false)
     }
   }
 
-  scanAndConnectSingleHost(shouldContinue: () => boolean = () => true): Promise<boolean> {
-    if (!shouldContinue()) return Promise.resolve(false)
-    return this.scan().then((ok) => {
-      if (!ok || !shouldContinue()) return false
-      return this.connectSingleScannedHost()
-    })
+  async scanAndConnectSingleHost(shouldContinue: () => boolean = () => true): Promise<boolean> {
+    if (!shouldContinue()) return false
+    const ok = await wrap(this.scan())
+    if (!ok || !shouldContinue()) return false
+    return await wrap(this.connectSingleScannedHost())
   }
 
   async connectSingleScannedHost(): Promise<boolean> {
@@ -364,15 +416,15 @@ export class RemoteUsbFlowModel {
     if (!host || extraHost) return false
 
     if (host.canPair) {
-      return await this.pairScannedHost(host.source)
+      return await wrap(this.pairScannedHost(host.source))
     }
 
     if (host.canConnect && host.pairedHostId) {
-      return await this.connectPairedHost(host.pairedHostId)
+      return await wrap(this.connectPairedHost(host.pairedHostId))
     }
 
     if (host.canListPaired) {
-      await this.loadPaired()
+      await wrap(this.loadPaired())
     }
 
     return false
@@ -381,17 +433,19 @@ export class RemoteUsbFlowModel {
   async pairScannedHost(host: MobileUsbScannedHost): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
     if (getClassificationKind(host.classification) !== 'unpaired') return false
-    return await this.run('pair', async () => {
-      const status = await wrap(
-        mobileUsbPair({
-          platform: host.scan.platform,
-          bridge_kind: host.scan.bridge_kind,
-          usb_hint: host.scan.usb_hint,
-          label: host.scan.label ?? null,
-        } satisfies MobileUsbPairRequest),
-      )
-      this.applyStatus(status)
-    })
+    return await wrap(
+      this.run({kind: 'pair', host}, async () => {
+        const status = await wrap(
+          mobileUsbPair({
+            platform: host.scan.platform,
+            bridge_kind: host.scan.bridge_kind,
+            usb_hint: host.scan.usb_hint,
+            label: host.scan.label ?? null,
+          } satisfies MobileUsbPairRequest),
+        )
+        this.applyStatus(status)
+      }),
+    )
   }
 
   setPairingApprovalPin(value: string): void {
@@ -401,78 +455,127 @@ export class RemoteUsbFlowModel {
   async confirmPairing(): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
     const approval = this.pairingApproval()
-    if (!approval || !this.canConfirmPairing()) return false
-    return await this.run('pair_confirm', async () => {
-      const status = await wrap(
-        mobileUsbConfirmPairing({
-          attempt_id: approval.attempt_id,
-          approval_pin: this.pairingApprovalPin(),
-        }),
-      )
-      this.applyStatus(status)
-    })
+    if (!approval || this.actionBusy()) return false
+
+    this.pairingApprovalSubmitAttempted.set(true)
+    if (this.pairingApprovalPinError()) {
+      this.requestPairingApprovalPinFocus()
+      return false
+    }
+
+    const confirmed = await wrap(
+      this.run({kind: 'pair_confirm'}, async () => {
+        const status = await wrap(
+          mobileUsbConfirmPairing({
+            attempt_id: approval.attempt_id,
+            approval_pin: this.pairingApprovalPin(),
+          }),
+        )
+        this.applyStatus(status)
+      }),
+    )
+    if (!confirmed) {
+      this.pairingApprovalPin.set('')
+      this.requestPairingApprovalPinFocus()
+    }
+    return confirmed
   }
 
   async connectPairedHost(hostId: string): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
     if (!hostId.trim()) return false
-    return await this.run('connect', async () => {
-      const status = await wrap(mobileUsbConnect(hostId))
-      this.applyStatus(status, hostId)
-    })
+    return await wrap(
+      this.run({kind: 'connect', hostId}, async () => {
+        const status = await wrap(mobileUsbConnect(hostId))
+        this.applyStatus(status, hostId)
+      }),
+    )
   }
 
   async disconnect(): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
-    return await this.run('disconnect', async () => {
-      const activeHostId = this.status()?.active_host?.host_id ?? null
-      const status = await wrap(mobileUsbDisconnect())
-      this.applyStatus(status, activeHostId)
-    })
+    return await wrap(
+      this.run({kind: 'disconnect'}, async () => {
+        const activeHostId = this.status()?.active_host?.host_id ?? null
+        const status = await wrap(mobileUsbDisconnect())
+        this.applyStatus(status, activeHostId)
+      }),
+    )
   }
 
   async loadPaired(): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
-    return await this.run('load_paired', async () => {
-      this.pairedHosts.set(await wrap(mobileUsbListPaired()))
-    })
+    return await wrap(
+      this.run({kind: 'load_paired'}, async () => {
+        this.pairedHosts.set(await wrap(mobileUsbListPaired()))
+      }),
+    )
   }
 
   async removePaired(hostId: string): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
     if (!hostId.trim()) return false
-    return await this.run('remove', async () => {
-      this.pairedHosts.set(await wrap(mobileUsbRemovePaired(hostId)))
-      this.scanResults.set(
-        this.scanResults().filter((result) => getClassificationHostId(result.classification) !== hostId),
-      )
-    })
+    const removeAndRepair = this.recoveryAction() === 'remove_and_repair'
+    const removed = await wrap(
+      this.run({kind: 'remove', hostId}, async () => {
+        this.pairedHosts.set(await wrap(mobileUsbRemovePaired(hostId)))
+        this.scanResults.set(
+          this.scanResults().filter((result) => getClassificationHostId(result.classification) !== hostId),
+        )
+      }),
+    )
+    if (removed && removeAndRepair) {
+      this.repairScanHostId.set(hostId)
+      this.clearRemovedHostRecoveryStatus(hostId)
+    }
+    if (removed) await wrap(this.refreshDetectedDevices())
+    return removed
   }
 
   dismissError(): void {
+    this.dismissedErrorCode.set(this.activeErrorCode())
     this.errorText.set(null)
     this.lastErrorCode.set(null)
+  }
+
+  clearLastActiveHost(): void {
+    this.lastActiveHost.set(null)
   }
 
   applyStatusEvent(status: MobileUsbStatus): void {
     this.applyStatus(status)
   }
 
+  async dispatchDesktopAction(): Promise<boolean> {
+    const presentation = this.desktopPresentation()
+    if (!presentation.primaryActionEnabled || !presentation.primaryAction) return false
+    return await wrap(this.dispatchUiAction(presentation.primaryAction))
+  }
+
   private applyStatus(status: MobileUsbStatus, fallbackHostId: string | null = null): void {
+    status = this.normalizeRemovedHostRecoveryStatus(status)
+    const previousPairingAttemptId = this.status()?.pairing_approval?.attempt_id ?? null
+    this.dismissedErrorCode.set(null)
     this.status.set(status)
+    if (status.active_host) {
+      this.lastActiveHost.set(status.active_host)
+    }
     this.pairedHosts.set(status.paired_hosts)
     this.lastErrorCode.set(status.error_code)
     this.syncRemoteSessionState(status, fallbackHostId)
     if (status.error_code !== null) {
       this.errorText.set(formatMobileUsbErrorText(status.error_code, i18n('remote:usb-mobile-error-generic')))
     }
-    if (status.pairing_approval === null) {
+    const nextPairingAttemptId = status.pairing_approval?.attempt_id ?? null
+    if (nextPairingAttemptId !== previousPairingAttemptId) {
       this.pairingApprovalPin.set('')
+      this.pairingApprovalSubmitAttempted.set(false)
     }
   }
 
   private blockIfUnavailable(): boolean {
     if (this.available()) return false
+    this.dismissedErrorCode.set(null)
     this.lastErrorCode.set('ERR_USB_MOBILE_UNSUPPORTED_PLATFORM')
     this.errorText.set(
       formatMobileUsbErrorText(
@@ -483,20 +586,28 @@ export class RemoteUsbFlowModel {
     return true
   }
 
-  private async run(action: MobileUsbPendingAction, task: () => Promise<void>): Promise<boolean> {
-    if (this.busy()) return false
+  private async run(action: DesktopUsbAction, task: () => Promise<void>): Promise<boolean> {
+    const backendOperationRunning = this.inFlight() !== null
+    const readOnlyAction = action.kind === 'refresh_status' || action.kind === 'load_paired'
+    if (this.busy() || (backendOperationRunning && !readOnlyAction)) return false
     this.busy.set(true)
-    this.pendingAction.set(action)
+    this.pendingAction.set(action.kind)
     this.errorText.set(null)
     this.lastErrorCode.set(null)
+    this.dismissedErrorCode.set(null)
     try {
-      await task()
+      await wrap(task())
+      this.lastFailedAction.set(null)
+      if (action.kind === 'pair' || action.kind === 'pair_confirm' || action.kind === 'connect') {
+        this.repairScanHostId.set(null)
+      }
       return true
     } catch (error) {
       const code = getErrorCode(error)
       const message = error instanceof Error ? error.message : String(error)
       this.errorText.set(formatMobileUsbErrorText(code, message))
       this.lastErrorCode.set(code)
+      this.lastFailedAction.set(action)
       return false
     } finally {
       this.pendingAction.set(null)
@@ -504,7 +615,78 @@ export class RemoteUsbFlowModel {
     }
   }
 
-  private syncRemoteSessionState(status: MobileUsbStatus, fallbackHostId: string | null): void {
+  private requestPairingApprovalPinFocus(): void {
+    this.pairingApprovalPinFocusRequest.set((request) => request + 1)
+  }
+
+  private clearRemovedHostRecoveryStatus(hostId: string): void {
+    const status = this.status()
+    if (status) this.status.set(this.normalizeRemovedHostRecoveryStatus(status))
+    this.lastErrorCode.set(null)
+    this.dismissedErrorCode.set(null)
+    this.errorText.set(null)
+    this.pairedHosts.set(this.pairedHosts().filter((host) => host.host_id !== hostId))
+  }
+
+  private normalizeRemovedHostRecoveryStatus(status: MobileUsbStatus): MobileUsbStatus {
+    const hostId = this.repairScanHostId()
+    if (!hostId) return status
+    const recoveryAction = status.error_code ? MOBILE_USB_ERROR_RECOVERY_ACTIONS[status.error_code] : null
+    if (recoveryAction !== 'remove_and_repair') return status
+
+    return {
+      ...status,
+      session_state: status.session_state === 'error' ? 'idle_usb_mobile' : status.session_state,
+      error_code: null,
+      paired_hosts: status.paired_hosts.filter((host) => host.host_id !== hostId),
+    }
+  }
+
+  private async dispatchAction(action: DesktopUsbAction): Promise<boolean> {
+    switch (action.kind) {
+      case 'refresh_status':
+        return await wrap(this.refreshStatus())
+      case 'scan':
+        return await wrap(this.scan())
+      case 'load_paired':
+        return await wrap(this.loadPaired())
+      case 'pair':
+        return await wrap(this.pairScannedHost(action.host))
+      case 'pair_confirm':
+        return await wrap(this.confirmPairing())
+      case 'connect':
+        return await wrap(this.connectPairedHost(action.hostId))
+      case 'disconnect':
+        return await wrap(this.disconnect())
+      case 'remove':
+        return await wrap(this.removePaired(action.hostId))
+    }
+  }
+
+  private async dispatchUiAction(action: DesktopUsbUiAction): Promise<boolean> {
+    switch (action.kind) {
+      case 'back_to_hosts':
+        return false
+      case 'dismiss_error':
+        this.dismissError()
+        return true
+      case 'continue_read_only': {
+        const status = this.status()
+        if (!status || status.session_state !== 'remote_dashboard_open') return false
+        this.dismissError()
+        this.syncRemoteSessionState(status, this.activeSessionHostId, true)
+        return true
+      }
+      default:
+        return await wrap(this.dispatchAction(action))
+    }
+  }
+
+  private syncRemoteSessionState(
+    status: MobileUsbStatus,
+    fallbackHostId: string | null,
+    allowWriterLockedReady = false,
+  ): void {
     const store = tryGetAppContext()?.store as
       | {
           resetRemoteSession?: () => void
@@ -527,6 +709,7 @@ export class RemoteUsbFlowModel {
         break
       case 'remote_dashboard_open':
         this.activeSessionHostId = peerId
+        if (status.error_code === 'ERR_USB_MOBILE_WRITER_LOCKED' && !allowWriterLockedReady) break
         store.setRemoteSessionReady?.(peerId)
         break
       case 'disconnected':

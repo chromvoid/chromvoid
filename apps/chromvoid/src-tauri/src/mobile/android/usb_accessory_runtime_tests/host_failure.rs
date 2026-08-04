@@ -138,6 +138,14 @@ fn android_host_failure_maps_typed_direct_accept_failures() {
     );
     assert_eq!(
         AndroidMobileUsbHostFailure::from_direct_accept_failure(
+            crate::network::mobile_acceptor::DirectTransportAcceptFailure::PairingCancelled {
+                message: "client cancelled pairing".to_string(),
+            },
+        ),
+        AndroidMobileUsbHostFailure::PairingCancelled
+    );
+    assert_eq!(
+        AndroidMobileUsbHostFailure::from_direct_accept_failure(
             crate::network::mobile_acceptor::DirectTransportAcceptFailure::DataPlaneError {
                 message: "paired store failed".to_string(),
             },
@@ -159,6 +167,14 @@ fn local_stop_reasons_map_to_semantic_direct_transport_reasons() {
     assert_eq!(
         AndroidMobileUsbHostStopReason::VaultLocked.as_local_direct_transport_stop_reason(),
         crate::network::mobile_acceptor::DirectTransportStopReason::VaultLocked,
+    );
+    assert_eq!(
+        AndroidMobileUsbHostStopReason::ClientDisconnected.as_local_direct_transport_stop_reason(),
+        crate::network::mobile_acceptor::DirectTransportStopReason::ClientDisconnected,
+    );
+    assert_eq!(
+        AndroidMobileUsbHostStopReason::PairingCancelled.as_local_direct_transport_stop_reason(),
+        crate::network::mobile_acceptor::DirectTransportStopReason::PairingCancelled,
     );
     assert_eq!(
         AndroidMobileUsbHostStopReason::AccessoryDetached.as_local_direct_transport_stop_reason(),

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -385,6 +387,7 @@ impl EnvRuntimeObservability {
     }
 }
 
+#[cfg_attr(test, derive(Clone, Debug))]
 struct AuditEvent {
     request_id: String,
     actor_id_hash: String,
@@ -425,6 +428,9 @@ impl AuditEvent {
 }
 
 fn emit(event: AuditEvent) {
+    #[cfg(test)]
+    TEST_AUDIT_EVENTS.with(|events| events.borrow_mut().push(event.clone()));
+
     tracing::info!(
         target: "env_runtime",
         request_id = event.request_id,
@@ -442,6 +448,11 @@ fn emit(event: AuditEvent) {
         variable_count = event.variable_count,
         "env runtime audit"
     );
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_AUDIT_EVENTS: RefCell<Vec<AuditEvent>> = const { RefCell::new(Vec::new()) };
 }
 
 fn run_event(
@@ -657,44 +668,18 @@ pub(crate) fn hash_identifier(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-    use std::sync::Arc;
-
     use chromvoid_protocol::{AgentPresetDraftV1, MutationOperationV1};
 
     use super::*;
 
-    static TRACING_CAPTURE_LOCK: Mutex<()> = Mutex::new(());
-
-    #[derive(Clone, Default)]
-    struct TestWriter(Arc<Mutex<Vec<u8>>>);
-
-    struct TestGuard(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for TestGuard {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().expect("log buffer").extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for TestWriter {
-        type Writer = TestGuard;
-
-        fn make_writer(&'writer self) -> Self::Writer {
-            TestGuard(Arc::clone(&self.0))
-        }
+    fn capture_audit_events(run: impl FnOnce()) -> Vec<AuditEvent> {
+        TEST_AUDIT_EVENTS.with(|events| events.borrow_mut().clear());
+        run();
+        TEST_AUDIT_EVENTS.with(|events| std::mem::take(&mut *events.borrow_mut()))
     }
 
     #[test]
     fn gateway_audit_redacts_sensitive_request_material() {
-        let _capture_guard = TRACING_CAPTURE_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let request = AgentRequestV1 {
             protocol_version: AGENT_PROTOCOL_VERSION,
             schema_version: AGENT_SCHEMA_VERSION,
@@ -716,14 +701,7 @@ mod tests {
                 }),
             },
         };
-        let writer = TestWriter::default();
-        let subscriber = tracing_subscriber::fmt()
-            .without_time()
-            .with_ansi(false)
-            .with_max_level(tracing::Level::INFO)
-            .with_writer(writer.clone())
-            .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        let events = capture_audit_events(|| {
             EnvRuntimeObservability::default().record_gateway_request(
                 &GatewayRequestAudit::new(&request, "actor-must-not-log"),
                 RequestDecision::Accepted,
@@ -731,15 +709,13 @@ mod tests {
                 7,
             );
         });
-        let log =
-            String::from_utf8(writer.0.lock().expect("log buffer").clone()).expect("utf8 log");
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        let audit = format!("{event:?}");
 
-        assert!(
-            log.contains("feature_key=\"env-runtime\""),
-            "missing feature key in captured audit log: {log:?}"
-        );
-        assert!(log.contains("operation=\"preset_propose\""));
-        assert!(log.contains("actor_id_hash=\"sha256:"));
+        assert_eq!(FEATURE_KEY, "env-runtime");
+        assert_eq!(event.operation, "preset_propose");
+        assert!(event.actor_id_hash.starts_with("sha256:"));
         for forbidden in [
             "actor-must-not-log",
             "profile-secret-ref",
@@ -753,15 +729,12 @@ mod tests {
             "stdout",
             "stderr",
         ] {
-            assert!(!log.contains(forbidden), "leaked {forbidden}: {log}");
+            assert!(!audit.contains(forbidden), "leaked {forbidden}: {audit}");
         }
     }
 
     #[test]
     fn lifecycle_failure_audits_keep_typed_codes_and_hashed_identifiers() {
-        let _capture_guard = TRACING_CAPTURE_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let run = AgentRunMetadataV1 {
             id: "run-must-not-log".to_string(),
             actor_id: "actor-must-not-log".to_string(),
@@ -774,14 +747,7 @@ mod tests {
             exit_code: None,
             signal: None,
         };
-        let writer = TestWriter::default();
-        let subscriber = tracing_subscriber::fmt()
-            .without_time()
-            .with_ansi(false)
-            .with_max_level(tracing::Level::INFO)
-            .with_writer(writer.clone())
-            .finish();
-        tracing::subscriber::with_default(subscriber, || {
+        let events = capture_audit_events(|| {
             let observability = EnvRuntimeObservability::default();
             observability.record_resolution(&run, 0, "error", Some("SECRET_RESOLUTION_FAILED"), 3);
             observability.record_spawn(
@@ -792,27 +758,26 @@ mod tests {
             );
             observability.record_run_terminal(&run, Some("OUTPUT_BACKPRESSURE"), 5);
         });
-        let log =
-            String::from_utf8(writer.0.lock().expect("log buffer").clone()).expect("utf8 log");
+        assert_eq!(events.len(), 3);
+        let audit = format!("{events:?}");
 
         for code in [
             "SECRET_RESOLUTION_FAILED",
             "SPAWN_FAILED",
             "OUTPUT_BACKPRESSURE",
         ] {
-            assert!(log.contains(code), "missing {code}: {log}");
+            assert!(events.iter().any(|event| event.error_code == code));
         }
-        assert!(
-            log.contains("run_id_hash=\"sha256:"),
-            "missing hashed run id: {log}"
-        );
+        assert!(events
+            .iter()
+            .all(|event| event.run_id_hash.starts_with("sha256:")));
         for forbidden in [
             "run-must-not-log",
             "actor-must-not-log",
             "profile-must-not-log",
             "preset-must-not-log",
         ] {
-            assert!(!log.contains(forbidden), "leaked {forbidden}: {log}");
+            assert!(!audit.contains(forbidden), "leaked {forbidden}: {audit}");
         }
     }
 

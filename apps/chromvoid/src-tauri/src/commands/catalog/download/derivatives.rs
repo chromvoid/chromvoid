@@ -3,15 +3,15 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
+use chromvoid_core::rpc::types::{
+    RpcRequest, RpcResponse, CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1,
+};
 use chromvoid_core::rpc::{
     cleanup_catalog_derivative_write_result, write_catalog_derivative_snapshot,
     CatalogDerivativeWriteRequest, RpcInputStream, RpcReply, RpcStreamMeta,
 };
 
-use super::rpc::{
-    load_catalog_download_bytes, load_catalog_download_range_bytes, stream_out_from_reply,
-};
+use super::rpc::{load_catalog_download_bytes, load_catalog_download_range_bytes};
 use super::CatalogDownloadError;
 use crate::commands::catalog::source_metadata::{
     load_catalog_source_metadata, CatalogSourceMetadata,
@@ -19,6 +19,163 @@ use crate::commands::catalog::source_metadata::{
 use crate::types::*;
 
 const AUDIO_ARTWORK_RANGE_LIMIT_MESSAGE: &str = "audio artwork metadata range budget exceeded";
+const REMOTE_DERIVATIVE_ENSURE_COMMAND: &str = "catalog:derivative:ensure";
+const REMOTE_DERIVATIVE_STALE_CODE: &str = "ERR_MEDIA_STREAM_STALE";
+const DISPLAY_PREVIEW_MAX_OUTPUT_BYTES: u64 = 32 * 1024 * 1024;
+const THUMBNAIL_MAX_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
+
+#[derive(Clone)]
+pub(crate) struct ImageDerivativeCancellation {
+    epochs: Vec<(Arc<AtomicU64>, u64)>,
+}
+
+impl ImageDerivativeCancellation {
+    pub(crate) fn capture(epoch: Arc<AtomicU64>) -> Self {
+        Self::capture_all([epoch])
+    }
+
+    pub(crate) fn capture_all(epochs: impl IntoIterator<Item = Arc<AtomicU64>>) -> Self {
+        Self {
+            epochs: epochs
+                .into_iter()
+                .map(|epoch| {
+                    let started = epoch.load(Ordering::SeqCst);
+                    (epoch, started)
+                })
+                .collect(),
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.epochs
+            .iter()
+            .any(|(epoch, started)| epoch.load(Ordering::SeqCst) != *started)
+    }
+
+    pub(crate) fn check(&self) -> Result<(), CatalogDownloadError> {
+        if self.is_cancelled() {
+            Err((
+                "Image derivative generation cancelled".to_string(),
+                Some("CANCELLED".to_string()),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn check_image_derivative_cancellation(
+    cancellation: Option<&ImageDerivativeCancellation>,
+) -> Result<(), CatalogDownloadError> {
+    cancellation.map_or(Ok(()), ImageDerivativeCancellation::check)
+}
+
+fn derivative_output_limit(tier: crate::image_preview::ImageDerivativeTier) -> u64 {
+    match tier {
+        crate::image_preview::ImageDerivativeTier::DisplayPreview => {
+            DISPLAY_PREVIEW_MAX_OUTPUT_BYTES
+        }
+        crate::image_preview::ImageDerivativeTier::Thumbnail => THUMBNAIL_MAX_OUTPUT_BYTES,
+    }
+}
+
+fn validate_image_derivative_meta(
+    meta: &RpcStreamMeta,
+    tier: crate::image_preview::ImageDerivativeTier,
+) -> Result<(), CatalogDownloadError> {
+    if meta.size == 0 {
+        return Err((
+            "Image derivative stream is empty".to_string(),
+            Some("INTERNAL".to_string()),
+        ));
+    }
+    if meta.size > derivative_output_limit(tier) {
+        return Err((
+            "Image derivative exceeds the bounded output size".to_string(),
+            Some("PAYLOAD_TOO_LARGE".to_string()),
+        ));
+    }
+    let mime_type = meta
+        .mime_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(
+        mime_type.as_str(),
+        crate::image_preview::JPEG_PREVIEW_MIME
+            | crate::image_preview::PNG_PREVIEW_MIME
+            | crate::image_preview::WEBP_PREVIEW_MIME
+    ) {
+        return Err((
+            "Image derivative has an unsupported MIME type".to_string(),
+            Some("UNSUPPORTED".to_string()),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_image_derivative_stream(
+    stream: &StreamOut,
+    tier: crate::image_preview::ImageDerivativeTier,
+) -> Result<(), CatalogDownloadError> {
+    validate_image_derivative_meta(&stream.meta, tier)?;
+    if stream.bytes.len() as u64 != stream.meta.size {
+        return Err((
+            "Image derivative stream size does not match its metadata".to_string(),
+            Some("INTERNAL".to_string()),
+        ));
+    }
+    Ok(())
+}
+
+fn stream_out_from_derivative_reply(
+    reply: RpcReply,
+    tier: crate::image_preview::ImageDerivativeTier,
+) -> Result<StreamOut, CatalogDownloadError> {
+    match reply {
+        RpcReply::Json(RpcResponse::Success { .. }) => Err((
+            "Unexpected JSON reply".to_string(),
+            Some("INTERNAL".to_string()),
+        )),
+        RpcReply::Json(RpcResponse::Error { error, code, .. }) => Err((error, code)),
+        RpcReply::RangeStream(_) => Err((
+            "Unexpected range stream reply".to_string(),
+            Some("INTERNAL".to_string()),
+        )),
+        RpcReply::Stream(out) => {
+            validate_image_derivative_meta(&out.meta, tier)?;
+            let meta = out.meta;
+            let limit = derivative_output_limit(tier);
+            let mut bytes = Vec::with_capacity(meta.size.min(1024 * 1024) as usize);
+            let read_started = Instant::now();
+            let mut reader = out.reader.take(limit.saturating_add(1));
+            reader.read_to_end(&mut bytes).map_err(|error| {
+                (
+                    format!("Failed to read image derivative stream: {error}"),
+                    Some("INTERNAL".to_string()),
+                )
+            })?;
+            if bytes.len() as u64 > limit {
+                return Err((
+                    "Image derivative exceeds the bounded output size".to_string(),
+                    Some("PAYLOAD_TOO_LARGE".to_string()),
+                ));
+            }
+            let stream = StreamOut { meta, bytes };
+            validate_image_derivative_stream(&stream, tier)?;
+            tracing::info!(
+                "perf:catalog_stream event=derivative_read stream-read:read_ms={} stream-read:bytes={} stream-read:mime_type={} tier={}",
+                read_started.elapsed().as_millis(),
+                stream.bytes.len(),
+                stream.meta.mime_type,
+                tier.label(),
+            );
+            Ok(stream)
+        }
+    }
+}
 
 pub(super) fn derivative_output_name(
     stream_name: &str,
@@ -106,7 +263,7 @@ pub(super) fn load_stored_image_derivative_stream(
         node_id,
     );
 
-    match stream_out_from_reply(reply) {
+    match stream_out_from_derivative_reply(reply, tier) {
         Ok(stream) => Ok(Some(stream)),
         Err((_error, code)) if code.as_deref() == Some("NODE_NOT_FOUND") => Ok(None),
         Err(error) => Err(error),
@@ -119,8 +276,9 @@ pub(super) fn persist_image_derivative_stream(
     source_revision: u64,
     tier: crate::image_preview::ImageDerivativeTier,
     derivative: &StreamOut,
-    cancellation_epoch: Option<&Arc<AtomicU64>>,
+    cancellation: Option<&ImageDerivativeCancellation>,
 ) -> Result<(), CatalogDownloadError> {
+    validate_image_derivative_stream(derivative, tier)?;
     if let Some(result) = persist_local_derivative_stream(
         adapter,
         node_id,
@@ -128,11 +286,12 @@ pub(super) fn persist_image_derivative_stream(
         tier.label(),
         crate::image_preview::DERIVATIVE_STORAGE_VERSION,
         derivative,
-        cancellation_epoch,
+        cancellation,
     ) {
         return result;
     }
 
+    check_image_derivative_cancellation(cancellation)?;
     let write_started = Instant::now();
     let reply = {
         let mut adapter = adapter.lock().map_err(|_| {
@@ -167,6 +326,7 @@ pub(super) fn persist_image_derivative_stream(
         let _ = adapter.save();
         reply
     };
+    check_image_derivative_cancellation(cancellation)?;
     tracing::info!(
         "perf:image_derivative event=derivative_write derivative-write:handle_ms={} tier={} source_revision={} storage_version={} output_bytes={} node_id={}",
         write_started.elapsed().as_millis(),
@@ -196,6 +356,8 @@ pub(super) fn persist_local_or_adapter_derivative_stream(
     derivative: &StreamOut,
     cancellation_epoch: Option<&Arc<AtomicU64>>,
 ) -> Result<(), CatalogDownloadError> {
+    let cancellation =
+        cancellation_epoch.map(|epoch| ImageDerivativeCancellation::capture(epoch.clone()));
     if let Some(result) = persist_local_derivative_stream(
         adapter,
         node_id,
@@ -203,7 +365,7 @@ pub(super) fn persist_local_or_adapter_derivative_stream(
         tier,
         version,
         derivative,
-        cancellation_epoch,
+        cancellation.as_ref(),
     ) {
         return result;
     }
@@ -270,15 +432,9 @@ fn persist_local_derivative_stream(
     tier: &str,
     version: u32,
     derivative: &StreamOut,
-    cancellation_epoch: Option<&Arc<AtomicU64>>,
+    cancellation: Option<&ImageDerivativeCancellation>,
 ) -> Option<Result<(), CatalogDownloadError>> {
-    let epoch = cancellation_epoch.map(|epoch| epoch.load(Ordering::SeqCst));
-    let is_cancelled = || {
-        cancellation_epoch
-            .zip(epoch)
-            .map(|(epoch, started)| epoch.load(Ordering::SeqCst) != started)
-            .unwrap_or(false)
-    };
+    let is_cancelled = || cancellation.is_some_and(ImageDerivativeCancellation::is_cancelled);
     let file_extension = derivative
         .meta
         .name
@@ -296,6 +452,12 @@ fn persist_local_derivative_stream(
         file_extension,
         chunk_size: derivative.meta.chunk_size.max(1),
     };
+    if is_cancelled() {
+        return Some(Err((
+            "Derivative write cancelled".to_string(),
+            Some("CANCELLED".to_string()),
+        )));
+    }
     let snapshot = {
         let mut adapter = match adapter.lock() {
             Ok(adapter) => adapter,
@@ -365,6 +527,13 @@ fn persist_local_derivative_stream(
     }
 
     let commit_response = {
+        if is_cancelled() {
+            cleanup_catalog_derivative_write_result(&snapshot, &write_result);
+            return Some(Err((
+                "Derivative write cancelled".to_string(),
+                Some("CANCELLED".to_string()),
+            )));
+        }
         let mut adapter = match adapter.lock() {
             Ok(adapter) => adapter,
             Err(_) => {
@@ -383,7 +552,7 @@ fn persist_local_derivative_stream(
             if derivative_commit_is_stale(&result) {
                 return Some(Err((
                     "Derivative write skipped for stale source revision".to_string(),
-                    Some("CANCELLED".to_string()),
+                    Some(REMOTE_DERIVATIVE_STALE_CODE.to_string()),
                 )));
             }
             Some(Ok(()))
@@ -412,6 +581,49 @@ fn derivative_commit_is_stale(result: &serde_json::Value) -> bool {
     }
 }
 
+pub(crate) fn is_image_derivative_stale_error(error: &CatalogDownloadError) -> bool {
+    error.1.as_deref() == Some(REMOTE_DERIVATIVE_STALE_CODE)
+}
+
+fn build_core_backed_image_derivative_stream_with_retry(
+    adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
+    image_preview_runtime: &crate::image_preview::ImagePreviewRuntimeState,
+    node_id: u64,
+    display_name_hint: &str,
+    requested_mime_type: Option<&str>,
+    tier: crate::image_preview::ImageDerivativeTier,
+    cancellation: Option<&ImageDerivativeCancellation>,
+    refresh_cache: bool,
+) -> Result<StreamOut, CatalogDownloadError> {
+    for attempt in 0..=1 {
+        check_image_derivative_cancellation(cancellation)?;
+        let source_metadata = load_catalog_source_metadata(adapter, node_id)?;
+        match build_core_backed_image_derivative_stream_with_metadata_and_cancellation(
+            adapter,
+            image_preview_runtime,
+            node_id,
+            display_name_hint,
+            requested_mime_type,
+            tier,
+            source_metadata,
+            cancellation,
+            refresh_cache,
+        ) {
+            Ok((stream, _)) => return Ok(stream),
+            Err(error) if attempt == 0 && is_image_derivative_stale_error(&error) => {
+                tracing::info!(
+                    "perf:image_derivative event=stale_retry tier={} node_id={} attempt={}",
+                    tier.label(),
+                    node_id,
+                    attempt + 1,
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("bounded image derivative retry must return")
+}
+
 #[cfg(test)]
 pub(super) fn build_core_backed_image_derivative_stream(
     adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
@@ -421,47 +633,84 @@ pub(super) fn build_core_backed_image_derivative_stream(
     requested_mime_type: Option<&str>,
     tier: crate::image_preview::ImageDerivativeTier,
 ) -> Result<StreamOut, CatalogDownloadError> {
-    let source_metadata = load_catalog_source_metadata(adapter, node_id)?;
-    let (stream, _) = build_core_backed_image_derivative_stream_with_metadata_and_cancellation(
+    build_core_backed_image_derivative_stream_with_retry(
         adapter,
         image_preview_runtime,
         node_id,
         display_name_hint,
         requested_mime_type,
         tier,
-        source_metadata,
         None,
         false,
-    )?;
-    Ok(stream)
+    )
 }
 
-pub(super) fn build_core_backed_image_derivative_stream_cancellable(
+pub(super) fn build_core_backed_image_derivative_stream_with_cancellation(
     adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
     image_preview_runtime: &crate::image_preview::ImagePreviewRuntimeState,
     node_id: u64,
     display_name_hint: &str,
     requested_mime_type: Option<&str>,
     tier: crate::image_preview::ImageDerivativeTier,
-    cancellation_epoch: Arc<AtomicU64>,
+    cancellation: ImageDerivativeCancellation,
     refresh_cache: bool,
 ) -> Result<StreamOut, CatalogDownloadError> {
-    let source_metadata = load_catalog_source_metadata(adapter, node_id)?;
-    let (stream, _) = build_core_backed_image_derivative_stream_with_metadata_and_cancellation(
+    build_core_backed_image_derivative_stream_with_retry(
         adapter,
         image_preview_runtime,
         node_id,
         display_name_hint,
         requested_mime_type,
         tier,
-        source_metadata,
-        Some(&cancellation_epoch),
+        Some(&cancellation),
         refresh_cache,
-    )?;
+    )
+}
+
+fn load_remote_ensured_image_derivative_stream(
+    adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
+    node_id: u64,
+    source_revision: u64,
+    tier: crate::image_preview::ImageDerivativeTier,
+    refresh_cache: bool,
+    cancellation: Option<&ImageDerivativeCancellation>,
+) -> Result<StreamOut, CatalogDownloadError> {
+    check_image_derivative_cancellation(cancellation)?;
+    let request = RpcRequest::new(
+        REMOTE_DERIVATIVE_ENSURE_COMMAND,
+        serde_json::json!({
+            "node_id": node_id,
+            "source_version": source_revision,
+            "tier": tier.label(),
+            "version": crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+            "refresh_cache": refresh_cache,
+        }),
+    );
+    let started = Instant::now();
+    let deferred = {
+        let mut adapter = adapter.lock().map_err(|_| {
+            (
+                "Adapter mutex poisoned".to_string(),
+                Some("INTERNAL".to_string()),
+            )
+        })?;
+        adapter.begin_with_stream(&request, None)
+    };
+    let stream = stream_out_from_derivative_reply(deferred.wait(), tier)?;
+    check_image_derivative_cancellation(cancellation)?;
+    tracing::info!(
+        "perf:image_derivative event=remote_ensure_done tier={} source_revision={} storage_version={} output_bytes={} duration_ms={} node_id={}",
+        tier.label(),
+        source_revision,
+        crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+        stream.bytes.len(),
+        started.elapsed().as_millis(),
+        node_id,
+    );
     Ok(stream)
 }
 
-pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancellation(
+pub(crate) fn build_core_backed_image_derivative_stream_with_metadata_and_cancellation(
     adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
     image_preview_runtime: &crate::image_preview::ImagePreviewRuntimeState,
     node_id: u64,
@@ -469,9 +718,10 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
     requested_mime_type: Option<&str>,
     tier: crate::image_preview::ImageDerivativeTier,
     source_metadata: CatalogSourceMetadata,
-    cancellation_epoch: Option<&Arc<AtomicU64>>,
+    cancellation: Option<&ImageDerivativeCancellation>,
     refresh_cache: bool,
 ) -> Result<(StreamOut, u64), CatalogDownloadError> {
+    check_image_derivative_cancellation(cancellation)?;
     let source_revision = source_metadata.source_revision;
     let source_name = if display_name_hint.trim().is_empty() {
         source_metadata.name.as_str()
@@ -480,10 +730,27 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
     };
     let source_mime_type = requested_mime_type.or(source_metadata.mime_type.as_deref());
 
-    if !refresh_cache {
+    let (adapter_mode, remote_derivative_ensure_supported) = {
+        let adapter = adapter.lock().map_err(|_| {
+            (
+                "Adapter mutex poisoned".to_string(),
+                Some("INTERNAL".to_string()),
+            )
+        })?;
+        let mode = adapter.mode();
+        let supported = mode.is_remote()
+            && adapter
+                .remote_core_features()
+                .iter()
+                .any(|feature| feature == CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1);
+        (mode, supported)
+    };
+
+    if !remote_derivative_ensure_supported && !refresh_cache {
         if let Some(derivative) =
             load_stored_image_derivative_stream(adapter, node_id, source_revision, tier)?
         {
+            check_image_derivative_cancellation(cancellation)?;
             tracing::info!(
                 "perf:image_derivative event=cache_hit cache_hit=true tier={} source_revision={} storage_version={} output_bytes={} output_mime_type={} node_id={}",
                 tier.label(),
@@ -507,11 +774,34 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
             Some("INTERNAL".to_string()),
         )
     })?;
+    check_image_derivative_cancellation(cancellation)?;
+
+    if remote_derivative_ensure_supported {
+        tracing::info!(
+            "perf:image_derivative event=remote_ensure_start tier={} source_revision={} storage_version={} refresh_cache={} mode={:?} node_id={}",
+            tier.label(),
+            source_revision,
+            crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+            refresh_cache,
+            adapter_mode,
+            node_id,
+        );
+        let derivative = load_remote_ensured_image_derivative_stream(
+            adapter,
+            node_id,
+            source_revision,
+            tier,
+            refresh_cache,
+            cancellation,
+        )?;
+        return Ok((derivative, source_revision));
+    }
 
     if !refresh_cache {
         if let Some(cached) =
             load_stored_image_derivative_stream(adapter, node_id, source_revision, tier)?
         {
+            check_image_derivative_cancellation(cancellation)?;
             tracing::info!(
                 "perf:image_derivative event=cache_hit cache_hit=true tier={} source_revision={} storage_version={} output_bytes={} output_mime_type={} node_id={}",
                 tier.label(),
@@ -525,15 +815,6 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
         }
     }
 
-    let adapter_mode = {
-        let adapter = adapter.lock().map_err(|_| {
-            (
-                "Adapter mutex poisoned".to_string(),
-                Some("INTERNAL".to_string()),
-            )
-        })?;
-        adapter.mode()
-    };
     if adapter_mode.is_remote() {
         tracing::debug!(
             "image_derivative skipped_remote_cache_miss tier={} source_revision={} storage_version={} mode={:?} node_id={}",
@@ -553,8 +834,20 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
         source_name,
         source_mime_type,
     ) {
+        check_image_derivative_cancellation(cancellation)?;
+        if source_metadata.size > crate::image_preview::DERIVATIVE_MAX_INPUT_BYTES as u64 {
+            return Err((
+                format!(
+                    "Image preview payload exceeds derivative input limit: bytes={} max={}",
+                    source_metadata.size,
+                    crate::image_preview::DERIVATIVE_MAX_INPUT_BYTES,
+                ),
+                Some("PREVIEW_DECODE".to_string()),
+            ));
+        }
         let source_started = Instant::now();
         let source = load_catalog_download_bytes(adapter, node_id)?;
+        check_image_derivative_cancellation(cancellation)?;
         tracing::info!(
             "perf:image_derivative event=source_read cache_hit=false source_read_ms={} tier={} source_revision={} storage_version={} input_bytes={} source_mime_type={} node_id={}",
             source_started.elapsed().as_millis(),
@@ -568,6 +861,7 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
         let build_started = Instant::now();
         let derivative =
             build_image_derivative_stream(source, source_name, source_mime_type, tier)?;
+        check_image_derivative_cancellation(cancellation)?;
         tracing::info!(
             "perf:image_derivative event=build derivative:build_ms={} tier={} source_revision={} storage_version={} output_bytes={} node_id={}",
             build_started.elapsed().as_millis(),
@@ -579,14 +873,16 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
         );
         derivative
     } else if crate::audio_artwork::is_audio_artwork_candidate(source_name, source_mime_type) {
-        build_audio_artwork_derivative_stream(
+        let derivative = build_audio_artwork_derivative_stream(
             adapter,
             node_id,
             source_name,
             source_mime_type,
             tier,
             &source_metadata,
-        )?
+        )?;
+        check_image_derivative_cancellation(cancellation)?;
+        derivative
     } else {
         return Err((
             "Preview conversion is only available for image files or embedded audio artwork"
@@ -600,7 +896,7 @@ pub(super) fn build_core_backed_image_derivative_stream_with_metadata_and_cancel
         source_revision,
         tier,
         &derivative,
-        cancellation_epoch,
+        cancellation,
     )?;
 
     tracing::info!(

@@ -115,7 +115,7 @@ describe('PMEntryCreate entry type switch', () => {
     expect(getTypeOptions(component).map((option) => option.getAttribute('aria-checked'))).toEqual(['false', 'true'])
   })
 
-  it('keeps the Details hub tag editor compact', async () => {
+  it('uses the shared mobile tag picker in the Details hub', async () => {
     const component = document.createElement('pm-entry-create-mobile') as HTMLElement & {
       updateComplete: Promise<unknown>
     }
@@ -134,19 +134,18 @@ describe('PMEntryCreate entry type switch', () => {
       | null
     if (sheet) await settle(sheet)
 
-    const section = sheet?.shadowRoot?.querySelector('[data-detail-editor="tags"]')
-    expect(section).not.toBeNull()
-
-    const combobox = section?.querySelector('cv-combobox.entry-tags-combobox') as
-      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
+    const picker = sheet?.shadowRoot?.querySelector('[data-detail-editor="tags"]') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete: Promise<unknown>})
       | null
-    await combobox?.updateComplete
+    if (picker) await settle(picker)
 
-    expect(combobox?.getAttribute('max-tags-visible')).toBe('1')
-    expect(combobox?.getAttribute('type')).toBe('select-only')
-    expect(combobox?.shadowRoot?.querySelector('[part="input"]')).toBeNull()
-    expect(combobox?.shadowRoot?.querySelector('[part="trigger"]')).not.toBeNull()
-
-    expect(section?.querySelector('.entry-tags-manage')).toBeNull()
+    expect(picker?.tagName.toLowerCase()).toBe('pm-mobile-tag-picker')
+    expect(picker?.querySelector('[slot="leading"][data-detail-back]')).not.toBeNull()
+    expect(picker?.shadowRoot?.querySelector('.new-tag-button')).not.toBeNull()
+    expect(picker?.shadowRoot?.querySelector('.edit-toggle')).not.toBeNull()
+    expect(picker?.shadowRoot?.querySelectorAll('.tag-chip-wrap')).toHaveLength(0)
+    expect(picker?.shadowRoot?.querySelector('.empty-state')).not.toBeNull()
+    expect(sheet?.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox')).toBeNull()
+    expect(picker?.shadowRoot?.querySelector('cv-bottom-sheet')).toBeNull()
   })
 })

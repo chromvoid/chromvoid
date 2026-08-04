@@ -8,14 +8,8 @@ import {
   type CVGuidanceAnchorEventDetail,
 } from '@chromvoid/uikit/components/cv-guidance-anchor'
 
-import {DashboardHeader} from '../../src/features/shell/components/dashboard-header'
 import {WorkspaceDashboardHeader} from '../../src/features/file-manager/components/workspace-dashboard-header'
-import {
-  definePasswordManagerDesktopToolbarContent,
-  executePasswordManagerDesktopToolbarButtonEvent,
-  executePasswordManagerDesktopToolbarMenuInput,
-  renderPasswordManagerDesktopToolbarContent,
-} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar-content'
+import {PasswordManagerDesktopToolbar} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar'
 import type {PasswordManagerLayoutModel} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.model'
 import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
 import {RemoteHostsFlowModel} from '../../src/routes/remote/remote-hosts-flow.model'
@@ -25,9 +19,8 @@ import {renderVolumeMountSection} from '../../src/routes/remote-storage/sections
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 
 CVGuidanceAnchor.define()
-DashboardHeader.define()
 WorkspaceDashboardHeader.define()
-definePasswordManagerDesktopToolbarContent()
+PasswordManagerDesktopToolbar.define()
 WelcomeSetupSection.define()
 
 function captureAnchorRegistrations() {
@@ -155,25 +148,18 @@ describe('guidance anchor registration', () => {
     const registrations = captureAnchorRegistrations()
     const execute = vi.fn()
     const model = makeToolbarModel(execute)
-    const toolbar = document.createElement(DashboardHeader.elementName) as DashboardHeader
-    toolbar.classList.add('passwords-desktop-toolbar')
-    toolbar.twoRow = true
+    const toolbar = document.createElement(
+      PasswordManagerDesktopToolbar.elementName,
+    ) as PasswordManagerDesktopToolbar
+    toolbar.model = model
 
     document.body.append(toolbar)
-    render(
-      renderPasswordManagerDesktopToolbarContent({
-        model,
-        onToolbarButtonClick: (event) => executePasswordManagerDesktopToolbarButtonEvent(model, event),
-        onActionsMenuInput: (event) => executePasswordManagerDesktopToolbarMenuInput(model, event),
-      }),
-      toolbar,
-    )
     await settleElement(toolbar)
-    await settleAnchors(toolbar)
+    await settleAnchors(toolbar.shadowRoot!)
 
     expectAnchor(registrations.details, 'passwords.create-entry', 'passwords', 'passmanager')
 
-    toolbar.querySelector<HTMLElement>('[data-action="pm-create-entry"]')?.click()
+    toolbar.shadowRoot?.querySelector<HTMLElement>('[data-action="pm-create-entry"]')?.click()
     expect(execute).toHaveBeenCalledWith('pm-create-entry')
     registrations.stop()
   })

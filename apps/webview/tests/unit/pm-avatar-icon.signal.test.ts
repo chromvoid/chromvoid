@@ -48,6 +48,7 @@ function createManagerRoot() {
     saveEntryNote: async () => true,
     removeEntryPassword: async () => true,
     removeEntryNote: async () => true,
+    createEntry: async () => true,
     saveEntryMeta: async () => true,
     removeEntry: async () => true,
     readEntrySshPrivateKey: async () => undefined,

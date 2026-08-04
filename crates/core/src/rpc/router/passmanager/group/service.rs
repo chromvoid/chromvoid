@@ -11,6 +11,7 @@ use super::meta_store::{
 };
 use super::request::{GroupPathRequest, GroupSetMetaRequest};
 use crate::rpc::router::domain_uow::DomainUnitOfWork;
+use crate::rpc::types::PassmanagerGroupSummary;
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 
@@ -35,7 +36,24 @@ pub(super) fn ensure_group(
     })
 }
 
-fn collect_group_paths(node: &crate::catalog::CatalogNode, parent: &str, out: &mut Vec<String>) {
+fn direct_group_entry_count(node: &crate::catalog::CatalogNode) -> usize {
+    node.children()
+        .iter()
+        .filter(|child| {
+            child.is_dir()
+                && child
+                    .find_child("meta.json")
+                    .filter(|meta| meta.is_file())
+                    .is_some()
+        })
+        .count()
+}
+
+fn collect_groups(
+    node: &crate::catalog::CatalogNode,
+    parent: &str,
+    out: &mut Vec<PassmanagerGroupSummary>,
+) {
     for child in node.children() {
         if !child.is_dir() {
             continue;
@@ -56,21 +74,33 @@ fn collect_group_paths(node: &crate::catalog::CatalogNode, parent: &str, out: &m
         } else {
             format!("{parent}/{}", child.name)
         };
-        out.push(format!("/{rel}"));
-        collect_group_paths(child, &rel, out);
+        out.push(PassmanagerGroupSummary {
+            path: format!("/{rel}"),
+            entry_count: direct_group_entry_count(child),
+        });
+        collect_groups(child, &rel, out);
     }
 }
 
-pub(in crate::rpc::router::passmanager) fn list_group_paths(session: &VaultSession) -> Vec<String> {
+pub(in crate::rpc::router::passmanager) fn list_group_summaries(
+    session: &VaultSession,
+) -> Vec<PassmanagerGroupSummary> {
     let Some(pm_root) = session.catalog().find_by_path("/.passmanager") else {
         return Vec::new();
     };
 
-    let mut groups = Vec::<String>::new();
-    collect_group_paths(pm_root, "", &mut groups);
-    groups.sort();
-    groups.dedup();
+    let mut groups = Vec::<PassmanagerGroupSummary>::new();
+    collect_groups(pm_root, "", &mut groups);
+    groups.sort_by(|left, right| left.path.cmp(&right.path));
+    groups.dedup_by(|left, right| left.path == right.path);
     groups
+}
+
+pub(in crate::rpc::router::passmanager) fn list_group_paths(session: &VaultSession) -> Vec<String> {
+    list_group_summaries(session)
+        .into_iter()
+        .map(|group| group.path)
+        .collect()
 }
 
 pub(super) fn delete_group(

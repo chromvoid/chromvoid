@@ -40,9 +40,11 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
+    createEntry: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    removeGroup: vi.fn(async () => undefined),
     ...overrides,
   }
 }
@@ -589,7 +591,7 @@ describe('deferred reload after save', () => {
     expect((saver.read as Mock).mock.calls.length).toBe(readCountBefore)
   })
 
-  it('deferred reload waits for chained saves (_savePending) to complete', async () => {
+  it('coalesced callers and deferred reload wait for the latest root snapshot', async () => {
     // Initial load
     const payload1 = makeV2Payload([{id: 'a', title: 'Alpha'}])
     ;(saver.read as Mock).mockResolvedValue(JSON.stringify(payload1))
@@ -609,7 +611,11 @@ describe('deferred reload after save', () => {
     // First save
     const savePromise1 = root.save()
     // Second save while first is in-flight (coalesces via _savePending)
-    root.save()
+    const savePromise2 = root.save()
+    let saveCycleSettled = false
+    void savePromise2.then(() => {
+      saveCycleSettled = true
+    })
 
     // Load while saves are in-flight
     const remotePayload = makeV2Payload([{id: 'a', title: 'Alpha'}, {id: 'c', title: 'Charlie'}])
@@ -618,14 +624,16 @@ describe('deferred reload after save', () => {
 
     // Complete first save — second save should start due to _savePending
     resolveSave1(true)
-    await savePromise1
+    await flushMicrotasks()
 
-    // Deferred reload should NOT have happened yet (_savePending caused re-save)
-    // Still waiting for second save to complete
+    // Neither caller nor the deferred reload completes before the latest snapshot.
+    expect(saveCount).toBe(2)
+    expect(saveCycleSettled).toBe(false)
     expect(root.allEntries).toHaveLength(1)
 
     // Complete second save — now deferred reload should fire
     resolveSave2(true)
+    await expect(Promise.all([savePromise1, savePromise2])).resolves.toEqual([true, true])
     await flushMicrotasks()
     expect(root.allEntries).toHaveLength(2)
     expect(root.getEntry('c')).toBeDefined()

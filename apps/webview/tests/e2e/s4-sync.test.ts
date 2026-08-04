@@ -1,6 +1,7 @@
 import {expect, test} from 'vitest'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 
-import {waitForAuthenticated} from './utils'
+import {openFilesRoot} from './utils'
 
 import type {Page} from 'playwright'
 declare global {
@@ -9,15 +10,15 @@ declare global {
 
 test('S4: catalog synchronization', async () => {
   const page = globalThis.__E2E_PAGE__!
-  await page.goto('http://localhost:4400/index.html')
-  await waitForAuthenticated(page)
-
-  // Give background catalog synchronization a short moment to settle.
-  await page.waitForTimeout(300)
+  await openFilesRoot(page)
 
   // Check the presence of children at the root
-  const hasChildren = await page.evaluate(() => {
-    const cat = (window as any).catalog
+  const hasChildren = await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const cat = getAppContext().catalog
     if (!cat?.catalog) return false
     try {
       const children = cat.catalog.getChildren('/')

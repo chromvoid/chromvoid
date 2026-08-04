@@ -1151,7 +1151,9 @@ export const entryMobileStyles = css`
   }
 
   .website-content {
+    display: grid;
     min-inline-size: 0;
+    gap: var(--cv-space-1);
   }
 
   .website-name {
@@ -1168,6 +1170,19 @@ export const entryMobileStyles = css`
   .website-name-empty {
     color: var(--cv-color-text-muted);
     font-style: italic;
+  }
+
+  .website-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--cv-space-2);
+  }
+
+  .website-primary-marker {
+    color: var(--cv-color-primary);
+    font-size: var(--cv-font-size-xs);
+    font-weight: var(--cv-font-weight-semibold);
   }
 
   .website-actions {

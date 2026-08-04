@@ -9,6 +9,7 @@ interface FileItemRenderCallbacks {
   onClick: (event: Event) => void
   onDoubleClick: (event: Event) => void
   onContextMenu: (event: Event) => void
+  onSelectStart: (event: Event) => void
   onTouchStart: (event: TouchEvent) => void
   onTouchMove: (event: TouchEvent) => void
   onTouchEnd: (event: TouchEvent) => void
@@ -46,7 +47,17 @@ const renderSelectionIndicator = (
   {item, selected, selectionMode, viewMode, callbacks}: FileItemRenderData,
   desktop: boolean,
 ) => {
-  const visible = desktop ? viewMode === 'list' || selected : selectionMode || selected
+  if (viewMode === 'grid') {
+    if (!selectionMode && !selected) return nothing
+
+    return html`
+      <span class="selection-indicator ${selected ? 'is-selected' : ''}" aria-hidden="true">
+        ${selected ? html`<cv-icon name="check" size="s"></cv-icon>` : nothing}
+      </span>
+    `
+  }
+
+  const visible = desktop || selectionMode || selected
   if (!visible) return nothing
 
   return html`
@@ -78,16 +89,15 @@ const renderMediaActiveSpectrum = ({mediaPlaying}: FileItemRenderData) => html`
 
 const renderDesktopName = (data: FileItemRenderData) => html`
   <div class="name-line">
-    ${data.viewMode === 'grid' ? renderSelectionIndicator(data, true) : nothing}
     <div class="name"><bdi dir="auto">${data.item.name}</bdi></div>
-    ${isDotfile(data.item)
+    ${data.viewMode !== 'grid' && isDotfile(data.item)
       ? html`
           <span class="hidden-badge" title=${i18n('file-manager:hidden-files')}>
             ${i18n('file-manager:hidden-files')}
           </span>
         `
       : nothing}
-    ${data.pendingExternalOpen
+    ${data.viewMode !== 'grid' && data.pendingExternalOpen
       ? html`
           <span class="pending-open-badge" role="status">
             <cv-spinner size="xs" aria-hidden="true"></cv-spinner>
@@ -97,6 +107,20 @@ const renderDesktopName = (data: FileItemRenderData) => html`
       : nothing}
   </div>
 `
+
+const renderGridPendingStatus = (data: FileItemRenderData) =>
+  data.viewMode === 'grid' && data.pendingExternalOpen
+    ? html`
+        <span
+          class="grid-pending-status"
+          role="status"
+          aria-label=${i18n('file-manager:preparing-file')}
+          title=${i18n('file-manager:preparing-file')}
+        >
+          <cv-spinner size="xs" aria-hidden="true"></cv-spinner>
+        </span>
+      `
+    : nothing
 
 const renderActions = ({item, callbacks}: FileItemRenderData) => html`
   <div class="actions">
@@ -201,6 +225,7 @@ const renderFileItemMain = (data: FileItemRenderData, actions: unknown = nothing
       @click=${callbacks.onClick}
       @dblclick=${callbacks.onDoubleClick}
       @contextmenu=${callbacks.onContextMenu}
+      @selectstart=${callbacks.onSelectStart}
       @touchstart=${callbacks.onTouchStart}
       @touchmove=${callbacks.onTouchMove}
       @touchend=${callbacks.onTouchEnd}
@@ -211,8 +236,8 @@ const renderFileItemMain = (data: FileItemRenderData, actions: unknown = nothing
       @drop=${callbacks.onDrop}
       aria-busy=${data.pendingExternalOpen ? 'true' : 'false'}
     >
-      ${renderLeadingVisual(data, fileTypeClass)}
-      ${desktop && data.viewMode === 'grid' ? nothing : renderSelectionIndicator(data, desktop)}
+      ${renderLeadingVisual(data, fileTypeClass)} ${renderSelectionIndicator(data, desktop)}
+      ${renderGridPendingStatus(data)}
 
       <div class="info">
         ${desktop
@@ -223,7 +248,7 @@ const renderFileItemMain = (data: FileItemRenderData, actions: unknown = nothing
         </div>
       </div>
 
-      ${renderFileType(item, fileExt)} ${actions}
+      ${data.viewMode === 'grid' ? nothing : renderFileType(item, fileExt)} ${actions}
     </div>
   `
 }
@@ -252,7 +277,7 @@ export const renderFileItem = (data: FileItemRenderData) => {
 }
 
 export const renderDesktopFileItem = (data: FileItemRenderData) => {
-  return renderFileItemMain(data, renderActions(data), true)
+  return renderFileItemMain(data, data.viewMode === 'grid' ? nothing : renderActions(data), true)
 }
 
 export const renderMobileFileItem = (data: FileItemRenderData) => {

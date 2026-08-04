@@ -21,6 +21,7 @@
 export type ViewTransitionRunState =
   | 'applied'
   | 'joined-active'
+  | 'skipped-ineligible'
   | 'skipped-reduced-motion'
   | 'skipped-unsupported'
   | 'skipped-hidden'
@@ -63,9 +64,31 @@ type ViewTransitionHandle = {
   skipTransition?: () => void
 }
 
+type ElementScopedViewTransitionRoot = HTMLElement & {
+  startViewTransition?: (options: {
+    callback: () => void | Promise<void>
+    update?: () => void | Promise<void>
+    types?: readonly string[]
+  }) => ViewTransitionHandle
+}
+
+export type ElementScopedViewTransitionRequest = {
+  scope: HTMLElement | null
+  update: () => void | Promise<void>
+  settle?: () => void | Promise<void>
+  enabled?: boolean
+  types?: readonly string[]
+}
+
 /** Check if View Transition API is available */
 export function supportsViewTransitions(): boolean {
   return typeof document !== 'undefined' && typeof document.startViewTransition === 'function'
+}
+
+export function supportsElementScopedViewTransitions(
+  scope: HTMLElement | null,
+): scope is ElementScopedViewTransitionRoot {
+  return typeof (scope as ElementScopedViewTransitionRoot | null)?.startViewTransition === 'function'
 }
 
 /** Check if user prefers reduced motion */
@@ -264,6 +287,100 @@ class ViewTransitionCoordinator {
 }
 
 export const viewTransitionCoordinator = new ViewTransitionCoordinator()
+
+class ElementScopedViewTransitionCoordinator {
+  private readonly activeTransitions = new WeakMap<HTMLElement, ViewTransitionHandle>()
+  private readonly updatingScopes = new WeakSet<HTMLElement>()
+
+  async run(request: ElementScopedViewTransitionRequest): Promise<ViewTransitionResult> {
+    let updatePromise: Promise<void> | undefined
+    const runUpdateOnce = () => (updatePromise ??= this.runUpdate(request))
+    const {scope} = request
+    if (!scope) return this.runFallback(runUpdateOnce, 'skipped-missing-target')
+    if (this.updatingScopes.has(scope)) {
+      await runUpdateOnce()
+      return {state: 'joined-active'}
+    }
+
+    const fallbackState = this.getFallbackState(request)
+    if (fallbackState) return this.runFallback(runUpdateOnce, fallbackState)
+
+    const transitionRoot = scope as ElementScopedViewTransitionRoot
+    this.activeTransitions.get(scope)?.skipTransition?.()
+
+    let transition: ViewTransitionHandle
+    try {
+      const callback = async () => {
+        this.updatingScopes.add(scope)
+        try {
+          await runUpdateOnce()
+        } finally {
+          this.updatingScopes.delete(scope)
+        }
+      }
+      transition = transitionRoot.startViewTransition!({
+        callback,
+        update: callback,
+        ...(request.types ? {types: request.types} : {}),
+      })
+    } catch {
+      await runUpdateOnce()
+      return {state: 'skipped-unsupported'}
+    }
+    this.activeTransitions.set(scope, transition)
+
+    try {
+      const [readyError, updateError] = await Promise.all([
+        transition.ready.then(
+          () => undefined,
+          (error: unknown) => error,
+        ),
+        transition.updateCallbackDone.then(
+          () => undefined,
+          (error: unknown) => error,
+        ),
+      ])
+      if (updateError) throw updateError
+      if (readyError && !isSkippedViewTransition(readyError)) throw readyError
+
+      const finishedError = await transition.finished.then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      if (finishedError && !isSkippedViewTransition(finishedError)) throw finishedError
+      return {state: readyError || finishedError ? 'cancelled' : 'applied'}
+    } finally {
+      if (this.activeTransitions.get(scope) === transition) {
+        this.activeTransitions.delete(scope)
+      }
+    }
+  }
+
+  private getFallbackState(
+    request: ElementScopedViewTransitionRequest,
+  ): ViewTransitionRunState | null {
+    if (request.enabled === false) return 'skipped-ineligible'
+    if (prefersReducedMotion()) return 'skipped-reduced-motion'
+    if (!supportsElementScopedViewTransitions(request.scope)) return 'skipped-unsupported'
+    if (document.visibilityState === 'hidden') return 'skipped-hidden'
+    return null
+  }
+
+  private async runFallback(
+    update: () => Promise<void>,
+    state: ViewTransitionRunState,
+  ): Promise<ViewTransitionResult> {
+    await update()
+    return {state}
+  }
+
+  private async runUpdate(request: ElementScopedViewTransitionRequest): Promise<void> {
+    await request.update()
+    await request.settle?.()
+  }
+}
+
+export const elementScopedViewTransitionCoordinator = new ElementScopedViewTransitionCoordinator()
 
 export function viewTransition(
   updateCallback: () => void | Promise<void>,

@@ -106,6 +106,75 @@ describe('file-item render split', () => {
     expect(element.shadowRoot?.querySelector('.swipe-container')).toBeNull()
   })
 
+  it('keeps desktop grid cards free of inline actions and duplicate badges', async () => {
+    ensureDefined()
+
+    const element = document.createElement('file-item-desktop') as FileItem
+    element.item = {...ITEM, name: '.report.pdf', path: '/.report.pdf'}
+    element.viewMode = 'grid'
+    document.body.appendChild(element)
+    await settle(element)
+
+    expect(element.shadowRoot?.querySelector('.actions')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.file-type')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.hidden-badge')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.name')?.textContent).toBe('.report.pdf')
+    expect(element.shadowRoot?.querySelector('.meta')?.textContent?.trim()).not.toBe('')
+  })
+
+  it('renders grid selection indicators as card-owned visual state', async () => {
+    ensureDefined()
+
+    const desktop = document.createElement('file-item-desktop') as FileItem
+    desktop.item = ITEM
+    desktop.viewMode = 'grid'
+    document.body.appendChild(desktop)
+    await settle(desktop)
+
+    expect(desktop.shadowRoot?.querySelector('.selection-indicator')).toBeNull()
+
+    desktop.selectionMode = true
+    await settle(desktop)
+
+    const availableIndicator = desktop.shadowRoot?.querySelector('.selection-indicator')
+    expect(availableIndicator?.tagName).toBe('SPAN')
+    expect(availableIndicator?.getAttribute('aria-hidden')).toBe('true')
+    expect(desktop.shadowRoot?.querySelector('button.selection-indicator')).toBeNull()
+
+    desktop.selectionMode = false
+    desktop.selected = true
+    await settle(desktop)
+
+    expect(desktop.shadowRoot?.querySelector('.selection-indicator.is-selected cv-icon')).not.toBeNull()
+
+    const mobile = document.createElement('file-item-mobile') as FileItemMobile
+    mobile.item = ITEM
+    mobile.viewMode = 'grid'
+    mobile.selectionMode = true
+    document.body.appendChild(mobile)
+    await settle(mobile)
+
+    expect(mobile.shadowRoot?.querySelector('.selection-indicator')?.tagName).toBe('SPAN')
+    expect(mobile.shadowRoot?.querySelector('button.selection-indicator')).toBeNull()
+  })
+
+  it('uses a compact status overlay for pending grid cards', async () => {
+    ensureDefined()
+
+    const element = document.createElement('file-item-desktop') as FileItem
+    element.item = ITEM
+    element.viewMode = 'grid'
+    element.pendingExternalOpen = true
+    document.body.appendChild(element)
+    await settle(element)
+
+    const status = element.shadowRoot?.querySelector('.grid-pending-status')
+    expect(status?.getAttribute('role')).toBe('status')
+    expect(status?.getAttribute('aria-label')).toBe('Preparing file...')
+    expect(element.shadowRoot?.querySelector('.pending-open-badge')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.file-item')?.getAttribute('aria-busy')).toBe('true')
+  })
+
   it('keeps mobile swipe shell stable when touch capability is unavailable', async () => {
     ensureDefined()
     setTouchCapability(false)
@@ -187,6 +256,26 @@ describe('file-item render split', () => {
 
     expect(contextMenuSpy).not.toHaveBeenCalled()
     vi.useRealTimers()
+  })
+
+  it('prevents native text selection inside mobile file rows', async () => {
+    ensureDefined()
+    setTouchCapability(true)
+
+    const element = document.createElement('file-item-mobile') as FileItemMobile
+    element.item = ITEM
+    element.viewMode = 'list'
+    document.body.appendChild(element)
+    await settle(element)
+
+    const selectStartEvent = new Event('selectstart', {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    })
+    element.shadowRoot?.querySelector('.meta')?.dispatchEvent(selectStartEvent)
+
+    expect(selectStartEvent.defaultPrevented).toBe(true)
   })
 
   it('does not bind extra touchmove listener when touch capability is unavailable', async () => {

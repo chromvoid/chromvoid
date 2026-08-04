@@ -63,9 +63,11 @@ function createManagerSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
+    createEntry: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    removeGroup: vi.fn(async () => undefined),
     ...overrides,
   }
 }
@@ -537,7 +539,7 @@ describe('PMEntryModel actions', () => {
       urls: [
         {match: 'never', value: 'https://ignored.example'},
         {match: 'regex', value: '^internal$'},
-        {match: 'domain', value: 'https://example.com/login'},
+        {match: 'base_domain', value: 'https://example.com/login'},
       ],
     } as unknown as Entry
 
@@ -549,13 +551,20 @@ describe('PMEntryModel actions', () => {
 
   it('clears delete motion after entry delete settles when the same entry is still resolvable', async () => {
     const model = new PMEntryModel()
-    const entry = {
+    const showElement = atom<unknown>(undefined)
+    let entry!: Entry
+    const root = {
+      showElement,
+      getCardByID: vi.fn(() => entry),
+    } as unknown as ManagerRoot
+    const parent = {root, entriesList: vi.fn(() => [entry])} as unknown as ManagerRoot
+    entry = {
       id: 'entry-delete-motion',
+      parent,
+      confirmRemoval: vi.fn(async () => true),
       remove: vi.fn(async () => undefined),
     } as unknown as Entry
-    setPassmanagerRoot({
-      getCardByID: vi.fn(() => entry),
-    } as unknown as ManagerRoot)
+    setPassmanagerRoot(root)
     const clearSpy = vi.spyOn(pmDeleteMotionModel, 'clearPending')
 
     model.deleteEntryCard(entry)
@@ -568,13 +577,20 @@ describe('PMEntryModel actions', () => {
 
   it('does not clear delete motion when delete completion belongs to a stale entry', async () => {
     const model = new PMEntryModel()
-    const entry = {
+    const showElement = atom<unknown>(undefined)
+    let entry!: Entry
+    const root = {
+      showElement,
+      getCardByID: vi.fn(() => undefined),
+    } as unknown as ManagerRoot
+    const parent = {root, entriesList: vi.fn(() => [entry])} as unknown as ManagerRoot
+    entry = {
       id: 'entry-delete-stale',
+      parent,
+      confirmRemoval: vi.fn(async () => true),
       remove: vi.fn(async () => undefined),
     } as unknown as Entry
-    setPassmanagerRoot({
-      getCardByID: vi.fn(() => undefined),
-    } as unknown as ManagerRoot)
+    setPassmanagerRoot(root)
     const clearSpy = vi.spyOn(pmDeleteMotionModel, 'clearPending')
 
     model.deleteEntryCard(entry)

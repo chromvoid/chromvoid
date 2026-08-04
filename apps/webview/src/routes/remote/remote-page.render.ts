@@ -14,6 +14,8 @@ import type {
   SyncSnapshot,
 } from './remote.model'
 import type {RemoteHostsFlowModel} from './remote-hosts-flow.model'
+import {renderDesktopUsbRemoteSession} from './remote-usb-session.render'
+import type {DesktopUsbRemoteSessionPresentation} from './remote-usb-session.contract'
 
 type RemoteCalloutVariant = RouteCalloutVariant
 
@@ -35,6 +37,8 @@ export interface RemotePageRenderContext {
   remoteHostsModel: RemoteHostsFlowModel
   remoteHostsActions: RemoteHostsFlowPanelActions
   remoteHostsUi?: RemoteHostsFlowPanelUI
+  desktopUsbSession: () => DesktopUsbRemoteSessionPresentation | null
+  onReconnectUsb: () => void
   // Sync context (Task 13)
   syncSnapshot: () => SyncSnapshot
   formatLastSyncTime: (ms: number) => string
@@ -359,6 +363,23 @@ export const renderUxStateHints = (ctx: RemotePageRenderContext): TemplateResult
 }
 
 export const renderRemotePage = (ctx: RemotePageRenderContext): TemplateResult => {
+  const desktopUsbSession = ctx.desktopUsbSession()
+  if (desktopUsbSession) {
+    return html`
+      <div class="page">
+        <div class="grid">
+          ${renderDesktopUsbRemoteSession({
+            session: desktopUsbSession,
+            formatLastSyncTime: ctx.formatLastSyncTime,
+            onRequestWriteLock: ctx.onRequestWriteLock,
+            onReconnectUsb: ctx.onReconnectUsb,
+            onUseLocal: ctx.onSwitchToLocal,
+          })}
+        </div>
+      </div>
+    `
+  }
+
   return html`
     <div class="page">
       <div class="grid">

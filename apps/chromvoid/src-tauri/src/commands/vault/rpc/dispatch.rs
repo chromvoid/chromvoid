@@ -74,10 +74,13 @@ fn env_runtime_reauth_denial_code(command: &str, response: &RpcResponse) -> Opti
     }
 }
 
-fn zeroize_env_runtime_sensitive_rpc_data(command: &str, data: &mut Value) {
+fn zeroize_sensitive_rpc_data(command: &str, data: &mut Value) {
     if !matches!(
         command,
-        "env_runtime:secret:create" | "env_runtime:secret:update" | "env_runtime:secret:reveal"
+        "env_runtime:secret:create"
+            | "env_runtime:secret:update"
+            | "env_runtime:secret:reveal"
+            | "passmanager:entry:create"
     ) {
         return;
     }
@@ -377,7 +380,7 @@ pub(crate) async fn rpc_dispatch(
                 let mut req = RpcRequest::new(command_bg.clone(), data);
                 let handle_start = std::time::Instant::now();
                 let resp = adapter.handle(&req);
-                zeroize_env_runtime_sensitive_rpc_data(&command_bg, &mut req.data);
+                zeroize_sensitive_rpc_data(&command_bg, &mut req.data);
                 let handle_ms = handle_start.elapsed().as_millis();
                 if command_bg == "vault:lock" || handle_ms > 10 {
                     let group = if command_bg == "vault:lock" {
@@ -602,7 +605,7 @@ mod tests {
         env_runtime_boundary_error, env_runtime_reauth_denial_code,
         guard_env_runtime_access_at_dispatch, log_rpc_dispatch_request, rpc_command_for_log,
         should_reconcile_ssh_agent_after_success, wallet_network_for_log,
-        zeroize_env_runtime_sensitive_rpc_data,
+        zeroize_sensitive_rpc_data,
     };
 
     #[derive(Clone, Default)]
@@ -757,7 +760,12 @@ mod tests {
         };
         let error = env_runtime_boundary_error("env_runtime:secret:create", &remote)
             .expect("remote Core must be denied");
-        assert_eq!(error.1, "REMOTE_CORE_UNSUPPORTED");
+        let expected_code = if cfg!(all(desktop, target_os = "macos")) {
+            "REMOTE_CORE_UNSUPPORTED"
+        } else {
+            "UNSUPPORTED_PLATFORM"
+        };
+        assert_eq!(error.1, expected_code);
         assert!(env_runtime_boundary_error("passmanager:entry:list", &remote).is_none());
 
         if cfg!(all(desktop, target_os = "macos")) {
@@ -774,13 +782,18 @@ mod tests {
         let mut adapter = RemoteBoundaryAdapter;
         let error = guard_env_runtime_access_at_dispatch("env_runtime:secret:create", &mut adapter)
             .expect("remote adapter must be denied at final dispatch");
+        let expected_code = if cfg!(all(desktop, target_os = "macos")) {
+            "REMOTE_CORE_UNSUPPORTED"
+        } else {
+            "UNSUPPORTED_PLATFORM"
+        };
 
         assert!(matches!(
             error,
             crate::types::RpcResult::Error {
                 code: Some(ref code),
                 ..
-            } if code == "REMOTE_CORE_UNSUPPORTED"
+            } if code == expected_code
         ));
     }
 
@@ -817,18 +830,19 @@ mod tests {
     }
 
     #[test]
-    fn env_runtime_sensitive_rpc_payloads_are_zeroized_after_core_handle() {
+    fn sensitive_rpc_payloads_are_zeroized_after_core_handle() {
         for command in [
             "env_runtime:secret:create",
             "env_runtime:secret:update",
             "env_runtime:secret:reveal",
+            "passmanager:entry:create",
         ] {
             let mut data = json!({
                 "id": "secret-id",
                 "nested": ["secret-value", {"master_password": "password"}],
             });
 
-            zeroize_env_runtime_sensitive_rpc_data(command, &mut data);
+            zeroize_sensitive_rpc_data(command, &mut data);
 
             assert_eq!(data["id"], "", "{command}");
             assert_eq!(data["nested"][0], "", "{command}");
@@ -840,7 +854,7 @@ mod tests {
     fn unrelated_rpc_payloads_are_not_zeroized() {
         let mut data = json!({"value": "keep"});
 
-        zeroize_env_runtime_sensitive_rpc_data("passmanager:entry:list", &mut data);
+        zeroize_sensitive_rpc_data("passmanager:entry:list", &mut data);
 
         assert_eq!(data["value"], "keep");
     }

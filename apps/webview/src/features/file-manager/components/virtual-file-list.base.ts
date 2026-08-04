@@ -195,9 +195,9 @@ export class VirtualFileListBase extends ReatomLitElement {
   private lastVisibleRangeKey = ''
   private lastInputDebugKey: string | null = null
   private previousVisibleRows: FileListVisibleItem[] = []
-  private readonly fallbackGridCardHeight = 140
-  private readonly fallbackMobileGridCardHeight = 160
-  private readonly fallbackGridGap = 16
+  private readonly fallbackGridCardHeight = 208
+  private readonly fallbackMobileGridCardHeight = 184
+  private readonly fallbackGridGap = 12
 
   override connectedCallback() {
     super.connectedCallback()
@@ -999,13 +999,12 @@ export class VirtualFileListBase extends ReatomLitElement {
     const columns = cols ? cols.split(' ').filter(Boolean).length : this.estimateGridViewportMetrics().columns
     const gap = Number.parseFloat(style.rowGap || style.gap || '')
     const item = grid.querySelector<HTMLElement>(FILE_ITEM_HOST_SELECTOR)
-    const itemHeight = item?.getBoundingClientRect().height
+    const fallbackItemHeight = this.getFallbackGridCardHeight()
+    const measuredItemHeight = item?.getBoundingClientRect().height
+    const itemHeight = Math.max(fallbackItemHeight, measuredItemHeight ?? 0)
     this.model.setGridViewportMetrics({
       columns,
-      rowHeight: Math.max(
-        1,
-        Math.round((itemHeight && itemHeight > 0 ? itemHeight : this.getFallbackGridCardHeight()) + (Number.isFinite(gap) ? gap : this.fallbackGridGap)),
-      ),
+      rowHeight: Math.max(1, Math.round(itemHeight + (Number.isFinite(gap) ? gap : this.fallbackGridGap))),
     })
   }
 
@@ -1016,30 +1015,26 @@ export class VirtualFileListBase extends ReatomLitElement {
     const columns = Math.max(1, Math.floor((width + gap) / (minColumnWidth + gap)))
     return {
       columns,
-      rowHeight: this.getFallbackGridCardHeight() + gap,
+      rowHeight: this.getFallbackGridCardHeight(width) + gap,
     }
   }
 
   private getEstimatedGridMinColumnWidth(width: number) {
-    if (!this.mobile) return 168
-    if (width >= 1200) return 280
-    if (width >= 900) return 250
-    if (width >= 700) return 200
-    if (width >= 600) return 180
+    if (!this.mobile || width >= 900) return 184
+    if (width >= 600) return 160
     return 140
   }
 
   private getEstimatedGridGap(width: number) {
-    if (!this.mobile) return 12
-    if (width >= 1200) return 20
-    if (width >= 700) return 12
-    return 8
+    return this.mobile && width < 600 ? 8 : this.fallbackGridGap
   }
 
-  private getFallbackGridCardHeight() {
-    return this.mobile
-      ? this.fallbackMobileGridCardHeight
-      : this.fallbackGridCardHeight
+  private getFallbackGridCardHeight(width?: number) {
+    const inlineSize = width ?? this.listContainer?.clientWidth ?? this.clientWidth
+    if (!this.mobile || inlineSize >= 600) {
+      return this.fallbackGridCardHeight
+    }
+    return this.fallbackMobileGridCardHeight
   }
 
   protected getAriaSort(column: SortOption): 'none' | 'ascending' | 'descending' {

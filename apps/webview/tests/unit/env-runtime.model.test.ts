@@ -1479,6 +1479,29 @@ describe('EnvRuntimeModel', () => {
     expect(reviewActions.at(-1)?.disabled).toBe(true)
   })
 
+  it('does not render a license CTA when external Pro is disabled by the distribution', () => {
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_external_pro: false,
+    })
+    moduleAccessModel.rawStates.set([
+      {
+        feature_key: 'env-runtime',
+        status: 'locked_pro',
+        denial_code: 'PRO_REQUIRED',
+      },
+    ])
+
+    const container = document.createElement('div')
+    const page = document.createElement('test-env-runtime-page') as EnvRuntimePageHarness
+    render(page.renderForTest(), container, {host: page})
+
+    expect(envRuntimeModel.canManageLicense()).toBe(false)
+    expect(container.textContent).not.toContain('Manage license')
+    expect(container.textContent).not.toContain('Pro license required')
+  })
+
   it('explains degraded device-store mode without hiding other Env Runtime sections', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
     moduleAccessModel.rawStates.set([

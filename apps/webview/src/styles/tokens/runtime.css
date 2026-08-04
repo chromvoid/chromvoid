@@ -25,12 +25,14 @@
   --app-runtime-keyboard-inset-block-end: 0px;
   --app-runtime-keyboard-native-inset-block-end: 0px;
   --app-runtime-keyboard-overlay-offset: 0px;
+  --app-runtime-keyboard-block-end-action-offset: 0px;
   --app-runtime-keyboard-scroll-action-offset: 0px;
   --app-runtime-keyboard-scroll-clearance: 0px;
   --app-runtime-tab-bar-block-size: var(--app-mobile-tabbar-block-size);
   --app-runtime-tab-bar-display: block;
   --app-runtime-visual-viewport-block-size: 100dvh;
   --app-runtime-visual-viewport-inset-block-end: 0px;
+  --app-runtime-visual-viewport-inset-block-end-active: var(--app-runtime-visual-viewport-inset-block-end);
 }
 
 :root[dir='rtl'] {
@@ -43,9 +45,13 @@
 html[data-mobile-keyboard-expanded],
 html[data-visual-viewport-shrunken] {
   --app-runtime-content-padding: 0px;
+  --app-runtime-keyboard-block-end-action-offset: calc(
+    var(--app-runtime-keyboard-scroll-action-offset) + var(--cv-space-1)
+  );
   --app-runtime-safe-area-block-end-active: 0px;
   --app-runtime-tab-bar-block-size: 0px;
   --app-runtime-tab-bar-display: none;
+  --app-runtime-visual-viewport-inset-block-end-active: 0px;
 }
 
 body {

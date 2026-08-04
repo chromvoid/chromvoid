@@ -1,5 +1,6 @@
 import {CVButton, CVInput, CVRadio, CVRadioGroup, CVTextarea} from '@chromvoid/uikit'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {i18n as passmanagerI18n} from '@project/passmanager/i18n'
 
 import {PMEntryCreateMobile} from '../../src/features/passmanager/components/card/entry-create/entry-create-mobile'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
@@ -19,6 +20,7 @@ function installRoot(overrides: Record<string, unknown> = {}) {
     getEntry: vi.fn(() => undefined),
     getGroup: vi.fn(() => undefined),
     setShowElement: vi.fn(),
+    presentCreatedEntry: vi.fn(),
     showElement: vi.fn(() => 'createEntry'),
     isReadOnly: vi.fn(() => false),
     ...overrides,
@@ -41,9 +43,9 @@ const inputCv = async (component: PMEntryCreateMobile, name: string, value: stri
 }
 
 function setPaymentCardType(component: PMEntryCreateMobile): void {
-  ;(component as PMEntryCreateMobile & {model: {setEntryType(type: 'payment_card'): void}}).model.setEntryType(
-    'payment_card',
-  )
+  ;(
+    component as PMEntryCreateMobile & {model: {setEntryType(type: 'payment_card'): void}}
+  ).model.setEntryType('payment_card')
 }
 
 describe('PMEntryCreateMobile payment-card layout', () => {
@@ -78,7 +80,7 @@ describe('PMEntryCreateMobile payment-card layout', () => {
       'mobile-bottom-action-footer.create-footer',
     ) as HTMLElement | null
     const scroll = component.shadowRoot?.querySelector('.create-scroll') as HTMLElement | null
-    const submit = footer?.querySelector('cv-button') as CVButton | null
+    const submit = footer?.querySelector('#passwords\\.create\\.submit') as HTMLButtonElement | null
 
     expect(footer).not.toBeNull()
     expect(scroll).not.toBeNull()
@@ -86,16 +88,24 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     expect(footer?.shadowRoot?.querySelector('[part="row"]')).not.toBeNull()
     expect(scroll?.contains(footer)).toBe(false)
     expect(footer?.contains(submit)).toBe(true)
+    expect(submit).toBeInstanceOf(HTMLButtonElement)
+    expect(submit?.type).toBe('submit')
+    expect(submit?.disabled).toBe(false)
+    expect(submit?.getAttribute('aria-label')).toBe(passmanagerI18n('button:create_entry'))
+    expect(submit?.hasAttribute('aria-busy')).toBe(false)
+    expect((component.shadowRoot?.querySelector('form') as HTMLFormElement | null)?.noValidate).toBe(true)
   })
 
   it('renders compact ordinary card fields and submits typed PAN/CVV secrets', async () => {
     const entry = {
+      id: 'mobile-payment-card-created',
       flushPendingPersistence: vi.fn(async () => {}),
-      saveCardPan: vi.fn(async () => true),
-      saveCardCvv: vi.fn(async () => true),
     }
     const createEntry = vi.fn(() => entry)
-    installRoot({createEntry})
+    installRoot({
+      createEntry,
+      getEntry: vi.fn((id: string) => (id === entry.id ? entry : undefined)),
+    })
 
     const component = document.createElement('pm-entry-create-mobile') as PMEntryCreateMobile
     document.body.append(component)
@@ -129,8 +139,8 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     await inputCv(component, 'cardCvv', '123')
 
     component.shadowRoot
-      ?.querySelector('form')
-      ?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+      ?.querySelector<HTMLButtonElement>('#passwords\\.create\\.submit')
+      ?.click()
     await Promise.resolve()
     await settle(component)
 
@@ -148,9 +158,11 @@ describe('PMEntryCreateMobile payment-card layout', () => {
       '',
       '',
       undefined,
+      {
+        cardPan: '4111111111111111',
+        cardCvv: '123',
+      },
     )
-    expect(entry.saveCardPan).toHaveBeenCalledWith('4111111111111111')
-    expect(entry.saveCardCvv).toHaveBeenCalledWith('123')
   })
 
   it('keeps Create enabled and exposes all submit errors while focusing the first one', async () => {
@@ -162,17 +174,19 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     setPaymentCardType(component)
     await inputCv(component, 'title', 'Team Visa')
 
-    const submitButton = component.shadowRoot?.querySelector('.create-footer cv-button') as CVButton | null
+    const submitButton = component.shadowRoot?.querySelector(
+      '#passwords\\.create\\.submit',
+    ) as HTMLButtonElement | null
     expect(submitButton?.disabled).toBe(false)
     const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus')
 
-    component.shadowRoot
-      ?.querySelector('form')
-      ?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+    submitButton?.click()
     await Promise.resolve()
     await settle(component)
 
-    const cardholder = component.shadowRoot?.querySelector('cv-input[name="cardholderName"]') as CVInput | null
+    const cardholder = component.shadowRoot?.querySelector(
+      'cv-input[name="cardholderName"]',
+    ) as CVInput | null
     const cardNumber = component.shadowRoot?.querySelector('cv-input[name="cardNumber"]') as CVInput | null
     const month = component.shadowRoot?.querySelector('cv-input[name="cardExpMonth"]') as CVInput | null
     const year = component.shadowRoot?.querySelector('cv-input[name="cardExpYear"]') as CVInput | null
@@ -183,5 +197,45 @@ describe('PMEntryCreateMobile payment-card layout', () => {
     expect(component.shadowRoot?.querySelectorAll('.field-error').length).toBeGreaterThanOrEqual(4)
     await vi.waitFor(() => expect(focusSpy).toHaveBeenCalled())
     expect(createEntry).not.toHaveBeenCalled()
+  })
+
+  it('routes an invalid login submit through the model and focuses the missing password', async () => {
+    const createEntry = vi.fn()
+    installRoot({createEntry})
+    const component = document.createElement('pm-entry-create-mobile') as PMEntryCreateMobile
+    document.body.append(component)
+    await settle(component)
+
+    await inputCv(component, 'title', 'AWS Console')
+    await inputCv(component, 'username', 'alice')
+
+    const form = component.shadowRoot?.querySelector('form') as HTMLFormElement | null
+    const submitButton = component.shadowRoot?.querySelector(
+      '#passwords\\.create\\.submit',
+    ) as HTMLButtonElement | null
+    expect(form?.noValidate).toBe(true)
+    expect(submitButton?.disabled).toBe(false)
+
+    submitButton?.click()
+    await settle(component)
+
+    const passwordInput = component.shadowRoot?.querySelector('cv-input[name="password"]') as CVInput | null
+    const nativePasswordInput = passwordInput?.shadowRoot?.querySelector('input')
+    expect(passwordInput?.invalid).toBe(true)
+    await vi.waitFor(() => expect(passwordInput?.shadowRoot?.activeElement).toBe(nativePasswordInput))
+    expect(createEntry).not.toHaveBeenCalled()
+  })
+
+  it('keeps the native Create action disabled for a read-only vault', async () => {
+    installRoot({isReadOnly: vi.fn(() => true)})
+    const component = document.createElement('pm-entry-create-mobile') as PMEntryCreateMobile
+    document.body.append(component)
+    await settle(component)
+
+    const submitButton = component.shadowRoot?.querySelector(
+      '#passwords\\.create\\.submit',
+    ) as HTMLButtonElement | null
+    expect(submitButton).toBeInstanceOf(HTMLButtonElement)
+    expect(submitButton?.disabled).toBe(true)
   })
 })

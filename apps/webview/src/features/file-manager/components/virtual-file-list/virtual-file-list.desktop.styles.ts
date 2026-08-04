@@ -13,12 +13,6 @@ export const virtualFileListDesktopStyles = css`
       padding: 2px 0;
     }
 
-    .grid-view {
-      grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-      gap: var(--app-spacing-3);
-      padding: var(--app-spacing-3);
-    }
-
     .list-container > cv-empty-state {
       inline-size: min(440px, calc(100% - 32px));
       margin: clamp(64px, 18vh, 160px) auto 0;
@@ -61,22 +55,6 @@ export const virtualFileListDesktopStyles = css`
     .file-item-skeleton-list .skeleton-lines span:last-child {
       inline-size: min(92px, 34%);
       block-size: 8px;
-    }
-
-    .file-item-skeleton-grid {
-      min-block-size: 140px;
-      block-size: 140px;
-      grid-template-rows: 76px minmax(0, 1fr);
-      gap: 7px;
-      padding: 8px;
-      border-radius: var(--cv-radius-2);
-      background: var(--cv-color-surface-2);
-      box-shadow: none;
-    }
-
-    .file-item-skeleton-grid .skeleton-icon {
-      block-size: 76px;
-      border-radius: var(--cv-radius-1);
     }
 
     .table-view {

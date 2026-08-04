@@ -130,6 +130,11 @@ describe('Session settings mobile background lock', () => {
     vi.unstubAllGlobals()
   })
 
+  it('keeps inactivity auto-lock and biometric app gate opt-in by default', () => {
+    expect(DEFAULT_SESSION_SETTINGS.auto_lock_timeout_secs).toBe(0)
+    expect(DEFAULT_SESSION_SETTINGS.require_biometric_app_gate).toBe(false)
+  })
+
   it('defaults lock_on_mobile_background to false when older saved settings omit it', async () => {
     tauriInvoke.mockResolvedValue({
       ok: true,
@@ -348,6 +353,7 @@ describe('Session settings mobile background lock', () => {
       build_policy: 'enforce',
     }
     moduleAccessModel.entitlement.set(activeEntitlement)
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
     moduleAccessModel.licenseSeatStatus.set({
       seat_limit: 3,
       seats_used: 1,

@@ -32,7 +32,9 @@ tauri-build = { version = "2.6.3", features = [] }
 [features]
 default = ["desktop"]
 mobile-usb-smoke = ["desktop"]
+external-pro = []
 desktop = [
+    "external-pro",
     "dep:webrtc",
     "dep:dav-server",
     "dep:hyper",
@@ -46,7 +48,7 @@ mobile = [
     "tokio/rt",
 ]
 ios = ["mobile"]
-android = ["mobile"]
+android = ["mobile", "external-pro"]
 caldav = ["desktop", "dav-server/caldav"]
 carddav = ["desktop", "dav-server/carddav"]
 # Test-only executable and in-crate harness for the production Env Runtime
@@ -115,13 +117,12 @@ dbus = "0.9"
 fuser = { path = "../../../crates/fuser" }
 libc = "0.2"
 rusb = { version = "0.9", features = ["vendored"] }
-
-[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
-ssh2 = "0.9"
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
 libheif-rs = { version = "2.7", default-features = false, features = ["v1_17"] }
 rusb = "0.9"
+ssh2 = "0.9"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
@@ -132,10 +133,10 @@ webp = { version = "0.3", default-features = false }
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 block2 = "0.6"
+dispatch2 = "0.3.1"
 objc2 = "0.6"
 objc2-core-foundation = "0.3.2"
-objc2-foundation = { version = "0.3.2", features = ["NSData", "NSDictionary", "NSObject", "NSProcessInfo", "NSUserDefaults", "NSString", "NSFileManager", "NSURL"] }
-objc2-security = { version = "0.3.2", default-features = false, features = ["SecTask"] }
+objc2-foundation = { version = "0.3.2", features = ["NSData", "NSDictionary", "NSBundle", "NSObject", "NSProcessInfo", "NSUserDefaults", "NSString", "NSFileManager", "NSURL"] }
 objc2-authentication-services = { version = "0.3.2", default-features = false, features = [
     "ASCredentialIdentityStore",
     "ASSettingsHelper",
@@ -183,3 +184,6 @@ tauri = { version = "2.11.5", features = ["test"] }
 [patch.crates-io]
 swift-rs = { path = "vendor/swift-rs-1.0.7" }
 ton = { path = "vendor/ton-0.2.5" }
+tauri-plugin-clipboard-manager = { path = "vendor/tauri-plugin-clipboard-manager-2.3.2" }
+tauri-plugin-dialog = { path = "vendor/tauri-plugin-dialog-2.7.1" }
+tauri-build = { path = "vendor/tauri-build-2.6.3" }

@@ -135,9 +135,16 @@ describe('Settings page layout', () => {
     const page = await renderSettingsPage()
     const root = layoutRoot(page)
     const provider = section(root, 'settings-credential-provider')
+    const providerIndexLink = root.querySelector<HTMLAnchorElement>(
+      '.settings-index-link[href="#settings-credential-provider"]',
+    )
 
     expect(indexHrefs(root)).toContain('#settings-credential-provider')
+    expect(providerIndexLink?.textContent?.trim()).toBe('Autofill')
     expect(provider).not.toBeNull()
+    expect(provider?.querySelector('#settings-credential-provider-title')?.textContent?.trim()).toBe(
+      'Credential Provider / Autofill',
+    )
     expect(provider?.textContent).toContain('ChromVoid is not enabled as a macOS AutoFill provider yet')
     expect(provider?.textContent).toContain('Enable ChromVoid for AutoFill')
     expect(provider?.querySelector('[role="status"]')?.getAttribute('aria-atomic')).toBe('true')
@@ -185,6 +192,29 @@ describe('Settings page layout', () => {
     expect(root.textContent).toContain('Password vault')
     expect(root.textContent).toContain('Language')
     expect(root.textContent).toContain('License')
+  })
+
+  it('omits all external Pro settings from the iOS distribution', async () => {
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      desktop: false,
+      supports_autofill: true,
+      supports_external_pro: false,
+    })
+
+    const page = await renderSettingsPage()
+    const root = layoutRoot(page)
+
+    expect(root.querySelectorAll('.overview-row')).toHaveLength(4)
+    expect(
+      Array.from(root.querySelectorAll<HTMLElement>('[data-settings-route]')).map(
+        (row) => row.dataset['settingsRoute'],
+      ),
+    ).toEqual(['security', 'files', 'passwords'])
+    expect(root.querySelector('[data-settings-route="autofill"]')).toBeNull()
+    expect(root.querySelector('[data-settings-route="license"]')).toBeNull()
+    expect(root.querySelector('.license-input')).toBeNull()
   })
 
   it('switches the Settings presentation reactively without losing the route snapshot', async () => {

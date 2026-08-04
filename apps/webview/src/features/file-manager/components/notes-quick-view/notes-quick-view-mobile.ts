@@ -5,11 +5,7 @@ import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {mobileQuickViewShellStyles} from 'root/shared/ui/mobile-quick-view.styles'
 import {MobileSurfaceLayout} from 'root/shared/ui/mobile-surface-layout'
 import {mobileSurfaceLayoutBlockFillStyles} from 'root/shared/ui/mobile-surface-layout.styles'
-import {
-  defineNotesQuickViewUikitControls,
-  NotesQuickViewBase,
-  notesQuickViewMobileHeaderControlsModel,
-} from './notes-quick-view-base'
+import {defineNotesQuickViewUikitControls, NotesQuickViewBase} from './notes-quick-view-base'
 import {notesQuickViewStyles} from './notes-quick-view.styles'
 
 export class NotesQuickViewMobile extends NotesQuickViewBase {
@@ -45,7 +41,7 @@ export class NotesQuickViewMobile extends NotesQuickViewBase {
   render() {
     return html`
       <mobile-surface-layout variant="standard" scroll="owned" data-layout="mobile">
-        ${this.renderHeader('header', notesQuickViewMobileHeaderControlsModel)}
+        ${this.renderHeader('header')}
         <div class="quick-view__content">${this.renderContent()}</div>
       </mobile-surface-layout>
     `

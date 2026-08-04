@@ -24,6 +24,7 @@ import type {
   CatalogFileReplaceOptions,
   CatalogFileReplaceResult,
   CatalogSourceMetadata,
+  CatalogUploadResult,
 } from '../../catalog/catalog'
 import {normalizeFileMediaInfo, toCompactFileMediaInfo} from '../../catalog/media-info'
 import {
@@ -1525,12 +1526,53 @@ export class MockTransport implements TransportLike {
             return ok(undefined)
           }
 
+          case 'passmanager:entry:create':
           case 'passmanager:entry:save': {
+            const isCreate = command === 'passmanager:entry:create'
             const entryId = toOptionalString(data['entry_id'] ?? data['id']) ?? crypto.randomUUID()
             const title = toOptionalString(data['title'])
             const entryType = toOptionalString(data['entry_type'] ?? data['entryType']) ?? 'login'
             if (!title) return err('title is required')
             if (entryType !== 'login' && entryType !== 'payment_card') return err('invalid entry_type')
+            const createSecrets =
+              isCreate && data['secrets'] && typeof data['secrets'] === 'object'
+                ? (data['secrets'] as Record<string, unknown>)
+                : {}
+            const password = createSecrets['password']
+            const note = createSecrets['note']
+            const cardPan = createSecrets['card_pan']
+            const cardCvv = createSecrets['card_cvv']
+            for (const [key, value] of Object.entries({
+              password,
+              note,
+              card_pan: cardPan,
+              card_cvv: cardCvv,
+            })) {
+              if (value !== undefined && value !== null && typeof value !== 'string') {
+                return err(`secrets.${key} must be a string`)
+              }
+            }
+            if (isCreate && entryType === 'login' && (cardPan !== undefined || cardCvv !== undefined)) {
+              return err('card secrets are incompatible with entry_type=login')
+            }
+            if (isCreate && entryType === 'payment_card' && password !== undefined) {
+              return err('password is incompatible with entry_type=payment_card')
+            }
+            const normalizedCardPan =
+              typeof cardPan === 'string' ? cardPan.replaceAll(/[^0-9]/g, '') : undefined
+            const normalizedCardCvv =
+              typeof cardCvv === 'string' ? cardCvv.replaceAll(/[^0-9]/g, '') : undefined
+            if (isCreate && entryType === 'payment_card') {
+              if (!normalizedCardPan || normalizedCardPan.length < 12 || normalizedCardPan.length > 19) {
+                return err('secrets.card_pan is required for entry_type=payment_card')
+              }
+              if (
+                normalizedCardCvv !== undefined &&
+                (normalizedCardCvv.length < 3 || normalizedCardCvv.length > 4)
+              ) {
+                return err('card_cvv must contain 3-4 digits after normalization')
+              }
+            }
             const existing = this.passmanagerEntries.get(entryId)
             const folderPath = this.normalizePassmanagerFolderPath(
               data['group_path'] ?? data['groupPath'] ?? data['folderPath'],
@@ -1576,6 +1618,9 @@ export class MockTransport implements TransportLike {
                     ? structuredClone(data['paymentCard'])
                     : undefined
               if (!paymentCard) return err('payment_card is required')
+              if (normalizedCardPan) {
+                (paymentCard as Record<string, unknown>)['last4'] = normalizedCardPan.slice(-4)
+              }
               nextMeta['payment_card'] = paymentCard
               delete nextMeta['username']
               delete nextMeta['urls']
@@ -1597,6 +1642,20 @@ export class MockTransport implements TransportLike {
               nodeId: existing?.nodeId ?? this.passmanagerNextNodeId++,
               meta: nextMeta,
             })
+            if (isCreate) {
+              if (typeof password === 'string') {
+                this.passmanagerSecrets.set(`${entryId}:password`, password)
+              }
+              if (typeof note === 'string') {
+                this.passmanagerSecrets.set(`${entryId}:note`, note)
+              }
+              if (normalizedCardPan) {
+                this.passmanagerSecrets.set(`${entryId}:card_pan`, normalizedCardPan)
+              }
+              if (normalizedCardCvv !== undefined) {
+                this.passmanagerSecrets.set(`${entryId}:card_cvv`, normalizedCardCvv)
+              }
+            }
             this.bumpPassmanagerRevision()
             return ok({entry_id: entryId})
           }
@@ -1828,7 +1887,15 @@ export class MockTransport implements TransportLike {
           case 'passmanager:group:list': {
             const groups = Array.from(this.passmanagerFolders)
               .sort((left, right) => left.localeCompare(right))
-              .map((path) => ({path, name: path.split('/').pop() ?? path}))
+              .map((path) => ({
+                path,
+                entry_count: Array.from(this.passmanagerEntries.values()).filter((entry) => {
+                  const entryFolder = this.normalizePassmanagerFolderPath(
+                    entry.meta['folderPath'] ?? entry.meta['groupPath'],
+                  )
+                  return entryFolder === path
+                }).length,
+              }))
             return ok({groups})
           }
 
@@ -2294,7 +2361,8 @@ export class MockTransport implements TransportLike {
       type?: string
       onProgress?: (c: number, t: number, p: number) => void
     },
-  ): Promise<{nodeId: number}> {
+  ): Promise<CatalogUploadResult> {
+    const created = typeof target !== 'number'
     const nodeId =
       typeof target === 'number'
         ? target
@@ -2335,7 +2403,16 @@ export class MockTransport implements TransportLike {
     }
 
     this.scheduleSave()
-    return {nodeId}
+    return {
+      nodeId,
+      created,
+      size: node.size,
+      mimeType: node.mimeType ?? null,
+      modtime: node.modtime,
+      sourceRevision: node.sourceRevision ?? null,
+      mediaInfo: node.mediaInfo ?? null,
+      mediaInspectedRevision: node.mediaInspectedRevision ?? null,
+    }
   }
 
   async sourceMetadata(nodeId: number): Promise<CatalogSourceMetadata> {

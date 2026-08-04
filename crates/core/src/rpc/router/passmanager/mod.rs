@@ -25,6 +25,15 @@ use crate::vault::VaultSession;
 impl RpcRouter {
     // ── Entry handlers ──────────────────────────────────────────────────────
 
+    pub(super) fn handle_passmanager_entry_create(
+        &mut self,
+        data: &serde_json::Value,
+    ) -> RpcResponse {
+        self.commit_passmanager_domain_uow("passmanager-entry-create", |s, storage, uow| {
+            entry::handle_create(s, storage, uow, data)
+        })
+    }
+
     pub(super) fn handle_passmanager_entry_save(
         &mut self,
         data: &serde_json::Value,

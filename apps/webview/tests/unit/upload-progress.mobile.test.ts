@@ -276,8 +276,11 @@ describe("upload-progress-mobile", () => {
     document.body.appendChild(element);
     await settle(element);
 
-    const bar = element.shadowRoot?.querySelector<HTMLButtonElement>(".minimized-bar");
-    expect(bar?.getAttribute("data-tone")).toBe("danger");
+    expect(model.expanded()).toBe(true);
+    expect(element.shadowRoot?.querySelector(".minimized-bar")).toBeNull();
+    expect(element.shadowRoot?.querySelector(".sheet-title")?.getAttribute("data-tone")).toBe(
+      "danger",
+    );
     expect(element.shadowRoot?.textContent ?? "").toContain(
       `Needs attention: ${isolateLtr("1")} failed`,
     );

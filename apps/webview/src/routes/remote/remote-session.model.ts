@@ -2,10 +2,18 @@ import {navigationModel} from 'root/app/navigation/navigation.model'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
 import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
+import {
+  moduleAccessModel,
+  type ActiveCoreAccessReadiness,
+} from 'root/core/pro/module-access.model'
+import {
+  activeCoreAccessContextFromMode,
+  type ActiveCoreAccessContext,
+} from 'root/core/pro/active-core-access-context'
 import {getAppContext} from 'root/shared/services/app-context'
 import {subscribeToSignalChanges, type Unsubscribe} from 'root/shared/services/subscribed-signal'
 import {i18n} from 'root/i18n'
-import {wrap} from '@reatom/core'
+import {atom, wrap} from '@reatom/core'
 
 import {
   getModeStatus,
@@ -57,6 +65,20 @@ function normalizeTransportSessionGeneration(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
 }
 
+function syncActiveCoreAccess(
+  context: ActiveCoreAccessContext | null,
+  readiness: ActiveCoreAccessReadiness,
+): void {
+  if (!context) {
+    if (readiness === 'pending') {
+      moduleAccessModel.setActiveCoreContext(moduleAccessModel.activeCoreContext(), 'pending')
+    }
+    return
+  }
+  moduleAccessModel.setActiveCoreContext(context, readiness)
+  if (readiness === 'ready') void moduleAccessModel.ensureActiveCoreAccess()
+}
+
 function readRemoteSessionGeneration(store: unknown): number | null {
   const source = (store as {remoteSessionGeneration?: () => number | null}).remoteSessionGeneration
   return typeof source === 'function' ? source() : null
@@ -82,6 +104,8 @@ function setRemoteSessionPhoneApproval(store: unknown, peerId: string | null): v
 }
 
 class RemoteSessionModel {
+  readonly usbRecoveryRequired = atom(false, 'remote.session.usbRecoveryRequired')
+
   private readonly pollIntervalMs = 5_000
   private modeChangedUnlisten: (() => void) | null = null
   private connectionStatusUnlisten: (() => void) | null = null
@@ -98,15 +122,27 @@ class RemoteSessionModel {
     this.transportConnectedUnlisten = subscribeToSignalChanges(ws.connected, (connected) => {
       if (connected) void this.syncNow()
     })
-    this.modeChangedUnlisten = await wrap(onModeChanged(wrap(() => {
-      void this.syncNow()
-    })))
-    this.connectionStatusUnlisten = await wrap(onConnectionStatus(wrap(() => {
-      void this.syncNow()
-    })))
-    this.mobileUsbStatusUnlisten = await wrap(onMobileUsbStatusChanged(wrap(() => {
-      void this.syncNow()
-    })))
+    this.modeChangedUnlisten = await wrap(
+      onModeChanged(
+        wrap(() => {
+          void this.syncNow()
+        }),
+      ),
+    )
+    this.connectionStatusUnlisten = await wrap(
+      onConnectionStatus(
+        wrap(() => {
+          void this.syncNow()
+        }),
+      ),
+    )
+    this.mobileUsbStatusUnlisten = await wrap(
+      onMobileUsbStatusChanged(
+        wrap(() => {
+          void this.syncNow()
+        }),
+      ),
+    )
     await wrap(this.syncNow())
   }
 
@@ -122,6 +158,7 @@ class RemoteSessionModel {
     this.stopPolling()
     this.syncPromise = null
     this.connected = false
+    this.usbRecoveryRequired.set(false)
   }
 
   async syncNow(): Promise<void> {
@@ -142,7 +179,20 @@ class RemoteSessionModel {
   private async performSync(): Promise<void> {
     const {store, ws} = getAppContext()
 
-    if (!ws.connected() || !getRuntimeCapabilities().desktop) {
+    if (!ws.connected()) {
+      const context = activeCoreAccessContextFromMode(
+        runtimeModeModel.coreMode(),
+        runtimeModeModel.transportSessionGeneration(),
+      )
+      syncActiveCoreAccess(context, 'pending')
+      this.usbRecoveryRequired.set(false)
+      store.resetRemoteSession()
+      this.stopPolling()
+      return
+    }
+
+    if (!getRuntimeCapabilities().desktop) {
+      this.usbRecoveryRequired.set(false)
       store.resetRemoteSession()
       this.stopPolling()
       return
@@ -157,6 +207,14 @@ class RemoteSessionModel {
       modeInfo = await wrap(getModeStatus())
     } catch (error) {
       console.warn('[remote-session] mode_status failed', error)
+      syncActiveCoreAccess(
+        activeCoreAccessContextFromMode(
+          runtimeModeModel.coreMode(),
+          runtimeModeModel.transportSessionGeneration(),
+        ),
+        'pending',
+      )
+      this.usbRecoveryRequired.set(false)
       store.resetRemoteSession()
       this.stopPolling()
       return
@@ -165,8 +223,14 @@ class RemoteSessionModel {
       modeInfo.transport_session_generation,
     )
     runtimeModeModel.setCoreMode(modeInfo.mode, modeInfo.remote_core_features, transportSessionGeneration)
+    const accessContext = activeCoreAccessContextFromMode(
+      modeInfo.mode,
+      transportSessionGeneration,
+    )
 
     if (!isRemoteMode(modeInfo.mode)) {
+      if (accessContext?.sourceCore === 'local') syncActiveCoreAccess(accessContext, 'ready')
+      this.usbRecoveryRequired.set(false)
       store.resetRemoteSession()
       this.stopPolling()
       return
@@ -175,6 +239,8 @@ class RemoteSessionModel {
     const remoteHost = modeInfo.mode.remote.host as RemoteHost
     const peerId = resolveRemotePeerId(remoteHost)
     if (!peerId || modeInfo.connection_state === 'disconnected' || modeInfo.connection_state === 'error') {
+      syncActiveCoreAccess(accessContext, 'pending')
+      this.usbRecoveryRequired.set(false)
       store.resetRemoteSession()
       this.stopPolling()
       return
@@ -184,13 +250,38 @@ class RemoteSessionModel {
 
     if (isMobileUsbHost(remoteHost)) {
       const usbStatus = await this.loadMobileUsbStatus()
+      const writerLocked =
+        usbStatus?.session_state === 'remote_dashboard_open' &&
+        usbStatus.error_code === 'ERR_USB_MOBILE_WRITER_LOCKED'
+      if (writerLocked) {
+        const currentState = store.remoteSessionState()
+        const currentPeerId = store.remoteSessionPeerId()
+        const currentGeneration = readRemoteSessionGeneration(store)
+        const readOnlyAlreadyAccepted =
+          currentState === 'ready' &&
+          currentPeerId === peerId &&
+          currentGeneration === transportSessionGeneration
+        setRemoteSessionGeneration(store, transportSessionGeneration)
+        if (readOnlyAlreadyAccepted) {
+          syncActiveCoreAccess(accessContext, 'ready')
+        } else {
+          syncActiveCoreAccess(accessContext, 'pending')
+          store.setRemoteSessionWaiting(peerId)
+        }
+        this.usbRecoveryRequired.set(!readOnlyAlreadyAccepted)
+        return
+      }
+      if (usbStatus !== null) this.usbRecoveryRequired.set(false)
+
       if (usbStatus?.session_state === 'session_approval_required') {
+        syncActiveCoreAccess(accessContext, 'pending')
         setRemoteSessionGeneration(store, transportSessionGeneration)
         setRemoteSessionPhoneApproval(store, peerId)
         return
       }
 
       if (usbStatus?.session_state === 'transport_ready_host_locked') {
+        syncActiveCoreAccess(accessContext, 'pending')
         setRemoteSessionGeneration(store, transportSessionGeneration)
         store.setRemoteSessionWaiting(peerId)
         if (previousState === 'ready') {
@@ -198,6 +289,8 @@ class RemoteSessionModel {
         }
         return
       }
+    } else {
+      this.usbRecoveryRequired.set(false)
     }
 
     let vaultStatus: VaultStatusResponse
@@ -216,11 +309,13 @@ class RemoteSessionModel {
       ) {
         navigationModel.reset()
       }
+      syncActiveCoreAccess(accessContext, 'ready')
       setRemoteSessionGeneration(store, transportSessionGeneration)
       store.setRemoteSessionReady(peerId)
       return
     }
 
+    syncActiveCoreAccess(accessContext, 'pending')
     setRemoteSessionGeneration(store, transportSessionGeneration)
     store.setRemoteSessionWaiting(peerId)
     if (previousState === 'ready') {
@@ -239,9 +334,12 @@ class RemoteSessionModel {
 
   private startPolling(): void {
     if (this.pollTimer !== null) return
-    this.pollTimer = setInterval(wrap(() => {
-      void this.syncNow()
-    }), this.pollIntervalMs)
+    this.pollTimer = setInterval(
+      wrap(() => {
+        void this.syncNow()
+      }),
+      this.pollIntervalMs,
+    )
   }
 
   private stopPolling(): void {

@@ -23,11 +23,12 @@ import {PMEntryMove} from '../pm-entry-move'
 import type {PMEntryMove as PMEntryMoveType} from '../pm-entry-move'
 import type {PMEntryOTP} from '../pm-entry-otp'
 import {PMEntryOTPItem} from '../pm-entry-otp-item'
+import {PMEntryWebsiteEditor} from '../entry-website-editor'
 import {PMWorkspaceHeader} from '../pm-workspace-header'
 import {PMEntrySshGenerator} from '../entry-ssh/entry-ssh-generator'
 import {PMEntrySshKeys} from '../entry-ssh/entry-ssh-keys'
 import {PMEntrySshKey} from '../entry-ssh/entry-ssh-key'
-import {PMEntryModel, type PMEntryActionUrl} from './entry.model'
+import {getUrlMatchLabel, PMEntryModel, type PMEntryActionUrl} from './entry.model'
 import type {PMEntrySecretResource} from './entry-session.model'
 import {entrySharedStyles, paymentCardFaceStyles} from './styles'
 import {pmSharedStyles} from '../../../styles/shared'
@@ -53,6 +54,7 @@ export class PMEntryBase extends ReatomLitElement {
     CVToolbar.define()
     CVInput.define()
     CVTextarea.define()
+    PMEntryWebsiteEditor.define()
     PMEntryMove.define()
     PMEntryOTPCreate.define()
     PMEntryOTPItem.define()
@@ -213,6 +215,7 @@ export class PMEntryBase extends ReatomLitElement {
                     type="password"
                     password-toggle
                     readonly
+                    readonly-scrollable
                     .value=${passwordResource.value}
                     size="small"
                   >
@@ -243,6 +246,12 @@ export class PMEntryBase extends ReatomLitElement {
           @click=${url.openable ? this.onUrlClick : undefined}
         >
           <span class="website-name" dir="ltr">${url.value}</span>
+          ${url.isPrimary
+            ? html`<span class="website-primary-marker">${i18n('website:primary_marker')}</span>`
+            : nothing}
+          ${url.match !== 'base_domain'
+            ? html`<cv-badge size="small" variant="neutral">${getUrlMatchLabel(url.match)}</cv-badge>`
+            : nothing}
           ${url.openable ? html`<cv-icon name="box-arrow-up-right" slot="suffix" aria-hidden="true"></cv-icon>` : nothing}
         </cv-link>
       `

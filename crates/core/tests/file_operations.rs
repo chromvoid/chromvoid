@@ -149,9 +149,36 @@ fn test_upload_create_returns_node_id_and_uploaded_bytes() {
 
     let node_id = get_node_id(&response);
     let uploaded_bytes = get_uploaded_bytes(&response);
+    let result = response.result().expect("upload result");
 
     assert!(node_id > 0);
     assert_eq!(uploaded_bytes, 2048);
+    assert_eq!(
+        result.get("completed").and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        result.get("created").and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        result.get("size").and_then(|value| value.as_u64()),
+        Some(2048)
+    );
+    assert!(result
+        .get("modtime")
+        .and_then(|value| value.as_u64())
+        .is_some_and(|value| value > 0));
+    assert!(result
+        .get("source_revision")
+        .and_then(|value| value.as_u64())
+        .is_some_and(|value| value > 0));
+    assert_eq!(
+        result
+            .get("media_inspected_revision")
+            .and_then(|value| value.as_u64()),
+        Some(0)
+    );
 }
 
 #[test]

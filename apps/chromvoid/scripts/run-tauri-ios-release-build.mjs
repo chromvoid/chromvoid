@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
@@ -17,6 +18,73 @@ const licensePublicKeyFiles = [
   path.join(appRoot, 'src-tauri', 'gen', 'android', '.license-public-key'),
 ]
 const appleBuildDir = path.join(appRoot, 'src-tauri', 'gen', 'apple', 'build')
+const appStoreArchive = path.join(appleBuildDir, 'chromvoid_iOS.xcarchive')
+const appStoreArchiveInfo = path.join(appStoreArchive, 'Info.plist')
+const appStoreArchiveApp = path.join(
+  appStoreArchive,
+  'Products',
+  'Applications',
+  'ChromVoid.app',
+)
+const appStoreExportDir = path.join(appleBuildDir, 'app-store-connect')
+const appStoreExportOptions = path.join(appRoot, 'src-tauri', 'gen', 'apple', 'AppStoreExportOptions.plist')
+const appStoreSigningTargets = [
+  {
+    bundle: path.join(
+      appStoreArchiveApp,
+      'PlugIns',
+      'ChromVoidCredentialProvider.appex',
+    ),
+    entitlements: path.join(
+      appRoot,
+      'src-tauri',
+      'gen',
+      'apple',
+      'chromvoid_CredentialProviderExtension',
+      'chromvoid_CredentialProviderExtension.entitlements',
+    ),
+  },
+  {
+    bundle: path.join(appStoreArchiveApp, 'PlugIns', 'ChromVoidShareExtension.appex'),
+    entitlements: path.join(
+      appRoot,
+      'src-tauri',
+      'gen',
+      'apple',
+      'chromvoid_ShareExtension',
+      'chromvoid_ShareExtension.entitlements',
+    ),
+  },
+  {
+    bundle: appStoreArchiveApp,
+    entitlements: path.join(
+      appRoot,
+      'src-tauri',
+      'gen',
+      'apple',
+      'chromvoid_iOS',
+      'chromvoid_iOS.entitlements',
+    ),
+  },
+]
+const generatedBuildFiles = [
+  path.join(appRoot, 'src-tauri', 'gen', 'schemas', 'acl-manifests.json'),
+  path.join(appRoot, 'src-tauri', 'gen', 'apple', 'chromvoid.xcodeproj', 'project.pbxproj'),
+  path.join(appRoot, 'src-tauri', 'gen', 'apple', 'chromvoid_iOS', 'Info.plist'),
+  path.join(appRoot, 'src-tauri', 'gen', 'apple', 'chromvoid_CredentialProviderExtension', 'Info.plist'),
+  path.join(
+    appRoot,
+    'src-tauri',
+    'gen',
+    'apple',
+    'chromvoid_CredentialProviderExtension',
+    'Info-macOS.plist',
+  ),
+  path.join(appRoot, 'src-tauri', 'gen', 'apple', 'chromvoid_ShareExtension', 'Info.plist'),
+  path.join(appRoot, 'src-tauri', 'gen', 'apple', 'chromvoid_macos', 'Info.plist'),
+]
+const cargoLockFile = path.join(appRoot, 'src-tauri', 'Cargo.lock')
+const vendoredPluginsDir = path.join(appRoot, 'src-tauri', 'vendor')
 const localTauriBinary = path.join(
   appRoot,
   'node_modules',
@@ -91,7 +159,8 @@ function unzip(ipaPath, args) {
     maxBuffer: 256 * 1024 * 1024,
   })
   if (result.status !== 0) {
-    const detail = result.stderr?.toString().trim() || result.stdout?.toString().trim() || `unzip failed for ${ipaPath}`
+    const detail =
+      result.stderr?.toString().trim() || result.stdout?.toString().trim() || `unzip failed for ${ipaPath}`
     fail(detail)
   }
   return result.stdout
@@ -134,6 +203,219 @@ function hasExportMethod(args) {
   return args.some((arg) => arg === '--export-method' || arg.startsWith('--export-method='))
 }
 
+function extractBuildNumber(args) {
+  const inlineValue = args.find((arg) => arg.startsWith('--build-number='))?.slice('--build-number='.length)
+  const optionIndex = args.indexOf('--build-number')
+  const value = inlineValue ?? (optionIndex === -1 ? null : args[optionIndex + 1])
+
+  if (value !== null && !/^[1-9]\d*$/.test(value)) {
+    fail(`--build-number must be a positive integer, got ${JSON.stringify(value)}.`)
+  }
+  return value
+}
+
+function withoutBuildNumber(args) {
+  const result = []
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg.startsWith('--build-number=')) {
+      continue
+    }
+    if (arg === '--build-number') {
+      index += 1
+      continue
+    }
+    result.push(arg)
+  }
+  return result
+}
+
+function requestsAppStoreConnectExport(args) {
+  const inlineMethod = args
+    .find((arg) => arg.startsWith('--export-method='))
+    ?.slice('--export-method='.length)
+  if (inlineMethod) {
+    return inlineMethod === 'app-store-connect'
+  }
+
+  const methodIndex = args.indexOf('--export-method')
+  return methodIndex !== -1 && args[methodIndex + 1] === 'app-store-connect'
+}
+
+function readLockedTauriVersion() {
+  const lockFile = fs.readFileSync(cargoLockFile, 'utf8')
+  const match = lockFile.match(/\[\[package\]\]\s+name = "tauri"\s+version = "([^"]+)"/m)
+  if (!match) {
+    fail(`Failed to read the locked Tauri version from ${cargoLockFile}`)
+  }
+  return match[1]
+}
+
+function findLockedTauriIosApiPath() {
+  const tauriVersion = readLockedTauriVersion()
+  const cargoHome = process.env.CARGO_HOME
+    ? path.resolve(process.env.CARGO_HOME)
+    : path.join(os.homedir(), '.cargo')
+  const registrySourcesDir = path.join(cargoHome, 'registry', 'src')
+  if (!fs.existsSync(registrySourcesDir)) {
+    return null
+  }
+
+  for (const registryDir of fs.readdirSync(registrySourcesDir, {withFileTypes: true})) {
+    if (!registryDir.isDirectory()) {
+      continue
+    }
+    const packagePath = path.join(
+      registrySourcesDir,
+      registryDir.name,
+      `tauri-${tauriVersion}`,
+      'mobile',
+      'ios-api',
+    )
+    if (fs.existsSync(path.join(packagePath, 'Package.resolved'))) {
+      return packagePath
+    }
+  }
+
+  return null
+}
+
+function snapshotVendoredIosBuildState() {
+  if (!fs.existsSync(vendoredPluginsDir)) {
+    return []
+  }
+
+  const states = []
+  for (const plugin of fs.readdirSync(vendoredPluginsDir, {withFileTypes: true})) {
+    if (!plugin.isDirectory() || !plugin.name.startsWith('tauri-plugin-')) {
+      continue
+    }
+
+    const pluginDir = path.join(vendoredPluginsDir, plugin.name)
+    const iosDir = path.join(pluginDir, 'ios')
+    const packageFile = path.join(iosDir, 'Package.swift')
+    if (
+      !fs.existsSync(packageFile) ||
+      !fs.readFileSync(packageFile, 'utf8').includes('../.tauri/tauri-api')
+    ) {
+      continue
+    }
+
+    const resolvedFile = path.join(iosDir, 'Package.resolved')
+    const tauriDir = path.join(pluginDir, '.tauri')
+    states.push({
+      resolvedFile,
+      resolvedContents: fs.existsSync(resolvedFile) ? fs.readFileSync(resolvedFile) : null,
+      tauriDir,
+      tauriDirExisted: fs.existsSync(tauriDir),
+    })
+  }
+  return states
+}
+
+function prepareVendoredIosPackageResolutions(states) {
+  const tauriIosApiPath = findLockedTauriIosApiPath()
+  if (!tauriIosApiPath) {
+    fail(
+      'Locked Tauri iOS API package is missing from the Cargo registry cache. Run cargo fetch before the release build.',
+    )
+  }
+
+  const resolvedContents = fs.readFileSync(path.join(tauriIosApiPath, 'Package.resolved'))
+  for (const state of states) {
+    fs.writeFileSync(state.resolvedFile, resolvedContents)
+  }
+  console.log(
+    `[tauri-ios-release] Prepared SwiftPM resolution for ${states.length} vendored iOS plugin package(s)`,
+  )
+}
+
+function readAppStoreTeamId() {
+  const result = spawnSync(
+    'plutil',
+    ['-extract', 'teamID', 'raw', '-o', '-', appStoreExportOptions],
+    {encoding: 'utf8'},
+  )
+  if (result.status !== 0 || !result.stdout.trim()) {
+    fail(`Failed to read teamID from ${appStoreExportOptions}`)
+  }
+  return result.stdout.trim()
+}
+
+function findAppleDistributionIdentity() {
+  const teamId = readAppStoreTeamId()
+  const result = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+    encoding: 'utf8',
+  })
+  if (result.status !== 0) {
+    fail('Failed to list code-signing identities from the login keychain')
+  }
+
+  const identities = result.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.includes('Apple Distribution:') && line.includes(`(${teamId})`))
+    .map((line) => line.match(/\b[0-9A-F]{40}\b/)?.[0])
+    .filter(Boolean)
+  if (identities.length !== 1) {
+    fail(`Expected one Apple Distribution identity for team ${teamId}, found ${identities.length}`)
+  }
+  return identities[0]
+}
+
+function resignAppStoreArchive() {
+  const identity = findAppleDistributionIdentity()
+  console.log('[tauri-ios-release] Re-signing App Store archive with production entitlements')
+
+  for (const target of appStoreSigningTargets) {
+    if (!fs.existsSync(target.bundle) || !fs.existsSync(target.entitlements)) {
+      fail(`Missing App Store signing input: ${target.bundle} or ${target.entitlements}`)
+    }
+    const result = spawnSync(
+      'codesign',
+      [
+        '--force',
+        '--sign',
+        identity,
+        '--entitlements',
+        target.entitlements,
+        '--generate-entitlement-der',
+        '--timestamp=none',
+        target.bundle,
+      ],
+      {cwd: appRoot, env: childEnv, stdio: 'inherit'},
+    )
+    if (result.status !== 0) {
+      fail(`Failed to sign ${target.bundle}`)
+    }
+  }
+}
+
+function exportFreshAppStoreArchive(buildStartedAt) {
+  if (!fs.existsSync(appStoreArchiveInfo) || !fs.existsSync(appStoreExportOptions)) {
+    return false
+  }
+  if (fs.statSync(appStoreArchiveInfo).mtimeMs < buildStartedAt) {
+    return false
+  }
+
+  resignAppStoreArchive()
+  console.log('[tauri-ios-release] Exporting with manual App Store provisioning profiles')
+  const result = spawnSync(
+    'xcodebuild',
+    [
+      '-exportArchive',
+      '-archivePath',
+      appStoreArchive,
+      '-exportPath',
+      appStoreExportDir,
+      '-exportOptionsPlist',
+      appStoreExportOptions,
+    ],
+    {cwd: appRoot, env: childEnv, stdio: 'inherit'},
+  )
+  return result.status === 0
+}
+
 const metadataOnly =
   forwardedArgs.includes('-h') ||
   forwardedArgs.includes('--help') ||
@@ -146,23 +428,49 @@ const childEnv = licensePublicKey
       [licensePublicKeyEnv]: licensePublicKey,
     }
   : process.env
-const args = [
-  'ios',
-  'build',
-  '--target',
-  'aarch64',
-  '--features',
-  'ios',
-  '--ci',
-]
+const generatedBuildFileContents = metadataOnly
+  ? new Map()
+  : new Map(generatedBuildFiles.map((filePath) => [filePath, fs.readFileSync(filePath)]))
+const vendoredIosBuildState = metadataOnly ? [] : snapshotVendoredIosBuildState()
+let generatedBuildFilesRestored = false
+
+function restoreGeneratedBuildFiles() {
+  if (generatedBuildFilesRestored) {
+    return
+  }
+  for (const [filePath, contents] of generatedBuildFileContents) {
+    fs.writeFileSync(filePath, contents)
+  }
+  for (const state of vendoredIosBuildState) {
+    if (state.resolvedContents === null) {
+      fs.rmSync(state.resolvedFile, {force: true})
+    } else {
+      fs.writeFileSync(state.resolvedFile, state.resolvedContents)
+    }
+    if (!state.tauriDirExisted) {
+      fs.rmSync(state.tauriDir, {force: true, recursive: true})
+    }
+  }
+  generatedBuildFilesRestored = true
+}
+
+const buildNumber = metadataOnly ? null : extractBuildNumber(forwardedArgs)
+const tauriForwardedArgs = withoutBuildNumber(forwardedArgs)
+
+const args = ['ios', 'build', '--target', 'aarch64', '--features', 'ios', '--ci']
 if (!hasExportMethod(forwardedArgs)) {
   args.push('--export-method', 'debugging')
 }
-args.push(...forwardedArgs)
+if (buildNumber !== null) {
+  args.push('--config', JSON.stringify({bundle: {iOS: {bundleVersion: buildNumber}}}))
+}
+args.push(...tauriForwardedArgs)
 
 if (!metadataOnly) {
+  prepareVendoredIosPackageResolutions(vendoredIosBuildState)
   removeStaleIpas()
 }
+const buildStartedAt = Date.now()
 const child = spawn(tauriBinary, args, {
   cwd: appRoot,
   env: childEnv,
@@ -170,15 +478,30 @@ const child = spawn(tauriBinary, args, {
 })
 
 child.on('error', (error) => {
+  restoreGeneratedBuildFiles()
   console.error(error.message)
   process.exit(1)
 })
 
 child.on('exit', (code, signal) => {
+  restoreGeneratedBuildFiles()
   if (signal) {
     process.kill(process.pid, signal)
     return
   }
+  if (
+    !metadataOnly &&
+    requestsAppStoreConnectExport(forwardedArgs) &&
+    fs.existsSync(appStoreArchiveInfo) &&
+    fs.statSync(appStoreArchiveInfo).mtimeMs >= buildStartedAt
+  ) {
+    if (exportFreshAppStoreArchive(buildStartedAt)) {
+      verifyReleaseIpas(licensePublicKey)
+      process.exit(0)
+    }
+    process.exit(code || 1)
+  }
+
   if (code !== 0) {
     process.exit(code ?? 1)
   }

@@ -837,7 +837,11 @@ describe('MarkdownPreviewModel', () => {
     expect(state.dirty).toBe(true)
     expect(model.canUndo()).toBe(true)
     expect(model.imageAttaching()).toBe(false)
-    expect(model.editorFocusRequest()?.selectionStart).toBe(state.source.length)
+    expect(model.editorSelectionRequest()).toMatchObject({
+      selectionStart: state.source.length,
+      selectionEnd: state.source.length,
+    })
+    expect(model.editorFocusRequest()).toBeNull()
   })
 
   it('registers the image picker trigger and stores the requested insertion selection', async () => {
@@ -913,7 +917,11 @@ describe('MarkdownPreviewModel', () => {
     expect(state.mode).toBe('edit')
     expect(state.source).toBe('# **Notes**')
     expect(state.dirty).toBe(true)
-    expect(model.editorFocusRequest()?.selectionStart).toBe('# **Notes**'.length)
+    expect(model.editorSelectionRequest()).toMatchObject({
+      selectionStart: '# **Notes**'.length,
+      selectionEnd: '# **Notes**'.length,
+    })
+    expect(model.editorFocusRequest()).toBeNull()
     expect(model.canUndo()).toBe(true)
 
     expect(model.undo()).toBe(true)
@@ -934,7 +942,11 @@ describe('MarkdownPreviewModel', () => {
     ).toBe(true)
 
     expect(expectReady(model).source).toBe('# Notes**')
-    expect(model.editorFocusRequest()?.selectionStart).toBe('# Notes*'.length)
+    expect(model.editorSelectionRequest()).toMatchObject({
+      selectionStart: '# Notes*'.length,
+      selectionEnd: '# Notes*'.length,
+    })
+    expect(model.editorFocusRequest()).toBeNull()
   })
 
   it('applies block quick actions at the selected lines', async () => {
@@ -952,7 +964,11 @@ describe('MarkdownPreviewModel', () => {
 
     let state = expectReady(model)
     expect(state.source).toBe('1. Alpha\n2. Beta')
-    expect(model.editorFocusRequest()?.selectionStart).toBe('1. Alpha\n2. Beta'.length)
+    expect(model.editorSelectionRequest()).toMatchObject({
+      selectionStart: '1. Alpha\n2. Beta'.length,
+      selectionEnd: '1. Alpha\n2. Beta'.length,
+    })
+    expect(model.editorFocusRequest()).toBeNull()
 
     expect(model.undo()).toBe(true)
     state = expectReady(model)
@@ -972,7 +988,11 @@ describe('MarkdownPreviewModel', () => {
 
     const expectedSource = '# Notes\n| Column 1 | Column 2 |\n| --- | --- |\n|  |  |'
     expect(expectReady(model).source).toBe(expectedSource)
-    expect(model.editorFocusRequest()?.selectionStart).toBe(expectedSource.length)
+    expect(model.editorSelectionRequest()).toMatchObject({
+      selectionStart: expectedSource.length,
+      selectionEnd: expectedSource.length,
+    })
+    expect(model.editorFocusRequest()).toBeNull()
     expect(model.canUndo()).toBe(true)
   })
 
@@ -1068,6 +1088,109 @@ describe('MarkdownPreviewModel', () => {
     await expect(uploadPromise).resolves.toBe(true)
     expect(model.imageAttaching()).toBe(false)
     expect(model.canInsertImage()).toBe(true)
+  })
+
+  it('keeps uploaded image Markdown when autosave starts during the attachment upload', async () => {
+    vi.useFakeTimers()
+    const uploadResult = deferred<{markdown: string; paths: string[]}>()
+    const saveResult = deferred<typeof DEFAULT_SAVE_RESULT>()
+    const uploadImageFiles = vi.fn(() => uploadResult.promise)
+    const {model, saveTextFileById} = createModel({
+      autosaveDebounceMs: 100,
+      imageAssetService: {
+        resolveImageRef: vi.fn(),
+        releaseResolution: vi.fn(),
+        uploadImageFiles,
+      },
+      loadSessionSettings: vi.fn(async () => DEFAULT_SESSION_SETTINGS),
+    })
+    saveTextFileById.mockReturnValueOnce(saveResult.promise)
+    await loadReady(model)
+    model.updateSource('# Notes changed')
+
+    const uploadPromise = model.insertImageFiles(
+      [new File([new Uint8Array([1])], 'photo.png', {type: 'image/png'})],
+      {selectionStart: '# Notes changed'.length, selectionEnd: '# Notes changed'.length},
+    )
+    await flushAsync()
+    await vi.advanceTimersByTimeAsync(100)
+    await flushAsync()
+
+    expect(expectReady(model).saving).toBe(true)
+    expect(saveTextFileById).toHaveBeenCalledWith(
+      PREVIEW_DATA.fileId,
+      PREVIEW_DATA.fileName,
+      '# Notes changed',
+      expect.any(Object),
+    )
+
+    uploadResult.resolve({
+      markdown: '![photo](/attachments/photo.png)',
+      paths: ['/attachments/photo.png'],
+    })
+
+    await expect(uploadPromise).resolves.toBe(true)
+    let state = expectReady(model)
+    const sourceWithImage = '# Notes changed\n![photo](/attachments/photo.png)'
+    expect(state.source).toBe(sourceWithImage)
+    expect(state.saving).toBe(true)
+    expect(state.dirty).toBe(true)
+    expect(model.canUndo()).toBe(true)
+    expect(model.imageAttaching()).toBe(false)
+    expect(model.editorSelectionRequest()).toMatchObject({
+      selectionStart: sourceWithImage.length,
+      selectionEnd: sourceWithImage.length,
+    })
+    expect(model.editorFocusRequest()).toBeNull()
+
+    saveResult.resolve(DEFAULT_SAVE_RESULT)
+    await flushAsync()
+
+    state = expectReady(model)
+    expect(state.source).toBe(sourceWithImage)
+    expect(state.baseline).toBe('# Notes changed')
+    expect(state.dirty).toBe(true)
+    expect(model.autosavePending()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(100)
+    await flushAsync()
+
+    expect(saveTextFileById).toHaveBeenCalledTimes(2)
+    expect(saveTextFileById.mock.calls[1]?.[2]).toBe(sourceWithImage)
+    state = expectReady(model)
+    expect(state.baseline).toBe(sourceWithImage)
+    expect(state.dirty).toBe(false)
+  })
+
+  it('does not start formatting while an image attachment is uploading', async () => {
+    const uploadResult = deferred<{markdown: string; paths: string[]}>()
+    const uploadImageFiles = vi.fn(() => uploadResult.promise)
+    const {model, formatMarkdownSource} = createModel({
+      imageAssetService: {
+        resolveImageRef: vi.fn(),
+        releaseResolution: vi.fn(),
+        uploadImageFiles,
+      },
+      loadSessionSettings: vi.fn(async () => DEFAULT_SESSION_SETTINGS),
+    })
+    await loadReady(model)
+
+    const uploadPromise = model.insertImageFiles(
+      [new File([new Uint8Array([1])], 'photo.png', {type: 'image/png'})],
+      {selectionStart: '# Notes'.length, selectionEnd: '# Notes'.length},
+    )
+    await flushAsync()
+
+    expect(model.imageAttaching()).toBe(true)
+    expect(model.canFormat()).toBe(false)
+    await expect(model.formatDocument()).resolves.toBe(false)
+    expect(formatMarkdownSource).not.toHaveBeenCalled()
+
+    uploadResult.resolve({
+      markdown: '![photo](/attachments/photo.png)',
+      paths: ['/attachments/photo.png'],
+    })
+    await expect(uploadPromise).resolves.toBe(true)
   })
 
   it('ignores cancelled attachment uploads after cleanup', async () => {
@@ -1322,6 +1445,7 @@ describe('MarkdownPreviewModel', () => {
 
     model.setMode('edit', {focusEditor: true, selectionStart: 99})
     expect(model.editorFocusRequest()).toEqual({id: 1, selectionStart: '# Notes'.length})
+    expect(model.editorSelectionRequest()).toBeNull()
 
     model.setMode('edit', {focusEditor: true})
     expect(model.editorFocusRequest()).toEqual({id: 2, selectionStart: null})

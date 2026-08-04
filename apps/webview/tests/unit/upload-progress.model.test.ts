@@ -221,6 +221,85 @@ describe('UploadProgressModel hud summary', () => {
   })
 })
 
+describe('UploadProgressModel failure visibility', () => {
+  afterEach(() => {
+    clearAppContext()
+  })
+
+  it('expands the mobile panel once for each new failed task', async () => {
+    const uploadTasks = atom<UploadTask[]>([])
+    initUploadProgressContext(uploadTasks)
+    const model = new UploadProgressModel()
+    const first = new UploadTask({id: 'failed-mobile-1', name: 'first.bin', total: 0})
+    uploadTasks.set([first])
+
+    first.markError('First failure')
+    await Promise.resolve()
+    expect(model.expanded()).toBe(true)
+
+    model.collapse()
+    first.markError('Updated failure')
+    await Promise.resolve()
+    expect(model.expanded()).toBe(false)
+
+    const second = new UploadTask({id: 'failed-mobile-2', name: 'second.bin', total: 0})
+    second.markError('Second failure')
+    uploadTasks.set([first, second])
+    await Promise.resolve()
+    expect(model.expanded()).toBe(true)
+
+    model.dispose()
+  })
+
+  it('restores the desktop panel when a new task fails', async () => {
+    const uploadTasks = atom<UploadTask[]>([])
+    const layoutMode = atom<'mobile' | 'desktop'>('desktop')
+    initAppContext(
+      createMockAppContext({
+        store: {
+          layoutMode,
+          uploadTasks,
+          getUploadStats: () => createUploadStats(uploadTasks()),
+          getActiveTransferBatchStats: () => createUploadStats(uploadTasks()),
+          clearCompletedUploadTasks: () => {},
+        } as any,
+      }),
+    )
+    const model = new UploadProgressModel()
+    model.toggleMinimize()
+
+    const failed = new UploadTask({id: 'failed-desktop', name: 'failed.bin', total: 0})
+    failed.markError('Failure')
+    uploadTasks.set([failed])
+    await Promise.resolve()
+
+    expect(model.minimized()).toBe(false)
+    expect(model.expanded()).toBe(false)
+    model.dispose()
+  })
+
+  it('does not reopen after removing one task from an already revealed failed batch', async () => {
+    const uploadTasks = atom<UploadTask[]>([])
+    initUploadProgressContext(uploadTasks)
+    const model = new UploadProgressModel()
+    const first = new UploadTask({id: 'failed-batch-1', name: 'first.bin', total: 0})
+    const second = new UploadTask({id: 'failed-batch-2', name: 'second.bin', total: 0})
+    first.markError('First failure')
+    second.markError('Second failure')
+
+    uploadTasks.set([first, second])
+    await Promise.resolve()
+    expect(model.expanded()).toBe(true)
+
+    model.collapse()
+    uploadTasks.set([first])
+    await Promise.resolve()
+    expect(model.expanded()).toBe(false)
+
+    model.dispose()
+  })
+})
+
 describe('UploadProgressModel auto-hide behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers()

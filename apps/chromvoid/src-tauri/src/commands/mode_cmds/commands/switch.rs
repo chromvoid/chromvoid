@@ -8,7 +8,9 @@ use crate::app_state::AppState;
 use crate::catalog_blocking_io::{CatalogBlockingIoError, CatalogBlockingIoRuntimeState};
 use crate::core_adapter::{
     CoreAdapter, CoreMode, LocalCoreAdapter, ModeTransition, RemoteCoreAdapter, RemoteHost,
+    RemoteRpcPriority,
 };
+use crate::core_rpc_dispatcher::{command_policy, CoreRpcDispatcher, CoreRpcPriority};
 use crate::mode_transition_coordinator::ModeTransitionOperation;
 use crate::remote_io_runtime::RemoteIoStopReason;
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
@@ -224,6 +226,84 @@ fn mode_switch_peer_store_blocking_err(
     error
 }
 
+async fn prepare_mode_switch(
+    dispatcher: CoreRpcDispatcher,
+    adapter_handle: Arc<std::sync::Mutex<Box<dyn CoreAdapter>>>,
+    target: String,
+) -> Result<(CoreMode, bool, bool), String> {
+    let command_start = dispatcher.begin_command(command_policy("vault:lock"));
+    let phase = dispatcher
+        .run_adapter_phase(
+            CoreRpcPriority::PrivacyCritical,
+            "vault:lock",
+            "mode_switch_preconditions",
+            command_start.cancellation_generation,
+            move || {
+                let mut adapter = adapter_handle
+                    .lock()
+                    .map_err(|_| "Adapter mutex poisoned".to_string())?;
+                let previous_mode = adapter.mode();
+
+                match (&previous_mode, target.as_str()) {
+                    (CoreMode::Local, "local") => return Err("Already in Local mode".to_string()),
+                    (CoreMode::Remote { .. }, "remote") => {
+                        return Err("Already in Remote mode".to_string())
+                    }
+                    (CoreMode::Switching, _) => {
+                        return Err("Mode switch already in progress".to_string())
+                    }
+                    _ => {}
+                }
+
+                let was_unlocked = adapter.is_unlocked();
+                if !was_unlocked {
+                    return Ok((previous_mode, false, false));
+                }
+
+                info!("mode_switch: auto-locking vault before switch");
+                let lock_req = RpcRequest::new("vault:lock".to_string(), serde_json::Value::Null);
+
+                if let Some(remote_client) = adapter.remote_json_client() {
+                    // A remote JSON client blocks while it waits for the host. Release the global
+                    // adapter lock first so a panic or transport stall cannot poison the adapter
+                    // mutex or prevent lifecycle recovery from observing the active session.
+                    drop(adapter);
+                    let lock_resp =
+                        remote_client.send_json_blocking(lock_req, RemoteRpcPriority::High, None);
+                    if let Some(error) = rpc_response_error(&lock_resp) {
+                        return Err(format!("Auto-lock before mode switch failed: {error}"));
+                    }
+
+                    let mut adapter = adapter_handle
+                        .lock()
+                        .map_err(|_| "Adapter mutex poisoned".to_string())?;
+                    if adapter.mode() == previous_mode {
+                        adapter.mark_remote_locked();
+                    }
+                    return Ok((previous_mode, true, true));
+                }
+
+                let lock_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let lock_resp = adapter.handle(&lock_req);
+                    if let Some(error) = rpc_response_error(&lock_resp) {
+                        return Err(format!("Auto-lock before mode switch failed: {error}"));
+                    }
+                    adapter.save().map_err(|error| {
+                        format!("Auto-lock before mode switch save failed: {error}")
+                    })
+                }))
+                .map_err(|_| "Auto-lock before mode switch panicked".to_string())?;
+                lock_result?;
+
+                Ok((previous_mode, true, true))
+            },
+        )
+        .await
+        .map_err(|error| format!("Mode switch preconditions failed: {error}"))?;
+
+    phase.value
+}
+
 /// Switches between Local and Remote mode with full state machine:
 /// 1. Auto-lock vault if unlocked
 /// 2. Transition to Switching state
@@ -252,48 +332,14 @@ pub(crate) async fn mode_switch(
         .mode_transition_coordinator
         .try_begin(ModeTransitionOperation::ModeSwitch)?;
 
-    // Capture pre-switch state and perform preconditions under lock
-    let (previous_mode, _was_unlocked, auto_locked) = {
-        let mut adapter = state
-            .adapter
-            .lock()
-            .map_err(|_| "Adapter mutex poisoned".to_string())?;
-
-        let previous_mode = adapter.mode();
-
-        // Validate: don't switch to same mode
-        match (&previous_mode, target_lower.as_str()) {
-            (CoreMode::Local, "local") => {
-                return Err("Already in Local mode".to_string());
-            }
-            (CoreMode::Remote { .. }, "remote") => {
-                return Err("Already in Remote mode".to_string());
-            }
-            (CoreMode::Switching, _) => {
-                return Err("Mode switch already in progress".to_string());
-            }
-            _ => {}
-        }
-
-        // Step 1: Auto-lock vault if unlocked
-        let was_unlocked = adapter.is_unlocked();
-        let auto_locked = if was_unlocked {
-            info!("mode_switch: auto-locking vault before switch");
-            let lock_req = RpcRequest::new("vault:lock".to_string(), serde_json::Value::Null);
-            let lock_resp = adapter.handle(&lock_req);
-            if let Some(error) = rpc_response_error(&lock_resp) {
-                return Err(format!("Auto-lock before mode switch failed: {error}"));
-            }
-            adapter
-                .save()
-                .map_err(|error| format!("Auto-lock before mode switch save failed: {error}"))?;
-            true
-        } else {
-            false
-        };
-
-        (previous_mode, was_unlocked, auto_locked)
-    };
+    // Step 1: capture the current adapter and auto-lock on the dedicated Core RPC worker.
+    // Remote adapters use blocking channel operations and must not run on Tokio's async thread.
+    let (previous_mode, _was_unlocked, auto_locked) = prepare_mode_switch(
+        state.core_rpc_dispatcher.clone(),
+        state.adapter.clone(),
+        target_lower.clone(),
+    )
+    .await?;
 
     // Step 2: Store transition metadata and emit switching state
     let now_ms = now_ms();
@@ -778,5 +824,55 @@ mod tests {
             rpc_response_error(&response).as_deref(),
             Some("lock failed (LOCK_FAILED)")
         );
+    }
+
+    #[tokio::test]
+    async fn remote_auto_lock_runs_off_async_runtime_without_poisoning_adapter() {
+        let dispatcher = CoreRpcDispatcher::try_new().expect("core RPC dispatcher");
+        let (request_tx, mut request_rx) = tokio::sync::mpsc::channel(1);
+        let mut remote = RemoteCoreAdapter::from_remote_sender(
+            RemoteHost::MobileUsb {
+                host_id: "usb-host".to_string(),
+                label: Some("Test phone".to_string()),
+                platform: "android".to_string(),
+            },
+            request_tx,
+        );
+        remote.apply_startup_state(Vec::new(), true);
+        let adapter: Arc<std::sync::Mutex<Box<dyn CoreAdapter>>> =
+            Arc::new(std::sync::Mutex::new(Box::new(remote)));
+
+        let responder = std::thread::spawn(move || {
+            let request = request_rx.blocking_recv().expect("remote lock request");
+            assert_eq!(request.request.command, "vault:lock");
+            assert!(request
+                .reply_tx
+                .send(chromvoid_core::rpc::RpcReply::Json(RpcResponse::success(
+                    serde_json::json!({}),
+                )))
+                .is_ok());
+        });
+
+        let (previous_mode, was_unlocked, auto_locked) =
+            prepare_mode_switch(dispatcher.clone(), adapter.clone(), "local".to_string())
+                .await
+                .expect("remote preconditions");
+
+        responder.join().expect("remote responder");
+        assert!(matches!(
+            previous_mode,
+            CoreMode::Remote {
+                host: RemoteHost::MobileUsb { .. }
+            }
+        ));
+        assert!(was_unlocked);
+        assert!(auto_locked);
+        assert!(!adapter
+            .lock()
+            .expect("adapter remains healthy")
+            .is_unlocked());
+        dispatcher
+            .shutdown_with_timeout(std::time::Duration::from_secs(1))
+            .expect("dispatcher shutdown");
     }
 }

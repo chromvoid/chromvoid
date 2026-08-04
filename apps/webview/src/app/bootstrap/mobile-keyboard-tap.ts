@@ -76,6 +76,11 @@ export const setupMobileKeyboardTapWorkaround = (_store: Store) => {
       const isWithinTextInputLike = (path: Array<EventTarget | undefined>): boolean =>
         path.some((node) => node instanceof HTMLElement && isTextInputLike(node, {includeSelect: true}))
 
+      const preservesMobileKeyboard = (path: Array<EventTarget | undefined>): boolean =>
+        path.some(
+          (node) => node instanceof HTMLElement && node.hasAttribute('data-mobile-keyboard-preserve'),
+        )
+
       const resolveActionTarget = (path: Array<EventTarget | undefined>): HTMLElement | null => {
         let fallback: HTMLElement | null = null
         for (const node of path) {
@@ -123,7 +128,7 @@ export const setupMobileKeyboardTapWorkaround = (_store: Store) => {
           candidate = {
             active,
             target: actionTarget,
-            preserveKeyboard: isWithinTextInputLike(path),
+            preserveKeyboard: isWithinTextInputLike(path) || preservesMobileKeyboard(path),
             pointerId: event.pointerId,
             startX: event.clientX,
             startY: event.clientY,

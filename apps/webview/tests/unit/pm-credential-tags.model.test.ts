@@ -190,6 +190,70 @@ describe('pmCredentialTagsModel', () => {
     expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('filter')
   })
 
+  it('keeps embedded entry selection and catalog mutation modes out of the standalone sheet', async () => {
+    const {credentialTagMeta} = setupRoot({catalog: ['Work', 'Rotate']})
+    const onConfirm = vi.fn()
+
+    pmCredentialTagsModel.openEntryTagSelection(
+      ['Work'],
+      {onConfirm, onCancel: vi.fn()},
+      {presentation: 'embedded'},
+    )
+
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
+    expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('entry')
+
+    pmCredentialTagsModel.openCreateTag()
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
+    pmCredentialTagsModel.setTagDraftColorId('pink')
+    await expect(pmCredentialTagsModel.createTag('Client A')).resolves.toBe(true)
+    expect(pmCredentialTagsModel.effectiveSheetSelectedTagKeys()).toEqual(['work', 'client-a'])
+    expect(credentialTagMeta()).toMatchObject({'client-a': {colorId: 'pink'}})
+
+    pmCredentialTagsModel.openRenameTag('work')
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
+    pmCredentialTagsModel.cancelTagMutation()
+    pmCredentialTagsModel.openDeleteTag('rotate')
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
+    pmCredentialTagsModel.cancelTagMutation()
+
+    await expect(pmCredentialTagsModel.confirmEntryTagSelection()).resolves.toBe(true)
+    expect(onConfirm).toHaveBeenCalledWith(['Work', 'Client A'])
+    expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('filter')
+  })
+
+  it('does not let a replaced async confirmation reset the new entry selection session', async () => {
+    setupRoot({catalog: ['Work', 'Rotate']})
+    let resolveFirstConfirm!: () => void
+    const firstConfirm = new Promise<void>((resolve) => {
+      resolveFirstConfirm = resolve
+    })
+    const firstOnCancel = vi.fn()
+    const secondOnConfirm = vi.fn()
+
+    pmCredentialTagsModel.openEntryTagSelection(['Work'], {
+      onConfirm: () => firstConfirm,
+      onCancel: firstOnCancel,
+    })
+    const pendingConfirmation = pmCredentialTagsModel.confirmEntryTagSelection()
+
+    pmCredentialTagsModel.openEntryTagSelection(
+      ['Rotate'],
+      {onConfirm: secondOnConfirm, onCancel: vi.fn()},
+      {presentation: 'embedded'},
+    )
+    resolveFirstConfirm()
+
+    await expect(pendingConfirmation).resolves.toBe(false)
+    expect(firstOnCancel).toHaveBeenCalledOnce()
+    expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('entry')
+    expect(pmCredentialTagsModel.entrySelectionTagKeys()).toEqual(['rotate'])
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
+
+    await expect(pmCredentialTagsModel.confirmEntryTagSelection()).resolves.toBe(true)
+    expect(secondOnConfirm).toHaveBeenCalledWith(['Rotate'])
+  })
+
   it('cancels an entry selection session when the sheet closes', () => {
     setupRoot({catalog: ['Work']})
     const onCancel = vi.fn()

@@ -5,11 +5,8 @@ import type {CVTextareaInputEvent} from '@chromvoid/uikit/components/cv-textarea
 import {nothing, type TemplateResult} from 'lit'
 
 import {i18n} from '@project/passmanager/i18n'
-import {
-  GROUP_CREATE_DESCRIPTION_MAX_LENGTH,
-  GROUP_CREATE_NAME_MAX_LENGTH,
-  PMGroupCreateModel,
-} from './group-create.model'
+import {GROUP_DESCRIPTION_MAX_LENGTH, GROUP_NAME_MAX_LENGTH} from '../group-form.constants'
+import {PMGroupCreateModel} from './group-create.model'
 
 type FieldRenderOptions = {
   label?: string
@@ -97,7 +94,7 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
           size=${options.size ?? 'small'}
           name="name"
           autocomplete="card-title"
-          maxlength=${GROUP_CREATE_NAME_MAX_LENGTH}
+          maxlength=${GROUP_NAME_MAX_LENGTH}
           ?autofocus=${this.shouldAutofocusNameField()}
           placeholder=${placeholder}
           .value=${this.model.name()}
@@ -130,7 +127,7 @@ export abstract class PMGroupCreateBase extends ReatomLitElement {
           name="description"
           size=${options.size ?? 'small'}
           rows="3"
-          maxlength=${GROUP_CREATE_DESCRIPTION_MAX_LENGTH}
+          maxlength=${GROUP_DESCRIPTION_MAX_LENGTH}
           placeholder=${placeholder}
           .value=${this.model.description()}
           @cv-input=${this.onDescriptionInput}

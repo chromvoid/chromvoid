@@ -23,6 +23,7 @@ import {
   releasePreviewFileViaTauri,
   replaceFileViaTauri,
   thumbnailImageViaTauri,
+  uploadFileViaTauri,
 } from '../../src/core/transport/tauri/tauri-binary-ops'
 
 describe('tauri binary ops prepared preview files', () => {
@@ -360,6 +361,41 @@ describe('tauri binary ops prepared preview files', () => {
       mimeType: 'text/markdown',
       modtime: 456,
       sourceRevision: 8,
+      mediaInfo: null,
+      mediaInspectedRevision: 0,
+    })
+  })
+
+  it('returns committed metadata from the final catalog upload chunk', async () => {
+    mocks.tauriInvoke.mockResolvedValue({
+      ok: true,
+      result: {
+        node_id: 23,
+        uploaded_bytes: 0,
+        completed: true,
+        created: true,
+        size: 0,
+        mime_type: 'text/markdown',
+        modtime: 789,
+        source_revision: 9,
+        media_info: null,
+        media_inspected_revision: 0,
+      },
+    })
+
+    const result = await uploadFileViaTauri(
+      {parentPath: '/', name: 'empty.md'},
+      new File([], 'empty.md', {type: 'text/markdown'}),
+      {type: 'text/markdown'},
+    )
+
+    expect(result).toEqual({
+      nodeId: 23,
+      created: true,
+      size: 0,
+      mimeType: 'text/markdown',
+      modtime: 789,
+      sourceRevision: 9,
       mediaInfo: null,
       mediaInspectedRevision: 0,
     })

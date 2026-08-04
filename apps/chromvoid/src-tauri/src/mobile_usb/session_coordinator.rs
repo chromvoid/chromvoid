@@ -174,7 +174,7 @@ pub(crate) fn disconnect_mobile_usb_and_restore_local(
     state: &crate::app_state::AppState,
     reason: &'static str,
 ) {
-    if let Err(error) = state.mobile_usb_runtime.disconnect() {
+    if let Err(error) = state.mobile_usb_runtime.disconnect_terminal() {
         tracing::warn!(
             reason,
             error = %error.message,
@@ -528,7 +528,23 @@ impl MobileUsbSessionStarter for TauriMobileUsbSessionStarter {
         })
     }
 
-    fn stop_active_session(&self) -> Result<(), MobileUsbError> {
+    async fn disconnect_user(&self) -> Result<(), MobileUsbError> {
+        const ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+        const TASK_GRACE: std::time::Duration = std::time::Duration::from_secs(1);
+
+        self.remote_io_runtime
+            .disconnect_active_mobile_usb(ACK_TIMEOUT, TASK_GRACE)
+            .await
+            .map(|_| ())
+            .map_err(|error| {
+                MobileUsbError::new(
+                    MobileUsbErrorCode::InvalidState,
+                    format!("failed to gracefully disconnect mobile USB remote session: {error}"),
+                )
+            })
+    }
+
+    fn disconnect_terminal(&self) -> Result<(), MobileUsbError> {
         self.remote_io_runtime
             .stop_active(crate::remote_io_runtime::RemoteIoStopReason::ModeSwitchLocal)
             .map_err(|error| {

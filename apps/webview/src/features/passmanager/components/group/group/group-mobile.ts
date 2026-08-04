@@ -1,7 +1,7 @@
 import {nothing, css} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
-import {type Entry, type Group, type ManagerRoot} from '@project/passmanager/core'
+import {Group, type Entry, type ManagerRoot} from '@project/passmanager/core'
 import {hostContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {WorkspaceDashboardHeader} from 'root/features/file-manager/components/workspace-dashboard-header'
@@ -12,9 +12,12 @@ import {PMSummaryRail} from '../../summary-rail'
 import {createCredentialsHeaderControlsModel} from '../../list/credentials-header-controls'
 import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
 import {pmMobileDebug} from '../../../models/pm-mobile-debug'
+import type {PMListMutationPhase} from '../../../models/pm-list-mutation-motion.model'
 import {passwordManagerMobileLayoutModel} from '../../password-manager-layout/password-manager-mobile-layout.model'
 import {PMGroupBase} from './group-base'
 import {PMGroupListItemMobile} from './group-list-item-mobile'
+import {PMGroupEditMobile} from './group-edit-mobile'
+import {pmGroupEditModel} from './group-edit.model'
 import type {PMGroupPresentation, PMGroupRow} from './group.model'
 import {pmGroupCommonStyles} from './styles'
 
@@ -40,7 +43,7 @@ export const pmGroupMobileStyles = css`
   }
 
   .pm-group-scroll-edge {
-    --app-scroll-edge-block-size: var(--pm-mobile-group-scroll-edge-block-size);
+    --app-scroll-edge-block-size: var(--app-scroll-edge-mobile-block-size);
     --app-scroll-edge-inline-start: 0px;
     --app-scroll-edge-inline-end: 0px;
     --app-scroll-edge-surface: var(--cv-color-bg);
@@ -118,6 +121,7 @@ export class PMGroupMobile extends PMGroupBase {
     WorkspaceDashboardHeader.define()
     PMSummaryRail.define()
     PMGroupListItemMobile.define()
+    PMGroupEditMobile.define()
   }
 
   static styles = [
@@ -131,25 +135,24 @@ export class PMGroupMobile extends PMGroupBase {
     pmGroupMobileStyles,
   ]
 
+  protected override renderGroupsList(group: Group | ManagerRoot, items: PMGroupRow[]) {
+    // renderItem executes inside the child virtualizer, so read selection here to keep this host reactive.
+    passwordManagerMobileLayoutModel.getSelectionSnapshot()
+    return super.renderGroupsList(group, items)
+  }
+
   override disconnectedCallback(): void {
     passwordManagerMobileLayoutModel.cancelLongPress()
     this.clearGroupTapToken()
     super.disconnectedCallback()
   }
 
-  protected override getVirtualListRenderKey(
-    group: Group | ManagerRoot,
-    items: PMGroupRow[],
-  ): string {
-    const snapshot = passwordManagerMobileLayoutModel.getSelectionSnapshot()
-    const selectionKey = snapshot.active
-      ? `sel:${snapshot.selectedEntryIds.join(',')}|${snapshot.selectedGroupIds.join(',')}`
-      : 'sel:off'
-
-    return `${super.getVirtualListRenderKey(group, items)}:${selectionKey}`
-  }
-
-  protected override renderEntryItem(item: Entry, active: boolean, deleteExiting = false) {
+  protected override renderEntryItem(
+    item: Entry,
+    active: boolean,
+    deleteExiting = false,
+    entering?: PMListMutationPhase,
+  ) {
     const selectionState = passwordManagerMobileLayoutModel.getRowSelectionState('entry', item.id)
 
     return html`
@@ -157,24 +160,33 @@ export class PMGroupMobile extends PMGroupBase {
         class="entry-row"
         data-row-id=${item.id}
         ?data-delete-exiting=${deleteExiting}
+        data-entering=${entering ?? nothing}
         aria-hidden=${deleteExiting ? 'true' : nothing}
         @click=${() => this.setActiveItemById(item.id)}
-        @animationend=${deleteExiting
-          ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
-          : undefined}
       >
-        <pm-entry-list-item-mobile
-          .entry=${item}
-          .activeRow=${active}
-          .rowTabIndex=${active ? 0 : -1}
-          .manageActiveRowState=${true}
-          .selectionStateManaged=${true}
-          .selectionActive=${selectionState.selectionActive}
-          .selectedInSelectionMode=${selectionState.selected}
-          @pm-entry-row-focus=${() => this.setActiveItemById(item.id)}
-          @entry-delete=${(event: Event) => this.handleEntryDelete(event)}
-          group
-        ></pm-entry-list-item-mobile>
+        <div
+          class="pm-row-motion-surface"
+          @animationend=${
+            deleteExiting
+              ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
+              : entering
+                ? (event: AnimationEvent) => this.onEnterAnimationEnd(event, item.id)
+                : undefined
+          }
+        >
+          <pm-entry-list-item-mobile
+            .entry=${item}
+            .activeRow=${active}
+            .rowTabIndex=${active ? 0 : -1}
+            .manageActiveRowState=${true}
+            .selectionStateManaged=${true}
+            .selectionActive=${selectionState.selectionActive}
+            .selectedInSelectionMode=${selectionState.selected}
+            @pm-entry-row-focus=${() => this.setActiveItemById(item.id)}
+            @entry-delete=${(event: Event) => this.handleEntryDelete(event)}
+            group
+          ></pm-entry-list-item-mobile>
+        </div>
       </div>
     `
   }
@@ -217,10 +229,6 @@ export class PMGroupMobile extends PMGroupBase {
       x: touch.clientX,
       y: touch.clientY,
     }, () => {
-      try {
-        event.preventDefault?.()
-        event.stopPropagation?.()
-      } catch {}
       this.setActiveItemById(item.id)
     })
     pmMobileDebug('groupRow', 'touchStart.arm', {groupId: item.id, token: this.groupTapToken})
@@ -299,7 +307,12 @@ export class PMGroupMobile extends PMGroupBase {
     this.groupTapTokenId = null
   }
 
-  protected override renderFolderItem(item: Group, active: boolean, deleteExiting = false) {
+  protected override renderFolderItem(
+    item: Group,
+    active: boolean,
+    deleteExiting = false,
+    entering?: PMListMutationPhase,
+  ) {
     const selectionState = passwordManagerMobileLayoutModel.getRowSelectionState('group', item.id)
 
     return html`
@@ -307,32 +320,41 @@ export class PMGroupMobile extends PMGroupBase {
         class="group-row-wrap"
         data-row-id=${item.id}
         ?data-delete-exiting=${deleteExiting}
+        data-entering=${entering ?? nothing}
         aria-hidden=${deleteExiting ? 'true' : nothing}
-        @animationend=${deleteExiting
-          ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
-          : undefined}
       >
-        <pm-group-list-item-mobile
-          .group=${item}
-          .presentation=${this.model.getGroupRowPresentation(item)}
-          .activeRow=${active}
-          .rowTabIndex=${active ? 0 : -1}
-          .readOnly=${this.model.isReadOnly()}
-          .selectionActive=${selectionState.selectionActive}
-          .selectedInSelectionMode=${selectionState.selected}
-          @pm-group-row-focus=${() => this.setActiveItemById(item.id)}
-          @group-delete=${(event: Event) => this.handleGroupDelete(event)}
-          @click=${() => this.handleGroupRowClick(item)}
-          @touchstart=${(event: TouchEvent) => this.handleGroupTouchStart(event, item)}
-          @touchmove=${(event: TouchEvent) => this.handleGroupTouchMove(event)}
-          @touchend=${() => this.handleGroupTouchEnd()}
-          @touchcancel=${() => this.handleGroupTouchEnd()}
-          @pointerdown=${(event: PointerEvent) => this.handleGroupPointerDown(event, item)}
-          @pointermove=${(event: PointerEvent) => this.handleGroupPointerMove(event)}
-          @pointerup=${(event: PointerEvent) => this.handleGroupPointerEnd(event)}
-          @pointercancel=${(event: PointerEvent) => this.handleGroupPointerEnd(event)}
-          @contextmenu=${(event: Event) => this.handleGroupContextMenu(event, item)}
-        ></pm-group-list-item-mobile>
+        <div
+          class="pm-row-motion-surface"
+          @animationend=${
+            deleteExiting
+              ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
+              : entering
+                ? (event: AnimationEvent) => this.onEnterAnimationEnd(event, item.id)
+                : undefined
+          }
+        >
+          <pm-group-list-item-mobile
+            .group=${item}
+            .presentation=${this.model.getGroupRowPresentation(item)}
+            .activeRow=${active}
+            .rowTabIndex=${active ? 0 : -1}
+            .readOnly=${this.model.isReadOnly()}
+            .selectionActive=${selectionState.selectionActive}
+            .selectedInSelectionMode=${selectionState.selected}
+            @pm-group-row-focus=${() => this.setActiveItemById(item.id)}
+            @group-delete=${(event: Event) => this.handleGroupDelete(event)}
+            @click=${() => this.handleGroupRowClick(item)}
+            @touchstart=${(event: TouchEvent) => this.handleGroupTouchStart(event, item)}
+            @touchmove=${(event: TouchEvent) => this.handleGroupTouchMove(event)}
+            @touchend=${() => this.handleGroupTouchEnd()}
+            @touchcancel=${() => this.handleGroupTouchEnd()}
+            @pointerdown=${(event: PointerEvent) => this.handleGroupPointerDown(event, item)}
+            @pointermove=${(event: PointerEvent) => this.handleGroupPointerMove(event)}
+            @pointerup=${(event: PointerEvent) => this.handleGroupPointerEnd(event)}
+            @pointercancel=${(event: PointerEvent) => this.handleGroupPointerEnd(event)}
+            @contextmenu=${(event: Event) => this.handleGroupContextMenu(event, item)}
+          ></pm-group-list-item-mobile>
+        </div>
       </div>
     `
   }
@@ -366,18 +388,18 @@ export class PMGroupMobile extends PMGroupBase {
     const group = this.getCurrentGroup()
     if (!group) return nothing
 
+    if (group instanceof Group && pmGroupEditModel.active()) {
+      return html`<pm-group-edit-mobile></pm-group-edit-mobile>`
+    }
+
     const isRoot = this.isManagerRoot(group)
     const items = this.model.getUniqueRows(this.model.getVisibleRows(group))
     const summary = this.model.getGroupPresentation(group as unknown as Group, items, isRoot)
-    const header =
-      this.model.isEditMode() && !isRoot
-        ? this.renderHeader(group as Group, summary, false)
-        : nothing
-    const search = this.model.isEditMode() && !isRoot ? nothing : this.renderMobileWorkspaceHeader(summary)
+    const search = this.renderMobileWorkspaceHeader(summary)
 
     return html`
       <div class="wrapper">
-        ${header} ${search} ${this.renderGroupsList(group, items)} ${this.renderGroupMetrics(summary)}
+        ${search} ${this.renderGroupsList(group, items)} ${this.renderGroupMetrics(summary)}
       </div>
     `
   }

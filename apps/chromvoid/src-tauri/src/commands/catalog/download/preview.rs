@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -16,7 +17,8 @@ use crate::types::*;
 
 use super::derivatives::{
     build_core_backed_image_derivative_stream_with_metadata_and_cancellation,
-    is_display_derivative_candidate, load_stored_image_derivative_stream,
+    is_display_derivative_candidate, is_image_derivative_stale_error,
+    load_stored_image_derivative_stream, ImageDerivativeCancellation,
 };
 use super::rpc::{load_catalog_download_bytes, load_catalog_download_range_bytes};
 #[cfg(test)]
@@ -741,41 +743,75 @@ pub(super) fn prepare_catalog_preview_file_in_root_with_runtime(
     args: PreparePreviewFileArgs,
     cancellation_epoch: Option<&Arc<AtomicU64>>,
 ) -> Result<PreparedPreviewFileResult, CatalogDownloadError> {
-    prepare_catalog_preview_file_in_root_with_cancellation(
+    let cancellation =
+        cancellation_epoch.map(|epoch| ImageDerivativeCancellation::capture(epoch.clone()));
+    prepare_catalog_preview_file_in_root_with_cancellation_snapshot(
         preview_root,
         adapter,
         image_preview_runtime,
         prepared_preview_runtime,
         args,
-        cancellation_epoch,
+        cancellation.as_ref(),
     )
 }
 
-pub(super) fn prepare_catalog_preview_file_in_root_cancellable(
+pub(super) fn prepare_catalog_preview_file_in_root_with_cancellation_token(
     preview_root: &std::path::Path,
     adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
     image_preview_runtime: &crate::image_preview::ImagePreviewRuntimeState,
     prepared_preview_runtime: &PreparedPreviewRuntimeState,
     args: PreparePreviewFileArgs,
-    cancellation_epoch: Arc<AtomicU64>,
+    cancellation: ImageDerivativeCancellation,
 ) -> Result<PreparedPreviewFileResult, CatalogDownloadError> {
-    prepare_catalog_preview_file_in_root_with_cancellation(
+    prepare_catalog_preview_file_in_root_with_cancellation_snapshot(
         preview_root,
         adapter,
         image_preview_runtime,
         prepared_preview_runtime,
         args,
-        Some(&cancellation_epoch),
+        Some(&cancellation),
     )
 }
 
-fn prepare_catalog_preview_file_in_root_with_cancellation(
+fn prepare_catalog_preview_file_in_root_with_cancellation_snapshot(
     preview_root: &std::path::Path,
     adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
     image_preview_runtime: &crate::image_preview::ImagePreviewRuntimeState,
     prepared_preview_runtime: &PreparedPreviewRuntimeState,
     args: PreparePreviewFileArgs,
-    cancellation_epoch: Option<&Arc<AtomicU64>>,
+    cancellation: Option<&ImageDerivativeCancellation>,
+) -> Result<PreparedPreviewFileResult, CatalogDownloadError> {
+    for attempt in 0..=1 {
+        match prepare_catalog_preview_file_in_root_once(
+            preview_root,
+            adapter,
+            image_preview_runtime,
+            prepared_preview_runtime,
+            args.clone(),
+            cancellation,
+        ) {
+            Ok(result) => return Ok(result),
+            Err(error) if attempt == 0 && is_image_derivative_stale_error(&error) => {
+                tracing::info!(
+                    "perf:prepared_source event=stale_retry node_id={} variant={} attempt={}",
+                    args.node_id,
+                    preview_variant_label(args.variant),
+                    attempt + 1,
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("bounded prepared preview retry must return")
+}
+
+fn prepare_catalog_preview_file_in_root_once(
+    preview_root: &std::path::Path,
+    adapter: &Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
+    image_preview_runtime: &crate::image_preview::ImagePreviewRuntimeState,
+    prepared_preview_runtime: &PreparedPreviewRuntimeState,
+    args: PreparePreviewFileArgs,
+    cancellation: Option<&ImageDerivativeCancellation>,
 ) -> Result<PreparedPreviewFileResult, CatalogDownloadError> {
     let variant = args.variant;
     let variant_label = preview_variant_label(variant).to_string();
@@ -859,7 +895,7 @@ fn prepare_catalog_preview_file_in_root_with_cancellation(
                     args.mime_type.as_deref(),
                     tier,
                     source_metadata,
-                    cancellation_epoch,
+                    cancellation,
                     args.refresh_derivative_cache,
                 )?;
             tracing::info!(

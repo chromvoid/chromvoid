@@ -35,6 +35,7 @@ import {
   renderEntryTagsReadOnly,
 } from '../entry-tags/entry-tags-editor'
 import {pmEntryTagsStyles} from '../entry-tags/entry-tags.styles'
+import type {PMEntryWebsiteEditor} from '../entry-website-editor'
 
 export class PMEntry extends PMEntryBase {
   static styles = [
@@ -297,7 +298,13 @@ export class PMEntry extends PMEntryBase {
 
   private handleSaveEntryEdit() {
     if (!(this.entry instanceof Entry)) return
-    void this.model.saveEntryEdit(this.entry)
+    void this.model.saveEntryEdit(this.entry).then((saved) => {
+      if (!saved) {
+        this.shadowRoot
+          ?.querySelector<PMEntryWebsiteEditor>('pm-entry-website-editor')
+          ?.focusFirstInvalid()
+      }
+    })
   }
 
   private handleStartNoteEntryEdit(event: Event) {
@@ -444,6 +451,7 @@ export class PMEntry extends PMEntryBase {
                           type="password"
                           password-toggle
                           readonly
+                          readonly-scrollable
                           .value=${passwordResource.value}
                           size="small"
                         ></cv-input>
@@ -463,29 +471,15 @@ export class PMEntry extends PMEntryBase {
   }
 
   private renderWebsiteField(_card: Entry, data: PMEntryEditData) {
-    const inlineError = this.model.inlineError()
-
     return html`
       <div class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}">
         ${data.canEditWebsite && data.isEditingEntry
           ? html`
               <div class="field-editor">
-                <cv-field ?invalid=${Boolean(inlineError)}>
-                  <span slot="label">${i18n('website:title')}</span>
-                  <cv-input
-                    class="inline-field-input"
-                    dir="ltr"
-                    name="inline-website"
-                    data-inline-field="website"
-                    .value=${this.model.inlineWebsite()}
-                    @cv-input=${this.handleInlineEditInput}
-                    @keydown=${this.handleInlineEditorKeyDown}
-                    ?data-has-error=${!!inlineError}
-                    ?invalid=${Boolean(inlineError)}
-                    size="small"
-                  ></cv-input>
-                  ${inlineError ? html`<div slot="error" class="error-text">${inlineError}</div>` : nothing}
-                </cv-field>
+                <pm-entry-website-editor
+                  .model=${this.model.websiteEditor}
+                  @keydown=${this.handleInlineEditorKeyDown}
+                ></pm-entry-website-editor>
               </div>
             `
           : html`

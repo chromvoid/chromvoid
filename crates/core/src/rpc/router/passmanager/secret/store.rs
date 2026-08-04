@@ -24,7 +24,7 @@ pub(in crate::rpc::router::passmanager) fn read_secret_value(
     String::from_utf8(bytes).ok()
 }
 
-pub(super) fn stage_secret_value(
+pub(in crate::rpc::router::passmanager) fn stage_secret_value(
     uow: &mut DomainUnitOfWork<'_>,
     entry_path: &str,
     secret_name: &str,

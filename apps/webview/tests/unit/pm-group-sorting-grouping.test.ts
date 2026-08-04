@@ -3,7 +3,7 @@ import type {CredentialAuditEntrySummary} from '@project/passmanager/security-au
 
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {PMGroupModel} from '../../src/features/passmanager/components/group/group'
+import {PMGroupModel, type PMGroupRow} from '../../src/features/passmanager/components/group/group'
 import {pmEntryMoveModel} from '../../src/features/passmanager/models/pm-entry-move-model'
 import {pmCredentialSecurityAuditModel} from '../../src/features/passmanager/models/pm-credential-security-audit.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
@@ -147,6 +147,41 @@ describe('PMGroupModel sorting and grouping', () => {
       'header:zeta.test:1',
       'entry:Alpha',
     ])
+  })
+
+  it('selects a stable credential anchor from the visible grouping range', () => {
+    const model = new PMGroupModel()
+    const currentGroup = createGroup('Anchor')
+    const child = createGroup('Anchor/Child')
+    const first = createEntry(currentGroup, {id: 'entry-first', title: 'First'})
+    const second = createEntry(currentGroup, {id: 'entry-second', title: 'Second'})
+    const third = createEntry(currentGroup, {id: 'entry-third', title: 'Third'})
+    const rows: PMGroupRow[] = [
+      {kind: 'group', id: child.id, item: child},
+      {kind: 'header', id: 'header-a', label: 'A', count: 1},
+      {kind: 'entry', id: first.id, item: first},
+      {kind: 'header', id: 'header-b', label: 'B', count: 1},
+      {kind: 'entry', id: second.id, item: second},
+      {kind: 'entry', id: third.id, item: third},
+    ]
+
+    expect(model.getGroupingAnchorEntryId(rows, {first: 1, last: 4}, second.id)).toBe(second.id)
+    expect(model.getGroupingAnchorEntryId(rows, {first: 1, last: 3}, third.id)).toBe(first.id)
+    expect(model.getGroupingAnchorEntryId(rows, {first: 0, last: 1}, null)).toBe(first.id)
+    expect(model.getGroupingAnchorEntryId(rows, {first: 3, last: 3}, null)).toBe(second.id)
+  })
+
+  it('resolves a missing grouping anchor to the first credential row', () => {
+    const model = new PMGroupModel()
+    const currentGroup = createGroup('Anchor fallback')
+    const entry = createEntry(currentGroup, {id: 'entry-fallback', title: 'Fallback'})
+    const rows: PMGroupRow[] = [
+      {kind: 'header', id: 'header-fallback', label: 'Fallback', count: 1},
+      {kind: 'entry', id: entry.id, item: entry},
+    ]
+
+    expect(model.resolveGroupingAnchorIndex(rows, 'missing-entry')).toBe(1)
+    expect(model.resolveGroupingAnchorIndex([rows[0]!], 'missing-entry')).toBeNull()
   })
 
   it('reports filtered visible entry count for the current group presentation', () => {

@@ -95,9 +95,11 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
+    createEntry: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    removeGroup: vi.fn(async () => undefined),
     ...overrides,
   }
 }
@@ -270,7 +272,7 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     )
     await vi.waitFor(() => {
       expect(entry.remove).toHaveBeenCalledTimes(1)
-      expect(entry.remove).toHaveBeenCalledWith({silent: true})
+      expect(entry.remove).toHaveBeenCalledWith({silent: true, notifyResult: false})
       expect(pmMobileSelectionModel.selectedEntryIds()).toEqual([])
       expect(pmMobileSelectionModel.selectedGroupIds()).toEqual([])
     })
@@ -324,7 +326,12 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     entry.remove = vi.fn().mockRejectedValue(new Error('entry remove failed')) as typeof entry.remove
     vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
     const clearSpy = vi.spyOn(pmDeleteMotionModel, 'clearPending')
-    const toastSpy = vi.spyOn(toast, 'error').mockReturnValue('toast-delete-failed')
+    const update = vi.fn(() => true)
+    const toastSpy = vi.spyOn(toast, 'loading').mockReturnValue({
+      id: 'toast-delete-failed',
+      update,
+      dismiss: vi.fn(),
+    })
     const deleteSelection = (pmMobileChromeModel as unknown as {deleteSelection: () => Promise<void>}).deleteSelection.bind(
       pmMobileChromeModel,
     )
@@ -332,23 +339,92 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     await expect(deleteSelection()).resolves.toBeUndefined()
 
     expect(clearSpy).toHaveBeenCalledWith([entry.id])
-    expect(toastSpy).toHaveBeenCalledWith('Delete failed')
+    expect(toastSpy).toHaveBeenCalledWith('Delete… (0/1)', undefined, {
+      key: 'passmanager.selection.delete',
+    })
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: 'passmanager.selection.delete',
+        message: 'Delete failed (0/1)',
+        variant: 'error',
+      }),
+    )
     expect(pmSelectionModeModel.active()).toBe(true)
     expect(pmMobileSelectionModel.selectedEntryIds()).toEqual([entry.id])
   })
 
+  it('reports partial bulk results and retries only failed items', async () => {
+    const parent = createGroup('selection-delete-partial-parent', 'Selection Delete Partial Parent')
+    const removed = createEntry(parent, 'selection-delete-removed')
+    const retried = createEntry(parent, 'selection-delete-retried')
+    ;(window as any).passmanager = createPassmanager(parent, [parent, removed, retried])
+    pmSelectionModeModel.enterWithEntry(removed.id)
+    pmSelectionModeModel.toggleEntry(retried.id)
+
+    removed.remove = vi.fn().mockResolvedValue(true) as typeof removed.remove
+    retried.remove = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce(true) as typeof retried.remove
+    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    const update = vi.fn(() => true)
+    const loading = vi.spyOn(toast, 'loading').mockReturnValue({
+      id: 'toast-partial',
+      update,
+      dismiss: vi.fn(),
+    })
+    const deleteSelection = (
+      pmMobileChromeModel as unknown as {deleteSelection: () => Promise<void>}
+    ).deleteSelection.bind(pmMobileChromeModel)
+
+    await deleteSelection()
+
+    expect(removed.remove).toHaveBeenCalledOnce()
+    expect(retried.remove).toHaveBeenCalledOnce()
+    expect(pmMobileSelectionModel.selectedEntryIds()).toEqual([retried.id])
+    expect(loading).toHaveBeenCalledWith('Delete… (0/2)', undefined, {
+      key: 'passmanager.selection.delete',
+    })
+    const retry = update.mock.calls.find(([options]) => options.variant === 'error')?.[0].actions?.[0]
+      ?.onClick
+    expect(retry).toBeTypeOf('function')
+
+    retry?.()
+    await vi.waitFor(() => expect(retried.remove).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(pmSelectionModeModel.active()).toBe(false))
+
+    expect(removed.remove).toHaveBeenCalledOnce()
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: 'passmanager.selection.delete',
+        message: 'Deleted successfully (2/2)',
+        variant: 'success',
+      }),
+    )
+  })
+
   it('clears pending delete motion when selected group persistence fails', async () => {
-    const root = new ManagerRoot(createMockSaver())
+    const root = new ManagerRoot(
+      createMockSaver({
+        removeGroup: vi.fn(async () => {
+          throw new Error('group delete failed')
+        }),
+      }),
+    )
     const group = createGroup('selection-group-delete-fail', 'Selection Group Delete Fail')
     root.entries.set([group])
     root.showElement.set(root)
-    root.save = vi.fn().mockRejectedValue(new Error('root save failed')) as typeof root.save
     ;(window as any).passmanager = root as any
     pmSelectionModeModel.enterWithGroup(group.id)
 
     vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
     const clearSpy = vi.spyOn(pmDeleteMotionModel, 'clearPending')
-    const toastSpy = vi.spyOn(toast, 'error').mockReturnValue('toast-delete-failed')
+    const update = vi.fn(() => true)
+    const toastSpy = vi.spyOn(toast, 'loading').mockReturnValue({
+      id: 'toast-delete-failed',
+      update,
+      dismiss: vi.fn(),
+    })
     const deleteSelection = (pmMobileChromeModel as unknown as {deleteSelection: () => Promise<void>}).deleteSelection.bind(
       pmMobileChromeModel,
     )
@@ -356,7 +432,16 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     await expect(deleteSelection()).resolves.toBeUndefined()
 
     expect(clearSpy).toHaveBeenCalledWith([group.id])
-    expect(toastSpy).toHaveBeenCalledWith('Delete failed')
+    expect(toastSpy).toHaveBeenCalledWith('Delete… (0/1)', undefined, {
+      key: 'passmanager.selection.delete',
+    })
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: 'passmanager.selection.delete',
+        message: 'Delete failed (0/1)',
+        variant: 'error',
+      }),
+    )
     expect(root.entriesList()).toEqual([group])
     expect(pmSelectionModeModel.active()).toBe(true)
     expect(pmMobileSelectionModel.selectedGroupIds()).toEqual([group.id])

@@ -94,6 +94,114 @@ async fn mobile_usb_controller_pair_requires_approval_then_confirm_commits_and_s
     assert!(metrics.error_total.is_empty());
 }
 
+#[tokio::test]
+async fn mobile_usb_controller_wrong_pin_keeps_retryable_pairing_approval() {
+    let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
+    let store = Arc::new(InMemoryMobileUsbPairingStore::default());
+    let secrets = Arc::new(InMemoryMobileUsbSecretStore::default());
+    let starter = Arc::new(FakeSessionStarter::default());
+    let controller = MobileUsbController::new(bridge, store.clone(), secrets, starter.clone());
+
+    let status = controller.pair(pair_request()).await.expect("pair");
+    let attempt_id = status
+        .pairing_approval
+        .expect("approval required")
+        .attempt_id;
+    let error = controller
+        .confirm_pairing(MobileUsbPairConfirmRequest {
+            attempt_id: attempt_id.clone(),
+            approval_pin: "000000".to_string(),
+        })
+        .await
+        .expect_err("wrong PIN must be rejected");
+
+    assert_eq!(error.code, MobileUsbErrorCode::PairingApprovalRejected);
+    let status = controller.status().expect("status after wrong PIN");
+    assert_eq!(
+        status.session_state,
+        MobileUsbSessionState::PairingApprovalRequired
+    );
+    assert_eq!(status.error_code, None);
+    let approval = status.pairing_approval.expect("retryable approval");
+    assert_eq!(approval.attempt_id, attempt_id);
+    assert_eq!(approval.attempts_left, 4);
+    assert_eq!(store.list().expect("records").len(), 0);
+    assert_eq!(starter.start_count(), 0);
+
+    let status = controller
+        .confirm_pairing(MobileUsbPairConfirmRequest {
+            attempt_id,
+            approval_pin: TEST_PAIRING_PIN.to_string(),
+        })
+        .await
+        .expect("correct PIN retry");
+
+    assert_eq!(
+        status.session_state,
+        MobileUsbSessionState::TransportReadyHostLocked
+    );
+    assert_eq!(store.list().expect("records").len(), 1);
+    assert_eq!(starter.start_count(), 1);
+}
+
+#[tokio::test]
+async fn mobile_usb_controller_exhausted_pin_attempts_fail_pairing() {
+    let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
+    let store = Arc::new(InMemoryMobileUsbPairingStore::default());
+    let secrets = Arc::new(InMemoryMobileUsbSecretStore::default());
+    let starter = Arc::new(FakeSessionStarter::default());
+    let controller = MobileUsbController::new(bridge, store.clone(), secrets, starter.clone());
+
+    let status = controller.pair(pair_request()).await.expect("pair");
+    let attempt_id = status
+        .pairing_approval
+        .expect("approval required")
+        .attempt_id;
+
+    for expected_attempts_left in (1..=4).rev() {
+        let error = controller
+            .confirm_pairing(MobileUsbPairConfirmRequest {
+                attempt_id: attempt_id.clone(),
+                approval_pin: "000000".to_string(),
+            })
+            .await
+            .expect_err("wrong PIN must be rejected");
+        assert_eq!(error.code, MobileUsbErrorCode::PairingApprovalRejected);
+
+        let status = controller.status().expect("retryable approval status");
+        assert_eq!(
+            status.session_state,
+            MobileUsbSessionState::PairingApprovalRequired
+        );
+        assert_eq!(
+            status
+                .pairing_approval
+                .expect("retryable approval")
+                .attempts_left,
+            expected_attempts_left
+        );
+    }
+
+    let error = controller
+        .confirm_pairing(MobileUsbPairConfirmRequest {
+            attempt_id,
+            approval_pin: "000000".to_string(),
+        })
+        .await
+        .expect_err("last wrong PIN must fail pairing");
+
+    assert_eq!(error.code, MobileUsbErrorCode::PairingApprovalRejected);
+    let status = controller.status().expect("fatal rejection status");
+    assert_eq!(status.session_state, MobileUsbSessionState::Error);
+    assert_eq!(
+        status.error_code,
+        Some(MobileUsbErrorCode::PairingApprovalRejected)
+    );
+    assert!(status.pairing_approval.is_none());
+    assert_eq!(store.list().expect("records").len(), 0);
+    assert_eq!(starter.start_count(), 0);
+}
+
 #[cfg(desktop)]
 #[tokio::test]
 #[ignore]
@@ -211,7 +319,10 @@ async fn mobile_usb_controller_disconnect_during_pairing_approval_leaves_no_orph
     let status = controller.pair(pair_request()).await.expect("pair");
     let approval = status.pairing_approval.expect("approval required");
 
-    let status = controller.disconnect().expect("disconnect during pairing");
+    let status = controller
+        .disconnect_user()
+        .await
+        .expect("disconnect during pairing");
 
     assert_eq!(status.session_state, MobileUsbSessionState::Disconnected);
     assert_eq!(status.selected_transport, None);
@@ -231,6 +342,28 @@ async fn mobile_usb_controller_disconnect_during_pairing_approval_leaves_no_orph
     assert_eq!(error.code, MobileUsbErrorCode::InvalidState);
     assert_eq!(store.list().expect("records").len(), 0);
     assert_eq!(starter.start_count(), 0);
+}
+
+#[tokio::test]
+async fn mobile_usb_controller_pairing_disconnect_falls_back_for_legacy_peer() {
+    let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
+    bridge.set_pair_supports_cancel(false);
+    let store = Arc::new(InMemoryMobileUsbPairingStore::default());
+    let secrets = Arc::new(InMemoryMobileUsbSecretStore::default());
+    let starter = Arc::new(FakeSessionStarter::default());
+    let controller =
+        MobileUsbController::new(bridge.clone(), store.clone(), secrets.clone(), starter);
+
+    controller.pair(pair_request()).await.expect("pair");
+    let status = controller
+        .disconnect_user()
+        .await
+        .expect("legacy pairing disconnect");
+
+    assert_eq!(status.session_state, MobileUsbSessionState::Disconnected);
+    assert!(store.list().expect("records").is_empty());
+    assert!(secrets.saved_refs().is_empty());
+    assert_eq!(bridge.pair_open_count(), 1);
 }
 
 #[tokio::test]

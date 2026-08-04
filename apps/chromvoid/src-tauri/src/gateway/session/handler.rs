@@ -288,6 +288,17 @@ pub(in crate::gateway) async fn handle_extension_session(
               continue;
             }
 
+            if crate::gateway::types::is_private_peer_core_command(&req.command) {
+              warn!(
+                "[gateway] denied private peer command on extension route for extension_id={ext_id}"
+              );
+              try_send_request_error!(
+                transport, write, frame.message_id,
+                error_codes::CAPABILITY_DENIED, "command is available only to authenticated device peers"
+              );
+              continue;
+            }
+
             // SPEC-002 s5.2: Timestamp validation (optional field).
             if let Some(ts) = req.data.get("timestamp").and_then(|v| v.as_u64()) {
               if validate_timestamp(ts).is_err() {

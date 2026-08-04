@@ -129,6 +129,8 @@ fn main() {
             "mobile_host_stop",
             "mobile_host_status",
             "mobile_host_publish_presence",
+            "mobile_host_list_paired_computers",
+            "mobile_host_revoke_paired_computer",
             "mobile_acceptor_start",
             "mobile_acceptor_stop",
             "mobile_acceptor_status",

@@ -1,47 +1,20 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {css} from 'lit'
 
+import {registerDialogTopLayerAccessory} from '@chromvoid/uikit/components/cv-dialog'
 import {CVToastRegion, type ToastRegionPosition} from '@chromvoid/uikit/components/cv-toast-region'
-import type {CVToastController} from '@chromvoid/uikit/toast/create-toast-controller'
-import {createToastController} from '@chromvoid/uikit/toast/create-toast-controller'
 import {
   setNotifyAdapter,
   type NotifyPayload,
   type ToastPosition,
 } from '@project/passmanager/notify'
-
-type ToastVariant = NotifyPayload['variant']
-type ToastAction = {
-  label: string
-  onClick: () => void
-}
-
-interface ToastOptions {
-  title?: string
-  message?: string
-  variant?: ToastVariant
-  duration?: number
-  persistent?: boolean
-  closable?: boolean
-  icon?: string
-  progress?: boolean
-  position?: ToastPosition
-  actions?: readonly ToastAction[]
-}
-
-interface ToastInstance {
-  id: string
-  position: ToastPosition
-}
-
-const POSITIONS: ToastPosition[] = [
-  'top-left',
-  'top-center',
-  'top-right',
-  'bottom-left',
-  'bottom-center',
-  'bottom-right',
-]
+import {i18n} from '../../i18n'
+import {
+  TOAST_POSITIONS,
+  toastManagerModel,
+  type ToastHandle,
+  type ToastOptions,
+} from './toast-manager.model'
 
 const POSITION_TO_REGION: Record<ToastPosition, ToastRegionPosition> = {
   'top-left': 'top-start',
@@ -52,23 +25,13 @@ const POSITION_TO_REGION: Record<ToastPosition, ToastRegionPosition> = {
   'bottom-right': 'bottom-end',
 }
 
-const DEFAULT_TOAST_POSITION: ToastPosition = 'bottom-right'
-const MOBILE_DEFAULT_TOAST_POSITION: ToastPosition = 'bottom-center'
-
-function resolveDefaultToastPosition(): ToastPosition {
-  if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches) {
-    return MOBILE_DEFAULT_TOAST_POSITION
-  }
-
-  return DEFAULT_TOAST_POSITION
-}
+let toastContainer: ToastContainer | null = null
+let unregisterToastContainer: (() => void) | null = null
 
 export class ToastContainer extends ReatomLitElement {
   static define() {
     CVToastRegion.define()
-    if (!customElements.get('toast-container')) {
-      customElements.define('toast-container', this)
-    }
+    if (!customElements.get('toast-container')) customElements.define('toast-container', this)
   }
 
   static styles = [
@@ -88,9 +51,7 @@ export class ToastContainer extends ReatomLitElement {
           --cv-toast-region-max-width: calc(100vw - 16px);
         }
 
-        cv-toast-region[position='bottom-start'],
-        cv-toast-region[position='bottom-center'],
-        cv-toast-region[position='bottom-end'] {
+        cv-toast-region[position='bottom-center'] {
           bottom: calc(
             56px + var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px)) +
               var(--cv-toast-region-inset, 8px)
@@ -100,121 +61,20 @@ export class ToastContainer extends ReatomLitElement {
     `,
   ]
 
-  private toastCounter = 0
-  private readonly toasts = new Map<string, ToastInstance>()
-  private readonly controllers = new Map<ToastPosition, CVToastController>(
-    POSITIONS.map((position) => [position, createToastController({maxVisible: 4})]),
-  )
-
-  show(options: ToastOptions): string {
-    const position = options.position ?? resolveDefaultToastPosition()
-    const controller = this.controllers.get(position)
-    if (!controller) {
-      throw new Error(`Unsupported toast position: ${position}`)
-    }
-
-    const id = this.generateId()
-    const actions =
-      options.actions?.map((action) => ({
-        label: action.label,
-        onClick: () => {
-          action.onClick()
-          this.dismiss(id)
-        },
-      })) ?? []
-
-    controller.push({
-      id,
-      title: options.title,
-      message: options.message ?? '',
-      level: options.variant ?? 'info',
-      durationMs: options.persistent ? 0 : (options.duration ?? 5000),
-      closable: options.closable ?? true,
-      icon: options.icon,
-      progress: options.progress ?? (options.variant ?? 'info') !== 'loading',
-      actions,
-    })
-
-    this.toasts.set(id, {id, position})
-    return id
-  }
-
-  dismiss(id: string): boolean {
-    const instance = this.toasts.get(id)
-    if (!instance) return false
-
-    const controller = this.controllers.get(instance.position)
-    controller?.dismiss(id)
-    this.toasts.delete(id)
-    return true
-  }
-
-  dismissAll(position?: ToastPosition): void {
-    if (position) {
-      this.controllers.get(position)?.clear()
-      for (const [id, instance] of this.toasts) {
-        if (instance.position === position) {
-          this.toasts.delete(id)
-        }
-      }
-      return
-    }
-
-    for (const controller of this.controllers.values()) {
-      controller.clear()
-    }
-    this.toasts.clear()
-  }
-
-  clear(): void {
-    this.dismissAll()
-  }
-
-  info(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return this.show({message, title, variant: 'info', ...options})
-  }
-
-  success(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return this.show({message, title, variant: 'success', ...options})
-  }
-
-  warning(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return this.show({message, title, variant: 'warning', ...options})
-  }
-
-  error(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return this.show({message, title, variant: 'error', duration: 0, ...options})
-  }
-
-  loading(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return this.show({
-      message,
-      title,
-      variant: 'loading',
-      persistent: true,
-      progress: false,
-      closable: false,
-      ...options,
-    })
-  }
-
   private handleRegionClose(event: Event) {
-    const closeEvent = event as CustomEvent<{id: string}>
-    this.toasts.delete(closeEvent.detail.id)
-  }
-
-  private generateId(): string {
-    this.toastCounter += 1
-    return `toast-${this.toastCounter}`
+    event.stopPropagation()
+    toastManagerModel.handleRegionClose((event as CustomEvent<{id: string}>).detail.id)
   }
 
   protected render() {
     return html`
-      ${POSITIONS.map(
+      ${TOAST_POSITIONS.map(
         (position) => html`
           <cv-toast-region
             position=${POSITION_TO_REGION[position]}
-            .controller=${this.controllers.get(position)!}
+            .controller=${toastManagerModel.controllers.get(position)!}
+            .dismissLabel=${i18n('button:close')}
+            .topLayer=${true}
             @cv-close=${this.handleRegionClose}
           ></cv-toast-region>
         `,
@@ -225,73 +85,77 @@ export class ToastContainer extends ReatomLitElement {
 
 function ensureToastContainer(): ToastContainer | null {
   if (typeof document === 'undefined') return null
-
   ToastContainer.define()
 
-  const existing = document.body.querySelector('toast-container')
-  if (existing instanceof ToastContainer) {
-    return existing
-  }
+  if (toastContainer?.isConnected) return toastContainer
 
-  const container = document.createElement('toast-container') as unknown as ToastContainer
-  document.body.append(container)
-  return container
+  unregisterToastContainer?.()
+  unregisterToastContainer = null
+
+  const existing = document.body.querySelector('toast-container')
+  toastContainer =
+    existing instanceof ToastContainer
+      ? existing
+      : (document.createElement('toast-container') as unknown as ToastContainer)
+
+  if (!toastContainer.isConnected) document.body.append(toastContainer)
+  unregisterToastContainer = registerDialogTopLayerAccessory(toastContainer)
+  return toastContainer
+}
+
+function show(options: ToastOptions): ToastHandle {
+  ensureToastContainer()
+  return toastManagerModel.show(options)
 }
 
 export function initToastManager(): void {
+  toastManagerModel.connectViewport()
   setNotifyAdapter({
     present(payload: NotifyPayload) {
-      const container = ensureToastContainer()
-      if (!container) {
-        return {dismiss() {}}
-      }
-
-      const id = container.show({
-        ...payload,
-        duration: payload.duration,
-      })
-
+      const handle = show(payload)
       return {
-        dismiss() {
-          container.dismiss(id)
-        },
+        id: handle.id,
+        update: (options) => handle.update(options),
+        dismiss: () => handle.dismiss(),
       }
     },
   })
 }
 
 export const toast = {
-  show(options: ToastOptions): string {
-    const container = ensureToastContainer()
-    if (!container) return ''
-    return container.show(options)
-  },
+  show,
   dismiss(id: string): boolean {
-    return ensureToastContainer()?.dismiss(id) ?? false
+    return toastManagerModel.dismiss(id)
   },
   dismissAll(position?: ToastPosition): void {
-    ensureToastContainer()?.dismissAll(position)
+    toastManagerModel.dismissAll(position)
   },
   clear(): void {
-    ensureToastContainer()?.clear()
+    toastManagerModel.dismissAll()
   },
-  info(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return ensureToastContainer()?.info(message, title, options) ?? ''
+  info(message: string, title?: string, options?: Partial<ToastOptions>): ToastHandle {
+    return show({message, title, variant: 'info', ...options})
   },
-  success(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return ensureToastContainer()?.success(message, title, options) ?? ''
+  success(message: string, title?: string, options?: Partial<ToastOptions>): ToastHandle {
+    return show({message, title, variant: 'success', ...options})
   },
-  warning(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return ensureToastContainer()?.warning(message, title, options) ?? ''
+  warning(message: string, title?: string, options?: Partial<ToastOptions>): ToastHandle {
+    return show({message, title, variant: 'warning', ...options})
   },
-  error(message: string, title?: string, options?: Partial<ToastOptions>): string {
-    return ensureToastContainer()?.error(message, title, options) ?? ''
+  error(message: string, title?: string, options?: Partial<ToastOptions>): ToastHandle {
+    return show({message, title, variant: 'error', persistent: true, ...options})
   },
-  loading(message: string, title?: string, options?: Partial<ToastOptions>) {
-    const id = ensureToastContainer()?.loading(message, title, options) ?? ''
-    return () => {
-      if (!id) return
-      ensureToastContainer()?.dismiss(id)
-    }
+  loading(message: string, title?: string, options?: Partial<ToastOptions>): ToastHandle {
+    return show({
+      message,
+      title,
+      variant: 'loading',
+      persistent: true,
+      progress: false,
+      closable: false,
+      ...options,
+    })
   },
 }
+
+export type {ToastAction, ToastHandle, ToastOptions} from './toast-manager.model'

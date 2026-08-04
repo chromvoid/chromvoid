@@ -406,6 +406,31 @@ describe('file-app-shell layout selection', () => {
       expect(element.shadowRoot?.querySelector('mobile-tab-bar')).not.toBeNull()
     })
 
+    it('hides and restores the mobile tab bar through the shell contract', async () => {
+      setupContext('mobile')
+      FileAppShell.define()
+
+      const element = document.createElement('file-app-shell') as FileAppShell
+      element.hideMobileTabBar = true
+      document.body.append(element)
+      await element.updateComplete
+
+      const layout = element.shadowRoot?.querySelector('file-app-shell-mobile-layout') as
+        | FileAppShellMobileLayout
+        | null
+      await layout?.updateComplete
+
+      expect(layout?.hideTabBar).toBe(true)
+      expect(layout?.shadowRoot?.querySelector('mobile-tab-bar')).toBeNull()
+
+      element.hideMobileTabBar = false
+      await element.updateComplete
+      await layout?.updateComplete
+
+      expect(layout?.hideTabBar).toBe(false)
+      expect(layout?.shadowRoot?.querySelector('mobile-tab-bar')).not.toBeNull()
+    })
+
   })
 
   describe('desktop layout behavior', () => {

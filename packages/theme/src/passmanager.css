@@ -40,10 +40,8 @@
   --pm-avatar-header-letter-size-lg: 1.75rem;
   --pm-avatar-picker-radius: 8px;
   --pm-avatar-picker-preview-size: 28px;
-  --pm-avatar-picker-preview-image-padding: 4px;
   --pm-avatar-picker-preview-icon-size: 24px;
   --pm-avatar-picker-dialog-preview-size: 34px;
-  --pm-avatar-picker-dialog-image-padding: 3px;
   --pm-avatar-picker-dialog-icon-size: 20px;
   --pm-action-copy-size-inline: 1.8rem;
   --pm-action-copy-size-compact: 1.65rem;
@@ -59,7 +57,6 @@
   --pm-mobile-list-row-icon-image-padding: 4px;
   --pm-mobile-list-row-icon-letter-size: 14px;
   --pm-mobile-group-inline-gutter: var(--app-mobile-surface-gutter-inline);
-  --pm-mobile-group-scroll-edge-block-size: 20px;
   --pm-entry-header-control-size: 40px;
   --pm-entry-header-control-icon-size: 18px;
   --pm-entry-mobile-password-action-size: 40px;

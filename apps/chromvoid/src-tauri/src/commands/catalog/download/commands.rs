@@ -17,7 +17,8 @@ use crate::host_path_capability::HostPathPurpose;
 use crate::types::*;
 
 use super::derivatives::{
-    build_core_backed_image_derivative_stream_cancellable, is_display_derivative_candidate,
+    build_core_backed_image_derivative_stream_with_cancellation, is_display_derivative_candidate,
+    ImageDerivativeCancellation,
 };
 use super::external::{open_staged_file_with_system, share_staged_files_with_system};
 use super::gallery::{build_gallery_save_payload, save_gallery_payload, StagedCatalogFile};
@@ -133,6 +134,7 @@ pub(crate) async fn catalog_preview_image(
     let cancellation_epoch = state
         .vault_background_io_runtime
         .cancellation_epoch_handle();
+    let cancellation = ImageDerivativeCancellation::capture(cancellation_epoch);
     let image_preview_runtime = state.image_preview_runtime.clone();
     let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
     let app_cache_dir = app.path().app_cache_dir().ok();
@@ -142,14 +144,14 @@ pub(crate) async fn catalog_preview_image(
             if let Some(app_cache_dir) = app_cache_dir.as_deref() {
                 let _ = image_preview_runtime.cleanup_legacy_derivative_cache_once(app_cache_dir);
             }
-            let preview = build_core_backed_image_derivative_stream_cancellable(
+            let preview = build_core_backed_image_derivative_stream_with_cancellation(
                 &adapter,
                 &image_preview_runtime,
                 node_id,
                 &file_name,
                 mime_type.as_deref(),
                 crate::image_preview::ImageDerivativeTier::DisplayPreview,
-                cancellation_epoch,
+                cancellation,
                 refresh_derivative_cache,
             )?;
             tracing::info!(
@@ -219,6 +221,7 @@ pub(crate) async fn catalog_thumbnail_image(
     let cancellation_epoch = state
         .vault_background_io_runtime
         .cancellation_epoch_handle();
+    let cancellation = ImageDerivativeCancellation::capture(cancellation_epoch);
     let image_preview_runtime = state.image_preview_runtime.clone();
     let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
     let app_cache_dir = app.path().app_cache_dir().ok();
@@ -228,14 +231,14 @@ pub(crate) async fn catalog_thumbnail_image(
             if let Some(app_cache_dir) = app_cache_dir.as_deref() {
                 let _ = image_preview_runtime.cleanup_legacy_derivative_cache_once(app_cache_dir);
             }
-            let thumbnail = build_core_backed_image_derivative_stream_cancellable(
+            let thumbnail = build_core_backed_image_derivative_stream_with_cancellation(
                 &adapter,
                 &image_preview_runtime,
                 node_id,
                 &file_name,
                 mime_type.as_deref(),
                 crate::image_preview::ImageDerivativeTier::Thumbnail,
-                cancellation_epoch,
+                cancellation,
                 refresh_derivative_cache,
             )?;
             tracing::info!(
@@ -343,6 +346,7 @@ pub(crate) async fn prepare_catalog_preview_file(
     let cancellation_epoch = state
         .vault_background_io_runtime
         .cancellation_epoch_handle();
+    let cancellation = ImageDerivativeCancellation::capture(cancellation_epoch);
     let image_preview_runtime = state.image_preview_runtime.clone();
     let prepared_preview_runtime = state.prepared_preview_runtime.clone();
     let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
@@ -354,13 +358,13 @@ pub(crate) async fn prepare_catalog_preview_file(
 
     let out = catalog_blocking_io_runtime
         .spawn_blocking(move || {
-            super::preview::prepare_catalog_preview_file_in_root_cancellable(
+            super::preview::prepare_catalog_preview_file_in_root_with_cancellation_token(
                 &preview_root,
                 &adapter,
                 &image_preview_runtime,
                 &prepared_preview_runtime,
                 args,
-                cancellation_epoch,
+                cancellation,
             )
         })
         .await;

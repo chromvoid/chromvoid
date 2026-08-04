@@ -220,7 +220,14 @@ pub struct MobileUsbDetectCandidate {
 pub struct MobileUsbDetectedPairedMatch {
     pub host_id: HostId,
     pub label: String,
-    pub connectable: bool,
+    pub pairing_state: MobileUsbDetectedPairingState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MobileUsbDetectedPairingState {
+    Confirmed,
+    Incomplete,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

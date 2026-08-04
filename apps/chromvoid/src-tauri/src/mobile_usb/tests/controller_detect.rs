@@ -6,6 +6,14 @@ fn detect_controller(
     secrets_entries: &[(&str, Vec<u8>)],
     candidates: Vec<MobileUsbDetectCandidate>,
 ) -> MobileUsbController {
+    detect_controller_with_secrets(records, secrets_entries, candidates).0
+}
+
+fn detect_controller_with_secrets(
+    records: Vec<MobileUsbPairedHostRecord>,
+    secrets_entries: &[(&str, Vec<u8>)],
+    candidates: Vec<MobileUsbDetectCandidate>,
+) -> (MobileUsbController, Arc<InMemoryMobileUsbSecretStore>) {
     let bridge = Arc::new(FakeMobileUsbBridge::new(Vec::new()));
     bridge.set_detected(candidates);
     let store = Arc::new(InMemoryMobileUsbPairingStore::default());
@@ -17,7 +25,10 @@ fn detect_controller(
         secrets.insert(key_ref.to_string(), key.clone());
     }
     let starter = Arc::new(FakeSessionStarter::default());
-    MobileUsbController::new(bridge, store, secrets, starter)
+    (
+        MobileUsbController::new(bridge, store, secrets.clone(), starter),
+        secrets,
+    )
 }
 
 fn accessory_candidate() -> MobileUsbDetectCandidate {
@@ -61,7 +72,10 @@ async fn mobile_usb_detect_matches_paired_accessory_device() {
     let paired = detected[0].paired_match.as_ref().expect("paired match");
     assert_eq!(paired.host_id, "host-1");
     assert_eq!(paired.label, "Host host-1");
-    assert!(paired.connectable);
+    assert_eq!(
+        paired.pairing_state,
+        MobileUsbDetectedPairingState::Confirmed
+    );
 }
 
 #[tokio::test]
@@ -78,7 +92,10 @@ async fn mobile_usb_detect_matches_paired_host_by_serial_in_normal_mode() {
     assert!(!detected[0].accessory_mode);
     let paired = detected[0].paired_match.as_ref().expect("paired match");
     assert_eq!(paired.host_id, "host-1");
-    assert!(paired.connectable);
+    assert_eq!(
+        paired.pairing_state,
+        MobileUsbDetectedPairingState::Confirmed
+    );
 }
 
 #[tokio::test]
@@ -106,19 +123,44 @@ async fn mobile_usb_detect_keeps_unpaired_accessory_devices() {
 }
 
 #[tokio::test]
-async fn mobile_usb_detect_marks_missing_secret_as_not_connectable() {
-    let controller = detect_controller(
+async fn mobile_usb_detect_does_not_load_confirmed_pairing_secret() {
+    let (controller, secrets) = detect_controller_with_secrets(
         vec![record("host-1", "secret:one", vec![1])],
         &[],
         vec![accessory_candidate()],
     );
+    secrets.set_fail_load(true);
 
     let detected = controller.detect().await.expect("detect");
 
     assert_eq!(detected.len(), 1);
     let paired = detected[0].paired_match.as_ref().expect("paired match");
     assert_eq!(paired.host_id, "host-1");
-    assert!(!paired.connectable);
+    assert_eq!(
+        paired.pairing_state,
+        MobileUsbDetectedPairingState::Confirmed
+    );
+    assert!(secrets.load_attempts().is_empty());
+}
+
+#[tokio::test]
+async fn mobile_usb_detect_marks_incomplete_pairing_metadata_for_review() {
+    let mut incomplete = record("host-1", "secret:one", vec![1]);
+    incomplete.pairing_confirmed_at = None;
+    let (controller, secrets) = detect_controller_with_secrets(
+        vec![incomplete],
+        &[("secret:one", vec![7])],
+        vec![accessory_candidate()],
+    );
+
+    let detected = controller.detect().await.expect("detect");
+
+    let paired = detected[0].paired_match.as_ref().expect("paired match");
+    assert_eq!(
+        paired.pairing_state,
+        MobileUsbDetectedPairingState::Incomplete
+    );
+    assert!(secrets.load_attempts().is_empty());
 }
 
 #[tokio::test]

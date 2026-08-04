@@ -19,6 +19,21 @@ export class NotesQuickView extends NotesQuickViewBase {
         padding: var(--app-surface-gutter-desktop);
       }
 
+      .quick-view > cv-empty-state,
+      .quick-view > cv-guidance-anchor > cv-empty-state {
+        inline-size: min(
+          520px,
+          calc(
+            100% - var(--app-surface-gutter-desktop) - var(--app-surface-gutter-desktop)
+          )
+        );
+        justify-self: center;
+        margin-block-start: clamp(var(--app-spacing-7), 16vb, 10rem);
+        --cv-empty-state-padding: clamp(var(--app-spacing-6), 4vb, var(--app-spacing-8));
+        --cv-empty-state-border: 0;
+        --cv-empty-state-background: transparent;
+      }
+
       .row {
         padding-inline: var(--cv-space-3);
       }

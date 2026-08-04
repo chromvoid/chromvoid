@@ -4,6 +4,7 @@ import type {Page} from 'playwright'
 import type * as NavigationModelModule from '../../../src/app/navigation/navigation.model'
 import type * as ModuleAccessModelModule from '../../../src/core/pro/module-access.model'
 import type * as RuntimeCapabilitiesModule from '../../../src/core/runtime/runtime-capabilities'
+import type * as AppContextModule from '../../../src/shared/services/app-context'
 import type * as SettingsModelModule from '../../../src/routes/settings/settings.model'
 import {
   hasDeepSelector,
@@ -12,14 +13,18 @@ import {
   openFiles,
   openNotes,
   openPasswords,
+  seedVisualEmptyNotesFixture,
+  seedVisualEmptyPassmanagerFixture,
   seedVisualFilesFixture,
   seedVisualNotesFixture,
   seedVisualPassmanagerFixture,
   seedVisualPassmanagerTagSnippetFixture,
   selectFirstDesktopTableRow,
   selectFirstMobileFile,
+  selectPasswordGroup,
   showCreateEntry,
   showFirstMobileLoginEntryEdit,
+  showFirstMobileGroupEdit,
   waitForDeepSelector,
   waitForOtpRows,
 } from '../visual-fixtures'
@@ -108,6 +113,21 @@ async function getCredentialTagAriaSnapshot(
 async function settleResponsiveLayout(page: Page): Promise<void> {
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  )
+}
+
+async function syncMobileSafeAreaFallback(page: Page, platform: 'ios' | 'android'): Promise<void> {
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')))
+  await page.waitForFunction(
+    (expectedFallback) => {
+      const fallback = Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          '--app-runtime-safe-area-block-end-fallback',
+        ),
+      )
+      return fallback === expectedFallback
+    },
+    platform === 'android' ? 16 : 0,
   )
 }
 
@@ -209,6 +229,200 @@ async function setRootTheme(page: Page, theme: 'light' | 'dark'): Promise<void> 
     document.documentElement.setAttribute('data-theme', nextTheme)
     document.documentElement.setAttribute('theme', nextTheme)
   }, theme)
+  await page.evaluate(async () => {
+    function collectFiniteAnimations(root: Document | ShadowRoot, animations = new Set<Animation>()) {
+      for (const animation of root.getAnimations({subtree: true})) {
+        const endTime = animation.effect?.getComputedTiming().endTime
+        if (typeof endTime === 'number' && Number.isFinite(endTime)) animations.add(animation)
+      }
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) collectFiniteAnimations(element.shadowRoot, animations)
+      }
+      return animations
+    }
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const activeAnimations = [...collectFiniteAnimations(document)].filter(
+        (animation) => animation.playState !== 'finished',
+      )
+      if (activeAnimations.length === 0) return
+      await Promise.all(activeAnimations.map((animation) => animation.finished.catch(() => undefined)))
+    }
+  })
+}
+
+async function openVisualMarkdownEditor(page: Page, width: number): Promise<void> {
+  await seedVisualNotesFixture()
+  await openNotes(page, 'mobile', width)
+  await page.locator('notes-quick-view-mobile [data-row-id="1"]').click()
+  await waitForDeepSelector(page, 'markdown-preview')
+  await page.locator('markdown-preview .mode-button').filter({hasText: 'Edit'}).click()
+  await waitForDeepSelector(page, '.editor-quick-bar')
+  await settleResponsiveLayout(page)
+}
+
+async function configureCreateWebsiteEditor(page: Page, state: 'populated' | 'duplicate'): Promise<void> {
+  await page.evaluate((nextState) => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    type WebsiteEditorModel = {
+      rows(): ReadonlyArray<{id: string}>
+      updateValue(rowId: string, value: string): void
+      updateMatch(rowId: string, match: 'base_domain' | 'exact'): void
+      add(): string
+      buildRules(): unknown
+    }
+
+    const create = deepFind(document, 'pm-entry-create-desktop') as
+      | (HTMLElement & {model?: {websiteEditor?: WebsiteEditorModel}})
+      | null
+    const editor = create?.model?.websiteEditor
+    const firstRowId = editor?.rows()[0]?.id
+    if (!editor || !firstRowId) throw new Error('Create website editor model was not available')
+
+    editor.updateValue(firstRowId, 'example.com')
+    const secondRowId = editor.add()
+    editor.updateValue(
+      secondRowId,
+      nextState === 'duplicate' ? 'https://example.com/' : 'https://account.example.com/sign-in',
+    )
+    editor.updateMatch(secondRowId, 'exact')
+    if (nextState === 'duplicate') editor.buildRules()
+  }, state)
+
+  await page.waitForFunction((nextState) => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const editor = deepFind(document, 'pm-entry-website-editor') as HTMLElement | null
+    const root = editor?.shadowRoot
+    const hasRows = root?.querySelectorAll('.row').length === 2
+    const hasExpectedError =
+      nextState !== 'duplicate' || root?.querySelectorAll('[slot="error"]').length === 1
+    return Boolean(hasRows && hasExpectedError)
+  }, state)
+
+  if (state === 'populated') {
+    await page.evaluate(() => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) {
+            const inner = deepFind(element.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const editor = deepFind(document, 'pm-entry-website-editor') as HTMLElement | null
+      const details = editor?.shadowRoot?.querySelectorAll<HTMLDetailsElement>('details')[1]
+      if (!details) throw new Error('Secondary website settings were not available')
+      details.open = true
+    })
+  }
+
+  await page.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  )
+}
+
+async function showStructuredDesktopEntry(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const passmanager = (
+      window as unknown as {
+        passmanager?: {
+          entriesList?: () => Array<{id?: string}>
+          showElement?: {set(value: unknown): void}
+        }
+      }
+    ).passmanager
+    const entry = passmanager?.entriesList?.().find((item) => item.id === 'visual-github')
+    if (!entry) throw new Error('Structured website visual entry was not available')
+    passmanager?.showElement?.set(entry)
+  })
+
+  await waitForDeepSelector(page, 'pm-entry')
+  await page.waitForFunction(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const entry = deepFind(document, 'pm-entry') as HTMLElement | null
+    return entry?.shadowRoot?.querySelectorAll('.url-link').length === 4
+  })
+}
+
+async function getCreateWebsiteFooterOverlap(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const editor = deepFind(document, 'pm-entry-website-editor') as HTMLElement | null
+    const addButton = editor?.shadowRoot?.querySelector('fieldset > cv-button')
+    const footer = deepFind(document, '.create-footer')
+    const buttonRect = addButton?.getBoundingClientRect()
+    const footerRect = footer?.getBoundingClientRect()
+    if (!buttonRect || !footerRect) return -1
+    return Math.max(0, Math.ceil(buttonRect.bottom - footerRect.top))
+  })
+}
+
+async function revealCreateWebsiteActions(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const editor = deepFind(document, 'pm-entry-website-editor') as HTMLElement | null
+    editor?.shadowRoot?.querySelector('fieldset > cv-button')?.scrollIntoView({block: 'center'})
+  })
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   )
@@ -283,6 +497,7 @@ async function openMobileSettingsVisual(
     ])
     settingsPageModel.credentialProviderSelected.set(false)
   }, options.autofillAccess)
+  await syncMobileSafeAreaFallback(page, 'android')
 
   await openNavigationItem(page, 'Settings')
   await waitForDeepSelector(page, 'settings-page-mobile-layout')
@@ -336,6 +551,853 @@ async function restoreMobileSettingsVisual(page: Page): Promise<void> {
     moduleAccessModel.reset()
     settingsPageModel.credentialProviderSelected.set(null)
   })
+}
+
+type MobileRemoteHostVisualState = 'off' | 'pairing' | 'connected' | 'usb-connected'
+
+async function openMobileRemoteHostVisual(
+  page: Page,
+  options: {
+    platform: 'ios' | 'android'
+    state: MobileRemoteHostVisualState
+    theme: 'light' | 'dark'
+    viewport: {width: number; height: number}
+  },
+): Promise<void> {
+  await page.emulateMedia({reducedMotion: 'reduce'})
+  await page.setViewportSize(options.viewport)
+  await page.goto('http://localhost:4400/index.html?surface=files&layout=mobile', {
+    waitUntil: 'domcontentloaded',
+  })
+  await waitForDeepSelector(page, 'file-app-shell-mobile-layout')
+
+  await page.evaluate(async ({platform, state}) => {
+    const now = Date.now()
+    const deviceLabel = platform === 'android' ? 'Pixel Pocket Host' : 'Kaifat’s iPhone'
+    const pairingOffer = {
+      session_id: 'visual-secret-session',
+      relay_base_url: 'https://relay.chromvoid.com',
+      device_label: deviceLabel,
+      expires_at_ms: now + 15 * 60_000,
+      platform,
+    }
+    const status = {
+      phase:
+        state === 'off' || state === 'usb-connected' ? 'Idle' : state === 'pairing' ? 'Pairing' : 'Ready',
+      platform,
+      relay_url: state === 'off' || state === 'usb-connected' ? null : 'wss://relay.chromvoid.com',
+      device_id: `${platform}-visual-host`,
+      device_label: deviceLabel,
+      pairing_pin: state === 'pairing' ? '654321' : null,
+      pairing_offer: state === 'pairing' ? pairingOffer : null,
+      expires_at_ms: state === 'pairing' ? pairingOffer.expires_at_ms : null,
+      presence:
+        state === 'connected'
+          ? {
+              peer_id: `${platform}-visual-host`,
+              relay_url: 'wss://relay.chromvoid.com',
+              room_id: 'visual-room',
+              expires_at_ms: now + 15 * 60_000,
+              status: 'ready',
+            }
+          : null,
+      paired_peer_id:
+        state === 'off' ? null : state === 'usb-connected' ? 'cable-desktop-id' : 'office-desktop-id',
+      connected_peers:
+        state === 'connected'
+          ? [
+              {
+                peer_id: 'office-desktop-id',
+                label: 'Office desktop',
+                connected_at_ms: now - 2 * 60_000,
+                transport_type: 'wss_relay',
+              },
+            ]
+          : state === 'usb-connected'
+            ? [
+                {
+                  peer_id: 'cable-desktop-id',
+                  label: 'Cable desktop',
+                  connected_at_ms: now - 2 * 60_000,
+                  transport_type: 'usb_mobile',
+                },
+              ]
+            : [],
+      error: null,
+    }
+    const pairedComputers =
+      state === 'off'
+        ? []
+        : state === 'usb-connected'
+          ? [
+              {
+                peer_id: 'cable-desktop-id',
+                label: 'Cable desktop',
+                platform: 'macos',
+                pairing_transport: 'usb_mobile',
+                paired_at_ms: now - 7 * 86_400_000,
+                last_seen_ms: now - 2 * 60_000,
+              },
+            ]
+          : [
+              {
+                peer_id: 'office-desktop-id',
+                label: 'Office desktop',
+                platform: 'macos',
+                pairing_transport: 'network',
+                paired_at_ms: now - 14 * 86_400_000,
+                last_seen_ms: now - 2 * 60_000,
+              },
+              ...(platform === 'android' && state === 'connected'
+                ? [
+                    {
+                      peer_id: 'travel-laptop-id',
+                      label: 'Travel laptop',
+                      platform: 'linux',
+                      pairing_transport: 'usb_mobile',
+                      paired_at_ms: now - 3 * 86_400_000,
+                      last_seen_ms: now - 6 * 60_000,
+                    },
+                  ]
+                : []),
+            ]
+
+    const internals = {
+      async invoke(command: string): Promise<unknown> {
+        if (command === 'mobile_host_status' || command === 'mobile_host_publish_presence') {
+          return status
+        }
+        if (command === 'mobile_host_list_paired_computers') return pairedComputers
+        if (command === 'unlock_debug_log') return true
+        throw new Error(`Unexpected Mobile Remote visual Tauri command: ${command}`)
+      },
+    }
+    Object.assign(window as unknown as Record<string, unknown>, {__TAURI_INTERNALS__: internals})
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async () => undefined,
+    })
+
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {setRuntimeCapabilities} = (await dynamicImport(
+      '/core/runtime/runtime-capabilities.ts',
+    )) as typeof RuntimeCapabilitiesModule
+    const {navigationModel} = (await dynamicImport(
+      '/app/navigation/navigation.model.ts',
+    )) as typeof NavigationModelModule
+
+    setRuntimeCapabilities({
+      platform,
+      mobile: true,
+      desktop: false,
+      supports_network_remote: true,
+      supports_mobile_usb_remote: false,
+    })
+    navigationModel.navigateToSurface('remote')
+  }, options)
+
+  const expectedPageState = options.state === 'usb-connected' ? 'off' : options.state
+  await waitForDeepSelector(page, `[data-mobile-host-state="${expectedPageState}"]`)
+  await syncMobileSafeAreaFallback(page, options.platform)
+  await page.evaluate(() => {
+    function resetScroll(root: Document | ShadowRoot): void {
+      for (const element of root.querySelectorAll('*')) {
+        if (element instanceof HTMLElement) element.scrollTop = 0
+        if (element.shadowRoot) resetScroll(element.shadowRoot)
+      }
+    }
+
+    document.scrollingElement?.scrollTo({top: 0})
+    resetScroll(document)
+  })
+  await setRootTheme(page, options.theme)
+  await settleResponsiveLayout(page)
+}
+
+async function restoreMobileRemoteHostVisual(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {resetRuntimeCapabilities} = (await dynamicImport(
+      '/core/runtime/runtime-capabilities.ts',
+    )) as typeof RuntimeCapabilitiesModule
+    resetRuntimeCapabilities()
+    delete (window as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
+  })
+}
+
+type DesktopUsbRemoteVisualState =
+  | 'host-locked'
+  | 'phone-approval'
+  | 'ready-write'
+  | 'ready-read-only'
+  | 'connection-lost'
+  | 'error'
+
+async function openDesktopUsbRemoteVisual(
+  page: Page,
+  options: {
+    state: DesktopUsbRemoteVisualState
+    theme: 'light' | 'dark'
+    viewport: {width: number; height: number}
+  },
+): Promise<void> {
+  await page.emulateMedia({reducedMotion: 'reduce'})
+  await page.setViewportSize(options.viewport)
+  await page.goto('http://localhost:4400/index.html?surface=files&layout=desktop', {
+    waitUntil: 'domcontentloaded',
+  })
+  await waitForDeepSelector(page, 'file-app-shell-desktop-layout')
+
+  await page.evaluate(async () => {
+    const modeInfo = {
+      mode: 'local' as const,
+      connection_state: 'disconnected' as const,
+      transport_type: null,
+      remote_core_features: [],
+    }
+    const usbStatus = {
+      transport_family: 'usb_mobile' as const,
+      available_transports: ['usb_mobile'] as const,
+      selected_transport: null,
+      session_state: 'idle_usb_mobile' as const,
+      fallback_allowed: false as const,
+      active_host: null,
+      paired_hosts: [],
+      pairing_approval: null,
+      in_flight: null,
+      error_code: null,
+    }
+
+    const internals = {
+      async invoke(command: string): Promise<unknown> {
+        if (command === 'mode_get' || command === 'mode_status') return modeInfo
+        if (command === 'network_list_paired_peers' || command === 'mobile_usb_detect') return []
+        if (command === 'mobile_usb_status') return usbStatus
+        if (command === 'plugin:event|listen') return 1
+        if (command === 'plugin:event|unlisten' || command === 'unlock_debug_log') return true
+        throw new Error(`Unexpected Desktop USB Remote visual Tauri command: ${command}`)
+      },
+    }
+    Object.assign(window as unknown as Record<string, unknown>, {__TAURI_INTERNALS__: internals})
+
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {setRuntimeCapabilities} = (await dynamicImport(
+      '/core/runtime/runtime-capabilities.ts',
+    )) as typeof RuntimeCapabilitiesModule
+    const {navigationModel} = (await dynamicImport(
+      '/app/navigation/navigation.model.ts',
+    )) as typeof NavigationModelModule
+
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      mobile: false,
+      supports_network_remote: true,
+      supports_mobile_usb_remote: true,
+    })
+    navigationModel.navigateToSurface('remote')
+  })
+
+  await waitForDeepSelector(page, 'remote-page')
+  await waitForDeepSelector(page, '.mode-card')
+  await page.evaluate(({state}) => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    type WritableAtom<T> = {set(value: T): void}
+    type RemotePageVisualModel = {
+      currentMode: WritableAtom<unknown>
+      connectionState: WritableAtom<unknown>
+      remoteStatus: WritableAtom<unknown>
+      transportType: WritableAtom<string | null>
+      syncSnapshot: WritableAtom<unknown>
+      remoteHosts: {
+        view: WritableAtom<'hosts' | 'wait'>
+        transportConnectedHost: WritableAtom<unknown>
+        usb: {
+          status: WritableAtom<unknown>
+          lastActiveHost: WritableAtom<unknown>
+          errorText: WritableAtom<string | null>
+        }
+      }
+    }
+
+    const host = {
+      host_id: 'oneplus-13-visual-host',
+      label: 'OnePlus 13',
+      platform: 'android',
+      bridge_kind: 'android_aoa',
+      pairing_state: 'paired',
+      last_seen: Date.now() - 30_000,
+    }
+    const connected = state !== 'connection-lost' && state !== 'error'
+    const sessionState =
+      state === 'host-locked'
+        ? 'transport_ready_host_locked'
+        : state === 'phone-approval'
+          ? 'session_approval_required'
+          : state === 'connection-lost'
+            ? 'disconnected'
+            : state === 'error'
+              ? 'error'
+              : 'remote_dashboard_open'
+    const mode = connected
+      ? {remote: {host: {type: 'mobile_usb', host_id: host.host_id, label: host.label, platform: 'android'}}}
+      : 'local'
+    const connectionState =
+      state === 'connection-lost' ? 'disconnected' : state === 'error' ? 'error' : 'ready'
+    const readOnly = state === 'ready-read-only'
+    const usbStatus = {
+      transport_family: 'usb_mobile',
+      available_transports: ['usb_mobile'],
+      selected_transport: connected ? 'usb_mobile' : null,
+      session_state: sessionState,
+      fallback_allowed: false,
+      active_host: connected ? host : null,
+      paired_hosts: [host],
+      pairing_approval: null,
+      in_flight: null,
+      error_code: state === 'error' ? 'ERR_USB_MOBILE_CABLE_DISCONNECTED' : null,
+    }
+
+    const remotePage = deepFind(document, 'remote-page') as
+      | (HTMLElement & {model?: RemotePageVisualModel})
+      | null
+    const model = remotePage?.model
+    if (!model) throw new Error('Desktop USB Remote visual model is unavailable')
+
+    model.remoteHosts.usb.lastActiveHost.set(host)
+    model.remoteHosts.usb.status.set(usbStatus)
+    model.remoteHosts.usb.errorText.set(state === 'error' ? 'USB session ended after cable loss' : null)
+    model.currentMode.set(mode)
+    model.connectionState.set(connectionState)
+    model.transportType.set(connected ? 'usb_mobile' : null)
+    model.remoteStatus.set({
+      connection_state: connectionState,
+      vault_locked: readOnly,
+      locked_by_other: readOnly,
+      writer_device: readOnly ? 'Office Mac' : null,
+    })
+    model.syncSnapshot.set({
+      state: 'synced',
+      progress: null,
+      lastSyncMs: Date.now() - 45_000,
+      writerLock: readOnly ? {holder: 'Office Mac', since_ms: Date.now() - 120_000} : null,
+      errorMessage: null,
+    })
+    model.remoteHosts.transportConnectedHost.set(
+      connected ? {type: 'mobile_usb', host_id: host.host_id, label: host.label, platform: 'android'} : null,
+    )
+    model.remoteHosts.view.set(connected ? 'wait' : 'hosts')
+  }, options)
+
+  await waitForDeepSelector(page, `[data-usb-session-stage]`)
+  await setRootTheme(page, options.theme)
+  await settleResponsiveLayout(page)
+}
+
+async function getDesktopUsbRemoteText(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    const session = deepFind(document, '.remote-usb-session')
+    return [...(session?.querySelectorAll('.remote-usb-header, .remote-usb-body') ?? [])]
+      .map((element) => element.textContent ?? '')
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  })
+}
+
+async function openDesktopUsbTechnicalDetails(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    ;(deepFind(document, 'cv-disclosure.remote-usb-details') as {show?: () => void} | null)?.show?.()
+  })
+  await settleResponsiveLayout(page)
+}
+
+async function restoreDesktopUsbRemoteVisual(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {resetRuntimeCapabilities} = (await dynamicImport(
+      '/core/runtime/runtime-capabilities.ts',
+    )) as typeof RuntimeCapabilitiesModule
+    const {navigationModel} = (await dynamicImport(
+      '/app/navigation/navigation.model.ts',
+    )) as typeof NavigationModelModule
+    navigationModel.navigateToSurface('files')
+    resetRuntimeCapabilities()
+    delete (window as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
+  })
+}
+
+async function assertDesktopUsbRemoteVisual(
+  page: Page,
+  options: {
+    state: DesktopUsbRemoteVisualState
+    stage: string
+    expectedText: string[]
+    snapshotName: string
+    theme: 'light' | 'dark'
+    viewport: {width: number; height: number}
+    openDetails?: boolean
+  },
+): Promise<void> {
+  await openDesktopUsbRemoteVisual(page, options)
+
+  try {
+    expect(await hasDeepSelector(page, `[data-usb-session-stage="${options.stage}"]`)).toBe(true)
+    expect(await hasDeepSelector(page, '.mode-card')).toBe(false)
+    expect(await hasDeepSelector(page, '.writer-access-row')).toBe(false)
+    expect(await hasHorizontalOverflow(page, 'remote-page')).toBe(false)
+
+    const text = await getDesktopUsbRemoteText(page)
+    for (const expected of options.expectedText) expect(text).toContain(expected)
+    expect(text).not.toContain('USB_MOBILE')
+
+    if (options.openDetails) {
+      await openDesktopUsbTechnicalDetails(page)
+      expect(await hasDeepSelector(page, 'cv-disclosure.remote-usb-details[open]')).toBe(true)
+    } else {
+      expect(await hasDeepSelector(page, 'cv-disclosure.remote-usb-details[open]')).toBe(false)
+    }
+
+    await assertVisualSnapshot(page, options.snapshotName, {
+      suite: 'remote',
+      viewport: options.viewport,
+      maxDiffRatio: 0.005,
+    })
+  } finally {
+    await restoreDesktopUsbRemoteVisual(page)
+  }
+}
+
+type DesktopPreauthRemoteVisualState =
+  | 'detected-saved'
+  | 'network-empty'
+  | 'pair-validation'
+  | 'usb-recovery'
+  | 'phone-approval'
+
+async function openDesktopPreauthRemoteVisual(
+  page: Page,
+  options: {
+    state: DesktopPreauthRemoteVisualState
+    theme: 'light' | 'dark'
+    viewport: {width: number; height: number}
+    openDetails?: boolean
+  },
+): Promise<void> {
+  await page.emulateMedia({reducedMotion: 'reduce'})
+  await page.setViewportSize(options.viewport)
+  await page.goto('http://localhost:4400/index.html?preview=welcome&layout=desktop', {
+    waitUntil: 'domcontentloaded',
+  })
+  await waitForDeepSelector(page, 'welcome-page-desktop-layout')
+
+  await page.evaluate(async ({state}) => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    type WritableAtom<T> = {set(value: T): void}
+    type WelcomeVisualModel = {
+      setup: {
+        setupStep: WritableAtom<'remote-connect' | 'remote-pair' | 'remote-wait'>
+        remote: {
+          view: WritableAtom<'hosts' | 'pair-ios' | 'usb-mobile' | 'wait'>
+          peers: WritableAtom<unknown[]>
+          peerListLoaded: WritableAtom<boolean>
+          peerListError: WritableAtom<string | null>
+          transportConnectedHost: WritableAtom<unknown>
+          desktopPairing: {submitAttempted: WritableAtom<boolean>}
+          usb: {
+            detectingDevices: () => boolean
+            detectedDevices: WritableAtom<unknown[]>
+            scanResults: WritableAtom<unknown[]>
+            pairedHosts: WritableAtom<unknown[]>
+            status: WritableAtom<unknown>
+            errorText: WritableAtom<string | null>
+          }
+        }
+      }
+    }
+
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {setRuntimeCapabilities} = (await dynamicImport(
+      '/core/runtime/runtime-capabilities.ts',
+    )) as typeof RuntimeCapabilitiesModule
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      mobile: false,
+      supports_network_remote: true,
+      supports_mobile_usb_remote: true,
+    })
+
+    const approvalTransportHost = {
+      type: 'mobile_usb',
+      host_id: 'visual-oneplus-host',
+      label: 'OnePlus 13',
+      platform: 'android',
+    }
+    const approvalUsbHost = {
+      host_id: approvalTransportHost.host_id,
+      label: approvalTransportHost.label,
+      platform: approvalTransportHost.platform,
+      bridge_kind: 'android_aoa',
+      pairing_state: 'paired',
+      last_seen: null,
+    }
+
+    Object.assign(window as unknown as Record<string, unknown>, {
+      __TAURI_INTERNALS__: {
+        async invoke(command: string): Promise<unknown> {
+          if (command === 'network_list_paired_peers' || command === 'mobile_usb_detect') return []
+          if (command === 'mobile_usb_status') {
+            if (state === 'phone-approval') {
+              return {
+                transport_family: 'usb_mobile',
+                available_transports: ['usb_mobile'],
+                selected_transport: 'usb_mobile',
+                session_state: 'session_approval_required',
+                fallback_allowed: false,
+                active_host: approvalUsbHost,
+                paired_hosts: [approvalUsbHost],
+                pairing_approval: null,
+                in_flight: null,
+                error_code: null,
+              }
+            }
+            return {
+              transport_family: 'usb_mobile',
+              available_transports: ['usb_mobile'],
+              selected_transport: null,
+              session_state: 'idle_usb_mobile',
+              fallback_allowed: false,
+              active_host: null,
+              paired_hosts: [],
+              pairing_approval: null,
+              in_flight: null,
+              error_code: null,
+            }
+          }
+          if (command === 'mode_get' || command === 'mode_status') {
+            if (state === 'phone-approval') {
+              return {
+                mode: {remote: {host: approvalTransportHost}},
+                connection_state: 'ready',
+                transport_type: 'mobile_usb',
+                remote_core_features: [],
+                transport_session_generation: 1,
+              }
+            }
+            return {
+              mode: 'local',
+              connection_state: 'disconnected',
+              transport_type: null,
+              remote_core_features: [],
+            }
+          }
+          if (command === 'plugin:event|listen') return 1
+          if (command === 'plugin:event|unlisten' || command === 'unlock_debug_log') return true
+          return null
+        },
+      },
+    })
+
+    type WelcomeVisualElement = HTMLElement & {
+      model?: WelcomeVisualModel
+      updateComplete: Promise<unknown>
+    }
+    const existingLayout = deepFind(document, 'welcome-page-desktop-layout') as WelcomeVisualElement | null
+    if (!existingLayout) throw new Error('Desktop welcome visual layout is unavailable')
+    const layout = document.createElement('welcome-page-desktop-layout') as WelcomeVisualElement
+    existingLayout.replaceWith(layout)
+    await layout.updateComplete
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const setup = layout.model?.setup
+    if (!setup) throw new Error('Desktop welcome visual model is unavailable')
+
+    const remote = setup.remote
+    for (let attempt = 0; attempt < 50 && remote.usb.detectingDevices(); attempt += 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
+    const pixelScan = {
+      platform: 'android',
+      bridge_kind: 'android_aoa',
+      usb_hint: {
+        manufacturer: 'Google',
+        model: 'Pixel 9 Pro',
+        serial_number: 'visual-pixel-9',
+        protocol_id: null,
+      },
+      label: 'Pixel 9 Pro',
+    }
+    const pixelHost = {
+      host_id: 'visual-pixel-host',
+      label: 'Pixel 9 Pro',
+      platform: 'android',
+      bridge_kind: 'android_aoa',
+      pairing_state: 'broken_local_state',
+      last_seen: null,
+    }
+
+    remote.peerListLoaded.set(true)
+    remote.peerListError.set(null)
+    remote.peers.set([])
+    remote.usb.detectedDevices.set([])
+    remote.usb.scanResults.set([])
+    remote.usb.pairedHosts.set([])
+    remote.usb.status.set(null)
+    remote.usb.errorText.set(null)
+
+    if (state === 'pair-validation') {
+      setup.setupStep.set('remote-pair')
+      remote.view.set('pair-ios')
+      remote.desktopPairing.submitAttempted.set(true)
+      return
+    }
+
+    if (state === 'usb-recovery') {
+      setup.setupStep.set('remote-connect')
+      remote.view.set('usb-mobile')
+      remote.usb.scanResults.set([
+        {scan: pixelScan, classification: {broken_local_state: {host_id: pixelHost.host_id}}},
+        {
+          scan: {
+            ...pixelScan,
+            label: 'Galaxy S25',
+            usb_hint: {...pixelScan.usb_hint, model: 'Galaxy S25', serial_number: 'visual-galaxy'},
+          },
+          classification: 'unpaired',
+        },
+      ])
+      remote.usb.pairedHosts.set([])
+      remote.usb.status.set({
+        transport_family: 'usb_mobile',
+        available_transports: ['usb_mobile'],
+        selected_transport: null,
+        session_state: 'error',
+        fallback_allowed: false,
+        active_host: pixelHost,
+        paired_hosts: [],
+        pairing_approval: null,
+        in_flight: null,
+        error_code: 'ERR_USB_MOBILE_STALE_PAIRING',
+      })
+      remote.usb.errorText.set('ERR_USB_MOBILE_STALE_PAIRING: local pairing record is stale')
+      return
+    }
+
+    if (state === 'phone-approval') {
+      setup.setupStep.set('remote-wait')
+      remote.view.set('wait')
+      remote.transportConnectedHost.set(approvalTransportHost)
+      getAppContext().store.remoteSessionState.set('waiting_phone_approval')
+      return
+    }
+
+    setup.setupStep.set('remote-connect')
+    remote.view.set('hosts')
+    if (state === 'detected-saved') {
+      remote.usb.detectedDevices.set([
+        {
+          scan: pixelScan,
+          accessory_mode: false,
+          paired_match: {
+            host_id: 'visual-pixel-host',
+            label: 'Pixel 9 Pro',
+            pairing_state: 'confirmed',
+          },
+        },
+      ])
+      remote.peers.set([
+        {
+          peer_id: 'visual-iphone-ready',
+          label: 'Personal iPhone',
+          relay_url: 'wss://relay.chromvoid.com',
+          last_seen: Date.now() - 30_000,
+          paired_at: Date.now() - 86_400_000,
+          platform: 'ios',
+          status: 'ready',
+          presence_expires_at_ms: Date.now() + 60_000,
+        },
+        {
+          peer_id: 'visual-iphone-offline',
+          label: 'Work iPhone',
+          relay_url: 'wss://relay.chromvoid.com',
+          last_seen: Date.now() - 3_600_000,
+          paired_at: Date.now() - 172_800_000,
+          platform: 'ios',
+          status: 'offline',
+          presence_expires_at_ms: null,
+        },
+      ])
+    }
+  }, options)
+
+  await waitForDeepSelector(page, 'remote-desktop-preauth')
+  await waitForDeepSelector(
+    page,
+    `[data-remote-preauth-screen="${
+      options.state === 'pair-validation'
+        ? 'pair'
+        : options.state === 'usb-recovery'
+          ? 'usb'
+          : options.state === 'phone-approval'
+            ? 'wait'
+            : 'hosts'
+    }"]`,
+  )
+  await setRootTheme(page, options.theme)
+
+  if (options.openDetails) {
+    await page.evaluate(async () => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) {
+            const inner = deepFind(element.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+      const details = deepFind(document, '[data-usb-technical-details]') as
+        | (HTMLElement & {show?: () => void; updateComplete?: Promise<unknown>})
+        | null
+      details?.show?.()
+      await details?.updateComplete
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      )
+      details?.scrollIntoView({block: 'center'})
+    })
+  } else {
+    await page.evaluate(() => {
+      function resetScroll(root: Document | ShadowRoot): void {
+        for (const element of root.querySelectorAll('*')) {
+          if (element instanceof HTMLElement) element.scrollTop = 0
+          if (element.shadowRoot) resetScroll(element.shadowRoot)
+        }
+      }
+      document.scrollingElement?.scrollTo({top: 0})
+      resetScroll(document)
+    })
+  }
+  await settleResponsiveLayout(page)
+}
+
+async function getDesktopPreauthRemoteText(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    return (
+      deepFind(document, 'remote-desktop-preauth')?.shadowRoot?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+    )
+  })
+}
+
+async function restoreDesktopPreauthRemoteVisual(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {resetRuntimeCapabilities} = (await dynamicImport(
+      '/core/runtime/runtime-capabilities.ts',
+    )) as typeof RuntimeCapabilitiesModule
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    getAppContext().store.remoteSessionState.set('inactive')
+    resetRuntimeCapabilities()
+    delete (window as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
+  })
+}
+
+async function assertDesktopPreauthRemoteVisual(
+  page: Page,
+  options: {
+    state: DesktopPreauthRemoteVisualState
+    expectedText: string[]
+    snapshotName: string
+    theme: 'light' | 'dark'
+    viewport: {width: number; height: number}
+    openDetails?: boolean
+  },
+): Promise<void> {
+  await openDesktopPreauthRemoteVisual(page, options)
+  try {
+    const text = await getDesktopPreauthRemoteText(page)
+    for (const expected of options.expectedText) expect(text).toContain(expected)
+    expect(await hasDeepSelector(page, '.remote-flow-frame')).toBe(false)
+    expect(await hasDeepSelector(page, '.remote-flow-statusbar')).toBe(false)
+    expect(await hasHorizontalOverflow(page, 'welcome-page-desktop-layout')).toBe(false)
+    expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+    expect(await hasDeepSelector(page, 'cv-disclosure.technical-details[open]')).toBe(
+      Boolean(options.openDetails),
+    )
+
+    await assertVisualSnapshot(page, options.snapshotName, {
+      suite: 'remote-preauth',
+      viewport: options.viewport,
+      maxDiffRatio: 0.005,
+    })
+  } finally {
+    await restoreDesktopPreauthRemoteVisual(page)
+  }
 }
 
 async function getMobileSettingsText(page: Page): Promise<string> {
@@ -397,7 +1459,7 @@ async function openMobileWelcomeUnlockLoading(
     layout.model.setup.icon.active()
   })
   await waitForDeepSelector(page, '.unlock-loading-scrim')
-  await waitForDeepSelector(page, '.lockscreen-unlock-action[loading]')
+  await waitForDeepSelector(page, '.unlock-inline-submit[aria-busy="true"]')
   await waitForDeepSelector(page, '[data-icon-state="active"]')
 }
 
@@ -553,7 +1615,7 @@ async function openMobileCreateDetail(page: Page, detail: 'icon' | 'tags' | 'otp
   await waitForMobileCreateDetailsSheetSettled(page)
 }
 
-async function getMobileCreateDetailEditorLayout(page: Page) {
+async function getMobileCreateNoteEditorLayout(page: Page) {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -569,30 +1631,36 @@ async function getMobileCreateDetailEditorLayout(page: Page) {
 
     const create = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
     const sheet = create?.shadowRoot?.querySelector('pm-entry-create-details-sheet') as HTMLElement | null
-    const actions = sheet?.shadowRoot?.querySelector('.sheet-actions') as HTMLElement | null
-    const primary = actions?.querySelector('cv-button:last-child') as HTMLElement | null
-    const primaryBase = primary?.shadowRoot?.querySelector('[part="base"]') as HTMLElement | null
+    const editor = sheet?.shadowRoot?.querySelector('[data-detail-editor="note"]') as HTMLElement | null
+    const textarea = editor?.querySelector('cv-textarea') as HTMLElement | null
+    const textareaBase = textarea?.shadowRoot?.querySelector('[part="base"]') as HTMLElement | null
     const bottomSheet = sheet?.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
     const dialog = bottomSheet?.shadowRoot?.querySelector('cv-dialog') as HTMLElement | null
-    const handle = bottomSheet?.shadowRoot?.querySelector('[part="handle"]') as HTMLElement | null
+    const content = dialog?.shadowRoot?.querySelector('[part="content"]') as HTMLElement | null
+    const body = dialog?.shadowRoot?.querySelector('[part="body"]') as HTMLElement | null
     const title = dialog?.shadowRoot?.querySelector('[part="title"]') as HTMLElement | null
     const footer = dialog?.shadowRoot?.querySelector('[part="footer"]') as HTMLElement | null
-    if (!actions || !primaryBase || !handle || !title || !footer) {
-      throw new Error('Details editor layout target is missing')
+    if (!editor || !textareaBase || !content || !body || !title || !footer) {
+      throw new Error('Note editor layout target is missing')
     }
 
-    const actionsRect = actions.getBoundingClientRect()
-    const primaryStyle = getComputedStyle(primaryBase)
-    const handleRect = handle.getBoundingClientRect()
+    const contentRect = content.getBoundingClientRect()
+    const bodyRect = body.getBoundingClientRect()
+    const editorRect = editor.getBoundingClientRect()
+    const textareaRect = textareaBase.getBoundingClientRect()
     const footerRect = footer.getBoundingClientRect()
     const titleRect = title.getBoundingClientRect()
     return {
-      actionsBottom: actionsRect.bottom,
-      actionsTop: actionsRect.top,
+      actionCount: sheet.shadowRoot?.querySelectorAll('.sheet-actions').length ?? 0,
+      bodyBottom: bodyRect.bottom,
+      bodyTop: bodyRect.top,
+      contentBottom: contentRect.bottom,
+      contentTop: contentRect.top,
+      editorBottom: editorRect.bottom,
+      editorTop: editorRect.top,
       footerHeight: footerRect.height,
-      handleTop: handleRect.top,
-      primaryOpacity: primaryStyle.opacity,
-      primaryVisibility: primaryStyle.visibility,
+      textareaBottom: textareaRect.bottom,
+      textareaTop: textareaRect.top,
       titleBottom: titleRect.bottom,
       titleTop: titleRect.top,
       viewportHeight: window.innerHeight,
@@ -643,20 +1711,11 @@ async function getMobileCreateEntryVisualMetrics(page: Page) {
     const inputBase = passwordInput?.shadowRoot?.querySelector('[part="base"]') as HTMLElement | null
     const suffix = root?.querySelector('.password-suffix') as HTMLElement | null
     const generateIcon = root?.querySelector('.generate-button cv-icon') as HTMLElement | null
-    const submit = root?.querySelector('.create-footer cv-button') as HTMLElement | null
-    const submitBase = submit?.shadowRoot?.querySelector('[part="base"]') as HTMLElement | null
+    const submit = root?.querySelector('#passwords\\.create\\.submit') as HTMLButtonElement | null
     const heading = root?.querySelector('.form-heading') as HTMLElement | null
     const headingTitle = root?.querySelector('.form-heading-title') as HTMLElement | null
     const headingSubtitle = root?.querySelector('.form-heading-subtitle') as HTMLElement | null
-    if (
-      !inputBase ||
-      !suffix ||
-      !generateIcon ||
-      !submitBase ||
-      !heading ||
-      !headingTitle ||
-      !headingSubtitle
-    ) {
+    if (!inputBase || !suffix || !generateIcon || !submit || !heading || !headingTitle || !headingSubtitle) {
       throw new Error('Create Entry visual metrics target is missing')
     }
 
@@ -667,7 +1726,7 @@ async function getMobileCreateEntryVisualMetrics(page: Page) {
     const inputCenterY = (inputRect.top + inputRect.bottom) / 2
     const iconCenterX = (iconRect.left + iconRect.right) / 2
     const iconCenterY = (iconRect.top + iconRect.bottom) / 2
-    const submitStyle = getComputedStyle(submitBase)
+    const submitStyle = getComputedStyle(submit)
     const headingStyle = getComputedStyle(heading)
 
     return {
@@ -874,7 +1933,7 @@ test('visual: mobile Settings Autofill missing with Pro gate', async (ctx) => {
   }
 })
 
-test('visual: mobile remote uses the shell toolbar without a page header', async (ctx) => {
+test('visual: narrow desktop remote keeps the shell toolbar renderer', async (ctx) => {
   const page = getPage(ctx)
   if (!page) return
 
@@ -893,6 +1952,393 @@ test('visual: mobile remote uses the shell toolbar without a page header', async
     suite: 'remote',
     viewport: {width: 390, height: 844},
   })
+})
+
+test('visual: Desktop pre-auth Remote detected USB and saved phones', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopPreauthRemoteVisual(page, {
+    state: 'detected-saved',
+    expectedText: [
+      'Connect to a phone',
+      'Detected now',
+      'Pixel 9 Pro',
+      'Forget phone',
+      'Personal iPhone',
+      'Work iPhone',
+    ],
+    snapshotName: 'desktop-preauth-detected-saved-dark-1280x800',
+    theme: 'dark',
+    viewport: {width: 1280, height: 800},
+  })
+})
+
+test('visual: Desktop pre-auth Remote network empty', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopPreauthRemoteVisual(page, {
+    state: 'network-empty',
+    expectedText: [
+      'Connect to a phone',
+      'No saved phones',
+      'Pair over network',
+      'Connect Android phone by USB',
+    ],
+    snapshotName: 'desktop-preauth-network-empty-light-1024x768',
+    theme: 'light',
+    viewport: {width: 1024, height: 768},
+  })
+})
+
+test('visual: Desktop pre-auth Remote pairing validation', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopPreauthRemoteVisual(page, {
+    state: 'pair-validation',
+    expectedText: [
+      'Pair over network',
+      'Pairing link',
+      'Enter the pairing link shown on your phone',
+      'Enter the PIN shown on your phone',
+    ],
+    snapshotName: 'desktop-preauth-pair-validation-dark-1024x768',
+    theme: 'dark',
+    viewport: {width: 1024, height: 768},
+  })
+})
+
+test('visual: Desktop pre-auth Remote multiple USB recovery details', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopPreauthRemoteVisual(page, {
+    state: 'usb-recovery',
+    expectedText: [
+      'USB connection needs attention',
+      'Pixel 9 Pro',
+      'Galaxy S25',
+      'ERR_USB_MOBILE_STALE_PAIRING',
+    ],
+    snapshotName: 'desktop-preauth-usb-recovery-details-dark-1024x768',
+    theme: 'dark',
+    viewport: {width: 1024, height: 768},
+    openDetails: true,
+  })
+})
+
+test('visual: Desktop pre-auth Remote waits for phone approval', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopPreauthRemoteVisual(page, {
+    state: 'phone-approval',
+    expectedText: ['Approve this computer on your phone', 'Tap Allow on OnePlus 13'],
+    snapshotName: 'desktop-preauth-phone-approval-dark-1280x800',
+    theme: 'dark',
+    viewport: {width: 1280, height: 800},
+  })
+})
+
+test('visual: Desktop pre-auth Remote supports RTL at a 200% effective viewport', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installArabicLocale(page)
+  await openDesktopPreauthRemoteVisual(page, {
+    state: 'detected-saved',
+    theme: 'dark',
+    viewport: {width: 512, height: 384},
+  })
+
+  try {
+    await expect(
+      page.evaluate(() => ({
+        direction: document.documentElement.dir,
+        language: document.documentElement.lang,
+      })),
+    ).resolves.toEqual({direction: 'rtl', language: 'ar'})
+    expect(await hasHorizontalOverflow(page, 'welcome-page-desktop-layout')).toBe(false)
+    expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+    await expect(
+      page.evaluate(() => {
+        function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+          const found = root.querySelector(selector)
+          if (found) return found
+          for (const element of root.querySelectorAll('*')) {
+            if (element.shadowRoot) {
+              const inner = deepFind(element.shadowRoot, selector)
+              if (inner) return inner
+            }
+          }
+          return null
+        }
+
+        const panel = deepFind(document, '.detected-panel')
+        const copy = panel?.querySelector('.detected-copy')?.getBoundingClientRect()
+        const action = panel?.querySelector('cv-button')?.getBoundingClientRect()
+        return Boolean(copy && action && action.top >= copy.bottom - 1)
+      }),
+    ).resolves.toBe(true)
+  } finally {
+    await restoreDesktopPreauthRemoteVisual(page)
+  }
+})
+
+test('visual: Desktop USB Remote waits for host unlock', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopUsbRemoteVisual(page, {
+    state: 'host-locked',
+    stage: 'waiting_host_unlock',
+    expectedText: ['OnePlus 13', 'Open the vault on OnePlus 13', 'Available after the phone is ready'],
+    snapshotName: 'desktop-usb-host-locked-dark-1280x800',
+    theme: 'dark',
+    viewport: {width: 1280, height: 800},
+  })
+})
+
+test('visual: Desktop USB Remote waits for phone approval', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopUsbRemoteVisual(page, {
+    state: 'phone-approval',
+    stage: 'waiting_phone_approval',
+    expectedText: ['Tap Allow on OnePlus 13', 'Session approval required'],
+    snapshotName: 'desktop-usb-phone-approval-dark-1280x800',
+    theme: 'dark',
+    viewport: {width: 1280, height: 800},
+  })
+})
+
+test('visual: Desktop USB Remote ready with write access', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopUsbRemoteVisual(page, {
+    state: 'ready-write',
+    stage: 'ready',
+    expectedText: [
+      'Remote vault is ready',
+      'Vault open',
+      'You have write access',
+      'Disconnect USB and use Local',
+    ],
+    snapshotName: 'desktop-usb-ready-write-light-1280x800',
+    theme: 'light',
+    viewport: {width: 1280, height: 800},
+  })
+})
+
+test('visual: Desktop USB Remote ready with writer lock', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopUsbRemoteVisual(page, {
+    state: 'ready-read-only',
+    stage: 'ready',
+    expectedText: ['Remote vault is ready', 'Write locked by Office Mac', 'Request Lock'],
+    snapshotName: 'desktop-usb-ready-read-only-dark-1024x768',
+    theme: 'dark',
+    viewport: {width: 1024, height: 768},
+  })
+})
+
+test('visual: Desktop USB Remote cable-loss recovery', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopUsbRemoteVisual(page, {
+    state: 'connection-lost',
+    stage: 'connection_lost',
+    expectedText: [
+      'USB connection lost',
+      'Not connected',
+      'Unavailable while disconnected',
+      'Reconnect via USB',
+      'Use Local',
+    ],
+    snapshotName: 'desktop-usb-connection-lost-dark-1024x768',
+    theme: 'dark',
+    viewport: {width: 1024, height: 768},
+  })
+})
+
+test('visual: Desktop USB Remote error technical details', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await assertDesktopUsbRemoteVisual(page, {
+    state: 'error',
+    stage: 'error',
+    expectedText: [
+      'USB connection needs attention',
+      'Not connected',
+      'Unavailable while disconnected',
+      'Reconnect via USB',
+    ],
+    snapshotName: 'desktop-usb-error-details-dark-1280x800',
+    theme: 'dark',
+    viewport: {width: 1280, height: 800},
+    openDetails: true,
+  })
+})
+
+test('visual: iOS Mobile Host off state', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await openMobileRemoteHostVisual(page, {
+    platform: 'ios',
+    state: 'off',
+    theme: 'dark',
+    viewport: {width: 390, height: 844},
+  })
+
+  try {
+    expect(await getMobileToolbarSubtitle(page)).toBe('Make this phone available to your computers')
+    expect(await hasDeepSelector(page, '[data-mobile-host-path="network"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-path="usb"]')).toBe(false)
+    expect(await hasDeepSelector(page, '[data-mobile-host-action="refresh-paired"]')).toBe(true)
+    expect(await hasDeepSelector(page, '.mobile-host-empty')).toBe(true)
+    expect(await hasDeepSelector(page, 'cv-disclosure[open]')).toBe(false)
+    expect(await hasHorizontalOverflow(page, 'file-app-shell-mobile-layout')).toBe(false)
+
+    await assertVisualSnapshot(page, 'ios-host-off-dark-390', {
+      suite: 'remote',
+      viewport: {width: 390, height: 844},
+    })
+  } finally {
+    await restoreMobileRemoteHostVisual(page)
+  }
+})
+
+test('visual: Android Mobile Host pairing state', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await openMobileRemoteHostVisual(page, {
+    platform: 'android',
+    state: 'pairing',
+    theme: 'light',
+    viewport: {width: 390, height: 844},
+  })
+
+  try {
+    expect(await hasDeepSelector(page, '[data-mobile-host-path="usb"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-action="share"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-action="copy"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-pairing-link]')).toBe(true)
+    expect(await hasHorizontalOverflow(page, 'file-app-shell-mobile-layout')).toBe(false)
+
+    await assertVisualSnapshot(page, 'android-host-pairing-light-390', {
+      suite: 'remote',
+      viewport: {width: 390, height: 844},
+      maxDiffRatio: 0.005,
+    })
+  } finally {
+    await restoreMobileRemoteHostVisual(page)
+  }
+})
+
+test('visual: Android USB stays connected while Network Remote is off', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await openMobileRemoteHostVisual(page, {
+    platform: 'android',
+    state: 'usb-connected',
+    theme: 'dark',
+    viewport: {width: 390, height: 844},
+  })
+
+  try {
+    expect(await hasDeepSelector(page, '[data-mobile-host-state="off"]')).toBe(true)
+    expect(
+      await hasDeepSelector(page, '[data-mobile-host-path="network"][data-path-state="after-start"]'),
+    ).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-path="usb"][data-path-state="connected"]')).toBe(
+      true,
+    )
+    expect(await hasDeepSelector(page, '[data-mobile-host-transport="usb_mobile"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-revoke-peer-id="cable-desktop-id"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-action="start"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-action="stop"]')).toBe(false)
+    expect(await hasHorizontalOverflow(page, 'file-app-shell-mobile-layout')).toBe(false)
+
+    await assertVisualSnapshot(page, 'android-usb-connected-network-off-dark-390', {
+      suite: 'remote',
+      viewport: {width: 390, height: 844},
+      maxDiffRatio: 0.005,
+    })
+  } finally {
+    await restoreMobileRemoteHostVisual(page)
+  }
+})
+
+test('visual: Android Mobile Host connected peers', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await openMobileRemoteHostVisual(page, {
+    platform: 'android',
+    state: 'connected',
+    theme: 'dark',
+    viewport: {width: 360, height: 640},
+  })
+
+  try {
+    expect(await hasDeepSelector(page, '[data-mobile-host-state="connected"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-transport="network"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-transport="usb_mobile"]')).toBe(true)
+    expect(await hasDeepSelector(page, '[data-mobile-host-revoke-peer-id="office-desktop-id"]')).toBe(true)
+    expect(await hasDeepSelector(page, 'cv-disclosure[open]')).toBe(false)
+    expect(await hasHorizontalOverflow(page, 'file-app-shell-mobile-layout')).toBe(false)
+
+    await page.evaluate(() => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) {
+            const inner = deepFind(element.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      deepFind(document, '#mobile-host-paths-title')?.parentElement?.scrollIntoView({block: 'start'})
+    })
+    await settleResponsiveLayout(page)
+
+    await assertVisualSnapshot(page, 'android-host-connected-dark-360x640', {
+      suite: 'remote',
+      viewport: {width: 360, height: 640},
+      maxDiffRatio: 0.005,
+    })
+  } finally {
+    await restoreMobileRemoteHostVisual(page)
+  }
 })
 
 test('visual: mobile passkeys uses the shell toolbar without a page header', async (ctx) => {
@@ -1097,6 +2543,27 @@ test('visual: mobile file row selection surface', async (ctx) => {
   expect(await hasDeepSelector(page, 'file-item-mobile[selected]')).toBe(true)
   expect(await hasHorizontalOverflow(page, 'file-manager-mobile-layout')).toBe(false)
 
+  const selectionBarBottomGap = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const fileManager = deepFind(document, 'chromvoid-file-manager') as HTMLElement | null
+    const selectionBar = deepFind(document, '.mobile-selection-bar') as HTMLElement | null
+    if (!fileManager || !selectionBar) throw new Error('Mobile file selection surface was not rendered')
+
+    return fileManager.getBoundingClientRect().bottom - selectionBar.getBoundingClientRect().bottom
+  })
+  expect(selectionBarBottomGap).toBeCloseTo(8, 0)
+
   await assertVisualSnapshot(page, 'mobile-selected-file-row', {
     suite: 'file-manager',
     viewport: {width: 390, height: 844},
@@ -1145,19 +2612,99 @@ test('visual: desktop file type filter dark', async (ctx) => {
   }
 })
 
-test('visual: desktop password manager gutters and integrated rail', async (ctx) => {
+test('visual: desktop credentials populated workbench', async (ctx) => {
   const page = getPage(ctx)
   if (!page) return
 
   await installFixedVisualClock(page)
   await seedVisualPassmanagerFixture()
   await openPasswords(page, 'desktop')
+  await waitForDeepSelector(page, 'password-manager-desktop-toolbar')
+  await waitForDeepSelector(page, 'pm-group')
+  await waitForDeepSelector(page, 'pm-entry-list-item')
 
   expect(await hasDeepSelector(page, 'password-manager-desktop-layout')).toBe(true)
   expect(await hasDeepSelector(page, '.sidebar')).toBe(true)
+  expect(await hasDeepSelector(page, '.status-context-summary')).toBe(true)
+  expect(await hasDeepSelector(page, '.group-metrics-strip')).toBe(false)
+  expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
   expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
 
   await assertVisualSnapshot(page, 'desktop-password-manager-surface', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 720},
+  })
+})
+
+test('visual: desktop credentials constrained workbench', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await page.setViewportSize({width: 960, height: 720})
+  await waitForDeepSelector(page, 'password-manager-desktop-toolbar')
+  await waitForDeepSelector(page, 'pm-group')
+  await waitForDeepSelector(page, 'pm-entry-list-item')
+  await settleResponsiveLayout(page)
+
+  expect(await hasDeepSelector(page, '.sidebar')).toBe(true)
+  expect(await hasDeepSelector(page, '.status-context-summary')).toBe(true)
+  expect(await hasDeepSelector(page, '.group-metrics-strip')).toBe(false)
+  expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-credentials-constrained-960', {
+    suite: 'password-manager',
+    viewport: {width: 960, height: 720},
+  })
+})
+
+test('visual: desktop credentials empty dark', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualEmptyPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await setRootTheme(page, 'dark')
+
+  try {
+    await waitForDeepSelector(page, 'cv-empty-state[data-empty-kind="empty"]')
+
+    expect(await hasDeepSelector(page, 'password-manager-desktop-toolbar')).toBe(true)
+    expect(await hasDeepSelector(page, '.status-context-summary')).toBe(true)
+    expect(await hasDeepSelector(page, '.group-metrics-strip')).toBe(false)
+    expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+    expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+
+    await assertVisualSnapshot(page, 'desktop-credentials-empty-dark', {
+      suite: 'password-manager',
+      viewport: {width: 1280, height: 720},
+    })
+  } finally {
+    await setRootTheme(page, 'light')
+  }
+})
+
+test('visual: desktop credentials selected group', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture({authoredGroupDescription: true})
+  await openPasswords(page, 'desktop')
+  await selectPasswordGroup(page, 'Production')
+  await waitForDeepSelector(page, 'pm-workspace-header')
+  await waitForDeepSelector(page, 'pm-entry-list-item')
+
+  expect(await hasDeepSelector(page, '.status-context-summary')).toBe(true)
+  expect(await hasDeepSelector(page, '.group-metrics-strip')).toBe(false)
+  expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-credentials-selected-group', {
     suite: 'password-manager',
     viewport: {width: 1280, height: 720},
   })
@@ -1196,6 +2743,92 @@ test('visual: mobile password manager wide gutter', async (ctx) => {
   await assertVisualSnapshot(page, 'mobile-password-manager-430', {
     suite: 'password-manager',
     viewport: {width: 430, height: 844},
+  })
+})
+
+test('visual: mobile group edit dark', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture({authoredGroupDescription: true})
+  await openPasswords(page, 'mobile', undefined, 390)
+  await page.evaluate(() =>
+    document.documentElement.style.setProperty('--app-runtime-safe-area-block-end-active', '24px'),
+  )
+  await setRootTheme(page, 'dark')
+
+  try {
+    await showFirstMobileGroupEdit(page)
+
+    expect(await getMobileToolbarSubtitle(page)).toBeNull()
+    expect(await page.locator('pm-group-edit-mobile .location-label').innerText()).toBe('LOCATION')
+    expect(await hasDeepSelector(page, 'mobile-tab-bar')).toBe(false)
+    expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+    expect(await hasHorizontalOverflow(page, 'pm-group-edit-mobile')).toBe(false)
+    const iconSelectorLayout = await page
+      .locator('pm-group-edit-mobile button.icon-selector')
+      .evaluate((button) => {
+        const preview = button.querySelector('.icon-selector-preview')
+        const section = button.closest('.icon-field')
+        const scroller = button.closest('.edit-scroll')
+        const buttonRect = button.getBoundingClientRect()
+        const previewRect = preview?.getBoundingClientRect()
+        const sectionRect = section?.getBoundingClientRect()
+        const scrollerRect = scroller?.getBoundingClientRect()
+        return {
+          buttonWidth: Math.round(buttonRect.width),
+          display: getComputedStyle(button).display,
+          previewInset: previewRect ? Math.round(previewRect.left - buttonRect.left) : -1,
+          sectionInset: sectionRect && scrollerRect ? Math.round(sectionRect.left - scrollerRect.left) : -1,
+          sectionWidth: sectionRect ? Math.round(sectionRect.width) : -1,
+        }
+      })
+    expect(iconSelectorLayout.display).toBe('flex')
+    expect(iconSelectorLayout.previewInset).toBeLessThanOrEqual(13)
+    expect(iconSelectorLayout.sectionInset).toBeLessThanOrEqual(16)
+    expect(iconSelectorLayout.sectionWidth).toBeGreaterThan(300)
+    expect(iconSelectorLayout.buttonWidth).toBeGreaterThanOrEqual(iconSelectorLayout.sectionWidth - 1)
+    expect(
+      await page
+        .locator('pm-group-edit-mobile mobile-bottom-action-footer')
+        .evaluate((element) => getComputedStyle(element).paddingBottom),
+    ).toBe('24px')
+
+    await assertVisualSnapshot(page, 'mobile-group-edit-dark-390', {
+      suite: 'password-manager',
+      viewport: {width: 390, height: 844},
+    })
+  } finally {
+    await setRootTheme(page, 'light')
+  }
+})
+
+test('visual: mobile group edit light compact', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture({authoredGroupDescription: true})
+  await openPasswords(page, 'mobile', undefined, 360)
+  await page.evaluate(() =>
+    document.documentElement.style.setProperty('--app-runtime-safe-area-block-end-active', '24px'),
+  )
+  await showFirstMobileGroupEdit(page)
+
+  expect(await page.locator('pm-group-edit-mobile .location-label').innerText()).toBe('LOCATION')
+  expect(await hasDeepSelector(page, 'mobile-tab-bar')).toBe(false)
+  expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'pm-group-edit-mobile')).toBe(false)
+  expect(
+    await page
+      .locator('pm-group-edit-mobile mobile-bottom-action-footer')
+      .evaluate((element) => getComputedStyle(element).paddingBottom),
+  ).toBe('24px')
+
+  await assertVisualSnapshot(page, 'mobile-group-edit-light-360', {
+    suite: 'password-manager',
+    viewport: {width: 360, height: 844},
   })
 })
 
@@ -1300,6 +2933,71 @@ test('visual: desktop create entry footer CTA', async (ctx) => {
   })
 })
 
+test('visual: desktop create entry structured websites', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await showCreateEntry(page, 'desktop')
+  await page.setViewportSize({width: 960, height: 1000})
+  await configureCreateWebsiteEditor(page, 'populated')
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(await page.locator('pm-entry-website-editor details[open]').count()).toBe(1)
+
+  await assertVisualSnapshot(page, 'desktop-create-entry-structured-websites-960', {
+    suite: 'password-manager',
+    viewport: {width: 960, height: 1000},
+    clipSelector: 'pm-entry-website-editor',
+  })
+  await revealCreateWebsiteActions(page)
+  expect(await getCreateWebsiteFooterOverlap(page)).toBe(0)
+})
+
+test('visual: desktop create entry duplicate website error', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await showCreateEntry(page, 'desktop')
+  await configureCreateWebsiteEditor(page, 'duplicate')
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(await page.locator('pm-entry-website-editor [slot="error"]').count()).toBe(1)
+
+  await assertVisualSnapshot(page, 'desktop-create-entry-duplicate-website-error', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 1000},
+    clipSelector: 'pm-entry-website-editor',
+  })
+  await revealCreateWebsiteActions(page)
+  expect(await getCreateWebsiteFooterOverlap(page)).toBe(0)
+})
+
+test('visual: desktop entry structured website rules', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture({structuredWebsites: true})
+  await openPasswords(page, 'desktop')
+  await showStructuredDesktopEntry(page)
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(await page.locator('pm-entry .website-primary-marker').count()).toBe(1)
+  expect(await page.locator('pm-entry .url-link cv-badge').count()).toBe(3)
+
+  await assertVisualSnapshot(page, 'desktop-entry-structured-website-rules', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 720},
+    clipSelector: 'pm-entry',
+  })
+})
+
 test('visual: mobile create entry footer CTA', async (ctx) => {
   const page = getPage(ctx)
   if (!page) return
@@ -1401,6 +3099,121 @@ test('visual: mobile create entry Details hub dark theme', async (ctx) => {
   }
 })
 
+test('visual: mobile create entry shared Tags picker dark theme', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'mobile', undefined, 390)
+  await showCreateEntry(page, 'mobile')
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const passmanager = (window as any).passmanager
+    passmanager.credentialTags.set(['Work', 'Personal', 'Production', 'Security Audit', 'Rotate'])
+    passmanager.credentialTagMeta.set({
+      work: {colorId: 'orange'},
+      personal: {colorId: 'pink'},
+      production: {colorId: 'amber'},
+      'security-audit': {colorId: 'cyan'},
+      rotate: {colorId: 'violet'},
+    })
+    const create = deepFind(document, 'pm-entry-create-mobile') as
+      | (HTMLElement & {model?: {setTags(tags: string[]): void}})
+      | null
+    create?.model?.setTags(['Work', 'Security Audit'])
+  })
+  await setRootTheme(page, 'dark')
+
+  try {
+    await openMobileCreateDetailsHub(page)
+    await openMobileCreateDetail(page, 'tags')
+    expect(await hasDeepSelector(page, 'pm-mobile-tag-picker')).toBe(true)
+    expect(await hasHorizontalOverflow(page, 'password-manager-mobile-layout')).toBe(false)
+
+    const state = await page.evaluate(() => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) {
+            const inner = deepFind(element.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      function countOpenSheets(root: Document | ShadowRoot): number {
+        let count = root.querySelectorAll('cv-bottom-sheet[open]').length
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) count += countOpenSheets(element.shadowRoot)
+        }
+        return count
+      }
+
+      const picker = deepFind(document, 'pm-mobile-tag-picker') as HTMLElement | null
+      const tagScroll = picker?.shadowRoot?.querySelector('.tag-scroll') as HTMLElement | null
+      const detailsSheet = deepFind(document, 'pm-entry-create-details-sheet') as HTMLElement | null
+      const bottomSheet = detailsSheet?.shadowRoot?.querySelector('cv-bottom-sheet') as HTMLElement | null
+      const dialog = bottomSheet?.shadowRoot?.querySelector('cv-dialog') as HTMLElement | null
+      const content = dialog?.shadowRoot?.querySelector('[part="content"]') as HTMLElement | null
+      const body = dialog?.shadowRoot?.querySelector('[part="body"]') as HTMLElement | null
+      const footer = dialog?.shadowRoot?.querySelector('[part="footer"]') as HTMLElement | null
+      const doneButton = detailsSheet?.shadowRoot?.querySelector(
+        '.sheet-actions cv-button:last-child',
+      ) as HTMLElement | null
+      const contentRect = content?.getBoundingClientRect()
+      const bodyRect = body?.getBoundingClientRect()
+      const pickerRect = picker?.getBoundingClientRect()
+      const doneButtonRect = doneButton?.getBoundingClientRect()
+      const globalSheet = deepFind(document, 'pm-mobile-tag-filter-sheet') as HTMLElement | null
+      const globalBottomSheet = globalSheet?.shadowRoot?.querySelector('cv-bottom-sheet') as
+        | (HTMLElement & {open?: boolean})
+        | null
+      return {
+        chipCount: picker?.shadowRoot?.querySelectorAll('.tag-chip-wrap').length ?? 0,
+        globalSheetOpen: Boolean(globalBottomSheet?.open),
+        openSheetCount: countOpenSheets(document),
+        pickerHeight: picker?.getBoundingClientRect().height ?? 0,
+        scrollOverflowY: tagScroll ? getComputedStyle(tagScroll).overflowY : '',
+        footerBottomGap:
+          contentRect && doneButtonRect ? Math.round(contentRect.bottom - doneButtonRect.bottom) : -1,
+        pickerBodyHeightDelta: bodyRect && pickerRect ? Math.abs(bodyRect.height - pickerRect.height) : -1,
+        footerHeight: footer?.getBoundingClientRect().height ?? 0,
+      }
+    })
+
+    expect(state.chipCount).toBe(5)
+    expect(state.globalSheetOpen).toBe(false)
+    expect(state.openSheetCount).toBe(1)
+    expect(state.pickerHeight).toBeGreaterThan(300)
+    expect(state.pickerBodyHeightDelta, JSON.stringify(state)).toBeLessThanOrEqual(1)
+    expect(state.footerHeight, JSON.stringify(state)).toBeLessThan(100)
+    expect(state.footerBottomGap, JSON.stringify(state)).toBeGreaterThanOrEqual(0)
+    expect(state.footerBottomGap, JSON.stringify(state)).toBeLessThanOrEqual(24)
+    expect(state.scrollOverflowY).toBe('auto')
+
+    await assertVisualSnapshot(page, 'mobile-create-entry-tags-picker-dark-390', {
+      suite: 'password-manager',
+      viewport: {width: 390, height: 844},
+    })
+  } finally {
+    await setRootTheme(page, 'light')
+  }
+})
+
 test('visual: mobile create entry Note editor dark theme', async (ctx) => {
   const page = getPage(ctx)
   if (!page) return
@@ -1416,15 +3229,19 @@ test('visual: mobile create entry Note editor dark theme', async (ctx) => {
     await openMobileCreateDetail(page, 'note')
     expect(await hasDeepSelector(page, '[data-detail-editor="note"]')).toBe(true)
     expect(await hasHorizontalOverflow(page, 'password-manager-mobile-layout')).toBe(false)
-    const layout = await getMobileCreateDetailEditorLayout(page)
-    expect(layout.footerHeight, JSON.stringify(layout)).toBeGreaterThan(0)
-    expect(layout.primaryOpacity, JSON.stringify(layout)).toBe('1')
-    expect(layout.primaryVisibility, JSON.stringify(layout)).toBe('visible')
-    expect(layout.handleTop, JSON.stringify(layout)).toBeGreaterThanOrEqual(0)
+    const layout = await getMobileCreateNoteEditorLayout(page)
+    expect(layout.actionCount, JSON.stringify(layout)).toBe(0)
+    expect(layout.footerHeight, JSON.stringify(layout)).toBe(0)
+    expect(layout.contentTop, JSON.stringify(layout)).toBeGreaterThanOrEqual(0)
+    expect(layout.contentBottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewportHeight)
     expect(layout.titleTop, JSON.stringify(layout)).toBeGreaterThanOrEqual(0)
     expect(layout.titleBottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewportHeight)
-    expect(layout.actionsTop, JSON.stringify(layout)).toBeGreaterThanOrEqual(0)
-    expect(layout.actionsBottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.viewportHeight)
+    expect(layout.bodyTop, JSON.stringify(layout)).toBeGreaterThanOrEqual(layout.titleBottom)
+    expect(layout.bodyBottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.contentBottom)
+    expect(layout.editorTop, JSON.stringify(layout)).toBeGreaterThanOrEqual(layout.bodyTop)
+    expect(layout.editorBottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.bodyBottom)
+    expect(layout.textareaTop, JSON.stringify(layout)).toBeGreaterThanOrEqual(layout.editorTop)
+    expect(layout.textareaBottom, JSON.stringify(layout)).toBeLessThanOrEqual(layout.editorBottom)
 
     await assertVisualSnapshot(page, 'mobile-create-entry-note-editor-dark-390', {
       suite: 'password-manager',
@@ -1500,9 +3317,54 @@ test('visual: desktop notes quick view shared gutter', async (ctx) => {
   await openNotes(page, 'desktop')
 
   expect(await hasDeepSelector(page, 'notes-quick-view')).toBe(true)
+  expect(await hasDeepSelector(page, 'workspace-dashboard-header[surface="notes"]')).toBe(true)
+  expect(await hasDeepSelector(page, 'status-bar')).toBe(true)
+  expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
   expect(await hasHorizontalOverflow(page, 'notes-quick-view')).toBe(false)
 
   await assertVisualSnapshot(page, 'desktop-notes-quick-view', {
+    suite: 'notes-quick-view',
+    viewport: {width: 1280, height: 720},
+  })
+})
+
+test('visual: constrained desktop notes quick view', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualNotesFixture()
+  await openNotes(page, 'desktop')
+  await page.setViewportSize({width: 960, height: 720})
+  await settleResponsiveLayout(page)
+
+  expect(await hasDeepSelector(page, 'notes-quick-view')).toBe(true)
+  expect(await hasDeepSelector(page, 'workspace-dashboard-header[surface="notes"]')).toBe(true)
+  expect(await hasDeepSelector(page, 'status-bar')).toBe(true)
+  expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'notes-quick-view')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-notes-quick-view-960', {
+    suite: 'notes-quick-view',
+    viewport: {width: 960, height: 720},
+  })
+})
+
+test('visual: desktop notes quick view empty dark', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualEmptyNotesFixture()
+  await openNotes(page, 'desktop', undefined, 0)
+  await setRootTheme(page, 'dark')
+
+  expect(await hasDeepSelector(page, 'notes-quick-view')).toBe(true)
+  expect(await hasDeepSelector(page, 'cv-empty-state')).toBe(true)
+  expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'notes-quick-view')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-notes-quick-view-empty-dark', {
     suite: 'notes-quick-view',
     viewport: {width: 1280, height: 720},
   })
@@ -1540,6 +3402,46 @@ test('visual: mobile notes quick view compact gutter', async (ctx) => {
     suite: 'notes-quick-view',
     viewport: {width: 390, height: 844},
   })
+})
+
+test('visual: mobile Markdown quick toolbar balanced at 430', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await openVisualMarkdownEditor(page, 430)
+  await setRootTheme(page, 'light')
+
+  expect(await hasDeepSelector(page, '.editor-quick-bar')).toBe(true)
+  expect(await hasHorizontalOverflow(page, '.editor-quick-bar')).toBe(false)
+
+  await assertVisualSnapshot(page, 'mobile-markdown-quick-toolbar-430', {
+    suite: 'notes-quick-view',
+    viewport: {width: 430, height: 844},
+    clipSelector: '.editor-quick-bar',
+  })
+})
+
+test('visual: mobile Markdown quick toolbar compact dark at 360', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await openVisualMarkdownEditor(page, 360)
+  await setRootTheme(page, 'dark')
+
+  try {
+    expect(await hasDeepSelector(page, '.editor-quick-bar')).toBe(true)
+    expect(await hasHorizontalOverflow(page, '.editor-quick-bar')).toBe(false)
+
+    await assertVisualSnapshot(page, 'mobile-markdown-quick-toolbar-360-dark', {
+      suite: 'notes-quick-view',
+      viewport: {width: 360, height: 844},
+      clipSelector: '.editor-quick-bar',
+    })
+  } finally {
+    await setRootTheme(page, 'light')
+  }
 })
 
 test('visual: mobile vault unlock loading dark', async (ctx) => {

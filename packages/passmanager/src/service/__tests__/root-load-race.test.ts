@@ -39,9 +39,11 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
+    createEntry: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    removeGroup: vi.fn(async () => undefined),
     ...overrides,
   }
 }
@@ -203,7 +205,7 @@ describe('deferred reload race scenarios', () => {
     warnSpy.mockRestore()
   })
 
-  it('load requested during _pendingEntryUpdates also triggers deferred reload', async () => {
+  it('load requested during _pendingEntryUpdates runs when the final guard releases', async () => {
     // Setup: load entries
     const payload = makeV2Payload([{id: 'a', title: 'Alpha'}])
     ;(saver.read as Mock).mockResolvedValue(JSON.stringify(payload))
@@ -222,15 +224,8 @@ describe('deferred reload race scenarios', () => {
     await root.load()
     expect(root.allEntries).toHaveLength(1) // still old data
 
-    // Now start a save (which is needed to trigger deferred reload from _executeSave)
-    ;(saver.save as Mock).mockResolvedValue(true)
-
-    // End entry update — load was deferred
+    // End entry update — the deferred load can now run.
     root.endEntryUpdate()
-
-    // Trigger save + complete it — the deferred reload should fire from save's finally block
-    // But _loadRequestedDuringSave is checked in _executeSave, so we need a save cycle
-    await root.save()
     await flushMicrotasks()
 
     // The deferred reload should have picked up new data

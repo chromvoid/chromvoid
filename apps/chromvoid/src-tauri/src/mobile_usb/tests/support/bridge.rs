@@ -13,6 +13,7 @@ pub(in crate::mobile_usb::tests) struct FakeMobileUsbBridge {
     pair_first_write_timeout_once: AtomicBool,
     pair_first_write_android_endpoint_error_once: AtomicBool,
     pair_invalid_msg2_once: AtomicBool,
+    pair_supports_cancel: AtomicBool,
     connect_first_write_timeout_once: AtomicBool,
     connect_first_write_android_endpoint_error_once: AtomicBool,
     connect_bad_record_len_once: AtomicBool,
@@ -42,6 +43,7 @@ impl FakeMobileUsbBridge {
             pair_first_write_timeout_once: AtomicBool::new(false),
             pair_first_write_android_endpoint_error_once: AtomicBool::new(false),
             pair_invalid_msg2_once: AtomicBool::new(false),
+            pair_supports_cancel: AtomicBool::new(true),
             connect_first_write_timeout_once: AtomicBool::new(false),
             connect_first_write_android_endpoint_error_once: AtomicBool::new(false),
             connect_bad_record_len_once: AtomicBool::new(false),
@@ -103,6 +105,10 @@ impl FakeMobileUsbBridge {
 
     pub(in crate::mobile_usb::tests) fn set_pair_invalid_msg2_once(&self, invalid: bool) {
         self.pair_invalid_msg2_once.store(invalid, Ordering::SeqCst);
+    }
+
+    pub(in crate::mobile_usb::tests) fn set_pair_supports_cancel(&self, supported: bool) {
+        self.pair_supports_cancel.store(supported, Ordering::SeqCst);
     }
 
     pub(in crate::mobile_usb::tests) fn set_connect_first_write_timeout_once(&self, timeout: bool) {
@@ -226,6 +232,7 @@ impl MobileUsbBridge for FakeMobileUsbBridge {
             host,
             self.host_private_key.clone(),
             self.host_public_key.clone(),
+            self.pair_supports_cancel.load(Ordering::SeqCst),
         );
         Ok(Box::new(client))
     }

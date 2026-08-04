@@ -116,6 +116,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'forward',
       target: `group:${group.id}`,
+      reason: 'navigation',
+      sourceSurface: 'root',
+      targetSurface: 'group',
     })
 
     pmModel.openItem(entry)
@@ -123,6 +126,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'forward',
       target: `entry:${entry.id}`,
+      reason: 'navigation',
+      sourceSurface: 'group',
+      targetSurface: 'entry',
     })
 
     expect(root.showElement()).toBe(entry)
@@ -134,6 +140,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'back',
       target: `group:${group.id}`,
+      reason: 'navigation',
+      sourceSurface: 'entry',
+      targetSurface: 'group',
     })
 
     expect(pmModel.goBackFromCurrent()).toBe(true)
@@ -143,6 +152,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'back',
       target: `root:${root.id}`,
+      reason: 'navigation',
+      sourceSurface: 'group',
+      targetSurface: 'root',
     })
   })
 
@@ -167,6 +179,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'forward',
       target: `group:${group.id}`,
+      reason: 'navigation',
+      sourceSurface: 'root',
+      targetSurface: 'group',
     })
     expect(root.showElement()).toBe(root)
     commit()
@@ -202,6 +217,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'back',
       target: `group:${group.id}`,
+      reason: 'navigation',
+      sourceSurface: 'entry',
+      targetSurface: 'group',
     })
 
     expect(passmanagerNavigationController.applyRoute({kind: 'root'})).toBe(true)
@@ -211,6 +229,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'back',
       target: `root:${root.id}`,
+      reason: 'navigation',
+      sourceSurface: 'group',
+      targetSurface: 'root',
     })
   })
 
@@ -228,6 +249,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'open',
       target: 'otp-view',
+      reason: 'navigation',
+      sourceSurface: 'root',
+      targetSurface: 'otp-view',
     })
 
     expect(pmModel.goBackFromCurrent()).toBe(true)
@@ -244,7 +268,14 @@ describe('PasswordManagerModel navigation', () => {
     expect(passmanagerNavigationController.applyRoute({kind: 'ssh-view'})).toBe(true)
     expect(root.showElement()).toBe('sshView')
     expect(passmanagerNavigationController.readRoute()).toEqual({kind: 'ssh-view'})
-    expect(pmMotionModel.intent()).toEqual({kind: 'surface-change', direction: 'open', target: 'ssh-view'})
+    expect(pmMotionModel.intent()).toEqual({
+      kind: 'surface-change',
+      direction: 'open',
+      target: 'ssh-view',
+      reason: 'navigation',
+      sourceSurface: 'root',
+      targetSurface: 'ssh-view',
+    })
 
     expect(pmModel.goBackFromCurrent()).toBe(true)
     expect(root.showElement()).toBe(root)
@@ -263,6 +294,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'open',
       target: 'env-runtime-view',
+      reason: 'navigation',
+      sourceSurface: 'root',
+      targetSurface: 'env-runtime-view',
     })
 
     expect(pmModel.goBackFromCurrent()).toBe(true)
@@ -282,7 +316,9 @@ describe('PasswordManagerModel navigation', () => {
     await pmModel.copyCurrentPassword()
 
     expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'secret'})
-    expect(toastMock.success).toHaveBeenCalledWith('Password copied')
+    expect(toastMock.success).toHaveBeenCalledWith('Password copied', undefined, {
+      key: 'passmanager.clipboard.copy',
+    })
   })
 
   it('shows shortcut password copy failure when clipboard write rejects', async () => {
@@ -298,6 +334,7 @@ describe('PasswordManagerModel navigation', () => {
 
     expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'secret'})
     expect(toastMock.show).toHaveBeenCalledWith({
+      key: 'passmanager.clipboard.copy',
       message: 'Failed to copy password',
       variant: 'error',
     })
@@ -317,6 +354,7 @@ describe('PasswordManagerModel navigation', () => {
 
     expect(invoke).not.toHaveBeenCalled()
     expect(toastMock.show).toHaveBeenCalledWith({
+      key: 'passmanager.clipboard.copy',
       message: 'Failed to copy password',
       variant: 'error',
     })
@@ -420,6 +458,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'forward',
       target: `entry:${other.id}`,
+      reason: 'navigation',
+      sourceSurface: 'entry',
+      targetSurface: 'entry',
     })
   })
 
@@ -488,6 +529,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'open',
       target: `create-entry:${group.id}`,
+      reason: 'navigation',
+      sourceSurface: 'root',
+      targetSurface: 'create-entry',
     })
 
     passmanagerNavigationController.openCreateGroup(group.name)
@@ -496,6 +540,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'open',
       target: `create-group:${group.id}`,
+      reason: 'navigation',
+      sourceSurface: 'create-entry',
+      targetSurface: 'create-group',
     })
 
     passmanagerNavigationController.openImport()
@@ -504,6 +551,9 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'open',
       target: 'import',
+      reason: 'navigation',
+      sourceSurface: 'create-group',
+      targetSurface: 'import',
     })
 
     passmanagerNavigationController.closeImport()
@@ -512,6 +562,85 @@ describe('PasswordManagerModel navigation', () => {
       kind: 'surface-change',
       direction: 'close',
       target: `root:${root.id}`,
+      reason: 'navigation',
+      sourceSurface: 'import',
+      targetSurface: 'root',
+    })
+  })
+
+  it('creates a top-level group from the sidebar action even when a group is selected', () => {
+    originalPassmanager = window.passmanager
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-selected', 'Selected Group')
+
+    root.entries.set([group])
+    root.showElement.set(group)
+    window.passmanager = root
+
+    pmModel.onCreateTopLevelGroup()
+
+    expect(root.showElement()).toBe('createGroup')
+    expect(passmanagerNavigationController.getCreateGroupTargetGroupPath()).toBeUndefined()
+    expect(pmMotionModel.intent()).toEqual({
+      kind: 'surface-change',
+      direction: 'open',
+      target: 'create-group:root',
+      reason: 'navigation',
+      sourceSurface: 'group',
+      targetSurface: 'create-group',
+    })
+  })
+
+  it('uses typed create and delete success intents for deferred CRUD presentation', () => {
+    originalPassmanager = window.passmanager
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-created', 'Created Group')
+    const entry = createEntry(group, 'entry-created', 'Created Entry')
+    group.entries.set([entry])
+    root.entries.set([group])
+    window.passmanager = root
+
+    root.showElement.set('createEntry')
+    passmanagerNavigationController.presentCreatedEntry(entry)
+    expect(root.showElement()).toBe(entry)
+    expect(pmMotionModel.intent()).toEqual({
+      kind: 'surface-change',
+      direction: 'replace',
+      target: `entry:${entry.id}`,
+      reason: 'create-success',
+      sourceSurface: 'create-entry',
+      targetSurface: 'entry',
+    })
+
+    root.showElement.set('createGroup')
+    passmanagerNavigationController.presentCreatedGroup(group)
+    expect(root.showElement()).toBe(group)
+    expect(pmMotionModel.intent()).toEqual({
+      kind: 'surface-change',
+      direction: 'replace',
+      target: `group:${group.id}`,
+      reason: 'create-success',
+      sourceSurface: 'create-group',
+      targetSurface: 'group',
+    })
+
+    root.showElement.set(entry)
+    passmanagerNavigationController.presentAfterDelete({
+      deletedId: entry.id,
+      parent: group,
+      neighbourId: 'entry-neighbour',
+    })
+    expect(root.showElement()).toBe(group)
+    expect(pmModel.consumeRestoreSelection(group.id)).toBe('entry-neighbour')
+    expect(pmMotionModel.intent()).toEqual({
+      kind: 'surface-change',
+      direction: 'back',
+      target: `group:${group.id}`,
+      reason: 'delete-success',
+      sourceSurface: 'entry',
+      targetSurface: 'group',
     })
   })
 

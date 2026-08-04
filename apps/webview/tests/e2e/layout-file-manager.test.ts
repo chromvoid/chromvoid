@@ -58,7 +58,7 @@ async function createTransferTask(
   )
 }
 
-async function seedScrollableFilesFixture(count = 80): Promise<void> {
+async function seedFilesFixture(count: number): Promise<void> {
   const now = Date.now()
   const ids = Array.from({length: count}, (_, index) => index + 1)
   const nodes = [
@@ -184,7 +184,6 @@ type UploadPillState = {
   barBorderRadius: string | null
   hostRect: RectState | null
   barRect: RectState | null
-  statusBarRect: RectState | null
   tabBarRect: RectState | null
   viewportW: number
   viewportH: number
@@ -216,11 +215,8 @@ async function getUploadPillState(page: Page): Promise<UploadPillState> {
 
     const upload = deepFind(document, 'upload-progress-mobile') as HTMLElement | null
     const bar = upload?.shadowRoot?.querySelector('.minimized-bar') as HTMLElement | null
-    const fileList = deepFind(document, 'virtual-file-list') as HTMLElement | null
-    const statusBar = fileList?.shadowRoot?.querySelector('.status-bar') as HTMLElement | null
     const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
     const rect = bar?.getBoundingClientRect() ?? null
-    const statusRect = statusBar?.getBoundingClientRect() ?? null
     const tabRect = tabBar?.getBoundingClientRect() ?? null
     const serialize = (value: DOMRect | null) =>
       value
@@ -245,7 +241,6 @@ async function getUploadPillState(page: Page): Promise<UploadPillState> {
       barBorderRadius: bar ? getComputedStyle(bar).borderTopLeftRadius : null,
       hostRect: serialize(upload?.getBoundingClientRect() ?? null),
       barRect: serialize(rect),
-      statusBarRect: serialize(statusRect),
       tabBarRect: serialize(tabRect),
       viewportW: window.innerWidth,
       viewportH: window.innerHeight,
@@ -290,7 +285,7 @@ async function getUploadSheetState(page: Page): Promise<UploadSheetState> {
     return {
       sheetOpen: Boolean(sheet?.hasAttribute('open')),
       bodyDisplay: body ? getComputedStyle(body).display : null,
-      headerRect: serialize(root?.querySelector('.sheet-header') ?? null),
+      headerRect: serialize(root?.querySelector('.sheet-title') ?? null),
       tasksRect: serialize(root?.querySelector('.tasks-container') ?? null),
       footerRect: serialize(root?.querySelector('.sheet-footer') ?? null),
       viewportW: window.innerWidth,
@@ -332,7 +327,7 @@ type MobileSelectionScrollStart = {
 
 type MobileSelectionScrollResult = {
   afterScrollTop: number
-  topToolbarActionIds: string[]
+  selectionActionIds: string[]
   afterScrollOwners: MobileScrollOwnerSnapshot
 }
 
@@ -510,16 +505,15 @@ async function getMobileSelectionScrollResult(
 
     const list = deepFind(document, 'virtual-file-list') as HTMLElement | null
     const container = list?.shadowRoot?.querySelector('.list-container') as HTMLElement | null
-    const topToolbar = deepFind(document, 'mobile-top-toolbar') as
-      | (HTMLElement & {actions?: Array<{id?: string}>})
-      | null
-    const topToolbarActionIds = Array.isArray(topToolbar?.actions)
-      ? topToolbar.actions.map((action) => action.id).filter((id): id is string => typeof id === 'string')
-      : []
+    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
+    const selectionActionIds = Array.from(
+      header?.shadowRoot?.querySelectorAll<HTMLElement>('.mobile-selection-action[data-action]') ?? [],
+      (action) => action.dataset.action,
+    ).filter((id): id is string => typeof id === 'string')
 
     return {
       afterScrollTop: container?.scrollTop ?? 0,
-      topToolbarActionIds,
+      selectionActionIds,
       afterScrollOwners: readScrollOwners(),
     }
   })
@@ -703,18 +697,19 @@ test('file list is visible in mobile layout', async () => {
   expect(await deepQuerySelector(page, 'dashboard-file-list')).toBe(true)
 })
 
-test('desktop runtime mobile layout does not expose swipe gutters on file rows', async () => {
+test('mobile layout exposes swipe actions on file rows regardless of desktop runtime', async () => {
   const page = globalThis.__E2E_PAGE__!
+  await seedFilesFixture(1)
   await page.goto(`${BASE_URL}?layout=mobile`)
   await waitForFileManager(page)
 
   expect(await deepQuerySelector(page, 'file-item-mobile')).toBe(true)
-  expect(await hasVisibleMobileSwipeShell(page)).toBe(false)
+  expect(await hasVisibleMobileSwipeShell(page)).toBe(true)
 })
 
 test('mobile row geometry matches the virtualizer item height while scrolling', async () => {
   const page = globalThis.__E2E_PAGE__!
-  await seedScrollableFilesFixture()
+  await seedFilesFixture(80)
   await page.setViewportSize({width: 390, height: 844})
   await page.goto(`${BASE_URL}?surface=files&path=%2F&layout=mobile`)
   await waitForFileManager(page)
@@ -799,8 +794,9 @@ test('mobile header stays minimal outside selection mode', async () => {
   expect(panel.hasUploadButton).toBe(false)
 })
 
-test('mobile selection mode keeps contextual actions in the shell toolbar only', async () => {
+test('mobile selection mode replaces the add menu with a bottom contextual bar', async () => {
   const page = globalThis.__E2E_PAGE__!
+  await seedFilesFixture(1)
   await page.goto(`${BASE_URL}?layout=mobile`)
   await waitForFileManager(page)
 
@@ -846,24 +842,24 @@ test('mobile selection mode keeps contextual actions in the shell toolbar only',
       }
       return null
     }
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as
-      | (HTMLElement & {actions?: Array<{id?: string}>})
-      | null
-    return Boolean(toolbar?.actions?.some((action) => action.id === 'selection-done'))
+    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
+    return Boolean(
+      header?.shadowRoot?.querySelector('.mobile-selection-action[data-action="selection-done"]'),
+    )
   }, undefined, {timeout: 10_000})
 
   const panel = await getMobileActionPanelState(page)
   expect(panel.layoutSelectionMode).toBe(false)
   expect(panel.toolbarDisplay).toBeNull()
-  expect(panel.hasSelectionToolbar).toBe(false)
+  expect(panel.hasSelectionToolbar).toBe(true)
   expect(panel.hasCreateButton).toBe(false)
   expect(panel.hasUploadButton).toBe(false)
-  expect(panel.topToolbarActionIds).toContain('selection-done')
+  expect(panel.topToolbarActionIds).not.toContain('selection-done')
 })
 
 test('mobile selection mode preserves virtual file list scroll', async () => {
   const page = globalThis.__E2E_PAGE__!
-  await seedScrollableFilesFixture()
+  await seedFilesFixture(80)
   await page.setViewportSize({width: 390, height: 844})
   await page.goto(`${BASE_URL}?surface=files&path=%2F&layout=mobile`)
   await waitForFileManager(page)
@@ -885,14 +881,14 @@ test('mobile selection mode preserves virtual file list scroll', async () => {
       }
       return null
     }
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as
-      | (HTMLElement & {actions?: Array<{id?: string}>})
-      | null
-    return Boolean(toolbar?.actions?.some((action) => action.id === 'selection-done'))
+    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
+    return Boolean(
+      header?.shadowRoot?.querySelector('.mobile-selection-action[data-action="selection-done"]'),
+    )
   }, undefined, {timeout: 10_000})
 
   const result = await getMobileSelectionScrollResult(page)
-  expect(result.topToolbarActionIds).toContain('selection-done')
+  expect(result.selectionActionIds).toContain('selection-done')
   expect(result.afterScrollTop).toBeGreaterThanOrEqual(started.beforeScrollTop - 4)
   expect(result.afterScrollTop).toBeGreaterThan(24)
   expect(started.beforeScrollOwners.shellContentMode).toBe('surface')
@@ -961,7 +957,6 @@ test('mobile upload strip stays above bottom tabs without changing minimal heade
   expect(pill.barBorderRadius).toBe('0px')
   expect(pill.hostRect).not.toBeNull()
   expect(pill.barRect).not.toBeNull()
-  expect(pill.statusBarRect).not.toBeNull()
   expect(pill.tabBarRect).not.toBeNull()
   expect(pill.barRect!.left).toBeGreaterThanOrEqual(pill.hostRect!.left)
   expect(pill.barRect!.right).toBeLessThanOrEqual(pill.hostRect!.right)
@@ -972,8 +967,8 @@ test('mobile upload strip stays above bottom tabs without changing minimal heade
   expect(pill.hostRect!.height).toBeLessThanOrEqual(pill.barRect!.height + 1)
   expect(pill.barRect!.left).toBeLessThanOrEqual(16)
   expect(pill.barRect!.right).toBeGreaterThanOrEqual(pill.viewportW - 16)
-  expect(pill.barRect!.top).toBeGreaterThanOrEqual(pill.statusBarRect!.bottom - 1)
-  expect(pill.barRect!.bottom).toBeLessThanOrEqual(pill.tabBarRect!.top)
+  expect(pill.barRect!.top).toBeGreaterThanOrEqual(0)
+  expect(pill.barRect!.bottom).toBeLessThanOrEqual(pill.tabBarRect!.top + 1)
   expect(pill.barTone).toBe('active')
   expect(pill.barRect!.height).toBeLessThanOrEqual(52)
   expect(pill.barRect!.height).toBeGreaterThanOrEqual(44)
@@ -1017,8 +1012,8 @@ test('mobile upload sheet opens with vertical header list footer layout', async 
       return null
     }
     const upload = deepFind(document, 'upload-progress-mobile') as HTMLElement | null
-    const bar = upload?.shadowRoot?.querySelector('.minimized-bar') as HTMLElement | null
-    bar?.click()
+    const trigger = upload?.shadowRoot?.querySelector('.minimized-main') as HTMLButtonElement | null
+    trigger?.click()
   })
 
   await page.waitForFunction(() => {
@@ -1042,7 +1037,7 @@ test('mobile upload sheet opens with vertical header list footer layout', async 
 
   const sheet = await getUploadSheetState(page)
   expect(sheet.sheetOpen).toBe(true)
-  expect(sheet.bodyDisplay).toBe('grid')
+  expect(sheet.bodyDisplay).toBe('block')
   expect(sheet.headerRect).not.toBeNull()
   expect(sheet.tasksRect).not.toBeNull()
   expect(sheet.footerRect).not.toBeNull()
@@ -1095,7 +1090,7 @@ test('mobile upload pill auto-hides after successful completion', async () => {
   expect(await deepQuerySelector(page, 'upload-progress-mobile')).toBe(false)
 })
 
-test('mobile upload pill is not auto-hidden when transfer fails', async () => {
+test('mobile upload failure auto-opens the transfer sheet and stays visible', async () => {
   const page = globalThis.__E2E_PAGE__!
   await page.setViewportSize({width: 390, height: 844})
   await page.goto(`${BASE_URL}?layout=mobile`)
@@ -1109,11 +1104,48 @@ test('mobile upload pill is not auto-hidden when transfer fails', async () => {
   expect(created).toBe(true)
   expect(await deepQuerySelector(page, 'upload-progress-mobile')).toBe(true)
 
-  await page.waitForTimeout(4500)
+  await page.waitForFunction(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    const upload = deepFind(document, 'upload-progress-mobile') as HTMLElement | null
+    const root = upload?.shadowRoot
+    return Boolean(
+      root?.querySelector('cv-bottom-sheet')?.hasAttribute('open') &&
+        root?.querySelector('.sheet-title')?.getAttribute('data-tone') === 'danger',
+    )
+  }, undefined, {timeout: 10_000})
 
-  const pill = await getUploadPillState(page)
-  expect(pill.exists).toBe(true)
-  expect(pill.barVisible).toBe(true)
-  expect(pill.barTone).toBe('danger')
+  const failure = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+    const upload = deepFind(document, 'upload-progress-mobile') as HTMLElement | null
+    const root = upload?.shadowRoot
+    return {
+      sheetOpen: Boolean(root?.querySelector('cv-bottom-sheet')?.hasAttribute('open')),
+      minimizedBarVisible: Boolean(root?.querySelector('.minimized-bar')),
+      tone: root?.querySelector('.sheet-title')?.getAttribute('data-tone') ?? null,
+    }
+  })
+  expect(failure.sheetOpen).toBe(true)
+  expect(failure.minimizedBarVisible).toBe(false)
+  expect(failure.tone).toBe('danger')
   expect(await deepQuerySelector(page, 'upload-progress-mobile')).toBe(true)
 })

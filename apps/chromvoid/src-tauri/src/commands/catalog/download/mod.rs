@@ -2,6 +2,7 @@ mod commands;
 mod derivatives;
 mod external;
 mod gallery;
+mod host_derivative_ensure;
 mod image_metadata;
 mod preview;
 mod rpc;
@@ -9,7 +10,7 @@ mod staging;
 #[cfg(test)]
 mod tests;
 
-type CatalogDownloadError = (String, Option<String>);
+pub(crate) type CatalogDownloadError = (String, Option<String>);
 type GallerySaveError = CatalogDownloadError;
 
 pub(crate) use commands::catalog_download;
@@ -25,6 +26,10 @@ pub(crate) use commands::catalog_thumbnail_image;
 pub(crate) use commands::prepare_catalog_preview_file;
 pub(crate) use commands::purge_catalog_preview_cache;
 pub(crate) use commands::release_catalog_preview_file;
+pub(crate) use derivatives::ImageDerivativeCancellation;
+pub(crate) use host_derivative_ensure::{
+    HostDerivativeEnsureRequest, HostDerivativeEnsureServices,
+};
 pub(crate) use preview::purge_catalog_preview_cache_for_app;
 pub(crate) use preview::{
     handle_prepared_preview_protocol_request, PreparedPreviewRuntimeState, PREPARED_PREVIEW_SCHEME,

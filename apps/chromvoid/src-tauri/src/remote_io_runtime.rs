@@ -3,11 +3,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chromvoid_core::rpc::types::RpcRequest;
+use chromvoid_core::rpc::RpcReply;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
 const REMOTE_IO_RUNTIME_POISONED: &str = "Remote IO runtime mutex poisoned";
+const MOBILE_USB_SESSION_DISCONNECT: &str = "mobile_usb:session_disconnect";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RemoteIoRuntimeEvent {
@@ -54,11 +56,13 @@ impl RemoteIoStopReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RemoteIoSessionKind {
     RemoteTransport,
+    MobileUsb,
 }
 
 struct ActiveRemoteIoSession {
     generation: u64,
     kind: RemoteIoSessionKind,
+    req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
     io_task: JoinHandle<()>,
     event_task: Option<JoinHandle<()>>,
 }
@@ -93,13 +97,23 @@ impl RemoteIoRuntimeState {
         app: tauri::AppHandle,
         config: crate::remote_data_plane::RemoteIoTaskConfig,
     ) -> Result<RemoteIoSessionHandle, String> {
-        self.start_remote_session_with_event_sink(app, config, None)
+        self.start_remote_session_inner(app, config, RemoteIoSessionKind::RemoteTransport, None)
     }
 
     pub(crate) fn start_remote_session_with_event_sink(
         self: &Arc<Self>,
         app: tauri::AppHandle,
         config: crate::remote_data_plane::RemoteIoTaskConfig,
+        event_sink: Option<Arc<dyn RemoteIoRuntimeEventSink>>,
+    ) -> Result<RemoteIoSessionHandle, String> {
+        self.start_remote_session_inner(app, config, RemoteIoSessionKind::MobileUsb, event_sink)
+    }
+
+    fn start_remote_session_inner(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+        config: crate::remote_data_plane::RemoteIoTaskConfig,
+        kind: RemoteIoSessionKind,
         event_sink: Option<Arc<dyn RemoteIoRuntimeEventSink>>,
     ) -> Result<RemoteIoSessionHandle, String> {
         let crate::remote_data_plane::RemoteIoTaskHandle {
@@ -116,7 +130,8 @@ impl RemoteIoRuntimeState {
 
         let session = ActiveRemoteIoSession {
             generation,
-            kind: RemoteIoSessionKind::RemoteTransport,
+            kind,
+            req_tx: req_tx.clone(),
             io_task: task_handle,
             event_task: Some(event_task),
         };
@@ -141,6 +156,57 @@ impl RemoteIoRuntimeState {
         let active = self.take_active_after_invalidate()?;
         abort_session(active, reason);
         Ok(())
+    }
+
+    pub(crate) async fn disconnect_active_mobile_usb(
+        &self,
+        acknowledgement_timeout: Duration,
+        task_grace: Duration,
+    ) -> Result<MobileUsbDisconnectOutcome, String> {
+        let active = self.take_active_after_invalidate()?;
+        let Some(active) = active else {
+            return Ok(MobileUsbDisconnectOutcome::NoActiveSession);
+        };
+        if active.kind != RemoteIoSessionKind::MobileUsb {
+            let generation = active.generation;
+            abort_session(Some(active), RemoteIoStopReason::ModeSwitchLocal);
+            return Err(format!(
+                "active remote IO generation {generation} is not a mobile USB session"
+            ));
+        }
+
+        let generation = active.generation;
+        tracing::info!(
+            generation,
+            timeout_ms = acknowledgement_timeout.as_millis() as u64,
+            "remote_io: graceful mobile USB disconnect request"
+        );
+        let acknowledgement =
+            request_mobile_usb_disconnect(&active.req_tx, acknowledgement_timeout).await;
+        match &acknowledgement {
+            Ok(()) => tracing::info!(
+                generation,
+                "remote_io: graceful mobile USB disconnect acknowledged"
+            ),
+            Err(error) => warn!(
+                generation,
+                error, "remote_io: graceful mobile USB disconnect falling back to local teardown"
+            ),
+        }
+
+        let ended_gracefully = join_session_with_grace(active, task_grace).await;
+        if !ended_gracefully {
+            warn!(
+                generation,
+                timeout_ms = task_grace.as_millis() as u64,
+                "remote_io: graceful mobile USB disconnect task join timed out"
+            );
+        }
+
+        Ok(match acknowledgement {
+            Ok(()) => MobileUsbDisconnectOutcome::Acknowledged,
+            Err(error) => MobileUsbDisconnectOutcome::Fallback { error },
+        })
     }
 
     pub(crate) async fn shutdown_with_grace(
@@ -242,6 +308,7 @@ impl RemoteIoRuntimeState {
             .publish_active(ActiveRemoteIoSession {
                 generation,
                 kind,
+                req_tx: mpsc::channel(1).0,
                 io_task,
                 event_task,
             })
@@ -249,6 +316,33 @@ impl RemoteIoRuntimeState {
         abort_session(previous, RemoteIoStopReason::Replaced);
         Ok(generation)
     }
+
+    #[cfg(test)]
+    fn store_test_mobile_usb_session(
+        &self,
+        req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
+        io_task: JoinHandle<()>,
+    ) -> Result<u64, String> {
+        let generation = self.next_active_generation();
+        let previous = self
+            .publish_active(ActiveRemoteIoSession {
+                generation,
+                kind: RemoteIoSessionKind::MobileUsb,
+                req_tx,
+                io_task,
+                event_task: None,
+            })
+            .map_err(|error| error.error)?;
+        abort_session(previous, RemoteIoStopReason::Replaced);
+        Ok(generation)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MobileUsbDisconnectOutcome {
+    NoActiveSession,
+    Acknowledged,
+    Fallback { error: String },
 }
 
 impl ActiveRemoteIoSession {
@@ -287,6 +381,70 @@ fn abort_session_for_join(
         handles.push(event_task);
     }
     handles
+}
+
+async fn request_mobile_usb_disconnect(
+    req_tx: &mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    let reply = tokio::time::timeout(timeout, async {
+        req_tx
+            .send(crate::remote_data_plane::RemoteIoRequest {
+                request: RpcRequest::new(MOBILE_USB_SESSION_DISCONNECT, serde_json::json!({})),
+                stream: None,
+                reply_tx,
+                priority: crate::core_adapter::RemoteRpcPriority::High,
+                cancel_group: None,
+            })
+            .await
+            .map_err(|_| "mobile USB session disconnect request channel closed".to_string())?;
+        reply_rx
+            .await
+            .map_err(|_| "mobile USB session disconnect reply channel closed".to_string())
+    })
+    .await
+    .map_err(|_| {
+        format!(
+            "mobile USB session disconnect timed out after {}ms",
+            timeout.as_millis()
+        )
+    })??;
+
+    match reply {
+        RpcReply::Json(response) if response.is_ok() => Ok(()),
+        RpcReply::Json(response) => Err(format!(
+            "mobile USB session disconnect rejected: {}",
+            response
+                .error_message()
+                .unwrap_or("remote peer returned an error")
+        )),
+        RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
+            Err("mobile USB session disconnect returned a stream".to_string())
+        }
+    }
+}
+
+async fn join_session_with_grace(mut session: ActiveRemoteIoSession, grace: Duration) -> bool {
+    let completed = tokio::time::timeout(grace, async {
+        let _ = (&mut session.io_task).await;
+        if let Some(event_task) = session.event_task.as_mut() {
+            let _ = event_task.await;
+        }
+    })
+    .await
+    .is_ok();
+    if completed {
+        return true;
+    }
+
+    session.io_task.abort();
+    let _ = session.io_task.await;
+    if let Some(event_task) = session.event_task {
+        event_task.abort();
+        let _ = event_task.await;
+    }
+    false
 }
 
 async fn run_remote_event_pump<R: tauri::Runtime>(
@@ -441,6 +599,135 @@ mod tests {
 
         assert_eq!(runtime.active_generation_for_test(), None);
         assert!(event_dropped.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn mobile_usb_disconnect_waits_for_ack_and_invalidates_generation() {
+        let runtime = RemoteIoRuntimeState::new();
+        let (req_tx, mut req_rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(1);
+        let io_task = tokio::spawn(async move {
+            let request = req_rx.recv().await.expect("disconnect request");
+            assert_eq!(request.request.command, MOBILE_USB_SESSION_DISCONNECT);
+            let _ = request.reply_tx.send(RpcReply::Json(
+                chromvoid_core::rpc::types::RpcResponse::success(serde_json::Value::Null),
+            ));
+        });
+        let generation = runtime
+            .store_test_mobile_usb_session(req_tx, io_task)
+            .expect("mobile USB session");
+
+        let outcome = runtime
+            .disconnect_active_mobile_usb(Duration::from_secs(1), Duration::from_secs(1))
+            .await
+            .expect("disconnect");
+
+        assert_eq!(outcome, MobileUsbDisconnectOutcome::Acknowledged);
+        assert!(!runtime.is_generation_current(generation));
+        assert_eq!(runtime.active_generation_for_test(), None);
+    }
+
+    #[tokio::test]
+    async fn mobile_usb_disconnect_timeout_falls_back_and_is_idempotent() {
+        let runtime = RemoteIoRuntimeState::new();
+        let (req_tx, _req_rx) = mpsc::channel(1);
+        let io_task = tokio::spawn(std::future::pending::<()>());
+        runtime
+            .store_test_mobile_usb_session(req_tx, io_task)
+            .expect("mobile USB session");
+
+        let outcome = runtime
+            .disconnect_active_mobile_usb(Duration::from_millis(10), Duration::from_millis(10))
+            .await
+            .expect("fallback disconnect");
+        let second = runtime
+            .disconnect_active_mobile_usb(Duration::from_millis(10), Duration::from_millis(10))
+            .await
+            .expect("idempotent disconnect");
+
+        assert!(matches!(
+            outcome,
+            MobileUsbDisconnectOutcome::Fallback { ref error }
+                if error.contains("timed out")
+        ));
+        assert_eq!(second, MobileUsbDisconnectOutcome::NoActiveSession);
+        assert_eq!(runtime.active_generation_for_test(), None);
+    }
+
+    #[tokio::test]
+    async fn mobile_usb_disconnect_timeout_also_bounds_full_request_queue() {
+        let runtime = RemoteIoRuntimeState::new();
+        let (req_tx, _req_rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(1);
+        let (blocking_reply_tx, _blocking_reply_rx) = tokio::sync::oneshot::channel();
+        req_tx
+            .try_send(crate::remote_data_plane::RemoteIoRequest {
+                request: RpcRequest::new("test:block", serde_json::Value::Null),
+                stream: None,
+                reply_tx: blocking_reply_tx,
+                priority: crate::core_adapter::RemoteRpcPriority::Normal,
+                cancel_group: None,
+            })
+            .expect("fill request queue");
+        let io_task = tokio::spawn(std::future::pending::<()>());
+        runtime
+            .store_test_mobile_usb_session(req_tx, io_task)
+            .expect("mobile USB session");
+
+        let outcome = runtime
+            .disconnect_active_mobile_usb(Duration::from_millis(10), Duration::from_millis(10))
+            .await
+            .expect("fallback disconnect");
+
+        assert!(matches!(
+            outcome,
+            MobileUsbDisconnectOutcome::Fallback { ref error }
+                if error.contains("timed out")
+        ));
+        assert_eq!(runtime.active_generation_for_test(), None);
+    }
+
+    #[tokio::test]
+    async fn stale_mobile_usb_disconnect_completion_does_not_stop_new_session() {
+        let runtime = Arc::new(RemoteIoRuntimeState::new());
+        let (req_tx, mut req_rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(1);
+        let (request_seen_tx, request_seen_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let io_task = tokio::spawn(async move {
+            let request = req_rx.recv().await.expect("disconnect request");
+            let _ = request_seen_tx.send(());
+            let _ = release_rx.await;
+            let _ = request.reply_tx.send(RpcReply::Json(
+                chromvoid_core::rpc::types::RpcResponse::success(serde_json::Value::Null),
+            ));
+        });
+        runtime
+            .store_test_mobile_usb_session(req_tx, io_task)
+            .expect("mobile USB session");
+
+        let disconnect_task = {
+            let runtime = runtime.clone();
+            tokio::spawn(async move {
+                runtime
+                    .disconnect_active_mobile_usb(Duration::from_secs(1), Duration::from_secs(1))
+                    .await
+            })
+        };
+        request_seen_rx.await.expect("request seen");
+        let replacement = runtime
+            .store_test_session(RemoteIoSessionKind::RemoteTransport, None)
+            .expect("replacement session");
+        let _ = release_tx.send(());
+
+        assert_eq!(
+            disconnect_task
+                .await
+                .expect("disconnect task")
+                .expect("disconnect outcome"),
+            MobileUsbDisconnectOutcome::Acknowledged,
+        );
+        assert_eq!(runtime.active_generation_for_test(), Some(replacement));
+        runtime
+            .stop_active(RemoteIoStopReason::Test)
+            .expect("replacement cleanup");
     }
 
     #[tokio::test]

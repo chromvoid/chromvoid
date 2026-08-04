@@ -178,10 +178,8 @@ describe('PMEntryListItemMobile selection mode', () => {
       handleTouchStart: (event: TouchEvent) => void
     }).handleTouchStart
 
-    const preventDefault = vi.fn()
     handleTouchStart.call(element, {
       touches: [{clientX: 12, clientY: 18}],
-      preventDefault,
     } as unknown as TouchEvent)
 
     vi.advanceTimersByTime(500)
@@ -190,8 +188,26 @@ describe('PMEntryListItemMobile selection mode', () => {
 
     expect(pmSelectionModeModel.active()).toBe(true)
     expect(pmSelectionModeModel.isEntrySelected(entry.id)).toBe(true)
-    expect(preventDefault).toHaveBeenCalledTimes(1)
     expect(element.shadowRoot?.querySelector('.list-item')?.classList.contains('selected')).toBe(true)
+  })
+
+  it('prevents native text selection inside mobile entry rows', async () => {
+    const entry = createEntry('mobile-native-selection')
+    window.passmanager = createPassmanagerRoot(entry)
+
+    const element = document.createElement('pm-entry-list-item-mobile') as PMEntryListItemMobile
+    element.entry = entry
+    document.body.append(element)
+    await flush(element)
+
+    const selectStartEvent = new Event('selectstart', {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    })
+    element.shadowRoot?.querySelector('.item-subtitle')?.dispatchEvent(selectStartEvent)
+
+    expect(selectStartEvent.defaultPrevented).toBe(true)
   })
 
   it('keeps normal tap opening the entry outside selection mode', async () => {
@@ -204,7 +220,13 @@ describe('PMEntryListItemMobile selection mode', () => {
     document.body.append(element)
     await flush(element)
 
-    element.shadowRoot?.querySelector('.list-item')?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    const rows = element.shadowRoot?.querySelectorAll(`[data-entry-id="${entry.id}"]`)
+    const row = rows?.item(0)
+    expect(rows).toHaveLength(1)
+    expect(row?.getAttribute('role')).toBe('button')
+    expect(row?.getAttribute('aria-label')).toBe(entry.title)
+
+    row?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
 
     expect(openItemSpy).toHaveBeenCalledTimes(1)
     expect(openItemSpy).toHaveBeenCalledWith(entry)

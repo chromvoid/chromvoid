@@ -10,10 +10,19 @@ import {confirmPassManagerAction} from './dialog'
 import {Group} from './group'
 import {notify} from './notify'
 import {logger} from './logger'
+import type {MutationPresentation} from './mutation-presentation'
 import {OTP} from './otp'
 import {normalizeCredentialTags} from './tags'
 import type {ManagerRoot} from './root'
-import type {IEntry, IEntryExternal, ManagerSaver, OTPOptions, PassManagerSshKey, UrlRule} from './types'
+import type {
+  IEntry,
+  IEntryExternal,
+  ManagerSaver,
+  OTPOptions,
+  PassManagerSshKey,
+  PaymentCardCreationSecrets,
+  UrlRule,
+} from './types'
 
 export const DEFAULT_OPTIONS: OTPOptions = {
   id: '',
@@ -72,6 +81,7 @@ export class Entry {
     password = '',
     note = '',
     otp: undefined | OTPOptions,
+    paymentCardSecrets?: PaymentCardCreationSecrets,
   ) {
     const entry = new Entry(parent, {
       ...data,
@@ -79,7 +89,13 @@ export class Entry {
       createdTs: Date.now(),
       updatedTs: Date.now(),
     } as IEntry)
-    entry.seedSecretCache(password, note)
+    if (entry.entryType === 'payment_card') {
+      entry.seedCardPanCache(paymentCardSecrets?.cardPan)
+      entry.seedCardCvvCache(paymentCardSecrets?.cardCvv)
+      entry.seedNoteCache(note)
+    } else {
+      entry.seedSecretCache(password, note)
+    }
 
     const root = parent.root
     root.beginEntryUpdate()
@@ -87,16 +103,15 @@ export class Entry {
 
     // Keep in the background - UI is updated immediately
     entry.pendingPersistence = entry
-      .persistNewAction(parent, password, note, otp)
-      .catch((error) => {
-        try {
-          logger.error('[PassManager][Entry.persistNew] failed', {entryId: entry.id, error})
-        } catch {}
-      })
+      .persistNewAction(parent, password, note, otp, paymentCardSecrets)
       .finally(() => {
         root.endEntryUpdate()
       })
-    void entry.pendingPersistence
+    void entry.pendingPersistence.catch((error) => {
+      try {
+        logger.error('[PassManager][Entry.persistNew] failed', {entryId: entry.id, error})
+      } catch {}
+    })
 
     return entry
   }
@@ -173,57 +188,65 @@ export class Entry {
   }
 
   private readonly persistNewAction = action(
-    async (parent: Group | ManagerRoot, password: string, note: string, otp: OTPOptions | undefined) => {
+    async (
+      parent: Group | ManagerRoot,
+      password: string,
+      note: string,
+      otp: OTPOptions | undefined,
+      paymentCardSecrets: PaymentCardCreationSecrets | undefined,
+    ) => {
       const prevOtps = this.otps()
+      let createdOtp: OTP | undefined
       try {
         let nextOtps = prevOtps
         let otpSecret = ''
         if (otp && this.entryType !== 'payment_card') {
           otpSecret = otp.secret ?? ''
-          const createdOtp = await wrap(OTP.create(this, otp))
+          createdOtp = await wrap(OTP.create(this, otp))
           nextOtps = [...prevOtps, createdOtp]
         }
 
-        const metaSaved = await wrap(
-          this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload(parent, nextOtps)),
-        )
-        if (!metaSaved) {
-          throw new Error('saveEntryMeta failed')
-        }
-
-        if (nextOtps !== prevOtps && otpSecret) {
-          const createdOtp = nextOtps[nextOtps.length - 1]
-          if (!createdOtp) {
-            throw new Error('saveOTP failed')
-          }
-          const otpSaved = await wrap(this.root.managerSaver.saveOTP(createdOtp.id, otpSecret, createdOtp.data))
+        // OTP secrets live in a dedicated sidecar, outside the entry storage
+        // transaction. Persist it first so a committed entry never points at a
+        // missing sidecar secret; a failed entry create removes the orphan.
+        if (createdOtp && otpSecret) {
+          const otpSaved = await wrap(
+            this.root.managerSaver.saveOTP(createdOtp.id, otpSecret, createdOtp.data),
+          )
           if (!otpSaved) {
             throw new Error('saveOTP failed')
           }
         }
 
+        const created = await wrap(
+          this.root.managerSaver.createEntry(
+            this.buildEntryCreatePayload(parent, nextOtps, password, note, paymentCardSecrets),
+          ),
+        )
+        if (!created) {
+          throw new Error('createEntry failed')
+        }
+
         if (nextOtps !== prevOtps) {
           this.otps.set(nextOtps)
-        }
-
-        if (password && this.entryType !== 'payment_card') {
-          const passwordSaved = await wrap(this.savePassword(password))
-          if (!passwordSaved) {
-            throw new Error('saveEntryPassword failed')
-          }
-        }
-
-        if (note) {
-          const noteSaved = await wrap(this.saveNote(note))
-          if (!noteSaved) {
-            throw new Error('saveEntryNote failed')
-          }
         }
       } catch (error) {
         this.otps.set(prevOtps)
         try {
           parent.excludeEntry(this)
         } catch {}
+        if (createdOtp) {
+          try {
+            await wrap(this.root.managerSaver.removeOTP(createdOtp.id))
+          } catch {}
+        }
+        try {
+          await wrap(this.root.managerSaver.removeEntry(this.id))
+        } catch {}
+        this.seedPasswordCache(undefined)
+        this.seedNoteCache(undefined)
+        this.seedCardPanCache(undefined)
+        this.seedCardCvvCache(undefined)
         throw error
       }
     },
@@ -242,9 +265,7 @@ export class Entry {
       })
 
       try {
-        const metaSaved = await wrap(
-          this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload()),
-        )
+        const metaSaved = await wrap(this.root.managerSaver.saveEntryMeta(this.buildEntryMetaPayload()))
         if (!metaSaved) {
           throw new Error('saveEntryMeta failed')
         }
@@ -367,9 +388,7 @@ export class Entry {
     }
 
     const renameOTPLabel = this.root.managerSaver.renameOTPLabel?.bind(this.root.managerSaver)
-    const migrations = changes.filter(
-      (change) => change.previousStorageLabel !== change.nextStorageLabel,
-    )
+    const migrations = changes.filter((change) => change.previousStorageLabel !== change.nextStorageLabel)
     if (migrations.length > 0 && !renameOTPLabel) {
       throw new Error('renameOTPLabel unavailable')
     }
@@ -647,6 +666,39 @@ export class Entry {
     }
   }
 
+  private buildEntryCreatePayload(
+    parent: Group | ManagerRoot,
+    otps: OTP[],
+    password: string,
+    note: string,
+    paymentCardSecrets: PaymentCardCreationSecrets | undefined,
+  ): Parameters<ManagerSaver['createEntry']>[0] {
+    const meta = this.buildEntryMetaPayload(parent, otps)
+    if (meta.entryType === 'payment_card') {
+      if (!paymentCardSecrets?.cardPan) {
+        throw new Error('payment_card PAN is required')
+      }
+      return {
+        entryType: 'payment_card',
+        meta,
+        secrets: {
+          cardPan: paymentCardSecrets.cardPan,
+          cardCvv: paymentCardSecrets.cardCvv || undefined,
+          note: note || undefined,
+        },
+      }
+    }
+
+    return {
+      entryType: 'login',
+      meta,
+      secrets: {
+        password: password || undefined,
+        note: note || undefined,
+      },
+    }
+  }
+
   private snapshotSecretCache(): SecretCacheSnapshot {
     return {
       passwordCache: this.passwordCache,
@@ -793,39 +845,51 @@ export class Entry {
   async remove({
     silent = false,
     updateParent = true,
+    notifyResult = true,
+    presentation = 'auto',
   }: {
     silent?: boolean
     updateParent?: boolean
+    notifyResult?: boolean
+    presentation?: MutationPresentation
   } = {}) {
     if (!silent) {
-      const confirmed = await wrap(
-        confirmPassManagerAction({
-          title: i18n('remove:dialog:title'),
-          message: i18n('remove:dialog:text'),
-          variant: 'danger',
-          confirmVariant: 'danger',
-        }),
-      )
+      const confirmed = await wrap(this.confirmRemoval())
       if (!confirmed) {
-        return
+        return false
       }
     }
 
-    if (this.entryType === 'payment_card') {
-      await wrap(Promise.all([this.cleanNote(), this.cleanCardCvv(), this.cleanCardPan()]))
-    } else {
-      await wrap(Promise.all([this.cleanNote(), this.cleanPassword(), this.cleanOTPs()]))
+    if (!updateParent) return false
+
+    const wasCurrentEntry = this.parent.root.showElement() === this
+    const removed = await wrap(this.parent.root.managerSaver.removeEntry(this.id))
+    if (!removed) {
+      throw new Error('removeEntry failed')
     }
 
-    if (updateParent) {
-      this.parent.excludeEntry(this)
-      this.parent.updateData({})
-      await wrap(this.parent.root.managerSaver.removeEntry(this.id))
+    this.parent.excludeEntry(this)
+    this.parent.updateData({})
+    if (presentation === 'auto' && wasCurrentEntry && this.parent.root.showElement() === this) {
       this.parent.root.showElement.set(this.parent)
+    }
+    if (notifyResult) {
       try {
-        notify.success(i18n('notify:remove:success'))
+        notify.success(i18n('notify:remove:success'), undefined, {
+          key: `passmanager.entry.delete:${this.id}`,
+        })
       } catch {}
     }
+    return true
+  }
+
+  confirmRemoval(): Promise<boolean> {
+    return confirmPassManagerAction({
+      title: i18n('remove:dialog:title'),
+      message: i18n('remove:dialog:text'),
+      variant: 'danger',
+      confirmVariant: 'danger',
+    })
   }
 
   async cleanPassword() {
@@ -896,7 +960,9 @@ export class Entry {
 
       if (!options.silent) {
         try {
-          notify.success(i18n('notify:move:success'))
+          notify.success(i18n('notify:move:success'), undefined, {
+            key: `passmanager.entry.move:${this.id}`,
+          })
         } catch {}
       }
 

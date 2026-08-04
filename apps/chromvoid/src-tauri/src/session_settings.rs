@@ -9,8 +9,8 @@ pub struct SessionSettings {
     /// Lock vault when the mobile app moves to background.
     #[serde(default)]
     pub lock_on_mobile_background: bool,
-    /// Require biometric app gate on supported mobile runtimes before showing the app.
-    #[serde(default = "default_require_biometric_app_gate")]
+    /// Require biometric app gate on supported mobile runtimes before showing the app (opt-in).
+    #[serde(default)]
     pub require_biometric_app_gate: bool,
     /// Automatically mount virtual volume after vault unlock (opt-in, default off).
     #[serde(default)]
@@ -41,10 +41,10 @@ pub struct SessionSettings {
 impl Default for SessionSettings {
     fn default() -> Self {
         Self {
-            auto_lock_timeout_secs: 5 * 60, // 5 minutes
+            auto_lock_timeout_secs: 0,
             lock_on_sleep: true,
             lock_on_mobile_background: false,
-            require_biometric_app_gate: default_require_biometric_app_gate(),
+            require_biometric_app_gate: false,
             auto_mount_after_unlock: false,
             auto_start_ssh_agent_after_unlock: false,
             keep_screen_awake_when_unlocked: false,
@@ -56,10 +56,6 @@ impl Default for SessionSettings {
             markdown_attachment_folder_path: default_markdown_attachment_folder_path(),
         }
     }
-}
-
-const fn default_require_biometric_app_gate() -> bool {
-    true
 }
 
 const fn default_android_vault_status_notification_enabled() -> bool {

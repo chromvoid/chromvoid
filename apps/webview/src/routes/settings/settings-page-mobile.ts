@@ -64,7 +64,7 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
       this.importTaskPreparing = false
     }
 
-    if (rawRoute.kind === 'autofill' && !this.model.showsCredentialProviderSection()) {
+    if (!this.model.isRouteAvailable(rawRoute)) {
       navigationModel.navigateToSettingsRoute({kind: 'overview'}, 'replace')
       return
     }
@@ -226,11 +226,7 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
   }
 
   protected render(): TemplateResult {
-    const rawRoute = navigationModel.settingsRoute()
-    const route =
-      rawRoute.kind === 'autofill' && !this.model.showsCredentialProviderSection()
-        ? ({kind: 'overview'} as const)
-        : rawRoute
+    const route = this.model.resolveAvailableRoute(navigationModel.settingsRoute())
 
     return html`
       <main class="mobile-page page-transition">
@@ -295,12 +291,14 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
               <cv-icon name="chevron-right" aria-hidden="true"></cv-icon>
             </button>
           `,
-          this.renderOverviewRow(
-            'license',
-            'badge-check',
-            i18n('settings:license-title'),
-            this.model.licenseSummary(),
-          ),
+          this.model.supportsExternalPro()
+            ? this.renderOverviewRow(
+                'license',
+                'badge-check',
+                i18n('settings:license-title'),
+                this.model.licenseSummary(),
+              )
+            : nothing,
         ])}
       </section>
     `

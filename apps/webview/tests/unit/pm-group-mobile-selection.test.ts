@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {html} from 'lit'
+import {html, render} from 'lit'
 import {Group, ManagerRoot} from '@project/passmanager'
 import {PMGroupMobile} from '../../src/features/passmanager/components/group/group/group-mobile'
 import type {PMGroupListItemMobile} from '../../src/features/passmanager/components/group/group/group-list-item-mobile'
@@ -137,6 +137,41 @@ describe('PMGroupMobile selection mode', () => {
     expect(pmSelectionModeModel.isGroupSelected(child.id)).toBe(true)
   })
 
+  it('keeps the same virtualizer instance when mobile selection changes', async () => {
+    const parent = createGroup('selection-identity-parent', 'Selection Identity Parent')
+    const child = createGroup('selection-identity-child', 'Selection Identity Parent/Child')
+    const root = createPassmanagerRoot(parent, [parent, child])
+    window.passmanager = root as typeof window.passmanager
+    setPassmanagerRoot(root)
+
+    const element = document.createElement('pm-group-mobile') as PMGroupMobile
+    document.body.append(element)
+    await flushGroupMobile(element)
+
+    const virtualizerBefore = element.shadowRoot?.querySelector('lit-virtualizer')
+    expect(virtualizerBefore).not.toBeNull()
+
+    pmSelectionModeModel.enterWithGroup(child.id)
+    await flushGroupMobile(element)
+
+    const virtualizerAfter = element.shadowRoot?.querySelector('lit-virtualizer') as
+      | (HTMLElement & {
+          items?: PMGroupRow[]
+          renderItem?: (row: PMGroupRow) => unknown
+        })
+      | null
+    expect(virtualizerAfter).toBe(virtualizerBefore)
+
+    const renderedRow = document.createElement('div')
+    const row = virtualizerAfter?.items?.[0]
+    if (row && virtualizerAfter?.renderItem) render(virtualizerAfter.renderItem(row), renderedRow)
+    await Promise.resolve()
+    expect(
+      renderedRow.querySelector<PMGroupListItemMobile>('pm-group-list-item-mobile')
+        ?.selectedInSelectionMode,
+    ).toBe(true)
+  })
+
   it('toggles group selection on tap during selection mode without navigating into the group', async () => {
     const parent = createGroup('selection-parent-toggle', 'Selection Parent Toggle')
     const child = createGroup('selection-child-toggle', 'Selection Parent Toggle/Child')
@@ -217,6 +252,21 @@ describe('PMGroupMobile selection mode', () => {
     await flushGroupRow(element)
 
     expect(element.shadowRoot?.querySelector('.mobile-dnd-handle')).toBeNull()
+  })
+
+  it('prevents native text selection inside mobile group rows', async () => {
+    const group = createGroup('selection-group-native-selection', 'Native Selection Group')
+    const element = createGroupRowElement(group)
+    await flushGroupRow(element)
+
+    const selectStartEvent = new Event('selectstart', {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    })
+    element.shadowRoot?.querySelector('.group-description')?.dispatchEvent(selectStartEvent)
+
+    expect(selectStartEvent.defaultPrevented).toBe(true)
   })
 
   it('reveals delete on left swipe and emits group-delete from the action', async () => {

@@ -338,6 +338,7 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
       subtitle: 'Logins, cards & secrets',
       canGoBack: false,
       backDisabled: false,
+      hideTabBar: false,
       maxVisible: 3,
     })
 
@@ -354,6 +355,7 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
       title: 'Context Entry',
       canGoBack: true,
       backDisabled: false,
+      hideTabBar: false,
       maxVisible: 3,
       overflowFromIndex: 2,
     })
@@ -372,6 +374,7 @@ describe('PasswordManagerMobileLayout FAB actions', () => {
       title: 'Create entry',
       canGoBack: true,
       backDisabled: false,
+      hideTabBar: false,
       maxVisible: 3,
     })
   })

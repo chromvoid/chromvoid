@@ -1,5 +1,4 @@
-import {atom, wrap} from '@reatom/core'
-
+import {action, computed, withAsync, wrap} from '@reatom/core'
 import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {
@@ -10,13 +9,13 @@ import {
   selectedCredentialTagFilters,
 } from '@project/passmanager/select'
 import {getAppContext} from 'root/shared/services/app-context'
+import {toast} from 'root/shared/services/toast-manager'
 import type {PMDesktopToolbarActionSpec} from '../../desktop-toolbar'
 import {pmActiveRowModel} from '../../../models/pm-active-row.model'
 import {
   pmCredentialSecurityAuditModel,
   type PMCredentialAuditStatus,
   type PMCredentialRiskSeverity,
-  type PMCredentialGroupRiskSummary,
 } from '../../../models/pm-credential-security-audit.model'
 import {pmEntryMoveModel, type PMDragPayload} from '../../../models/pm-entry-move-model'
 import {
@@ -35,9 +34,19 @@ import {
 } from '../../../models/pm-root-search-projection'
 import {pmDeleteMotionModel} from '../../../models/pm-delete-motion.model'
 import {pmModel} from '../../../password-manager.model'
+import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
 import {openPassmanagerMoveDialog} from '../../../service/passmanager-move-dialog'
 import {PMEntryModel} from '../../card/entry/entry.model'
 import {groupBy, sortDirection, sortField} from '../../list/sort-controls'
+import {
+  formatGroupCount,
+  getDeletionNeighbourId,
+  getGroupDeletionParent,
+  getGroupParentPath,
+  getGroupRiskIndicator,
+  type PMGroupRiskIndicator,
+} from './group-view-helpers'
+import {pmGroupEditModel} from './group-edit.model'
 
 export type PMToolbarAction = 'edit-group' | 'move-group' | 'remove-group'
 export type PMGroupMetric = {
@@ -47,13 +56,8 @@ export type PMGroupMetric = {
   family: 'neutral' | 'risk' | 'attribute'
   severity?: 'warning' | 'critical'
 }
-
-export type PMGroupRiskIndicator = {
-  severity: 'warning' | 'critical'
-  label: string
-  count: number
-} | null
-
+type PMGroupEmptyStateKind = 'empty' | 'filtered'
+export type {PMGroupRiskIndicator} from './group-view-helpers'
 export type PMGroupRowPresentation = {
   displayName: string
   description: string
@@ -76,29 +80,29 @@ type PMGroupActionableRow = PMGroupEntryRow | PMGroupFolderRow
 export type {PMGroupEntryRow, PMGroupFolderRow, PMGroupRow} from '../../../models/pm-root-search-projection'
 export type PMPointerDropTarget = {id: string; el: HTMLElement}
 
-type PMSyncKeyboardResult = {
-  restoredIndex: number | null
-  activeIndex: number
-  contextChanged: boolean
-}
+type PMSyncKeyboardResult = {restoredIndex: number | null; activeIndex: number; contextChanged: boolean}
 
-const toolbarActions = new Set<PMToolbarAction>([
-  'edit-group',
-  'move-group',
-  'remove-group',
-])
-const groupEditMode = atom(false, 'passmanager.group.isEditMode')
-const groupEditedName = atom('', 'passmanager.group.editedName')
-const groupEditedDescription = atom('', 'passmanager.group.editedDescription')
-const groupEditedIconRef = atom<string | undefined>(undefined, 'passmanager.group.editedIconRef')
-const groupEditError = atom<string | null>(null, 'passmanager.group.editError')
+const toolbarActions = new Set<PMToolbarAction>(['edit-group', 'move-group', 'remove-group'])
+const pendingGroupDeleteIds = new Set<string>()
+const isActionableRow = (row: PMGroupRow): row is PMGroupActionableRow =>
+  row.kind === 'entry' || row.kind === 'group'
 
 export class PMGroupModel {
-  readonly isEditMode = groupEditMode
-  readonly editedName = groupEditedName
-  readonly editedDescription = groupEditedDescription
-  readonly editedIconRef = groupEditedIconRef
-  readonly editError = groupEditError
+  readonly isEditMode = pmGroupEditModel.active
+  readonly editedName = pmGroupEditModel.name
+  readonly editedDescription = pmGroupEditModel.description
+  readonly editedIconRef = pmGroupEditModel.iconRef
+  readonly editNameError = pmGroupEditModel.nameError
+  readonly editDescriptionError = pmGroupEditModel.descriptionError
+  readonly editSubmitError = pmGroupEditModel.submitError
+  readonly editPending = pmGroupEditModel.submit.pending
+  private readonly hasActiveContentFilters = computed(
+    () =>
+      filterValue().trim().length > 0 ||
+      quickFilters().length > 0 ||
+      selectedCredentialTagFilters().length > 0,
+    'passmanager.group.hasActiveContentFilters',
+  )
   private keyboardContextKey = ''
   private keyboardItems: PMGroupRow[] = []
   private currentContainerId: string | null = null
@@ -114,6 +118,40 @@ export class PMGroupModel {
     }
 
     return null
+  }
+
+  getEmptyStateKind(): PMGroupEmptyStateKind {
+    if (!this.hasUnfilteredContent()) return 'empty'
+    return this.hasActiveContentFilters() ? 'filtered' : 'empty'
+  }
+
+  clearContentFilters(): void {
+    filterValue.set('')
+    quickFilters.set([])
+    selectedCredentialTagFilters.set([])
+  }
+
+  private hasUnfilteredContent(): boolean {
+    const group = this.getCurrentGroup()
+    if (!group) return false
+
+    if (this.isManagerRoot(group)) {
+      return group.entriesList().length > 0
+    }
+
+    if (group.entriesList().length > 0) return true
+
+    const prefix = `${group.name}/`
+    return (
+      getPassmanagerRoot()
+        ?.entriesList()
+        .some(
+          (item) =>
+            item instanceof Group &&
+            item.name.startsWith(prefix) &&
+            !item.name.slice(prefix.length).includes('/'),
+        ) ?? false
+    )
   }
 
   isManagerRoot(item: unknown): item is ManagerRoot {
@@ -144,34 +182,16 @@ export class PMGroupModel {
     return separator >= 0 ? name.slice(separator + 1) : name
   }
 
-  syncEditDrafts(group: Group | null = null): Group | null {
-    const currentGroup = group ?? this.getCurrentGroup()
-    if (!(currentGroup instanceof Group)) {
-      this.editedName.set('')
-      this.editedDescription.set('')
-      this.editedIconRef.set(undefined)
-      this.editError.set(null)
-      return null
-    }
-
-    this.editedName.set(this.getGroupDisplayName(currentGroup))
-    this.editedDescription.set(currentGroup.description ?? '')
-    this.editedIconRef.set(currentGroup.iconRef)
-    this.editError.set(null)
-    return currentGroup
-  }
-
   setEditedName(name: string): void {
-    this.editedName.set(name)
-    this.editError.set(null)
+    pmGroupEditModel.setName(name)
   }
 
   setEditedDescription(description: string): void {
-    this.editedDescription.set(description)
+    pmGroupEditModel.setDescription(description)
   }
 
   setEditedIconRef(iconRef: string | undefined): void {
-    this.editedIconRef.set(iconRef)
+    pmGroupEditModel.setIconRef(iconRef)
   }
 
   getGroupRowPresentation(group: Group): PMGroupRowPresentation {
@@ -181,7 +201,7 @@ export class PMGroupModel {
       displayName: this.getGroupDisplayName(group),
       description: group.description ?? '',
       entryCount: group.entries().length,
-      riskIndicator: this.getRiskIndicator(summary),
+      riskIndicator: getGroupRiskIndicator(summary),
     }
   }
 
@@ -203,7 +223,7 @@ export class PMGroupModel {
     const metricEntries = this.getMetricEntries(group, rows, isRoot, visibleEntries)
     const entryCount = metricEntries.length
     const securitySummary = pmCredentialSecurityAuditModel.summarizeEntries(metricEntries)
-    const parentPath = group instanceof Group ? this.getParentPath(group) : null
+    const parentPath = group instanceof Group ? getGroupParentPath(group) : null
     const scopeLabel = isRoot
       ? i18n('group:scope-root')
       : parentPath
@@ -218,7 +238,7 @@ export class PMGroupModel {
     return {
       scopeLabel,
       supportText,
-      visibleLabel: `${this.formatCount(folderCount, 'group')} · ${this.formatCount(entryCount, 'entry')}`,
+      visibleLabel: `${formatGroupCount(folderCount, 'group')} · ${formatGroupCount(entryCount, 'entry')}`,
       folderCount,
       entryCount,
       metrics: [
@@ -300,12 +320,54 @@ export class PMGroupModel {
     return unique
   }
 
-  getListContextKey(group: Group | ManagerRoot, itemCount: number): string {
+  getGroupingAnchorEntryId(
+    rows: readonly PMGroupRow[],
+    visibleRange: {first: number; last: number} | null,
+    activeItemId: string | null | undefined,
+  ): string | null {
+    if (rows.length === 0) return null
+
+    const first = Math.max(0, Math.min(rows.length - 1, visibleRange?.first ?? 0))
+    const last = Math.max(first, Math.min(rows.length - 1, visibleRange?.last ?? first))
+    if (activeItemId) {
+      for (let index = first; index <= last; index += 1) {
+        const row = rows[index]
+        if (row?.kind === 'entry' && row.id === activeItemId) return row.id
+      }
+    }
+
+    for (let index = first; index <= last; index += 1) {
+      const row = rows[index]
+      if (row?.kind === 'entry') return row.id
+    }
+    for (let index = last + 1; index < rows.length; index += 1) {
+      const row = rows[index]
+      if (row?.kind === 'entry') return row.id
+    }
+    for (let index = first - 1; index >= 0; index -= 1) {
+      const row = rows[index]
+      if (row?.kind === 'entry') return row.id
+    }
+
+    return null
+  }
+
+  resolveGroupingAnchorIndex(rows: readonly PMGroupRow[], entryId: string | null): number | null {
+    if (entryId) {
+      const exactIndex = rows.findIndex((row) => row.kind === 'entry' && row.id === entryId)
+      if (exactIndex >= 0) return exactIndex
+    }
+
+    const fallbackIndex = rows.findIndex((row) => row.kind === 'entry')
+    return fallbackIndex >= 0 ? fallbackIndex : null
+  }
+
+  getListContextKey(group: Group | ManagerRoot, _itemCount: number): string {
     const groupKey = this.isManagerRoot(group) ? 'root' : group.id
     const query = filterValue()
     const filters = quickFilters().join(',')
     const tagFilters = selectedCredentialTagFilters().join(',')
-    return `${groupKey}|${query}|${filters}|${tagFilters}|${sortField()}|${sortDirection()}|${groupBy()}|${itemCount}`
+    return `${groupKey}|${query}|${filters}|${tagFilters}|${sortField()}|${sortDirection()}|${groupBy()}`
   }
 
   resetKeyboardState(): void {
@@ -418,42 +480,6 @@ export class PMGroupModel {
     return null
   }
 
-  private getParentPath(group: Group): string | null {
-    const separator = group.name.lastIndexOf('/')
-    if (separator <= 0) return null
-    return group.name.slice(0, separator)
-  }
-
-  private formatCount(value: number, noun: string): string {
-    if (noun === 'entry') {
-      return `${value} ${value === 1 ? 'entry' : 'entries'}`
-    }
-
-    return `${value} ${noun}${value === 1 ? '' : 's'}`
-  }
-
-  private getRiskIndicator(summary: PMCredentialGroupRiskSummary): PMGroupRiskIndicator {
-    const weakPasswordCount = summary.weakPasswordCount ?? 0
-    if (weakPasswordCount > 0) {
-      return {
-        severity: 'critical',
-        count: weakPasswordCount,
-        label: i18n('group:risk:weak_passwords', {count: String(weakPasswordCount)}),
-      }
-    }
-
-    const reusedPasswordCount = summary.reusedPasswordCount ?? 0
-    if (reusedPasswordCount > 0) {
-      return {
-        severity: 'warning',
-        count: reusedPasswordCount,
-        label: i18n('group:risk:reused_passwords', {count: String(reusedPasswordCount)}),
-      }
-    }
-
-    return null
-  }
-
   getActiveItemId(): string | undefined {
     const containerId = this.currentContainerId ?? this.getCurrentGroup()?.id ?? null
     if (!containerId) {
@@ -517,74 +543,137 @@ export class PMGroupModel {
     const group = this.getCurrentGroup()
     if (!(group instanceof Group)) return
 
-    this.syncEditDrafts(group)
-    this.isEditMode.set(true)
+    pmGroupEditModel.enter(group)
   }
 
   exitEditMode(): void {
-    this.isEditMode.set(false)
-    this.editError.set(null)
+    pmGroupEditModel.discard()
   }
 
-  async saveEdit(): Promise<boolean> {
-    const group = this.getCurrentGroup()
-    if (!(group instanceof Group)) {
-      return false
-    }
+  requestEditClose(): Promise<boolean> {
+    return pmGroupEditModel.requestClose()
+  }
 
-    const nextLeafName = this.editedName().trim()
-    if (!nextLeafName) {
-      this.editError.set(i18n('group:error:name_text'))
-      return false
-    }
-
-    const parentPath = this.getParentPath(group)
-    const nextPath = parentPath ? `${parentPath}/${nextLeafName}` : nextLeafName
-    if (nextPath !== group.name && !group.rename(nextPath)) {
-      this.editError.set(i18n('group:error:name_text'))
-      return false
-    }
-
-    group.updateData({
-      description: this.editedDescription(),
-      iconRef: this.editedIconRef(),
-    })
-    group.root.updatedTs.set(Date.now())
-    await wrap(group.root.save())
-    this.exitEditMode()
-    return true
+  saveEdit(): Promise<boolean> {
+    return pmGroupEditModel.submit()
   }
 
   deleteGroup(group: Group): void {
     if (this.isReadOnly()) return
 
-    pmDeleteMotionModel.markPending([group])
-    void this.removeGroupWithDeleteMotion(group).catch(() => {})
+    void this.removeGroupAction(group, false)
   }
 
   deleteEntry(entry: Entry): void {
     if (this.isReadOnly()) return
 
-    this.entryActionsModel.deleteEntryCard(entry)
+    const presentationParent = this.getCurrentGroup()
+    this.entryActionsModel.deleteEntryCard(
+      entry,
+      presentationParent ?? undefined,
+      getDeletionNeighbourId(this.keyboardItems.filter(isActionableRow), entry.id),
+    )
   }
 
-  private async removeGroupWithDeleteMotion(group: Group): Promise<void> {
+  private readonly removeGroupAction = action(async (group: Group, skipConfirmation: boolean) => {
+    if (pendingGroupDeleteIds.has(group.id)) return false
+    pendingGroupDeleteIds.add(group.id)
+    let deleteConfirmed = false
+    let deletingGroups: Group[] = [group]
+    const root = group.root
+    const deletionParent = getGroupDeletionParent(group)
+    const wasCurrentGroup = root.showElement() === group
+    const currentContainer = this.getCurrentGroup()
+    const presentationParent = wasCurrentGroup
+      ? deletionParent
+      : (currentContainer ?? deletionParent)
+    const neighbourId = wasCurrentGroup
+      ? getDeletionNeighbourId(
+          this.getUniqueRows(this.getVisibleRows(deletionParent)).filter(isActionableRow),
+          group.id,
+        )
+      : getDeletionNeighbourId(this.keyboardItems.filter(isActionableRow), group.id)
     try {
-      await wrap(group.remove())
+      if (!skipConfirmation) {
+        const confirmed = await wrap(group.confirmRemoval())
+        if (!confirmed) return false
+      }
+
+      deleteConfirmed = true
+      deletingGroups = root
+        .entriesList()
+        .filter(
+          (item): item is Group =>
+            item instanceof Group &&
+            (item.name === group.name || item.name.startsWith(`${group.name}/`)),
+        )
+      pmDeleteMotionModel.markPending(deletingGroups)
+      const toastKey = `passmanager.group.delete:${group.id}`
+      const deletingToast = toast.loading(
+        i18n('notify:remove:group:pending', {name: group.name}),
+        undefined,
+        {key: toastKey},
+      )
+
+      try {
+        await wrap(
+          group.remove({
+            silent: true,
+            presentation: wasCurrentGroup ? 'defer' : 'auto',
+          }),
+        )
+        if (
+          (wasCurrentGroup && root.showElement() === group) ||
+          (!wasCurrentGroup && root.showElement() === presentationParent)
+        ) {
+          passmanagerNavigationController.presentAfterDelete({
+            deletedId: group.id,
+            parent: presentationParent,
+            neighbourId,
+          })
+        }
+        deletingToast.update({
+          key: toastKey,
+          message: i18n('notify:remove:group:success', {name: group.name}),
+          variant: 'success',
+        })
+        return true
+      } catch {
+        deletingToast.update({
+          key: toastKey,
+          message: i18n('notify:remove:group:error', {name: group.name}),
+          variant: 'error',
+          persistent: true,
+          closable: true,
+          actions: [
+            {
+              label: i18n('button:retry'),
+              dismissOnClick: false,
+              onClick: () => {
+                void this.removeGroupAction(group, true)
+              },
+            },
+          ],
+        })
+        return false
+      }
     } finally {
+      pendingGroupDeleteIds.delete(group.id)
       const root = getPassmanagerRoot()
-      if (root?.getCardByID?.(group.id) === group) {
-        pmDeleteMotionModel.clearPending([group.id])
+      if (deleteConfirmed && root?.getCardByID?.(group.id) === group) {
+        pmDeleteMotionModel.clearPending(deletingGroups.map((item) => item.id))
       }
     }
-  }
+  }, 'passmanager.group.remove').extend(withAsync())
 
   async moveGroup(group: Group): Promise<void> {
     if (isPassmanagerReadOnly()) return
 
     const firstAllowedTarget = pmEntryMoveModel
       .listTargets()
-      .find((target) => pmEntryMoveModel.canDropToTarget(target.id, {domain: 'passmanager', kind: 'group', id: group.id}))
+      .find((target) =>
+        pmEntryMoveModel.canDropToTarget(target.id, {domain: 'passmanager', kind: 'group', id: group.id}),
+      )
 
     await openPassmanagerMoveDialog({
       onConfirm: (targetId) => pmEntryMoveModel.moveGroupById(group.id, targetId),

@@ -374,6 +374,13 @@ const entryDesktopMainStyles = css`
     max-inline-size: 250px;
   }
 
+  .website-primary-marker {
+    flex: none;
+    color: var(--cv-color-primary);
+    font-size: var(--cv-font-size-xs);
+    font-weight: var(--cv-font-weight-semibold);
+  }
+
   .otp-codes {
     display: grid;
     gap: 10px;

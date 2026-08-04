@@ -24,6 +24,7 @@ pub(in crate::mobile_usb::tests) fn spawn_xx_pair_responder(
     host: tokio::io::DuplexStream,
     host_private_key: Vec<u8>,
     host_public_key: Vec<u8>,
+    supports_cancel: bool,
 ) {
     tokio::spawn(async move {
         let (mut transport, mut noise) = accept_xx_transport(host, host_private_key).await;
@@ -42,6 +43,10 @@ pub(in crate::mobile_usb::tests) fn spawn_xx_pair_responder(
                 peer_label: "Android Host".to_string(),
                 peer_pubkey_hex: super::mobile_usb_hex_encode(&host_public_key),
                 platform: "android".to_string(),
+                capabilities: supports_cancel
+                    .then(|| crate::mobile_usb::pairing_protocol::USB_PAIRING_CANCEL_V1.to_string())
+                    .into_iter()
+                    .collect(),
             },
         )
         .await
@@ -64,35 +69,61 @@ pub(in crate::mobile_usb::tests) fn spawn_xx_pair_responder(
         )
         .await
         .expect("approval challenge");
-        let Ok(proof) = crate::mobile_usb::pairing_protocol::recv_pairing_approval_proof(
-            &mut transport,
-            &mut noise,
-        )
-        .await
-        else {
-            return;
-        };
-        let proof_ok = crate::mobile_usb::pairing_protocol::verify_pairing_approval_proof(
-            TEST_PAIRING_PIN,
-            &attempt_id,
-            &salt_hex,
-            &super::mobile_usb_hex_encode(noise.remote_pubkey()),
-            &super::mobile_usb_hex_encode(&host_public_key),
-            &proof.proof_hex,
-        )
-        .expect("verify proof");
-        crate::mobile_usb::pairing_protocol::send_pairing_approval_ack(
-            &mut transport,
-            &mut noise,
-            &crate::mobile_usb::pairing_protocol::MobileUsbPairingApprovalAck {
-                attempt_id,
-                accepted: proof_ok,
-                error: (!proof_ok).then(|| "bad proof".to_string()),
-                attempts_left: if proof_ok { 5 } else { 4 },
-            },
-        )
-        .await
-        .expect("approval ack");
+        let mut attempts_left = 5_u8;
+        while attempts_left > 0 {
+            let Ok(proof) = crate::mobile_usb::pairing_protocol::recv_pairing_approval_proof(
+                &mut transport,
+                &mut noise,
+            )
+            .await
+            else {
+                return;
+            };
+            if proof.action
+                == crate::mobile_usb::pairing_protocol::MobileUsbPairingApprovalAction::Cancel
+            {
+                crate::mobile_usb::pairing_protocol::send_pairing_approval_ack(
+                    &mut transport,
+                    &mut noise,
+                    &crate::mobile_usb::pairing_protocol::MobileUsbPairingApprovalAck {
+                        attempt_id: attempt_id.clone(),
+                        accepted: false,
+                        error: Some("pairing_cancelled".to_string()),
+                        attempts_left,
+                    },
+                )
+                .await
+                .expect("pairing cancel ack");
+                return;
+            }
+            let proof_ok = crate::mobile_usb::pairing_protocol::verify_pairing_approval_proof(
+                TEST_PAIRING_PIN,
+                &attempt_id,
+                &salt_hex,
+                &super::mobile_usb_hex_encode(noise.remote_pubkey()),
+                &super::mobile_usb_hex_encode(&host_public_key),
+                &proof.proof_hex,
+            )
+            .expect("verify proof");
+            if !proof_ok {
+                attempts_left = attempts_left.saturating_sub(1);
+            }
+            crate::mobile_usb::pairing_protocol::send_pairing_approval_ack(
+                &mut transport,
+                &mut noise,
+                &crate::mobile_usb::pairing_protocol::MobileUsbPairingApprovalAck {
+                    attempt_id: attempt_id.clone(),
+                    accepted: proof_ok,
+                    error: (!proof_ok).then(|| "bad proof".to_string()),
+                    attempts_left,
+                },
+            )
+            .await
+            .expect("approval ack");
+            if proof_ok {
+                return;
+            }
+        }
     });
 }
 

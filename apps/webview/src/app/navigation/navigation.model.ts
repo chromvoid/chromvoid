@@ -1,6 +1,7 @@
 import {atom, computed} from '@reatom/core'
 import type {ManagerRoot} from '@project/passmanager/core'
 
+import {isSshKeysEnabled} from 'root/core/config/app-feature-flags'
 import {defaultLogger} from 'root/core/logger'
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
@@ -112,6 +113,21 @@ function getNotesOriginMarkdownDocumentRoute(
     path: snapshot.files?.path || DEFAULT_FILES_PATH,
     document,
   }
+}
+
+function applyAppFeatureFlags(snapshot: NavigationSnapshot): NavigationSnapshot {
+  if (
+    !isSshKeysEnabled() &&
+    snapshot.surface === 'passwords' &&
+    snapshot.passwords?.kind === 'ssh-view'
+  ) {
+    return {
+      ...snapshot,
+      passwords: {kind: 'root'},
+    }
+  }
+
+  return snapshot
 }
 
 class NavigationModel {
@@ -762,7 +778,7 @@ class NavigationModel {
     resumeEffect?: () => void,
     context: NavigationApplyContext = {},
   ): NavigationApplyResult {
-    const next = normalizeSnapshot(snapshot)
+    const next = normalizeSnapshot(applyAppFeatureFlags(snapshot))
     const current = this.snapshot()
     const intent: NavigationBlockerIntent = {
       kind: intentKind,

@@ -77,6 +77,8 @@ export const fileItemBaseStyles = [
       box-sizing: border-box;
       cursor: pointer;
       position: relative;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
       user-select: none;
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;

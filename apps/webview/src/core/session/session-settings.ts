@@ -24,10 +24,10 @@ export type SessionSettings = {
 }
 
 export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
-  auto_lock_timeout_secs: 300,
+  auto_lock_timeout_secs: 0,
   lock_on_sleep: true,
   lock_on_mobile_background: false,
-  require_biometric_app_gate: true,
+  require_biometric_app_gate: false,
   auto_mount_after_unlock: false,
   auto_start_ssh_agent_after_unlock: false,
   keep_screen_awake_when_unlocked: false,

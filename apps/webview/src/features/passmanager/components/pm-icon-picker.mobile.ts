@@ -14,7 +14,6 @@ const pmIconPickerMobileStyles = css`
   .icon-preview {
     width: 24px;
     height: 24px;
-    --pm-avatar-image-padding: 3px;
     --pm-avatar-icon-size: 20px;
   }
 

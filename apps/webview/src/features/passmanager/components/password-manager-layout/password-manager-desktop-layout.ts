@@ -1,6 +1,9 @@
 import {css, type PropertyValues} from 'lit'
 import {keyed} from 'lit/directives/keyed.js'
 import {html} from '@chromvoid/uikit/reatom-lit'
+import {CVButton} from '@chromvoid/uikit/components/cv-button'
+import {CVIcon} from '@chromvoid/uikit/components/cv-icon'
+import {CVWindowSplitter} from '@chromvoid/uikit/components/cv-window-splitter'
 
 import {Entry} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
@@ -13,7 +16,12 @@ import {PMMobileTagFilterSheet} from '../list/mobile-tag-filter-sheet'
 import {PMOtpQuickView} from '../otp-quick-view'
 import {PMSshKeysView} from '../ssh-keys-view'
 import {PMLayoutBase, type SearchElement} from './password-manager-layout-base'
-import {passwordManagerDesktopLayoutModel} from './password-manager-layout.model'
+import {
+  PM_SIDEBAR_MAX_WIDTH,
+  PM_SIDEBAR_MIN_WIDTH,
+  PM_SIDEBAR_WIDTH_STEP,
+  passwordManagerDesktopLayoutModel,
+} from './password-manager-layout.model'
 import {passwordManagerLayoutStyles} from './password-manager-layout.styles'
 
 type PMKeyboardNavigableGroup = HTMLElement & {
@@ -34,6 +42,9 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     PMOtpQuickView.define()
     PMSshKeysView.define()
     PMMobileTagFilterSheet.define()
+    CVButton.define()
+    CVIcon.define()
+    CVWindowSplitter.define()
   }
 
   static styles = [
@@ -45,7 +56,6 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
       :host {
         padding: var(--app-surface-gutter-desktop);
         background: transparent;
-        --_pm-layout-sidebar-inline-size: clamp(248px, 28cqw, 312px);
         --pm-credentials-content-inset-start: 8px;
         --pm-credentials-content-inset-end: 10px;
       }
@@ -58,26 +68,83 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
         min-block-size: 0;
       }
 
-      .wrapper {
-        display: grid;
-        grid-template-columns: var(--_pm-layout-sidebar-inline-size) 14px minmax(0, 1fr);
+      .workspace-splitter {
+        display: block;
         block-size: 100%;
         min-block-size: 0;
         min-inline-size: 0;
-        position: relative;
-        align-items: stretch;
+        --cv-window-splitter-divider-size: 12px;
+      }
+
+      .workspace-splitter::part(base) {
+        block-size: 100%;
+        min-block-size: 0;
+      }
+
+      .workspace-splitter::part(pane) {
+        overflow: hidden;
+      }
+
+      .workspace-splitter::part(separator) {
+        border: 0;
+        background: transparent;
+        color: var(--cv-color-border-strong);
+      }
+
+      .workspace-splitter::part(separator):hover,
+      .workspace-splitter::part(separator):active {
+        color: var(--cv-color-primary);
+        background: var(--cv-color-primary-surface);
+      }
+
+      .splitter-handle {
+        display: block;
+        inline-size: 2px;
+        block-size: 40px;
+        border-radius: var(--cv-radius-pill);
+        background: currentColor;
+        opacity: 0.72;
       }
 
       .sidebar {
-        padding: 6px 6px 8px 2px;
+        block-size: 100%;
+        padding: 4px 6px 8px 2px;
         display: grid;
-        grid-template-rows: 1fr;
-        gap: 10px;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: var(--cv-space-2);
         overflow: hidden;
         min-block-size: 0;
         min-inline-size: 0;
         contain: layout style;
         position: relative;
+      }
+
+      .sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--cv-space-2);
+        min-block-size: 36px;
+        padding-inline: var(--pm-credentials-content-inset-start) var(--pm-credentials-content-inset-end);
+      }
+
+      .sidebar-title {
+        min-inline-size: 0;
+        overflow: hidden;
+        color: var(--cv-color-text-secondary);
+        font-family: var(--cv-font-family-code);
+        font-size: var(--cv-font-size-xs);
+        font-weight: var(--cv-font-weight-bold);
+        letter-spacing: 0.12em;
+        text-overflow: ellipsis;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .sidebar-create-group {
+        flex: 0 0 auto;
+        --cv-button-min-height: 32px;
+        --cv-button-padding-inline: var(--cv-space-2);
       }
 
       .sidebar-tree-scroll-frame {
@@ -92,57 +159,6 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
       .sidebar-tree-scroll-frame > group-tree-view.scrollable {
         display: block;
         block-size: 100%;
-      }
-
-      .resizer {
-        inline-size: 14px;
-        background: transparent;
-        cursor: col-resize;
-        position: relative;
-        user-select: none;
-        touch-action: none;
-        contain: layout style;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        &::before {
-          content: '';
-          position: absolute;
-          inset-block-start: 50%;
-          inset-inline-start: 50%;
-          transform: translate(-50%, -50%);
-          inline-size: 4px;
-          block-size: 72px;
-          background: var(--cv-color-border-strong);
-          opacity: 0.45;
-          border-radius: 2px;
-          transition:
-            opacity var(--cv-duration-fast) var(--cv-easing-standard),
-            background-color var(--cv-duration-fast) var(--cv-easing-standard),
-            block-size var(--cv-duration-fast) var(--cv-easing-standard);
-        }
-
-        &:hover::before {
-          opacity: 0.8;
-          block-size: 108px;
-          background: var(--cv-color-primary);
-        }
-      }
-
-      .resizer.dragging::before {
-        opacity: 1;
-        block-size: 136px;
-        background: var(--cv-color-primary);
-        box-shadow: 0 0 12px var(--cv-color-primary-ring);
-      }
-
-      .resizer:hover {
-        background: var(--cv-gradient-divider-subtle);
-      }
-
-      .resizer.dragging {
-        background: var(--cv-gradient-surface-primary);
       }
 
       .content {
@@ -171,15 +187,55 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
         min-block-size: 0;
       }
 
+      .pm-content[data-pm-motion-live='true'] > * {
+        animation-name: pm-desktop-surface-enter;
+      }
+
+      .pm-content::view-transition-old(root),
+      .pm-content::view-transition-new(root) {
+        animation-duration: var(--cv-duration-normal);
+      }
+
+      .pm-content::view-transition-old(root) {
+        animation-name: pm-desktop-surface-exit;
+        animation-timing-function: var(--cv-easing-accelerate);
+      }
+
+      .pm-content::view-transition-new(root) {
+        animation-name: pm-desktop-surface-enter;
+        animation-timing-function: var(--cv-easing-decelerate);
+      }
+
+      @keyframes pm-desktop-surface-enter {
+        from {
+          opacity: 0;
+          transform: translateY(var(--cv-space-2)) scale(0.99);
+        }
+      }
+
+      @keyframes pm-desktop-surface-exit {
+        to {
+          opacity: 0;
+          transform: translateY(calc(-1 * var(--cv-space-1))) scale(0.995);
+        }
+      }
+
+      .session-unavailable {
+        align-content: start;
+        block-size: 100%;
+        max-inline-size: none;
+        margin: 0;
+        padding: clamp(var(--cv-space-8), 12vb, 112px) var(--app-surface-gutter-desktop) 0;
+      }
+
+      .session-unavailable::part(base) {
+        inline-size: min(520px, 100%);
+        justify-self: center;
+        --cv-empty-state-border: 1px solid transparent;
+        --cv-empty-state-background: transparent;
+      }
+
       @container (width < 1180px) {
-        :host {
-          --_pm-layout-sidebar-inline-size: clamp(232px, 30cqw, 288px);
-        }
-
-        .wrapper {
-          grid-template-columns: var(--_pm-layout-sidebar-inline-size) 12px minmax(0, 1fr);
-        }
-
         .sidebar {
           padding-inline-end: 4px;
         }
@@ -331,71 +387,38 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
   override connectedCallback(): void {
     super.connectedCallback()
     this.model.initializeSidebarWidth()
-    this.applySidebarWidth()
     this.unregisterBackHandler = navigationModel.registerSurfaceBackHandler('passwords', () =>
-      this.model.handleTransientEntryBack())
+      this.model.handleTransientEntryBack(),
+    )
   }
 
   override disconnectedCallback(): void {
     this.unregisterBackHandler?.()
     this.unregisterBackHandler = undefined
-    this.stopResizerTracking()
     this.treeScrollEdge.dispose()
     super.disconnectedCallback()
   }
 
   override updated(changedProperties: PropertyValues<this>): void {
     super.updated(changedProperties)
-    this.applySidebarWidth()
     const treeScroller = this.shadowRoot?.querySelector('group-tree-view.scrollable') as HTMLElement | null
     this.treeScrollEdge.bindScroller(treeScroller)
-  }
-
-  override handleEvent(event: Event): void {
-    switch (event.type) {
-      case 'pointermove':
-        this.onPointerMove(event as PointerEvent)
-        return
-      case 'pointerup':
-        this.onPointerUp()
-        return
-      default:
-        super.handleEvent(event)
-        return
-    }
   }
 
   private getKeyboardNavigableGroup(): PMKeyboardNavigableGroup | null {
     return this.shadowRoot?.querySelector('pm-group') as PMKeyboardNavigableGroup | null
   }
 
-  private applySidebarWidth() {
-    this.style.setProperty('--_pm-layout-sidebar-inline-size', this.model.sidebarWidthCss())
+  private handleSidebarResizeInput(event: CustomEvent<{position: number}>) {
+    this.model.previewSidebarWidth(event.detail.position)
   }
 
-  private stopResizerTracking() {
-    document.removeEventListener('pointermove', this)
-    document.removeEventListener('pointerup', this)
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
+  private handleSidebarResizeChange(event: CustomEvent<{position: number}>) {
+    this.model.commitSidebarWidth(event.detail.position)
   }
 
-  private onResizerPointerDown(event: PointerEvent) {
-    event.preventDefault()
-    this.model.beginSidebarResize(event.clientX)
-    document.addEventListener('pointermove', this)
-    document.addEventListener('pointerup', this)
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-  }
-
-  private onPointerMove(event: PointerEvent) {
-    this.model.updateSidebarResize(event.clientX)
-  }
-
-  private onPointerUp() {
-    this.model.endSidebarResize()
-    this.stopResizerTracking()
+  private handleCreateGroup() {
+    this.model.createTopLevelGroup()
   }
 
   override render() {
@@ -408,25 +431,50 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     }
 
     const sidebarWidth = this.model.sidebarWidth()
-    const isDragging = this.model.isSidebarDragging()
+    const canCreateGroup = this.model.canCreateGroup()
     const treeHasScrollBlockEnd = this.treeScrollEdge.hasBlockEndOverflow()
 
     return html`
       <div class="page">
-        <div class="wrapper" data-sidebar-width=${String(sidebarWidth)}>
-          <div class="sidebar">
+        <cv-window-splitter
+          class="workspace-splitter"
+          orientation="vertical"
+          position-unit="px"
+          .position=${sidebarWidth}
+          .min=${PM_SIDEBAR_MIN_WIDTH}
+          .max=${PM_SIDEBAR_MAX_WIDTH}
+          .step=${PM_SIDEBAR_WIDTH_STEP}
+          aria-label=${i18n('credentials:sidebar:resize' as never)}
+          data-sidebar-width=${String(sidebarWidth)}
+          @cv-input=${this.handleSidebarResizeInput}
+          @cv-change=${this.handleSidebarResizeChange}
+        >
+          <aside slot="primary" class="sidebar">
+            <div class="sidebar-header">
+              <span class="sidebar-title">${i18n('group:groups')}</span>
+              <cv-button
+                class="sidebar-create-group"
+                type="button"
+                size="small"
+                variant="default"
+                title=${i18n('group:create:title')}
+                aria-label=${i18n('group:create:title')}
+                ?disabled=${!canCreateGroup}
+                @click=${this.handleCreateGroup}
+              >
+                <cv-icon name="folder-plus" aria-hidden="true"></cv-icon>
+              </cv-button>
+            </div>
             <div
               class="scroll-edge-frame sidebar-tree-scroll-frame"
               data-scroll-block-end=${String(treeHasScrollBlockEnd)}
             >
               <group-tree-view class="scrollable"></group-tree-view>
             </div>
-          </div>
-          <div class="resizer ${isDragging ? 'dragging' : ''}" @pointerdown=${this.onResizerPointerDown}></div>
-          <div class="content scrollable">
-            ${this.renderMotionContent()}
-          </div>
-        </div>
+          </aside>
+          <span slot="separator" class="splitter-handle" aria-hidden="true"></span>
+          <div slot="secondary" class="content scrollable">${this.renderMotionContent()}</div>
+        </cv-window-splitter>
         <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
       </div>
     `

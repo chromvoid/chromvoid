@@ -11,6 +11,31 @@ const logger = {
 }
 
 describe('tauri catalog command dispatcher passmanager secret payloads', () => {
+  it('passes the atomic entry-create payload to core unchanged', async () => {
+    const rpcDispatch = vi.fn(async () => ({entry_id: 'entry-42'}))
+    const data = {
+      entry_id: 'entry-42',
+      entry_type: 'login',
+      title: 'Example',
+      secrets: {
+        password: 'secret',
+        note: 'private',
+      },
+    }
+
+    const out = await dispatchTauriCatalogCommand({
+      command: 'passmanager:entry:create',
+      data,
+      logger,
+      rpc: vi.fn(async () => ({}) as never),
+      rpcDispatch,
+      rpcDispatchRaw: vi.fn(async () => ({ok: true, result: null})),
+    })
+
+    expect(out).toEqual({ok: true, result: {entry_id: 'entry-42'}})
+    expect(rpcDispatch).toHaveBeenCalledWith('passmanager:entry:create', data)
+  })
+
   it('accepts passmanager:secret:save with explicit empty string value', async () => {
     const rpcDispatch = vi.fn(async () => ({ok: true, result: null}))
 

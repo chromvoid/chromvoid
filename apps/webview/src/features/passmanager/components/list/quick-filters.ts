@@ -9,6 +9,17 @@ import {i18n} from '@project/passmanager/i18n'
 import {type PMToolbarQuickFilter, pmQuickFiltersModel} from './quick-filters.model'
 
 export class PMQuickFilters extends ReatomLitElement {
+  static properties = {
+    singleRow: {type: Boolean, attribute: 'single-row', reflect: true},
+  }
+
+  declare singleRow: boolean
+
+  constructor() {
+    super()
+    this.singleRow = false
+  }
+
   static define() {
     CVButton.define()
     CVCombobox.define()
@@ -37,6 +48,7 @@ export class PMQuickFilters extends ReatomLitElement {
       max-inline-size: 100%;
       padding: 0;
       overflow-x: auto;
+      overflow-y: hidden;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
     }
@@ -193,7 +205,7 @@ export class PMQuickFilters extends ReatomLitElement {
       }
 
       .quick-filters:has(.tag-filter-combobox) {
-        overflow-x: visible;
+        overflow: visible;
         flex-wrap: wrap;
       }
 
@@ -215,6 +227,31 @@ export class PMQuickFilters extends ReatomLitElement {
       .quick-filter-button span {
         display: none;
       }
+    }
+
+    :host([single-row]) .quick-filters,
+    :host([single-row]) .quick-filters:has(.tag-filter-combobox) {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+
+    :host([single-row]) .quick-filters:has(.tag-filter-combobox) .tag-filter-row {
+      flex: 0 0 auto;
+      inline-size: auto;
+      min-inline-size: 0;
+      max-inline-size: none;
+    }
+
+    :host([single-row]) .quick-filters:has(.tag-filter-combobox) .tag-filter-combobox {
+      flex: 0 0 190px;
+      inline-size: 190px;
+      min-inline-size: 190px;
+      max-inline-size: 260px;
+    }
+
+    :host([single-row]) .quick-filter-button span {
+      display: inline;
     }
   `
 
@@ -258,6 +295,8 @@ export class PMQuickFilters extends ReatomLitElement {
         variant=${selected ? 'brand' : 'neutral'}
         appearance=${selected ? 'filled' : 'outlined'}
         aria-pressed=${String(selected)}
+        aria-label=${label}
+        title=${label}
         @click=${onClick}
       >
         <cv-icon name=${icon} slot="prefix"></cv-icon>

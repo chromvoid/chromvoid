@@ -52,10 +52,16 @@ async function settleFocus(element: PMEntry) {
   await Promise.resolve()
 }
 
-const getCvInput = (component: PMEntry, name: string) =>
-  component.shadowRoot?.querySelector(`cv-input[name="${name}"]`) as
-    | (HTMLElement & {shadowRoot?: ShadowRoot})
-    | null
+const getCvInput = (component: PMEntry, name: string) => {
+  const direct = component.shadowRoot?.querySelector(`cv-input[name="${name}"]`)
+  if (direct || name !== 'inline-website') {
+    return direct as (HTMLElement & {shadowRoot?: ShadowRoot}) | null
+  }
+
+  return (component.shadowRoot
+    ?.querySelector('pm-entry-website-editor')
+    ?.shadowRoot?.querySelector('cv-input') ?? null) as (HTMLElement & {shadowRoot?: ShadowRoot}) | null
+}
 
 const getNativeInput = (component: PMEntry, name: string) =>
   getCvInput(component, name)?.shadowRoot?.querySelector('input') as HTMLInputElement | null
@@ -111,6 +117,7 @@ function createEntry(
     otps?: unknown[]
     sshKeys?: unknown[]
     tags?: string[]
+    urls?: Array<{match: string; value: string}>
   } = {},
 ) {
   const parent = options.parent ?? entryFixtureRoot
@@ -118,7 +125,7 @@ function createEntry(
   const entry = new Entry(parent, {
     id: 'entry-render-test',
     title: 'Entry',
-    urls: [{match: 'domain', value: 'https://example.com'}],
+    urls: options.urls ?? [{match: 'base_domain', value: 'https://example.com'}],
     username: 'alice',
     createdTs: Date.now(),
     updatedTs: Date.now(),
@@ -938,7 +945,7 @@ describe('PMEntry', () => {
     expect(header?.shadowRoot?.querySelector('cv-input.title-input')).not.toBeNull()
     expect(getCvInput(component, 'inline-username')).not.toBeNull()
     expect(getCvInput(component, 'inline-password')).not.toBeNull()
-    expect(getCvInput(component, 'inline-website')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('pm-entry-website-editor')).not.toBeNull()
     expect(getCvTextarea(component, 'inline-note')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.entry-edit-cancel-action')).not.toBeNull()
@@ -1008,6 +1015,46 @@ describe('PMEntry', () => {
       'Updated note',
     )
     expect(getCvInput(component, 'inline-username')).toBeNull()
+    expect(pmEntryEditorModel.isActiveForEntry(entry.id)).toBe(false)
+  })
+
+  it('preserves unchanged legacy URL rules while saving another entry field', async () => {
+    const legacyUrls = [
+      {match: 'exact', value: 'https://example.com/login'},
+      {match: 'base_domain', value: 'https://example.com/login'},
+      {match: 'regex', value: '['},
+      {match: 'never', value: 'https://blocked.example'},
+    ]
+    const entry = createEntry({urls: legacyUrls})
+    const update = vi.spyOn(entry, 'update').mockResolvedValue(undefined)
+    window.passmanager = {
+      isReadOnly: () => false,
+      isEditMode: {set: vi.fn()},
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry') as PMEntry
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
+    const header = component.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
+    header?.dispatchEvent(
+      new CustomEvent('pm-workspace-header-title-input', {
+        detail: {value: 'Renamed entry'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    component.shadowRoot?.querySelector<HTMLButtonElement>('.entry-edit-save-action')?.click()
+    await settle(component)
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({title: 'Renamed entry', urls: legacyUrls}),
+      undefined,
+      undefined,
+    )
     expect(pmEntryEditorModel.isActiveForEntry(entry.id)).toBe(false)
   })
 

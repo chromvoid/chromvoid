@@ -11,6 +11,7 @@ configs:
 settingGroups:
   app:
     base:
+      DEVELOPMENT_TEAM: LHWC37D5KT
       PRODUCT_NAME: ChromVoid
       PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app
 targetTemplates:
@@ -54,6 +55,18 @@ schemes:
       config: debug
     archive:
       config: release
+  chromvoid_iOSSmoke:
+    build:
+      targets:
+        chromvoid_iOS: all
+        chromvoid_iOSUITests: [test]
+    test:
+      config: debug
+      targets:
+        - chromvoid_iOSUITests
+      environmentVariables:
+        RUST_BACKTRACE: full
+        RUST_LOG: info
 targets:
   chromvoid_iOS:
     type: application
@@ -88,8 +101,9 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "0.1.0"
+        CFBundleShortVersionString: 1.0.4
+        CFBundleVersion: "2"
+        ChromVoidSharedKeychainAccessGroup: $(AppIdentifierPrefix)com.chromvoid.app.shared
         NSCameraUsageDescription: ChromVoid uses the camera to scan OTP setup QR codes.
         NSPhotoLibraryAddUsageDescription: ChromVoid saves selected images to your photo library when you choose Save to Photos.
         BGTaskSchedulerPermittedIdentifiers:
@@ -100,6 +114,7 @@ targets:
     entitlements:
       path: chromvoid_iOS/chromvoid_iOS.entitlements
       properties:
+        com.apple.developer.authentication-services.autofill-credential-provider: true
         com.apple.security.application-groups:
           - group.com.chromvoid.app.shared.lhwc37d5kt
         keychain-access-groups:
@@ -114,6 +129,11 @@ targets:
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
         EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
       groups: [app]
+      configs:
+        release:
+          CODE_SIGN_IDENTITY: Apple Distribution
+          CODE_SIGN_STYLE: Manual
+          PROVISIONING_PROFILE_SPECIFIER: ChromVoid App Store 2026 Autofill
     dependencies:
       - framework: libapp.a
         embed: false
@@ -157,6 +177,21 @@ targets:
         PRODUCT_NAME: $(TARGET_NAME)
         PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.tests
 
+  chromvoid_iOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: chromvoid_iOSUITests
+    dependencies:
+      - target: chromvoid_iOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_NAME: $(TARGET_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.ui-tests
+        PRODUCT_MODULE_NAME: chromvoid_iOSUITests
+        TEST_TARGET_NAME: chromvoid_iOS
+
   chromvoid_CredentialProviderExtension:
     type: app-extension
     platform: iOS
@@ -166,8 +201,10 @@ targets:
     info:
       path: chromvoid_CredentialProviderExtension/Info.plist
       properties:
-        CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "0.1.0"
+        CFBundleDisplayName: ChromVoid
+        CFBundleShortVersionString: 1.0.4
+        CFBundleVersion: "2"
+        ChromVoidSharedKeychainAccessGroup: $(AppIdentifierPrefix)com.chromvoid.app.shared
         NSExtension:
           NSExtensionAttributes:
             ASCredentialProviderExtensionCapabilities:
@@ -185,10 +222,16 @@ targets:
         com.apple.developer.authentication-services.autofill-credential-provider: true
     settings:
       base:
+        DEVELOPMENT_TEAM: LHWC37D5KT
         PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.credential-provider
         PRODUCT_NAME: ChromVoidCredentialProvider
         SWIFT_VERSION: 5.0
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+      configs:
+        release:
+          CODE_SIGN_IDENTITY: Apple Distribution
+          CODE_SIGN_STYLE: Manual
+          PROVISIONING_PROFILE_SPECIFIER: ChromVoid Credential Provider App Store 2026
     dependencies:
       - sdk: AuthenticationServices.framework
       - sdk: Foundation.framework
@@ -202,8 +245,9 @@ targets:
     info:
       path: chromvoid_ShareExtension/Info.plist
       properties:
-        CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "0.1.0"
+        CFBundleDisplayName: ChromVoid
+        CFBundleShortVersionString: 1.0.4
+        CFBundleVersion: "2"
         NSExtension:
           NSExtensionAttributes:
             NSExtensionActivationRule:
@@ -219,10 +263,16 @@ targets:
           - group.com.chromvoid.app.shared.lhwc37d5kt
     settings:
       base:
+        DEVELOPMENT_TEAM: LHWC37D5KT
         PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.app.share-extension
         PRODUCT_NAME: ChromVoidShareExtension
         SWIFT_VERSION: 5.0
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+      configs:
+        release:
+          CODE_SIGN_IDENTITY: Apple Distribution
+          CODE_SIGN_STYLE: Manual
+          PROVISIONING_PROFILE_SPECIFIER: ChromVoid Share Extension App Store 2026
     dependencies:
       - sdk: Foundation.framework
       - sdk: UIKit.framework
@@ -235,14 +285,17 @@ targets:
       - path: chromvoid_CredentialProviderExtension
       - path: Sources/chromvoid/CredentialIPCBridge.swift
     info:
-      path: chromvoid_CredentialProviderExtension/Info.plist
+      path: chromvoid_CredentialProviderExtension/Info-macOS.plist
       properties:
-        CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "0.1.0"
+        CFBundleDisplayName: ChromVoid Credential Provider
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionAttributes:
             ASCredentialProviderExtensionCapabilities:
+              ProvidesOneTimeCodes: true
               ProvidesPasskeys: true
+              ProvidesPasswords: true
             ASCredentialProviderExtensionShowsConfigurationUI: true
           NSExtensionPointIdentifier: com.apple.authentication-services-credential-provider-ui
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).CredentialProviderViewController
@@ -261,7 +314,9 @@ targets:
         PRODUCT_NAME: ChromVoidCredentialProvider
         SWIFT_VERSION: 5.0
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
+        CURRENT_PROJECT_VERSION: "0.1.0"
         MACOSX_DEPLOYMENT_TARGET: 13.0
+        MARKETING_VERSION: 0.1.0
     dependencies:
       - sdk: AuthenticationServices.framework
       - sdk: Foundation.framework

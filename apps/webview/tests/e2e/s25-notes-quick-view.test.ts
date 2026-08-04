@@ -177,9 +177,18 @@ async function seedNotesFixture(): Promise<NotesFixture> {
   const state = {
     version: 1,
     nextId: 10,
-    nodes: [root, rootNote, projectsDir, nestedNote, textFile, mimeOnlyNote, imageFile, hiddenFile, walletDir, shardNote].map(
-      (node) => [node.id, node],
-    ),
+    nodes: [
+      root,
+      rootNote,
+      projectsDir,
+      nestedNote,
+      textFile,
+      mimeOnlyNote,
+      imageFile,
+      hiddenFile,
+      walletDir,
+      shardNote,
+    ].map((node) => [node.id, node]),
     files: [
       [rootNote.id, encodeText(`# ${rootNote.name}`)],
       [nestedNote.id, encodeText(`# ${nestedNote.name}`)],
@@ -481,7 +490,8 @@ function expectHostFillsShellContent(
   expect(shellContent).not.toBeNull()
   if (!hostRect || !shellContent) return
 
-  const availableHeight = shellContent.rect.height - shellContent.paddingBlockStart - shellContent.paddingBlockEnd
+  const availableHeight =
+    shellContent.rect.height - shellContent.paddingBlockStart - shellContent.paddingBlockEnd
   const availableBottom = shellContent.rect.bottom - shellContent.paddingBlockEnd
 
   expect(Math.abs(hostRect.height - availableHeight)).toBeLessThanOrEqual(2)
@@ -544,8 +554,7 @@ async function notesViewSwitchSnapshot(page: Page) {
           }
         : null,
       hasHorizontalOverflow: host ? host.scrollWidth > host.clientWidth : null,
-      rightEdgeDeadSpace:
-        contentRight !== null && treeRect ? contentRight - treeRect.right : null,
+      rightEdgeDeadSpace: contentRight !== null && treeRect ? contentRight - treeRect.right : null,
       points: {
         listCenter: listRect
           ? {x: listRect.left + listRect.width / 2, y: listRect.top + listRect.height / 2}
@@ -579,42 +588,40 @@ async function clickNotesViewSwitchPoint(
   point: {x: number; y: number},
   expectedMode: 'list' | 'grid' | 'tree',
 ): Promise<void> {
-  const dispatchedMode = await page.evaluate(({x, y, expectedMode}) => {
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-    const button = Array.from(
-      header?.shadowRoot?.querySelectorAll<HTMLElement>('.view-switch__button') ?? [],
-    ).find((candidate) => candidate.getAttribute('data-display-mode') === expectedMode)
-    if (!button) return null
+  const dispatchedMode = await page.evaluate(
+    ({x, y, expectedMode}) => {
+      const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
+      const button = Array.from(
+        header?.shadowRoot?.querySelectorAll<HTMLElement>('.view-switch__button') ?? [],
+      ).find((candidate) => candidate.getAttribute('data-display-mode') === expectedMode)
+      if (!button) return null
 
-    const rect = button.getBoundingClientRect()
-    const pointInsideButton =
-      x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-    if (!pointInsideButton) return null
+      const rect = button.getBoundingClientRect()
+      const pointInsideButton = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+      if (!pointInsideButton) return null
 
-    button.dispatchEvent(
-      new MouseEvent('click', {bubbles: true, composed: true, clientX: x, clientY: y}),
-    )
-    return button.getAttribute('data-display-mode')
+      button.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true, clientX: x, clientY: y}))
+      return button.getAttribute('data-display-mode')
 
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
         }
+        return null
       }
-      return null
-    }
-  }, {...point, expectedMode})
+    },
+    {...point, expectedMode},
+  )
   expect(dispatchedMode).toBe(expectedMode)
   await page.waitForFunction(
     (mode) => {
       const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-      const button = header?.shadowRoot?.querySelector(
-        '.view-switch__button[checked]',
-      ) as HTMLElement | null
+      const button = header?.shadowRoot?.querySelector('.view-switch__button[checked]') as HTMLElement | null
       return button?.getAttribute('data-display-mode') === mode
 
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -661,12 +668,8 @@ async function expectNotesViewSwitchGeometry(page: Page): Promise<void> {
     if (!button.iconCenter) {
       throw new Error(`Notes view switch icon geometry not found for ${button.displayMode}`)
     }
-    expect(Math.abs(button.iconCenter.x - (button.left + button.width / 2))).toBeLessThanOrEqual(
-      0.75,
-    )
-    expect(Math.abs(button.iconCenter.y - (button.top + button.height / 2))).toBeLessThanOrEqual(
-      0.75,
-    )
+    expect(Math.abs(button.iconCenter.x - (button.left + button.width / 2))).toBeLessThanOrEqual(0.75)
+    expect(Math.abs(button.iconCenter.y - (button.top + button.height / 2))).toBeLessThanOrEqual(0.75)
   }
 
   expect(snapshot.switchRect).not.toBeNull()
@@ -772,28 +775,33 @@ async function notesHierarchySnapshot(page: Page, folderPath: string) {
 }
 
 async function openNoteFromQuickView(page: Page, title: string): Promise<void> {
-  await page.evaluate(({noteTitle, displayTitle}) => {
-    const host = deepFind(document, 'notes-quick-view, notes-quick-view-mobile') as HTMLElement | null
-    const row = Array.from(host?.shadowRoot?.querySelectorAll('.row') ?? []).find((candidate) =>
-      candidate.querySelector('.note-card__title')?.textContent?.includes(displayTitle) ||
-      candidate.textContent?.includes(noteTitle),
-    )
-    const openTarget = (row?.querySelector('.open-note') as HTMLElement | null) ?? (row as HTMLElement | null)
-    if (!openTarget) throw new Error(`open-note target not found for ${noteTitle}`)
-    openTarget.click()
+  await page.evaluate(
+    ({noteTitle, displayTitle}) => {
+      const host = deepFind(document, 'notes-quick-view, notes-quick-view-mobile') as HTMLElement | null
+      const row = Array.from(host?.shadowRoot?.querySelectorAll('.row') ?? []).find(
+        (candidate) =>
+          candidate.querySelector('.note-card__title')?.textContent?.includes(displayTitle) ||
+          candidate.textContent?.includes(noteTitle),
+      )
+      const openTarget =
+        (row?.querySelector('.open-note') as HTMLElement | null) ?? (row as HTMLElement | null)
+      if (!openTarget) throw new Error(`open-note target not found for ${noteTitle}`)
+      openTarget.click()
 
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind(el.shadowRoot, selector)
+            if (inner) return inner
+          }
         }
+        return null
       }
-      return null
-    }
-  }, {noteTitle: title, displayTitle: visibleNoteTitle(title)})
+    },
+    {noteTitle: title, displayTitle: visibleNoteTitle(title)},
+  )
 }
 
 async function waitForMarkdownDocument(page: Page, fileId: number, fileName: string): Promise<void> {
@@ -878,26 +886,118 @@ async function markdownEditorSnapshot(page: Page) {
   })
 }
 
-async function markdownEditorKeyboardClearanceSnapshot(
-  page: Page,
-  keyboardInset: number,
-) {
+async function markdownQuickActionFocusSnapshot(page: Page) {
+  return page.evaluate(async () => {
+    const host = deepFind(document, 'markdown-preview') as (HTMLElement & {
+      updateComplete?: Promise<unknown>
+    }) | null
+    const editor = host?.shadowRoot?.querySelector('.source-editor') as (HTMLElement & {
+      focus(options?: FocusOptions): void
+      getSelection(): {selectionStart: number; selectionEnd: number}
+      setSelectionRange(start: number, end: number): void
+      updateComplete?: Promise<unknown>
+      value: string
+    }) | null
+    const content = editor?.shadowRoot?.querySelector('.cm-content') as HTMLElement | null
+    const boldButton = host?.shadowRoot?.querySelector(
+      '.editor-quick-bar [aria-label="Bold"]',
+    ) as HTMLElement | null
+    const italicButton = host?.shadowRoot?.querySelector(
+      '.editor-quick-bar [aria-label="Italic"]',
+    ) as HTMLElement | null
+    if (!host || !editor || !content || !boldButton || !italicButton) {
+      throw new Error('Markdown editor quick action controls not found')
+    }
+
+    const activateTouchAction = async (button: HTMLElement) => {
+      button.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          pointerType: 'touch',
+        }),
+      )
+      button.dispatchEvent(
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          pointerType: 'touch',
+        }),
+      )
+      await Promise.resolve()
+      await host.updateComplete
+      await editor.updateComplete
+    }
+
+    content.blur()
+    editor.setSelectionRange(2, editor.value.length)
+    await activateTouchAction(boldButton)
+    const hiddenKeyboardState = {
+      editorFocused: editor.shadowRoot?.activeElement === content,
+      selection: editor.getSelection(),
+      value: editor.value,
+    }
+
+    editor.focus({preventScroll: true})
+    editor.setSelectionRange(2, 4)
+    await activateTouchAction(italicButton)
+    const visibleKeyboardState = {
+      editorFocused: editor.shadowRoot?.activeElement === content,
+      selection: editor.getSelection(),
+      value: editor.value,
+    }
+
+    return {hiddenKeyboardState, visibleKeyboardState}
+
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+  })
+}
+
+async function markdownEditorKeyboardClearanceSnapshot(page: Page, keyboardInset: number) {
   return page.evaluate(async (inset) => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
     const root = host?.shadowRoot
     const content = root?.querySelector('.content') as HTMLElement | null
-    const editor = root?.querySelector('.source-editor') as (HTMLElement & {
-      focusAt?(selectionStart: number | null): void
-      value?: string
-    }) | null
+    const quickBar = root?.querySelector('.editor-quick-bar') as HTMLElement | null
+    const editor = root?.querySelector('.source-editor') as
+      | (HTMLElement & {
+          focusAt?(selectionStart: number | null): void
+          value?: string
+        })
+      | null
     const editorContent = editor?.shadowRoot?.querySelector('.cm-content') as HTMLElement | null
     const editorScroller = editor?.shadowRoot?.querySelector('.cm-scroller') as HTMLElement | null
-    if (!host || !content || !editor || !editorContent || !editorScroller) {
+    const documentScroller = document.scrollingElement as HTMLElement | null
+    if (!host || !content || !quickBar || !editor || !editorContent || !editorScroller || !documentScroller) {
       return null
     }
 
     const rootElement = document.documentElement
+    const waitFrames = async (count = 2) => {
+      for (let index = 0; index < count; index += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      }
+    }
+    documentScroller.scrollTop = 0
+    rootElement.scrollTop = 0
+    document.body.scrollTop = 0
+    const closedEditorPaddingBlockEnd = Number.parseFloat(getComputedStyle(editor).paddingBlockEnd)
     editor.focusAt?.(typeof editor.value === 'string' ? editor.value.length : null)
+    rootElement.setAttribute('data-native-keyboard-insets', '')
+    rootElement.setAttribute('data-android-native-keyboard-insets', '')
+    rootElement.style.setProperty('--app-runtime-keyboard-native-inset-block-end', `${inset}px`)
     rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', `${inset}px`)
     rootElement.style.setProperty('--app-runtime-keyboard-inset-block-end', `${inset}px`)
     rootElement.style.setProperty('--app-runtime-keyboard-scroll-action-offset', `${inset}px`)
@@ -905,45 +1005,72 @@ async function markdownEditorKeyboardClearanceSnapshot(
     rootElement.style.setProperty('--app-runtime-keyboard-overlay-offset', `${inset}px`)
     rootElement.setAttribute('data-mobile-keyboard-expanded', '')
 
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    await waitFrames(4)
 
-    editor.scrollTop = editor.scrollHeight
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-    editor.scrollTop = Math.max(0, editor.scrollHeight - editor.clientHeight)
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    editorScroller.scrollTop = editorScroller.scrollHeight
+    await waitFrames(2)
+    editorScroller.scrollTop = Math.max(0, editorScroller.scrollHeight - editorScroller.clientHeight)
+    await waitFrames(4)
 
     const contentRect = content.getBoundingClientRect()
     const editorStyles = getComputedStyle(editor)
     const editorContentStyles = getComputedStyle(editorContent)
     const contentStyles = getComputedStyle(content)
     const editorScrollerRect = editorScroller.getBoundingClientRect()
+    const quickBarRect = quickBar.getBoundingClientRect()
     const renderedLines = editorContent.querySelectorAll<HTMLElement>('.cm-line')
     const lastLine = renderedLines.item(renderedLines.length - 1)
-    const maxScroll = editor.scrollHeight - editor.clientHeight
+    const caret = editor.shadowRoot?.querySelector<HTMLElement>('.cm-cursor-primary, .cm-cursor') ?? null
+    const rootStyles = getComputedStyle(rootElement)
+    const actionOffset = contentRect.bottom - quickBarRect.bottom
+    const contentClearance = Number.parseFloat(editorContentStyles.paddingBlockEnd)
+    const editorPaddingBlockEnd = Number.parseFloat(editorStyles.paddingBlockEnd)
+    const maxScroll = editorScroller.scrollHeight - editorScroller.clientHeight
     const snapshot = {
-      contentClearance: editorContentStyles.paddingBlockEnd,
+      actionOffset,
+      bodyMaxScroll: Math.max(0, document.body.scrollHeight - document.body.clientHeight),
+      bodyScrollTop: document.body.scrollTop,
+      caretBottom: caret?.getBoundingClientRect().bottom ?? null,
+      closedEditorPaddingBlockEnd,
+      contentClearance,
       contentBottom: contentRect.bottom,
       contentPaddingBlockEnd: contentStyles.paddingBlockEnd,
+      documentMaxScroll: Math.max(0, documentScroller.scrollHeight - documentScroller.clientHeight),
+      documentScrollTop: documentScroller.scrollTop,
       editorLineHeight: editorStyles.lineHeight,
-      editorPaddingBlockEnd: editorStyles.paddingBlockEnd,
+      editorPaddingBlockEnd,
       editorPaddingBlockStart: editorStyles.paddingBlockStart,
       editorScrollPaddingBlockEnd: editorStyles.scrollPaddingBlockEnd,
       expectedContentClearance: Math.max(0, editorScrollerRect.bottom - (window.innerHeight - inset)),
       keyboardTop: window.innerHeight - inset,
       lastLineBottom: lastLine?.getBoundingClientRect().bottom ?? null,
+      layoutKeyboardReserve: editorPaddingBlockEnd - closedEditorPaddingBlockEnd,
       maxScroll,
-      overlayOffset: getComputedStyle(rootElement).getPropertyValue('--app-runtime-keyboard-overlay-offset').trim(),
-      scrollAtBottom: Math.abs(editor.scrollTop - maxScroll) <= 1,
-      scrollOverflowY: editorStyles.overflowY,
+      overlayOffset: rootStyles.getPropertyValue('--app-runtime-keyboard-overlay-offset').trim(),
+      quickBarBottom: quickBarRect.bottom,
+      quickBarHeight: quickBarRect.height,
+      quickBarTop: quickBarRect.top,
+      rootMaxScroll: Math.max(0, rootElement.scrollHeight - rootElement.clientHeight),
+      rootScrollTop: rootElement.scrollTop,
+      scrollAtBottom: Math.abs(editorScroller.scrollTop - maxScroll) <= 1,
+      scrollerBottom: editorScrollerRect.bottom,
+      scrollerClientHeight: editorScroller.clientHeight,
+      scrollerScrollHeight: editorScroller.scrollHeight,
+      scrollerScrollTop: editorScroller.scrollTop,
+      scrollerToQuickBarGap: quickBarRect.top - editorScrollerRect.bottom,
+      scrollOverflowY: getComputedStyle(editorScroller).overflowY,
     }
 
+    rootElement.style.removeProperty('--app-runtime-keyboard-native-inset-block-end')
     rootElement.style.removeProperty('--app-runtime-visual-viewport-inset-block-end')
     rootElement.style.removeProperty('--app-runtime-keyboard-inset-block-end')
     rootElement.style.removeProperty('--app-runtime-keyboard-scroll-action-offset')
     rootElement.style.removeProperty('--app-runtime-keyboard-scroll-clearance')
     rootElement.style.removeProperty('--app-runtime-keyboard-overlay-offset')
+    rootElement.removeAttribute('data-native-keyboard-insets')
+    rootElement.removeAttribute('data-android-native-keyboard-insets')
     rootElement.removeAttribute('data-mobile-keyboard-expanded')
+    await waitFrames(3)
 
     return snapshot
 
@@ -961,18 +1088,157 @@ async function markdownEditorKeyboardClearanceSnapshot(
   }, keyboardInset)
 }
 
-async function markdownEditorRepeatedKeyboardActivationSnapshot(
-  page: Page,
-  keyboardInset: number,
-) {
+async function markdownEditorQuickBarKeyboardSnapshots(page: Page, keyboardInsets: readonly number[]) {
+  return page.evaluate(async (insets) => {
+    const host = deepFind(document, 'markdown-preview') as HTMLElement | null
+    const quickBar = host?.shadowRoot?.querySelector('.editor-quick-bar') as HTMLElement | null
+    if (!host || !quickBar) {
+      return null
+    }
+
+    const rootElement = document.documentElement
+    const waitFrames = async (count = 2) => {
+      for (let index = 0; index < count; index += 1) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      }
+    }
+    const setKeyboardInset = (bottomInset: number) => {
+      rootElement.setAttribute('data-mobile-keyboard-expanded', '')
+      rootElement.setAttribute('data-native-keyboard-insets', '')
+      rootElement.setAttribute('data-android-native-keyboard-insets', '')
+      rootElement.style.setProperty('--app-runtime-keyboard-native-inset-block-end', `${bottomInset}px`)
+      rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', `${bottomInset}px`)
+      rootElement.style.setProperty('--app-runtime-keyboard-inset-block-end', `${bottomInset}px`)
+      rootElement.style.setProperty('--app-runtime-keyboard-scroll-action-offset', `${bottomInset}px`)
+      rootElement.style.setProperty('--app-runtime-keyboard-scroll-clearance', `${bottomInset}px`)
+      rootElement.style.setProperty('--app-runtime-keyboard-overlay-offset', `${bottomInset}px`)
+    }
+
+    const snapshots = []
+    for (const inset of insets) {
+      setKeyboardInset(inset)
+      await waitFrames()
+
+      const rect = quickBar.getBoundingClientRect()
+      const quickBarStyle = getComputedStyle(quickBar)
+      const rootStyle = getComputedStyle(rootElement)
+      snapshots.push({
+        actionOffset: rootStyle.getPropertyValue('--app-runtime-keyboard-block-end-action-offset').trim(),
+        bottom: rect.bottom,
+        display: quickBarStyle.display,
+        height: rect.height,
+        inset,
+        keyboardTop: window.innerHeight - inset,
+        top: rect.top,
+        visibility: quickBarStyle.visibility,
+      })
+    }
+
+    rootElement.style.removeProperty('--app-runtime-keyboard-native-inset-block-end')
+    rootElement.style.removeProperty('--app-runtime-visual-viewport-inset-block-end')
+    rootElement.style.removeProperty('--app-runtime-keyboard-inset-block-end')
+    rootElement.style.removeProperty('--app-runtime-keyboard-scroll-action-offset')
+    rootElement.style.removeProperty('--app-runtime-keyboard-scroll-clearance')
+    rootElement.style.removeProperty('--app-runtime-keyboard-overlay-offset')
+    rootElement.removeAttribute('data-native-keyboard-insets')
+    rootElement.removeAttribute('data-android-native-keyboard-insets')
+    rootElement.removeAttribute('data-mobile-keyboard-expanded')
+
+    return snapshots
+
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+  }, keyboardInsets)
+}
+
+async function markdownEditorQuickBarLayoutSnapshot(page: Page, direction: 'ltr' | 'rtl') {
+  return page.evaluate(async (nextDirection) => {
+    const host = deepFind(document, 'markdown-preview') as HTMLElement | null
+    const root = host?.shadowRoot
+    const quickBar = root?.querySelector('.editor-quick-bar') as HTMLElement | null
+    const groups = Array.from(quickBar?.querySelectorAll<HTMLElement>('[data-quick-action-group]') ?? [])
+    if (!root || !quickBar || groups.length !== 3) {
+      throw new Error('Markdown editor quick action groups not found')
+    }
+
+    const documentRoot = document.documentElement
+    const previousDirection = documentRoot.getAttribute('dir')
+    documentRoot.setAttribute('dir', nextDirection)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+
+    const rectSnapshot = (element: Element) => {
+      const rect = element.getBoundingClientRect()
+      return {
+        bottom: rect.bottom,
+        height: rect.height,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        width: rect.width,
+      }
+    }
+    const quickBarStyles = getComputedStyle(quickBar)
+    const controls = Array.from(
+      quickBar.querySelectorAll<HTMLElement>('.editor-quick-button, .editor-quick-overflow'),
+    )
+    const snapshot = {
+      actionLabels: controls.map((control) => control.getAttribute('aria-label')),
+      clientWidth: quickBar.clientWidth,
+      groupRoles: groups.map((group) => group.getAttribute('role')),
+      groups: groups.map((group) => ({
+        name: group.dataset.quickActionGroup,
+        rect: rectSnapshot(group),
+      })),
+      paddingInlineEnd: Number.parseFloat(quickBarStyles.paddingInlineEnd),
+      paddingInlineStart: Number.parseFloat(quickBarStyles.paddingInlineStart),
+      rect: rectSnapshot(quickBar),
+      scrollWidth: quickBar.scrollWidth,
+      targets: controls.map(rectSnapshot),
+      toolbarCount: root.querySelectorAll('[role="toolbar"]').length,
+    }
+
+    if (previousDirection === null) {
+      documentRoot.removeAttribute('dir')
+    } else {
+      documentRoot.setAttribute('dir', previousDirection)
+    }
+
+    return snapshot
+
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+  }, direction)
+}
+
+async function markdownEditorRepeatedKeyboardActivationSnapshot(page: Page, keyboardInset: number) {
   return page.evaluate(async (inset) => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
     const root = host?.shadowRoot
     const content = root?.querySelector('.content') as HTMLElement | null
-    const editor = root?.querySelector('.source-editor') as HTMLElement & {
-      focusAt?: (selectionStart: number | null) => void
-      value?: string
-    } | null
+    const editor = root?.querySelector('.source-editor') as
+      | (HTMLElement & {
+          focusAt?: (selectionStart: number | null) => void
+          value?: string
+        })
+      | null
     const editorRoot = editor?.shadowRoot
     const editorScroller = editorRoot?.querySelector('.cm-scroller') as HTMLElement | null
     const documentScroller = document.scrollingElement as HTMLElement | null
@@ -1035,7 +1301,9 @@ async function markdownEditorRepeatedKeyboardActivationSnapshot(
         editorBottom: editorRect.bottom,
         editorScrollTop: editorScroller.scrollTop,
         keyboardOverlayOffset: rootStyle.getPropertyValue('--app-runtime-keyboard-overlay-offset').trim(),
-        visualViewportInset: rootStyle.getPropertyValue('--app-runtime-visual-viewport-inset-block-end').trim(),
+        visualViewportInset: rootStyle
+          .getPropertyValue('--app-runtime-visual-viewport-inset-block-end')
+          .trim(),
       }
     }
     documentScroller.scrollTop = 0
@@ -1103,19 +1371,18 @@ async function markdownEditorRepeatedKeyboardActivationSnapshot(
   }, keyboardInset)
 }
 
-async function markdownEditorKeyboardSelectionRevealSnapshot(
-  page: Page,
-  keyboardInset: number,
-) {
+async function markdownEditorKeyboardSelectionRevealSnapshot(page: Page, keyboardInset: number) {
   return page.evaluate(async (inset) => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
     const root = host?.shadowRoot
     const content = root?.querySelector('.content') as HTMLElement | null
-    const editor = root?.querySelector('.source-editor') as HTMLElement & {
-      focusAt?: (selectionStart: number | null) => void
-      setSelectionRange?: (selectionStart: number, selectionEnd: number) => void
-      value?: string
-    } | null
+    const editor = root?.querySelector('.source-editor') as
+      | (HTMLElement & {
+          focusAt?: (selectionStart: number | null) => void
+          setSelectionRange?: (selectionStart: number, selectionEnd: number) => void
+          value?: string
+        })
+      | null
     const documentScroller = document.scrollingElement as HTMLElement | null
     if (!host || !content || !editor || !documentScroller) {
       return null
@@ -1153,6 +1420,39 @@ async function markdownEditorKeyboardSelectionRevealSnapshot(
         keyboardTop: window.innerHeight - inset,
       }
     }
+    const measureSelectionStyle = () => {
+      const editorRoot = editor.shadowRoot
+      if (!editorRoot) {
+        throw new Error('CodeMirror shadow root is unavailable')
+      }
+
+      const selectionBackgrounds = [
+        ...new Set(
+          Array.from(editorRoot.querySelectorAll<HTMLElement>('.cm-selectionBackground')).map(
+            (element) => getComputedStyle(element).backgroundColor,
+          ),
+        ),
+      ]
+      const activeLineBackgrounds = [
+        ...new Set(
+          Array.from(editorRoot.querySelectorAll<HTMLElement>('.cm-activeLine')).map(
+            (element) => getComputedStyle(element).backgroundColor,
+          ),
+        ),
+      ]
+      const tokenProbe = document.createElement('span')
+      tokenProbe.hidden = true
+      tokenProbe.style.backgroundColor = 'var(--cv-color-editor-selection-background)'
+      editorRoot.append(tokenProbe)
+      const editorSelectionBackground = getComputedStyle(tokenProbe).backgroundColor
+      tokenProbe.remove()
+
+      return {
+        activeLineBackgrounds,
+        editorSelectionBackground,
+        selectionBackgrounds,
+      }
+    }
 
     documentScroller.scrollTop = 0
     editor.scrollTop = 0
@@ -1165,8 +1465,33 @@ async function markdownEditorKeyboardSelectionRevealSnapshot(
     await waitFrames(4)
 
     const before = measure()
+    const source = typeof editor.value === 'string' ? editor.value : ''
+    const visibleLines = Array.from(
+      editor.shadowRoot?.querySelectorAll<HTMLElement>('.cm-line') ?? [],
+    ).filter((line) => {
+      const rect = line.getBoundingClientRect()
+      return rect.top >= 0 && rect.bottom <= before.keyboardTop
+    })
+    const visibleLine = visibleLines.at(-1)
+    const visibleLineText = visibleLine?.textContent ?? ''
+    const visibleLineOffset = source.indexOf(visibleLineText)
+    if (!visibleLine || !visibleLineText || visibleLineOffset < 0) {
+      throw new Error('No visible CodeMirror line found above the keyboard')
+    }
+
+    const visibleSelectionEnd = visibleLineOffset + visibleLineText.length
+    const visibleSelectionBottom = visibleLine.getBoundingClientRect().bottom
+    editor.setSelectionRange?.(0, visibleSelectionEnd)
+    await waitFrames(8)
+    const afterVisibleSelection = measure()
+    const visibleSelectionStyle = measureSelectionStyle()
+
     const end = typeof editor.value === 'string' ? editor.value.length : 0
-    editor.setSelectionRange?.(end, end)
+    if (typeof editor.focusAt === 'function') {
+      editor.focusAt(end)
+    } else {
+      editor.setSelectionRange?.(end, end)
+    }
     await waitFrames(8)
     const after = measure()
 
@@ -1182,11 +1507,17 @@ async function markdownEditorKeyboardSelectionRevealSnapshot(
 
     return {
       after,
+      afterVisibleSelection,
       before,
-      contentTopDelta: after.contentTop - before.contentTop,
-      documentScrollDelta: after.documentScrollTop - before.documentScrollTop,
-      editorScrollDelta: after.editorScrollTop - before.editorScrollTop,
+      contentTopDelta: after.contentTop - afterVisibleSelection.contentTop,
+      documentScrollDelta: after.documentScrollTop - afterVisibleSelection.documentScrollTop,
+      editorScrollDelta: after.editorScrollTop - afterVisibleSelection.editorScrollTop,
       keyboardInset: inset,
+      visibleSelectionBottom,
+      visibleSelectionContentTopDelta: afterVisibleSelection.contentTop - before.contentTop,
+      visibleSelectionDocumentScrollDelta: afterVisibleSelection.documentScrollTop - before.documentScrollTop,
+      visibleSelectionEditorScrollDelta: afterVisibleSelection.editorScrollTop - before.editorScrollTop,
+      visibleSelectionStyle,
     }
 
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -1222,9 +1553,7 @@ async function markdownPreviewFabClearanceSnapshot(page: Page) {
     const fabStyles = getComputedStyle(fab)
     const maxScroll = preview.scrollHeight - preview.clientHeight
     const fabVisible =
-      fabStyles.display !== 'none' &&
-      fabStyles.visibility !== 'hidden' &&
-      fab.getClientRects().length > 0
+      fabStyles.display !== 'none' && fabStyles.visibility !== 'hidden' && fab.getClientRects().length > 0
     const lastBlock =
       Array.from(preview.children)
         .filter((child): child is HTMLElement => child instanceof HTMLElement)
@@ -1232,13 +1561,16 @@ async function markdownPreviewFabClearanceSnapshot(page: Page) {
     const lastRect = lastBlock?.getBoundingClientRect() ?? null
     const overlapsLastBlock = Boolean(
       lastRect &&
-        lastRect.left < fabRect.right &&
-        lastRect.right > fabRect.left &&
-        lastRect.top < fabRect.bottom &&
-        lastRect.bottom > fabRect.top,
+      lastRect.left < fabRect.right &&
+      lastRect.right > fabRect.left &&
+      lastRect.top < fabRect.bottom &&
+      lastRect.bottom > fabRect.top,
     )
 
     return {
+      fabBackdropFilter:
+        fabStyles.getPropertyValue('backdrop-filter') ||
+        fabStyles.getPropertyValue('-webkit-backdrop-filter'),
       fabBackgroundColor: fabStyles.backgroundColor,
       fabBackgroundImage: fabStyles.backgroundImage,
       fabHeight: fabRect.height,
@@ -1477,9 +1809,9 @@ async function markdownImageInsertControlsSnapshot(page: Page) {
       const style = element ? getComputedStyle(element) : null
       return Boolean(
         element &&
-          style?.display !== 'none' &&
-          style?.visibility !== 'hidden' &&
-          element.getClientRects().length > 0,
+        style?.display !== 'none' &&
+        style?.visibility !== 'hidden' &&
+        element.getClientRects().length > 0,
       )
     }
 
@@ -1523,13 +1855,9 @@ async function clickMarkdownInsertImageOverflow(page: Page): Promise<number> {
     await (menu.updateComplete ?? Promise.resolve())
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
-    const portalItem = document.querySelector(
-      '[data-cv-menu-button-portal] cv-menu-item[value="markdown-insert-image"]',
-    ) as HTMLElement | null
-    const fallbackItem = menu.querySelector(
+    const item = menu.querySelector(
       'cv-menu-item[value="markdown-insert-image"]',
     ) as HTMLElement | null
-    const item = portalItem ?? fallbackItem
     if (!item) throw new Error('Markdown image insert overflow item not found')
 
     item.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
@@ -1561,10 +1889,7 @@ async function chooseMarkdownImageFile(page: Page): Promise<void> {
   })
 }
 
-async function waitForMarkdownEditorValue(
-  page: Page,
-  expectedText: string,
-): Promise<void> {
+async function waitForMarkdownEditorValue(page: Page, expectedText: string): Promise<void> {
   await page.waitForFunction(
     (text) => {
       const host = deepFind(document, 'markdown-preview') as HTMLElement | null
@@ -1588,9 +1913,7 @@ async function waitForMarkdownEditorValue(
   )
 }
 
-async function waitForInsertedMarkdownImageLink(
-  page: Page,
-): Promise<{markdown: string; path: string}> {
+async function waitForInsertedMarkdownImageLink(page: Page): Promise<{markdown: string; path: string}> {
   await page.waitForFunction(
     () => {
       const host = deepFind(document, 'markdown-preview') as HTMLElement | null
@@ -1616,9 +1939,7 @@ async function waitForInsertedMarkdownImageLink(
   return page.evaluate(() => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
     const editor = host?.shadowRoot?.querySelector('.source-editor') as HTMLTextAreaElement | null
-    const match = /(!\[e2e inline\]\((\/attachments\/e2e-inline-[^)]+\.png)\))/u.exec(
-      editor?.value ?? '',
-    )
+    const match = /(!\[e2e inline\]\((\/attachments\/e2e-inline-[^)]+\.png)\))/u.exec(editor?.value ?? '')
     if (!match?.[1] || !match[2]) {
       throw new Error('Inserted Markdown image link not found')
     }
@@ -1750,9 +2071,7 @@ async function markdownModeScrollSyncSnapshot(page: Page, taskIndex: number) {
     }
 
     const previewTop = preview.getBoundingClientRect().top
-    const topVisibleCheckbox = Array.from(
-      preview.querySelectorAll<HTMLElement>('.cv-markdown-task-checkbox'),
-    )
+    const topVisibleCheckbox = Array.from(preview.querySelectorAll<HTMLElement>('.cv-markdown-task-checkbox'))
       .filter((candidate) => candidate.getBoundingClientRect().bottom > previewTop)
       .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0]
     return {
@@ -1780,10 +2099,7 @@ async function markdownModeScrollSyncSnapshot(page: Page, taskIndex: number) {
   }
 }
 
-async function waitForResolvedMarkdownImage(
-  page: Page,
-  expectedRef: string,
-): Promise<void> {
+async function waitForResolvedMarkdownImage(page: Page, expectedRef: string): Promise<void> {
   await page.waitForFunction(
     (ref) => {
       const host = deepFind(document, 'markdown-preview') as HTMLElement | null
@@ -1954,21 +2270,156 @@ test('S25: mobile Markdown editor reserves keyboard clearance while scrolling to
     {timeout: 5_000},
   )
 
-  const snapshot = await markdownEditorKeyboardClearanceSnapshot(page, 240)
+  for (const keyboardInset of [240, 296]) {
+    const snapshot = await markdownEditorKeyboardClearanceSnapshot(page, keyboardInset)
 
-  expect(snapshot).not.toBeNull()
-  expect(snapshot!.scrollOverflowY).toBe('auto')
-  expect(snapshot!.overlayOffset).toBe('240px')
-  expect(Number.parseFloat(snapshot!.contentClearance)).toBeGreaterThanOrEqual(
-    snapshot!.expectedContentClearance - 1,
+    expect(snapshot).not.toBeNull()
+    expect(snapshot!.scrollOverflowY).toBe('auto')
+    expect(snapshot!.overlayOffset).toBe(`${keyboardInset}px`)
+    expect(snapshot!.actionOffset).toBeGreaterThanOrEqual(keyboardInset)
+    expect(snapshot!.layoutKeyboardReserve).toBeCloseTo(snapshot!.actionOffset, 0)
+    expect(snapshot!.expectedContentClearance).toBeLessThanOrEqual(1)
+    expect(snapshot!.contentClearance).toBeLessThanOrEqual(1)
+    expect(snapshot!.editorPaddingBlockEnd).toBeGreaterThanOrEqual(
+      Number.parseFloat(snapshot!.editorPaddingBlockStart) +
+        Number.parseFloat(snapshot!.editorLineHeight) -
+        1,
+    )
+    expect(snapshot!.scrollerBottom).toBeLessThan(snapshot!.quickBarTop)
+    expect(snapshot!.scrollerToQuickBarGap).toBeGreaterThan(0)
+    expect(snapshot!.lastLineBottom).not.toBeNull()
+    expect(snapshot!.lastLineBottom!).toBeLessThanOrEqual(snapshot!.quickBarTop + 1)
+    expect(snapshot!.caretBottom).not.toBeNull()
+    expect(snapshot!.caretBottom!).toBeLessThanOrEqual(snapshot!.quickBarTop + 1)
+    expect(snapshot!.quickBarBottom).toBeLessThanOrEqual(snapshot!.keyboardTop + 1)
+    expect(snapshot!.documentMaxScroll).toBeLessThanOrEqual(1)
+    expect(Math.abs(snapshot!.documentScrollTop)).toBeLessThanOrEqual(1)
+    expect(snapshot!.rootMaxScroll).toBeLessThanOrEqual(1)
+    expect(Math.abs(snapshot!.rootScrollTop)).toBeLessThanOrEqual(1)
+    expect(snapshot!.bodyMaxScroll).toBeLessThanOrEqual(1)
+    expect(Math.abs(snapshot!.bodyScrollTop)).toBeLessThanOrEqual(1)
+    expect(snapshot!.scrollerScrollHeight).toBeGreaterThan(snapshot!.scrollerClientHeight)
+    expect(snapshot!.maxScroll).toBeGreaterThan(0)
+    expect(snapshot!.scrollAtBottom).toBe(true)
+  }
+})
+
+test('S25: mobile Markdown quick toolbar balances action groups across phone widths and RTL', async (ctx) => {
+  const page = getPage()
+  if (!page) {
+    return ctx.skip()
+  }
+
+  const fixture = await seedNotesFixture()
+  for (const width of [360, 390, 430]) {
+    await openNotes(page, {layout: 'mobile', viewport: {width, height: 844}})
+    await openNoteFromQuickView(page, fixture.rootNote.name)
+    await waitForMarkdownDocument(page, fixture.rootNote.id, fixture.rootNote.name)
+    await openMarkdownEditor(page)
+
+    for (const direction of ['ltr', 'rtl'] as const) {
+      const snapshot = await markdownEditorQuickBarLayoutSnapshot(page, direction)
+      const [insertGroup, formatGroup, overflowGroup] = snapshot.groups
+      expect(snapshot.toolbarCount).toBe(1)
+      expect(snapshot.groupRoles).toEqual([null, null, null])
+      expect(snapshot.actionLabels).toEqual([
+        'Insert image',
+        'Insert file link',
+        'Insert table',
+        'Bold',
+        'Italic',
+        'Strikethrough',
+        'Markdown quick actions',
+      ])
+      expect(snapshot.scrollWidth).toBeLessThanOrEqual(snapshot.clientWidth + 1)
+      expect(snapshot.targets).toHaveLength(7)
+      for (const target of snapshot.targets) {
+        expect(target.width).toBeCloseTo(44, 0)
+        expect(target.height).toBeCloseTo(44, 0)
+      }
+
+      expect(insertGroup?.name).toBe('insert')
+      expect(formatGroup?.name).toBe('format')
+      expect(overflowGroup?.name).toBe('overflow')
+      const leadingGap =
+        direction === 'ltr'
+          ? insertGroup!.rect.left - snapshot.rect.left
+          : snapshot.rect.right - insertGroup!.rect.right
+      const trailingGap =
+        direction === 'ltr'
+          ? snapshot.rect.right - overflowGroup!.rect.right
+          : overflowGroup!.rect.left - snapshot.rect.left
+      const firstGroupGap =
+        direction === 'ltr'
+          ? formatGroup!.rect.left - insertGroup!.rect.right
+          : insertGroup!.rect.left - formatGroup!.rect.right
+      const secondGroupGap =
+        direction === 'ltr'
+          ? overflowGroup!.rect.left - formatGroup!.rect.right
+          : formatGroup!.rect.left - overflowGroup!.rect.right
+
+      expect(leadingGap).toBeCloseTo(snapshot.paddingInlineStart, 0)
+      expect(trailingGap).toBeCloseTo(snapshot.paddingInlineEnd, 0)
+      expect(firstGroupGap).toBeGreaterThanOrEqual(4)
+      expect(secondGroupGap).toBeGreaterThanOrEqual(4)
+      expect(firstGroupGap).toBeCloseTo(secondGroupGap, 0)
+    }
+  }
+})
+
+test('S25: mobile Markdown quick actions stay above an expanding IME suggestion row', async (ctx) => {
+  const page = getPage()
+  if (!page) {
+    return ctx.skip()
+  }
+
+  const fixture = await seedNotesFixture()
+  await openNotes(page, {layout: 'mobile', viewport: {width: 390, height: 844}})
+  await openNoteFromQuickView(page, fixture.rootNote.name)
+  await waitForMarkdownDocument(page, fixture.rootNote.id, fixture.rootNote.name)
+  await openMarkdownEditor(page)
+
+  const snapshots = await markdownEditorQuickBarKeyboardSnapshots(page, [240, 296])
+
+  expect(snapshots).not.toBeNull()
+  expect(snapshots).toHaveLength(2)
+  for (const snapshot of snapshots!) {
+    expect(snapshot.actionOffset).not.toBe('0px')
+    expect(snapshot.display).toBe('flex')
+    expect(snapshot.visibility).not.toBe('hidden')
+    expect(snapshot.height).toBeGreaterThanOrEqual(44)
+    expect(snapshot.top).toBeGreaterThanOrEqual(0)
+    expect(snapshot.bottom).toBeLessThanOrEqual(snapshot.keyboardTop)
+  }
+  expect(snapshots![0]!.bottom - snapshots![1]!.bottom).toBeCloseTo(56, 0)
+})
+
+test('S25: mobile Markdown quick actions preserve the editor focus state', async (ctx) => {
+  const page = getPage()
+  if (!page) {
+    return ctx.skip()
+  }
+
+  const fixture = await seedNotesFixture()
+  await openNotes(page, {layout: 'mobile', viewport: {width: 390, height: 844}})
+  await openNoteFromQuickView(page, fixture.rootNote.name)
+  await waitForMarkdownDocument(page, fixture.rootNote.id, fixture.rootNote.name)
+  await openMarkdownEditor(page)
+
+  const snapshot = await markdownQuickActionFocusSnapshot(page)
+
+  expect(snapshot.hiddenKeyboardState.editorFocused).toBe(false)
+  expect(snapshot.hiddenKeyboardState.value).toMatch(/^# \*\*/)
+  expect(snapshot.hiddenKeyboardState.selection.selectionStart).toBe(
+    snapshot.hiddenKeyboardState.value.length,
   )
-  expect(Number.parseFloat(snapshot!.editorPaddingBlockEnd)).toBeGreaterThanOrEqual(
-    Number.parseFloat(snapshot!.editorPaddingBlockStart) + Number.parseFloat(snapshot!.editorLineHeight) - 1,
+  expect(snapshot.hiddenKeyboardState.selection.selectionEnd).toBe(
+    snapshot.hiddenKeyboardState.value.length,
   )
-  expect(snapshot!.lastLineBottom).not.toBeNull()
-  expect(snapshot!.lastLineBottom!).toBeLessThanOrEqual(snapshot!.keyboardTop + 1)
-  expect(snapshot!.maxScroll).toBeGreaterThan(0)
-  expect(snapshot!.scrollAtBottom).toBe(true)
+  expect(snapshot.visibleKeyboardState.editorFocused).toBe(true)
+  expect(snapshot.visibleKeyboardState.value).toMatch(/^# \*\*\*\*/)
+  expect(snapshot.visibleKeyboardState.selection.selectionStart).toBe(6)
+  expect(snapshot.visibleKeyboardState.selection.selectionEnd).toBe(6)
 })
 
 test('S25: mobile Markdown editor keeps content anchored across repeated keyboard activations', async (ctx) => {
@@ -2000,7 +2451,7 @@ test('S25: mobile Markdown editor keeps content anchored across repeated keyboar
   }
 })
 
-test('S25: mobile Markdown editor reveals the selected line inside CodeMirror when keyboard is open', async (ctx) => {
+test('S25: mobile Markdown editor keeps selection uniform and reveals offscreen lines above the keyboard', async (ctx) => {
   const page = getPage()
   if (!page) {
     return ctx.skip()
@@ -2021,12 +2472,20 @@ test('S25: mobile Markdown editor reveals the selected line inside CodeMirror wh
   const snapshot = await markdownEditorKeyboardSelectionRevealSnapshot(page, 240)
 
   expect(snapshot).not.toBeNull()
+  expect(snapshot!.visibleSelectionBottom).toBeLessThanOrEqual(snapshot!.before.keyboardTop)
+  expect(Math.abs(snapshot!.visibleSelectionEditorScrollDelta)).toBeLessThanOrEqual(1)
+  expect(Math.abs(snapshot!.visibleSelectionDocumentScrollDelta)).toBeLessThanOrEqual(1)
+  expect(Math.abs(snapshot!.visibleSelectionContentTopDelta)).toBeLessThanOrEqual(1)
+  expect(snapshot!.visibleSelectionStyle.selectionBackgrounds).toEqual([
+    snapshot!.visibleSelectionStyle.editorSelectionBackground,
+  ])
+  expect(snapshot!.visibleSelectionStyle.activeLineBackgrounds).toEqual(['rgba(0, 0, 0, 0)'])
   expect(snapshot!.editorScrollDelta).toBeGreaterThan(120)
   expect(Math.abs(snapshot!.documentScrollDelta)).toBeLessThan(48)
   expect(Math.abs(snapshot!.contentTopDelta)).toBeLessThan(48)
 })
 
-test('S25: mobile Markdown preview keeps the edit button opaque and clear of bottom content', async (ctx) => {
+test('S25: mobile Markdown preview keeps the glass edit button legible and clear of bottom content', async (ctx) => {
   const page = getPage()
   if (!page) {
     return ctx.skip()
@@ -2070,11 +2529,14 @@ test('S25: mobile Markdown preview keeps the edit button opaque and clear of bot
 
   expect(snapshot).not.toBeNull()
   expect(snapshot!.fabVisible).toBe(true)
-  expect(snapshot!.fabBackgroundImage).toContain('linear-gradient')
+  expect(snapshot!.fabBackdropFilter).toContain('blur(10px)')
+  expect(snapshot!.fabBackgroundImage).toBe('none')
   expect(snapshot!.fabBackgroundColor).not.toBe('rgba(0, 0, 0, 0)')
   expect(snapshot!.scrollOverflowY).toBe('auto')
   expect(Number.parseFloat(snapshot!.previewPaddingBlockEnd)).toBeGreaterThan(snapshot!.fabHeight)
-  expect(Number.parseFloat(snapshot!.previewScrollPaddingBlockEnd)).toBeGreaterThanOrEqual(snapshot!.fabHeight)
+  expect(Number.parseFloat(snapshot!.previewScrollPaddingBlockEnd)).toBeGreaterThanOrEqual(
+    snapshot!.fabHeight,
+  )
   expect(snapshot!.lastBlockBottom).not.toBeNull()
   expect(snapshot!.lastBlockBottom!).toBeLessThanOrEqual(snapshot!.fabTop - 1)
   expect(snapshot!.overlapsLastBlock).toBe(false)
@@ -2160,7 +2622,7 @@ test('S25: mobile Markdown image insert controls open the picker and insert an u
   await waitForResolvedMarkdownImage(page, inserted.path)
 })
 
-test('S25: Notes Quick View keeps view controls out of the mobile header', async (ctx) => {
+test('S25: Notes Quick View keeps view controls available in desktop and mobile headers', async (ctx) => {
   const page = getPage()
   if (!page) {
     return ctx.skip()
@@ -2172,7 +2634,7 @@ test('S25: Notes Quick View keeps view controls out of the mobile header', async
   await expectNotesViewSwitchGeometry(page)
 
   await openNotes(page, {layout: 'mobile', viewport: {width: 430, height: 844}})
-  expect((await notesViewSwitchSnapshot(page)).buttonCount).toBe(0)
+  await expectNotesViewSwitchGeometry(page)
 })
 
 test('S25: Notes Quick View lists Markdown, searches by name/path, opens editor, and returns on back', async (ctx) => {

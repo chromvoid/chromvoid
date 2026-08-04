@@ -23,8 +23,10 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 const MEDIA_RANGE_COMMAND: &str = "catalog:downloadRange";
+const DERIVATIVE_ENSURE_COMMAND: &str = "catalog:derivative:ensure";
 const WALLET_BALANCE_COMMAND: &str = "wallet:balance:get";
 const WALLET_HISTORY_COMMAND: &str = "wallet:transactions:sync";
+const DERIVATIVE_ENSURE_RESPONSE_META_TIMEOUT: Duration = Duration::from_secs(60);
 const WALLET_PROVIDER_RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 /// SPEC-231.2 allows one foreground and one prefetch media range stream in
 /// flight at the same time.
@@ -67,10 +69,12 @@ struct PendingJson {
 }
 
 fn json_response_timeout(command: &str, default_timeout: Duration) -> Duration {
-    if matches!(command, WALLET_BALANCE_COMMAND | WALLET_HISTORY_COMMAND) {
-        default_timeout.max(WALLET_PROVIDER_RESPONSE_TIMEOUT)
-    } else {
-        default_timeout
+    match command {
+        WALLET_BALANCE_COMMAND | WALLET_HISTORY_COMMAND => {
+            default_timeout.max(WALLET_PROVIDER_RESPONSE_TIMEOUT)
+        }
+        DERIVATIVE_ENSURE_COMMAND => default_timeout.max(DERIVATIVE_ENSURE_RESPONSE_META_TIMEOUT),
+        _ => default_timeout,
     }
 }
 
@@ -110,9 +114,18 @@ fn request_needs_stream_control_hint(command: &str, has_upload_stream: bool) -> 
             "catalog:download"
                 | "catalog:downloadRange"
                 | "catalog:secret:read"
+                | DERIVATIVE_ENSURE_COMMAND
                 | "catalog:derivative:read"
                 | "vault:export:download"
         )
+}
+
+fn timed_out_request_needs_stream_cancel(
+    command: &str,
+    peer_features: &super::models::RemotePeerFeatures,
+) -> bool {
+    command == DERIVATIVE_ENSURE_COMMAND
+        && peer_features.contains(CORE_FEATURE_REMOTE_STREAM_CONTROL_V1)
 }
 
 #[cfg(test)]
@@ -479,6 +492,20 @@ pub(super) async fn io_loop_with_timing(
                     .collect();
                 for message_id in timed_out {
                     if let Some(pending) = pending_json.remove(&message_id) {
+                        if timed_out_request_needs_stream_cancel(
+                            &pending.command,
+                            &peer_features,
+                        ) {
+                            send_encrypted_frame_typed(
+                                transport.as_mut(),
+                                &mut noise,
+                                frame_stream_cancelled(
+                                    message_id,
+                                    "derivative ensure response metadata timeout",
+                                ),
+                            )
+                            .await?;
+                        }
                         tracing::warn!(
                             "remote_rpc: json_timeout command={} message_id={} pending_json={}",
                             pending.command,

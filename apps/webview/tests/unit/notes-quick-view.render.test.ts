@@ -390,17 +390,21 @@ describe('NotesQuickView render', () => {
     const header = await getWorkspaceHeader(element)
     expect(header?.hasAttribute('embedded')).toBe(true)
     expect(header?.shadowRoot?.querySelector('.filter-chips')).not.toBeNull()
-    expect(header?.shadowRoot?.querySelector('.sort-control')).toBeNull()
-    expect(header?.shadowRoot?.querySelector('.view-switch')).toBeNull()
+    expect(header?.shadowRoot?.querySelector('.sort-control')).not.toBeNull()
+    expect(header?.shadowRoot?.querySelector('.view-switch')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('.quick-view__content')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('pm-summary-rail')).toBeNull()
     expect(layout?.querySelector('[slot="footer"]')).toBeNull()
     expect(element.shadowRoot?.querySelectorAll('.row')).toHaveLength(2)
 
-    notesQuickViewModel.actions.setDisplayMode('tree')
+    const hierarchyButton = header?.shadowRoot?.querySelector(
+      '[data-display-mode="tree"]',
+    ) as HTMLElement | null
+    hierarchyButton?.click()
     await settle(element)
 
     expect(notesQuickViewModel.state.viewMode()).toBe('hierarchy')
+    expect(hierarchyButton?.hasAttribute('checked')).toBe(true)
     expect(element.shadowRoot?.querySelector('.tree')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('[data-folder-path="/Docs"]')?.textContent).toContain('Mobile')
   })

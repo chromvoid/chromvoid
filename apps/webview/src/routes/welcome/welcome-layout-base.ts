@@ -10,7 +10,7 @@ import {WelcomeModel, type WelcomeSetupStep} from './welcome.model'
 import type {WelcomeSectionLayout} from './welcome-section-layout'
 
 const WELCOME_STARTUP_READY_SELECTORS = [
-  'welcome-setup-section >>> .welcome-actions, .mode-cards, .setup-card, .remote-actions, .remote-step-heading, .remote-form-grid, .remote-presence-panel, .remote-wait-panel',
+  'welcome-setup-section >>> .welcome-actions, .mode-cards, .setup-card, .remote-actions, .remote-step-heading, .remote-form-grid, .remote-presence-panel, .remote-wait-panel, remote-desktop-preauth',
 ] as const
 
 export abstract class WelcomePageLayoutBase extends ReatomLitElement {
@@ -57,7 +57,8 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
   private renderMobileLayout() {
     const setupStep = this.model.setup.effectiveStep()
     const isRemoteFlow = this.isRemoteSetupStep(setupStep)
-    const isMobileLockedVault = this.layoutVariant === 'mobile' && !this.model.setup.isNeedInit() && setupStep === null
+    const isMobileLockedVault =
+      this.layoutVariant === 'mobile' && !this.model.setup.isNeedInit() && setupStep === null
     const isMobileFirstRun =
       this.layoutVariant === 'mobile' &&
       this.model.setup.isNeedInit() &&
@@ -123,16 +124,14 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
   private renderDesktopLayout() {
     const setupStep = this.model.setup.effectiveStep()
     const isRemoteFlow = this.isRemoteSetupStep(setupStep)
-    const mainCardClass =
-      isRemoteFlow
-        ? 'main-card main-card--remote-flow'
-        : 'main-card'
+    const mainCardClass = isRemoteFlow ? 'main-card main-card--remote-flow' : 'main-card'
 
     return html`
-      <section class="desktop-surface" aria-label="ChromVoid welcome">
-        <div class=${mainCardClass}>
-          ${this.renderMainCardContent(!isRemoteFlow)}
-        </div>
+      <section
+        class="desktop-surface ${isRemoteFlow ? 'desktop-surface--remote-flow' : ''}"
+        aria-label="ChromVoid welcome"
+      >
+        <div class=${mainCardClass}>${this.renderMainCardContent(!isRemoteFlow)}</div>
 
         <welcome-tools-section
           .model=${this.model.tools}
@@ -157,10 +156,7 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
             ${this.model.errorText()}
           </cv-callout>`
         : nothing}
-      <welcome-setup-section
-        .model=${this.model.setup}
-        layout=${this.layoutVariant}
-      ></welcome-setup-section>
+      <welcome-setup-section .model=${this.model.setup} layout=${this.layoutVariant}></welcome-setup-section>
     `
   }
 

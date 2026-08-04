@@ -7,6 +7,7 @@ import type {
   ManagerSaver,
   OTPGetParams,
   OTPSaveSettings,
+  PassManagerCreateEntryPayload,
   PassManagerSecretSlot,
   PassManagerSshKey,
   PassManagerSaveEntryMetaPayload,
@@ -283,6 +284,10 @@ export class ManagerSaverAdapter implements ManagerSaver {
     return ok
   }
 
+  createEntry(data: PassManagerCreateEntryPayload): Promise<boolean> {
+    return this.repo.createEntry(data)
+  }
+
   saveEntryMeta(data: PassManagerSaveEntryMetaPayload): Promise<boolean> {
     return this.repo.saveEntryMeta(data)
   }
@@ -315,5 +320,9 @@ export class ManagerSaverAdapter implements ManagerSaver {
 
   removeEntry(id: string): Promise<boolean> {
     return this.repo.removeEntry(id)
+  }
+
+  removeGroup(path: string): Promise<void> {
+    return this.repo.removeGroup(path)
   }
 }

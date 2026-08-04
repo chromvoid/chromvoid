@@ -63,6 +63,7 @@ export class MobileTabBar extends ReatomLitElement {
         min-block-size: 48px;
       }
 
+      .tab:is(button),
       .tab::part(base) {
         display: inline-flex;
         flex-direction: column;
@@ -76,6 +77,12 @@ export class MobileTabBar extends ReatomLitElement {
         padding: 10px 0;
       }
 
+      .tab:is(button) {
+        appearance: none;
+        -webkit-appearance: none;
+        font: inherit;
+      }
+
       .tab:active {
         transform: scale(0.96);
       }
@@ -86,6 +93,7 @@ export class MobileTabBar extends ReatomLitElement {
         outline-offset: 0;
       }
 
+      .tab:is(button):focus-visible,
       .tab:focus-visible::part(base),
       .tab::part(base):focus-visible {
         box-shadow: 0 0 0 2px var(--cv-color-accent-ring);
@@ -156,14 +164,16 @@ export class MobileTabBar extends ReatomLitElement {
           <cv-icon slot="prefix" name="file-text"></cv-icon>
           <span class="tab-label">${i18n('navigation:notes' as never)}</span>
         </cv-button>
-        <cv-button unstyled
+        <button
+          id="app.tab.credentials"
+          type="button"
           class="tab ${active === 'passwords' ? 'active' : ''}"
           @click=${this.onPasswords}
           aria-label=${i18n('navigation:passwords' as any)}
         >
-          <cv-icon slot="prefix" name="lock"></cv-icon>
+          <cv-icon name="lock"></cv-icon>
           <span class="tab-label">${i18n('navigation:passwords' as any)}</span>
-        </cv-button>
+        </button>
         <cv-button unstyled
           class="tab ${active === 'otp' ? 'active' : ''}"
           @click=${this.onOtpCodes}

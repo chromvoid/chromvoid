@@ -25,8 +25,8 @@ use super::secret_store::{InMemoryMobileUsbSecretStore, MobileUsbSecretStore};
 #[cfg(desktop)]
 use super::session_coordinator::{MobileUsbSessionEventTarget, TauriMobileUsbSessionEventSink};
 use super::types::{
-    MobileUsbBridgeKind, MobileUsbDetectCandidate, MobileUsbError, MobileUsbErrorCode,
-    MobileUsbHostView, MobileUsbOperationKind, MobileUsbOperationToken,
+    MobileUsbBridgeKind, MobileUsbDetectCandidate, MobileUsbDetectedPairingState, MobileUsbError,
+    MobileUsbErrorCode, MobileUsbHostView, MobileUsbOperationKind, MobileUsbOperationToken,
     MobileUsbPairConfirmRequest, MobileUsbPairRequest, MobileUsbPairedHostRecord,
     MobileUsbPairingState, MobileUsbPlatform, MobileUsbRecoveryAction, MobileUsbScanClassification,
     MobileUsbScanResult, MobileUsbSessionEvent, MobileUsbSessionState, MobileUsbStateMachine,

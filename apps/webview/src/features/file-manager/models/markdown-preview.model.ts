@@ -73,6 +73,12 @@ export type MarkdownEditorFocusRequest = {
   selectionStart: number | null
 }
 
+export type MarkdownEditorSelectionRequest = {
+  id: number
+  selectionStart: number
+  selectionEnd: number
+}
+
 export type MarkdownImageInsertionSelection = {
   selectionStart: number
   selectionEnd: number
@@ -262,6 +268,10 @@ export class MarkdownPreviewModel {
     null,
     'markdown.preview.editorFocusRequest',
   )
+  readonly editorSelectionRequest = atom<MarkdownEditorSelectionRequest | null>(
+    null,
+    'markdown.preview.editorSelectionRequest',
+  )
   readonly anchorScrollRequest = atom<MarkdownAnchorScrollRequest | null>(
     null,
     'markdown.preview.anchorScrollRequest',
@@ -342,7 +352,7 @@ export class MarkdownPreviewModel {
   })
   readonly canFormat = computed(() => {
     const state = this.state()
-    return state.kind === 'ready' && !state.saving && !state.formatting
+    return state.kind === 'ready' && !state.saving && !state.formatting && !this.imageAttaching()
   })
   readonly canInsertImage = computed(() => {
     const state = this.state()
@@ -411,6 +421,7 @@ export class MarkdownPreviewModel {
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null
   private pendingCloseResume: (() => void) | null = null
   private editorFocusRequestId = 0
+  private editorSelectionRequestId = 0
   private anchorScrollRequestId = 0
   private imagePickerTrigger: ImagePickerTrigger | null = null
   private readonly viewportAnchorMemory = new Map<number, MarkdownViewportAnchor>()
@@ -495,6 +506,7 @@ export class MarkdownPreviewModel {
     this.resetHistory()
     this.pendingCloseIntent.set(null)
     this.editorFocusRequest.set(null)
+    this.editorSelectionRequest.set(null)
     this.anchorScrollRequest.set(null)
     this.resetImageInsertionSelection()
     this.currentData.set(data)
@@ -550,6 +562,7 @@ export class MarkdownPreviewModel {
     }
 
     this.editorFocusRequest.set(null)
+    this.editorSelectionRequest.set(null)
   }
 
   rememberViewportAnchor(fileId: number, anchor: MarkdownViewportAnchor): void {
@@ -636,13 +649,13 @@ export class MarkdownPreviewModel {
       if (current.mode !== 'edit') {
         this.state.set(nextState)
       }
-      this.requestEditorFocus(nextState, applied.selectionStart)
+      this.requestEditorSelection(nextState, applied.selectionStart)
       return true
     }
 
     this.recordHistoryForSourceChange(current.source, 'command')
     this.state.set(nextState)
-    this.requestEditorFocus(nextState, applied.selectionStart)
+    this.requestEditorSelection(nextState, applied.selectionStart)
     this.scheduleRender()
     this.scheduleAutosaveForCurrentSource()
     return true
@@ -679,7 +692,7 @@ export class MarkdownPreviewModel {
 
   async formatDocument(): Promise<boolean> {
     const snapshot = this.state()
-    if (snapshot.kind !== 'ready' || snapshot.saving || snapshot.formatting) {
+    if (snapshot.kind !== 'ready' || snapshot.saving || snapshot.formatting || this.imageAttaching()) {
       return false
     }
 
@@ -1227,7 +1240,7 @@ export class MarkdownPreviewModel {
       }
 
       const current = this.state()
-      if (current.kind !== 'ready' || current.saving || current.formatting || current.readOnlyReasonKey) {
+      if (current.kind !== 'ready' || current.formatting || current.readOnlyReasonKey) {
         return false
       }
 
@@ -1237,13 +1250,14 @@ export class MarkdownPreviewModel {
         selectionEnd: inserted.selectionStart,
       })
       this.recordHistoryForSourceChange(current.source, 'user')
-      this.state.set({
+      const nextState: MarkdownPreviewReadyState = {
         ...current,
         source: inserted.source,
         dirty: inserted.source !== current.baseline,
         errorKey: current.stale ? current.errorKey : null,
-      })
-      this.requestEditorFocus({...current, source: inserted.source}, inserted.selectionStart)
+      }
+      this.state.set(nextState)
+      this.requestEditorSelection(nextState, inserted.selectionStart)
       this.scheduleRender()
       this.scheduleAutosaveForCurrentSource()
       return true
@@ -1278,6 +1292,7 @@ export class MarkdownPreviewModel {
     this.pendingCloseIntent.set(null)
     this.pendingCloseResume = null
     this.editorFocusRequest.set(null)
+    this.editorSelectionRequest.set(null)
     this.anchorScrollRequest.set(null)
     this.resetImageInsertionSelection()
     this.state.set({kind: 'idle'})
@@ -1289,9 +1304,21 @@ export class MarkdownPreviewModel {
         ? Math.min(state.source.length, Math.max(0, Math.floor(selectionStart)))
         : null
 
+    this.editorSelectionRequest.set(null)
     this.editorFocusRequest.set({
       id: ++this.editorFocusRequestId,
       selectionStart: normalizedSelectionStart,
+    })
+  }
+
+  private requestEditorSelection(state: MarkdownPreviewReadyState, selectionStart: number): void {
+    const normalizedSelectionStart = this.clampSourceOffsetByLength(state.source.length, selectionStart)
+
+    this.editorFocusRequest.set(null)
+    this.editorSelectionRequest.set({
+      id: ++this.editorSelectionRequestId,
+      selectionStart: normalizedSelectionStart,
+      selectionEnd: normalizedSelectionStart,
     })
   }
 

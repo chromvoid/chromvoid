@@ -13,6 +13,7 @@ import {markMobileKeyboardProgrammaticScroll} from 'root/shared/services/mobile-
 import {transientBackModel} from 'root/shared/services/transient-back.model'
 import {MobileBottomActionFooter} from 'root/shared/ui/mobile-bottom-action-footer'
 import {PMEntryCreateBase} from './entry-create-base'
+import {PMEntryWebsiteEditor} from '../entry-website-editor'
 import {PMEntryCreateDetailsSheet} from './entry-create-details-sheet'
 import {PMEntryCreateLocationSheet} from './entry-create-location-sheet'
 import type {PMEntryCreateOptionalDetail} from './entry-create.model'
@@ -346,15 +347,67 @@ const pmEntryCreateMobileStyles = css`
     --app-mobile-block-end-action-padding: var(--cv-space-2) var(--cv-space-3);
   }
 
-  :host-context(html[data-mobile-keyboard-expanded]) .create-footer,
-  :host-context(html[data-visual-viewport-shrunken]) .create-footer {
-    margin-block-end: calc(
-      var(--app-runtime-visual-viewport-inset-block-end, 0px) + var(--cv-space-1)
-    );
+  .create-submit {
+    appearance: none;
+    -webkit-appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cv-button-gap, var(--cv-space-2));
+    inline-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 48px;
+    box-sizing: border-box;
+    padding: var(--cv-button-padding-block, var(--cv-space-2))
+      var(--cv-button-padding-inline, var(--cv-space-4));
+    border: 1px solid
+      var(--cv-button-action-primary-border-color, var(--cv-color-primary-border-strong));
+    border-radius: var(--cv-button-border-radius, var(--cv-radius-sm));
+    background: var(--cv-button-action-primary-background, var(--cv-color-primary-dark));
+    color: var(--cv-button-action-primary-text-color, var(--cv-color-on-primary));
+    font: inherit;
+    font-size: var(--cv-button-font-size-large, var(--cv-font-size-md));
+    font-weight: var(--cv-button-font-weight-medium, inherit);
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    transition:
+      background var(--cv-duration-fast) var(--cv-easing-standard),
+      border-color var(--cv-duration-fast) var(--cv-easing-standard),
+      color var(--cv-duration-fast) var(--cv-easing-standard);
   }
 
-  .create-footer cv-button::part(base) {
-    min-block-size: 48px;
+  .create-submit:hover:not(:disabled) {
+    background: var(--cv-button-action-primary-background-hover, var(--cv-color-primary));
+    border-color: var(
+      --cv-button-action-primary-border-color-hover,
+      var(--cv-color-primary-border-strong)
+    );
+    color: var(--cv-button-action-primary-text-color-hover, var(--cv-color-on-primary));
+  }
+
+  .create-submit:active:not(:disabled) {
+    background: var(--cv-button-action-primary-background-active, var(--cv-color-primary-darker));
+    border-color: var(
+      --cv-button-action-primary-border-color-active,
+      var(--cv-color-primary-border-strong)
+    );
+    color: var(--cv-button-action-primary-text-color-active, var(--cv-color-on-primary));
+  }
+
+  .create-submit:focus-visible {
+    outline: 2px solid
+      var(--cv-button-action-primary-focus-ring-color, var(--cv-color-primary-ring));
+    outline-offset: 2px;
+  }
+
+  .create-submit:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .create-submit[aria-busy='true'] {
+    cursor: progress;
   }
 
   .discard-action::part(base) {
@@ -407,6 +460,7 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
     MobileBottomActionFooter.define()
     PMEntryCreateDetailsSheet.define()
     PMEntryCreateLocationSheet.define()
+    PMEntryWebsiteEditor.define()
     if (!customElements.get('pm-entry-create-mobile')) {
       customElements.define('pm-entry-create-mobile', this)
     }
@@ -563,10 +617,12 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
       i18n('title'),
       html`
         <cv-input
+          control-id="passwords.create.title"
           name="title"
           type="text"
           size="large"
           autocomplete="off"
+          aria-label=${i18n('title')}
           placeholder=${i18n('title:placeholder')}
           .value=${this.model.title()}
           ?invalid=${Boolean(error)}
@@ -582,7 +638,6 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
   private renderLoginFields(): TemplateResult {
     const usernameError = this.model.usernameError()
     const passwordError = this.model.passwordError()
-    const websiteError = this.model.websiteError()
 
     return html`
       <div class="form-surface">
@@ -591,10 +646,12 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
           i18n('username'),
           html`
             <cv-input
+              control-id="passwords.create.username"
               name="username"
               type="text"
               size="large"
               autocomplete="username"
+              aria-label=${i18n('username')}
               placeholder=${i18n('username:placeholder')}
               .value=${this.model.username()}
               ?invalid=${Boolean(usernameError)}
@@ -608,12 +665,14 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
           i18n('password'),
           html`
             <cv-input
+              control-id="passwords.create.password"
               class="password-input"
               name="password"
               type="password"
               size="large"
               autocomplete="new-password"
               password-toggle
+              aria-label=${i18n('password')}
               placeholder=${i18n('password:placeholder')}
               .value=${this.model.password()}
               ?invalid=${Boolean(passwordError)}
@@ -638,25 +697,7 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
           passwordError,
           {required: true},
         )}
-        ${this.renderField(
-          i18n('website:title'),
-          html`
-            <cv-input
-              name="urls"
-              type="url"
-              size="large"
-              inputmode="url"
-              autocomplete="url"
-              placeholder=${i18n('website:placeholder')}
-              .value=${this.model.website()}
-              ?invalid=${Boolean(websiteError)}
-              @cv-input=${this.onUrlsInput}
-              @blur=${this.onUrlsBlur}
-            ></cv-input>
-          `,
-          websiteError,
-          {optional: true},
-        )}
+        <pm-entry-website-editor .model=${this.model.websiteEditor}></pm-entry-website-editor>
       </div>
     `
   }
@@ -854,17 +895,18 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
     const isSubmitting = this.model.isSubmitting()
     return html`
       <mobile-bottom-action-footer class="create-footer" flow>
-        <cv-button
-          .disabled=${isPassmanagerReadOnlyOrMissing()}
-          .loading=${isSubmitting}
-          size="large"
-          variant="primary"
-          preset="action-primary"
+        <button
+          id="passwords.create.submit"
+          class="create-submit"
           type="submit"
+          ?disabled=${isPassmanagerReadOnlyOrMissing() || isSubmitting}
+          aria-label=${i18n('button:create_entry')}
+          aria-busy=${isSubmitting ? 'true' : nothing}
         >
-          <cv-icon slot="prefix" name="shield-check" aria-hidden="true"></cv-icon>
+          ${isSubmitting ? html`<cv-spinner aria-hidden="true"></cv-spinner>` : nothing}
+          <cv-icon name="shield-check" aria-hidden="true"></cv-icon>
           <span>${isSubmitting ? i18n('entry:creating') : i18n('button:create_entry')}</span>
-        </cv-button>
+        </button>
       </mobile-bottom-action-footer>
     `
   }
@@ -874,7 +916,7 @@ export class PMEntryCreateMobile extends PMEntryCreateBase {
 
     return html`
       <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
-        <form @submit=${this.onSubmit}>
+        <form novalidate @submit=${this.onSubmit}>
           <div class="create-scroll">
             ${this.renderTypeSelector()} ${this.renderLocation()}
             ${this.model.entryType() === 'payment_card'

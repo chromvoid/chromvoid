@@ -174,7 +174,25 @@ export async function mockDeleteConfirmDialog(page: Page, confirmed: boolean) {
 
 export async function createFolder(page: Page, name: string) {
   await mockCreateFolderDialog(page, name)
-  await page.keyboard.press('Control+Shift+N')
+  const requested = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    const button = deepFind(document, '[data-action="create-dir"]') as HTMLElement | null
+    button?.click()
+    return Boolean(button)
+  })
+  if (!requested) {
+    throw new Error('Create folder action is unavailable')
+  }
 }
 
 export async function dispatchFileAction(page: Page, name: string, action: string) {

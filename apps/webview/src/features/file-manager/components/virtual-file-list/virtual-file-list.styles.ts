@@ -33,6 +33,14 @@ export const virtualFileListStyles = [
       --app-scroll-edge-surface: var(--app-scroll-edge-default-surface);
     }
 
+    :host([mobile]) .file-list-scroll-edge {
+      --app-scroll-edge-block-size: var(--app-scroll-edge-mobile-block-size);
+      --app-scroll-edge-inline-start: 0px;
+      --app-scroll-edge-inline-end: 0px;
+      --app-scroll-edge-surface: var(--cv-color-bg);
+      --app-scroll-edge-surface-fade: var(--cv-color-surface-glass-subtle);
+    }
+
     .list-container {
       flex: 1;
       block-size: 100%;
@@ -78,9 +86,9 @@ export const virtualFileListStyles = [
 
     .grid-view {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: var(--app-spacing-4);
-      padding: var(--app-spacing-4);
+      grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+      gap: var(--app-spacing-3);
+      padding: var(--app-spacing-3);
     }
 
     .grid-virtual-spacer {
@@ -234,22 +242,21 @@ export const virtualFileListStyles = [
     }
 
     .file-item-skeleton-grid {
-      min-block-size: 200px;
+      min-block-size: 208px;
+      block-size: 208px;
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: 128px minmax(0, 1fr);
       align-items: stretch;
-      gap: 10px;
-      padding: 10px;
-      border-radius: var(--cv-radius-3);
-      background: linear-gradient(180deg, var(--cv-color-surface-2), var(--cv-color-surface));
-      box-shadow:
-        inset 0 1px 0 var(--cv-alpha-white-4),
-        0 10px 24px var(--cv-alpha-black-8);
+      gap: 8px;
+      padding: 8px;
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface-2);
+      box-shadow: none;
 
       .skeleton-icon {
         inline-size: 100%;
-        block-size: 110px;
-        border-radius: calc(var(--cv-radius-3) - 2px);
+        block-size: 128px;
+        border-radius: var(--cv-radius-1);
       }
 
       .skeleton-lines {
@@ -373,21 +380,7 @@ export const virtualFileListStyles = [
       }
     }
 
-    @container (min-width: 1200px) {
-      .grid-view {
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: var(--app-spacing-5);
-        padding: var(--app-spacing-5);
-      }
-    }
-
     @container (min-width: 900px) and (max-width: 1200px) {
-      .grid-view {
-        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-        gap: var(--app-spacing-4);
-        padding: var(--app-spacing-4);
-      }
-
       .table-header,
       .table-view .file-item-wrapper {
         grid-template-columns: 40px 1fr 140px 120px 80px;
@@ -400,12 +393,6 @@ export const virtualFileListStyles = [
       .table-view .file-item-wrapper {
         grid-template-columns: 36px 1fr 120px 100px 72px;
         gap: var(--app-spacing-2);
-      }
-
-      .grid-view {
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: var(--app-spacing-3);
-        padding: var(--app-spacing-3);
       }
     }
 
@@ -429,15 +416,15 @@ export const virtualFileListStyles = [
           }
         }
       }
+    }
 
+    @container (min-width: 600px) and (max-width: 899px) {
       .grid-view {
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: var(--app-spacing-2);
-        padding: var(--app-spacing-3);
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
       }
     }
 
-    @container (max-width: 600px) {
+    @container (max-width: 599px) {
       .list-container {
         background: transparent;
         -webkit-overflow-scrolling: touch;
@@ -475,6 +462,16 @@ export const virtualFileListStyles = [
         gap: var(--app-mobile-surface-gap);
         padding: var(--app-mobile-surface-gutter-block-start) var(--app-mobile-surface-gutter-inline)
           calc(var(--app-mobile-surface-gutter-block-end) + 88px);
+      }
+
+      .file-item-skeleton-grid {
+        min-block-size: 184px;
+        block-size: 184px;
+        grid-template-rows: 104px minmax(0, 1fr);
+      }
+
+      .file-item-skeleton-grid .skeleton-icon {
+        block-size: 104px;
       }
 
       .list-view {

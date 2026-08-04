@@ -51,7 +51,7 @@ impl CoreAdapter for LockingSessionApprovalAdapter {
 }
 
 #[tokio::test]
-async fn usb_pre_approval_rejects_forbidden_rpc_without_closing_loop() {
+async fn usb_pre_approval_rejects_derivative_ensure_without_closing_loop() {
     let (mut client_noise, host_noise) = noise_pair();
     let (mut client_transport, host_transport) = ChannelTransport::pair(TransportType::UsbMobile);
     let commands = Arc::new(Mutex::new(Vec::new()));
@@ -97,10 +97,16 @@ async fn usb_pre_approval_rejects_forbidden_rpc_without_closing_loop() {
             message_id: 7,
             flags: 0,
             payload: serde_json::to_vec(&RpcRequest::new(
-                "license:status",
-                serde_json::Value::Null,
+                "catalog:derivative:ensure",
+                serde_json::json!({
+                    "node_id": 17,
+                    "source_version": 3,
+                    "tier": "preview",
+                    "version": crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+                    "refresh_cache": false,
+                }),
             ))
-            .expect("license status request json"),
+            .expect("derivative ensure request json"),
         },
     )
     .await

@@ -149,10 +149,6 @@ fn record_source_revision_delta(
     let Some(rel_path) = shard_relative_path(&shard_id, &normalized) else {
         return;
     };
-    if rel_path == "/" {
-        return;
-    }
-
     let mut fields = crate::catalog::PartialNode::default();
     fields.modtime = Some(modtime);
     fields.source_revision = Some(source_revision);
@@ -182,10 +178,6 @@ fn record_file_replace_delta(
     let Some(rel_path) = shard_relative_path(&shard_id, &normalized) else {
         return;
     };
-    if rel_path == "/" {
-        return;
-    }
-
     let mut fields = crate::catalog::PartialNode::default();
     fields.size = Some(size);
     fields.mime_type = Some(mime_type.to_string());
@@ -217,10 +209,6 @@ fn record_upload_delta(
     let Some(rel_path) = shard_relative_path(&shard_id, &normalized) else {
         return;
     };
-    if rel_path == "/" {
-        return;
-    }
-
     let mut fields = crate::catalog::PartialNode::default();
     fields.size = Some(size);
     fields.mime_type = mime_type;

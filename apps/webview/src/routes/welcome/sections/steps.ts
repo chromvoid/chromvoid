@@ -11,6 +11,7 @@ import {
 } from 'root/routes/remote/remote-hosts-flow.render'
 
 import type {WelcomeSectionLayout} from '../welcome-section-layout'
+import {RemoteDesktopPreauth} from '../remote-desktop-preauth.render'
 import {
   welcomeSectionCalloutStyles,
   welcomeSectionHostStyles,
@@ -49,7 +50,15 @@ function renderEntropyMeter(passwordStrength: PasswordFeedback) {
 function renderModeIcon(kind: 'local' | 'remote') {
   if (kind === 'local') {
     return html`
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
         <rect x="3" y="4" width="18" height="12" rx="2"></rect>
         <path d="M8 20h8"></path>
         <path d="M12 16v4"></path>
@@ -58,7 +67,15 @@ function renderModeIcon(kind: 'local' | 'remote') {
   }
 
   return html`
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
       <rect x="7" y="2" width="10" height="20" rx="3"></rect>
       <path d="M11 18h2"></path>
       <path d="M4 8h2"></path>
@@ -67,11 +84,12 @@ function renderModeIcon(kind: 'local' | 'remote') {
   `
 }
 
-function renderUnlockArrowIcon() {
+// Keep smoke-critical actions as native controls at this shadow-root level so WKWebView
+// exposes an actionable element to iOS accessibility automation.
+function renderPrimaryActionContent(label: string, loading: boolean) {
   return html`
-    <svg class="unlock-arrow" slot="suffix" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 19V5M6 11l6-6 6 6"></path>
-    </svg>
+    ${loading ? html`<span class="welcome-primary-spinner" aria-hidden="true"></span>` : nothing}
+    <span class="welcome-primary-label">${label}</span>
   `
 }
 
@@ -134,6 +152,77 @@ export class WelcomeSetupSection extends ReatomLitElement {
         stroke-width: 2;
       }
 
+      .welcome-primary-action {
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--cv-space-2, 8px);
+        inline-size: 100%;
+        min-inline-size: 0;
+        min-block-size: 36px;
+        padding: var(--cv-space-2, 8px) var(--cv-space-3, 12px);
+        border: 1px solid color-mix(in oklab, var(--cv-color-primary) 52%, var(--cv-color-border));
+        border-radius: var(--cv-radius-sm, 6px);
+        appearance: none;
+        background: color-mix(in oklab, var(--cv-color-primary) 22%, var(--cv-color-surface));
+        color: var(--cv-color-text);
+        cursor: pointer;
+        font: inherit;
+        touch-action: manipulation;
+        transition:
+          background var(--cv-duration-fast) var(--cv-easing-standard),
+          border-color var(--cv-duration-fast) var(--cv-easing-standard),
+          color var(--cv-duration-fast) var(--cv-easing-standard);
+      }
+
+      .welcome-primary-action:hover:not(:disabled) {
+        border-color: color-mix(in oklab, var(--cv-color-primary) 72%, var(--cv-color-border));
+        background: color-mix(in oklab, var(--cv-color-primary) 30%, var(--cv-color-surface));
+      }
+
+      .welcome-primary-action:active:not(:disabled) {
+        border-color: color-mix(in oklab, var(--cv-color-primary) 84%, var(--cv-color-border));
+        background: color-mix(in oklab, var(--cv-color-primary) 36%, var(--cv-color-surface));
+      }
+
+      .welcome-primary-action:focus-visible {
+        outline: 2px solid var(--cv-color-primary);
+        outline-offset: 2px;
+      }
+
+      .welcome-primary-action:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .welcome-primary-action[aria-busy='true'] {
+        cursor: progress;
+      }
+
+      .welcome-primary-label {
+        flex: 1 1 auto;
+        min-inline-size: 0;
+        overflow: hidden;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .welcome-primary-action[aria-busy='true'] .welcome-primary-label {
+        opacity: 0.72;
+      }
+
+      .welcome-primary-spinner {
+        inline-size: 14px;
+        block-size: 14px;
+        flex: 0 0 auto;
+        border: 2px solid rgb(from var(--cv-color-primary) r g b / 0.32);
+        border-block-start-color: var(--cv-color-primary);
+        border-radius: 999px;
+        animation: welcome-primary-action-spin 800ms linear infinite;
+      }
+
       .lockscreen-proof {
         display: flex;
         gap: 11px;
@@ -176,25 +265,6 @@ export class WelcomeSetupSection extends ReatomLitElement {
         margin: 0;
       }
 
-      .lockscreen-hint {
-        margin-block-start: 10px;
-        color: var(--welcome-lockscreen-foreground-subtle);
-        font-family: var(--cv-font-family-code);
-        font-size: 0.65625rem;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-        text-align: center;
-      }
-
-      .unlock-arrow {
-        inline-size: 15px;
-        block-size: 15px;
-        stroke: currentColor;
-        stroke-width: 2.4;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-
       .password-sheet {
         --cv-bottom-sheet-border-radius: 24px 24px 0 0;
         --cv-bottom-sheet-overlay-color: var(--cv-color-overlay);
@@ -215,59 +285,6 @@ export class WelcomeSetupSection extends ReatomLitElement {
 
       .password-sheet::part(body) {
         overflow-y: auto;
-      }
-
-      .password-sheet-content {
-        display: grid;
-        gap: 0;
-      }
-
-      .password-sheet-header {
-        display: flex;
-        align-items: center;
-        gap: var(--app-spacing-3);
-        margin-block: 16px 6px;
-      }
-
-      .password-sheet-title {
-        flex: 1;
-        min-inline-size: 0;
-        color: var(--welcome-lockscreen-foreground);
-        font-size: 1.0625rem;
-        font-weight: 650;
-      }
-
-      .password-sheet-close {
-        display: inline-grid;
-        place-items: center;
-        inline-size: 30px;
-        block-size: 30px;
-        padding: 0;
-        border: 0;
-        border-radius: 10px;
-        background: transparent;
-        color: var(--welcome-lockscreen-foreground-subtle);
-        cursor: pointer;
-      }
-
-      .password-sheet-close:focus-visible {
-        outline: 2px solid var(--cv-color-primary);
-        outline-offset: 2px;
-      }
-
-      .password-sheet-close svg {
-        inline-size: 18px;
-        block-size: 18px;
-        stroke: currentColor;
-        stroke-width: 2;
-        stroke-linecap: round;
-      }
-
-      .password-sheet-desc {
-        margin: 0 0 20px;
-        color: var(--welcome-lockscreen-foreground-muted);
-        font-size: 0.84375rem;
-        line-height: 1.5;
       }
 
       .password-sheet-form {
@@ -366,26 +383,6 @@ export class WelcomeSetupSection extends ReatomLitElement {
 
       .unlock-inline-submit {
         margin-block-start: 4px;
-      }
-
-      .password-sheet-local {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 7px;
-        margin-block-start: 14px;
-        color: var(--welcome-lockscreen-foreground-subtle);
-        font-family: var(--cv-font-family-code);
-        font-size: 0.65625rem;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-      }
-
-      .password-sheet-local svg {
-        inline-size: 12px;
-        block-size: 12px;
-        stroke: currentColor;
-        stroke-width: 2;
       }
 
       .setup-card {
@@ -628,6 +625,11 @@ export class WelcomeSetupSection extends ReatomLitElement {
         border-radius: 9px;
       }
 
+      :host([layout='desktop']) .welcome-primary-action {
+        min-block-size: 46px;
+        border-radius: 9px;
+      }
+
       :host([layout='desktop']) .mode-cards {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 14px;
@@ -720,6 +722,10 @@ export class WelcomeSetupSection extends ReatomLitElement {
         gap: var(--app-spacing-3);
       }
 
+      :host([layout='mobile']) .welcome-primary-action {
+        min-block-size: 52px;
+      }
+
       :host([layout='mobile']) .mode-cards {
         gap: var(--app-spacing-3);
       }
@@ -733,16 +739,16 @@ export class WelcomeSetupSection extends ReatomLitElement {
       }
 
       :host([layout='mobile']) .welcome-actions.lockscreen-actions {
-        gap: 0;
+        gap: var(--app-spacing-3);
         margin-block-start: var(--app-spacing-5);
       }
 
-      :host([layout='mobile']) .lockscreen-remote-action {
-        margin-block-start: var(--app-spacing-3);
+      :host([layout='mobile']) .unlock-inline-label {
+        color: var(--welcome-lockscreen-foreground-subtle);
       }
 
-      :host([layout='mobile']) .lockscreen-unlock-action::part(base),
-      :host([layout='mobile']) .password-sheet-submit::part(base) {
+      :host([layout='mobile']) .unlock-inline-submit,
+      :host([layout='mobile']) .password-sheet-submit {
         min-block-size: 54px;
         border-radius: 14px;
         background: var(--cv-color-primary);
@@ -753,15 +759,27 @@ export class WelcomeSetupSection extends ReatomLitElement {
         box-shadow: 0 8px 30px var(--welcome-lockscreen-primary-shadow);
       }
 
-      :host([layout='mobile']) .lockscreen-unlock-action[loading]::part(spinner) {
+      :host([layout='mobile']) .unlock-inline-submit .welcome-primary-spinner {
         inline-size: 18px;
         block-size: 18px;
         border-color: rgb(from var(--welcome-lockscreen-on-primary) r g b / 0.32);
-        border-top-color: var(--welcome-lockscreen-on-primary);
+        border-block-start-color: var(--welcome-lockscreen-on-primary);
       }
 
-      :host([layout='mobile']) .lockscreen-unlock-action[loading]::part(label) {
+      :host([layout='mobile']) .unlock-inline-submit[aria-busy='true'] .welcome-primary-label {
         flex: 0 1 auto;
+      }
+
+      @keyframes welcome-primary-action-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .welcome-primary-spinner {
+          animation-duration: 3200ms;
+        }
       }
 
       @media (max-height: 700px) {
@@ -772,17 +790,12 @@ export class WelcomeSetupSection extends ReatomLitElement {
           line-height: 1.35;
         }
 
-        .lockscreen-hint {
-          margin-block-start: 6px;
-          font-size: 0.59375rem;
-        }
-
         :host([layout='mobile']) .welcome-actions.lockscreen-actions {
           margin-block-start: 12px;
         }
 
-        :host([layout='mobile']) .lockscreen-unlock-action::part(base),
-        :host([layout='mobile']) .password-sheet-submit::part(base) {
+        :host([layout='mobile']) .unlock-inline-submit,
+        :host([layout='mobile']) .password-sheet-submit {
           min-block-size: 48px;
         }
       }
@@ -799,16 +812,12 @@ export class WelcomeSetupSection extends ReatomLitElement {
           block-size: 13px;
         }
 
-        .lockscreen-hint {
-          display: none;
-        }
-
         :host([layout='mobile']) .welcome-actions.lockscreen-actions {
           margin-block-start: 9px;
         }
 
-        :host([layout='mobile']) .lockscreen-unlock-action::part(base),
-        :host([layout='mobile']) .password-sheet-submit::part(base) {
+        :host([layout='mobile']) .unlock-inline-submit,
+        :host([layout='mobile']) .password-sheet-submit {
           min-block-size: 44px;
           font-size: 0.9375rem;
         }
@@ -826,6 +835,7 @@ export class WelcomeSetupSection extends ReatomLitElement {
 
   static define() {
     CVBottomSheet.define()
+    RemoteDesktopPreauth.define()
     if (!customElements.get('welcome-setup-section')) {
       customElements.define('welcome-setup-section', this)
     }
@@ -851,13 +861,17 @@ export class WelcomeSetupSection extends ReatomLitElement {
     event.preventDefault()
     if (!this.model) return
 
+    this.dismissMobileUnlockKeyboard()
     await this.model.submitUnlock()
-    if (!this.model.unlockValidationError()) return
+  }
 
-    await this.updateComplete
-    const inputId =
-      this.layout === 'mobile' ? '#welcome-unlock-password' : '#welcome-unlock-password-desktop'
-    this.focusInput(inputId)
+  private dismissMobileUnlockKeyboard(): void {
+    if (this.layout !== 'mobile') return
+
+    this.shadowRoot
+      ?.querySelector<HTMLElement>('#welcome-unlock-password')
+      ?.shadowRoot?.querySelector<HTMLInputElement>('input')
+      ?.blur()
   }
 
   private focusInput(inputId: string): void {
@@ -866,76 +880,39 @@ export class WelcomeSetupSection extends ReatomLitElement {
     focusTarget?.focus()
   }
 
-  private renderUnlockSheet() {
-    if (!this.model) {
-      return nothing
-    }
+  private renderUnlockForm() {
+    if (!this.model) return nothing
+
+    const mobile = this.layout === 'mobile'
+    const inputId = mobile ? 'welcome-unlock-password' : 'welcome-unlock-password-desktop'
+    const setupInProgress = this.model.setupInProgress()
 
     return html`
-      <cv-bottom-sheet
-        class="password-sheet unlock-sheet"
-        .open=${this.model.unlockSheetOpen()}
-        no-header
-        show-handle
-        drag-to-close
-        @cv-change=${this.model.handleUnlockSheetChange}
-      >
-        <div class="password-sheet-content">
-          <div class="password-sheet-header">
-            <div class="password-sheet-title">${i18n('welcome:vault-password')}</div>
-            <button class="password-sheet-close" type="button" @click=${this.model.closeUnlockSheet} aria-label=${i18n('button:close')}>
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 6l12 12M18 6L6 18"></path>
-              </svg>
-            </button>
-          </div>
-          <p class="password-sheet-desc">${i18n('welcome:unlock-sheet-desc')}</p>
-
-          ${this.model.shared.errorText()
-            ? html`<cv-callout variant="danger">${this.model.shared.errorText()}</cv-callout>`
-            : nothing}
-
-          <form class="password-sheet-form" @submit=${this.handleUnlockSubmit}>
-            <label class="password-sheet-label" for="welcome-unlock-password">${i18n('welcome:vault-password')}</label>
-            <cv-input
-              id="welcome-unlock-password"
-              class="password-sheet-input"
-              type="password"
-              password-toggle
-              autocomplete="current-password"
-              enterkeyhint="done"
-              placeholder="••••••••••••"
-              .value=${this.model.unlockPassword()}
-              ?invalid=${Boolean(this.model.unlockValidationError())}
-              aria-required="true"
-              aria-describedby=${this.model.unlockValidationError() ? 'welcome-unlock-password-error' : nothing}
-              @cv-input=${this.model.handleUnlockPasswordInput}
-            ></cv-input>
-            ${this.model.unlockValidationError()
-              ? html`
-                  <p id="welcome-unlock-password-error" class="password-sheet-error" role="alert">
-                    ${this.model.unlockValidationError()}
-                  </p>
-                `
-              : nothing}
-
-            <cv-button
-              class="password-sheet-submit"
-              variant="primary"
-              type="submit"
-              ?disabled=${this.model.unlockSubmitDisabled()}
-              .loading=${this.model.setupInProgress()}
-            >
-              ${i18n('welcome:unlock-vault')}
-            </cv-button>
-          </form>
-
-          <div class="password-sheet-local">
-            ${renderProofIcon()}
-            <span>${i18n('welcome:unlock-local-verified')}</span>
-          </div>
-        </div>
-      </cv-bottom-sheet>
+      <form class="unlock-inline-form" @submit=${this.handleUnlockSubmit}>
+        <label class="unlock-inline-label" for=${inputId}>${i18n('welcome:vault-password')}</label>
+        <cv-input
+          id=${inputId}
+          control-id="welcome.unlock-password"
+          class="password-sheet-input"
+          type="password"
+          password-toggle
+          autocomplete="current-password"
+          enterkeyhint="done"
+          placeholder="••••••••••••"
+          .value=${this.model.unlockPassword()}
+          @cv-input=${this.model.handleUnlockPasswordInput}
+        ></cv-input>
+        <button
+          id="welcome.unlock-submit"
+          class="welcome-primary-action unlock-inline-submit"
+          type="submit"
+          ?disabled=${this.model.unlockSubmitDisabled()}
+          aria-busy=${setupInProgress ? 'true' : nothing}
+          @click=${this.handleUnlockSubmit}
+        >
+          ${renderPrimaryActionContent(i18n('welcome:unlock-vault'), setupInProgress)}
+        </button>
+      </form>
     `
   }
 
@@ -957,6 +934,7 @@ export class WelcomeSetupSection extends ReatomLitElement {
           </label>
           <cv-input
             id="welcome-create-master-password"
+            control-id="welcome.master-password"
             class="password-sheet-input"
             type="password"
             placeholder=${i18n('welcome:create-password')}
@@ -985,6 +963,7 @@ export class WelcomeSetupSection extends ReatomLitElement {
           </label>
           <cv-input
             id="welcome-confirm-master-password"
+            control-id="welcome.master-password-confirm"
             class="password-sheet-input"
             type="password"
             password-toggle
@@ -1007,18 +986,20 @@ export class WelcomeSetupSection extends ReatomLitElement {
         </div>
 
         ${inSheet
-          ? html`<cv-callout class="master-warning" variant="warning">${i18n('onboard:master:warning')}</cv-callout>`
+          ? html`<cv-callout class="master-warning" variant="warning"
+              >${i18n('onboard:master:warning')}</cv-callout
+            >`
           : nothing}
 
-        <cv-button
-          class=${inSheet ? 'password-sheet-submit' : ''}
-          variant="primary"
+        <button
+          id="welcome.create-storage"
+          class=${inSheet ? 'welcome-primary-action password-sheet-submit' : 'welcome-primary-action'}
           type="submit"
           ?disabled=${this.model.busy()}
-          .loading=${this.model.setupInProgress()}
+          aria-busy=${this.model.setupInProgress() ? 'true' : nothing}
         >
-          ${i18n('welcome:create-storage')}
-        </cv-button>
+          ${renderPrimaryActionContent(i18n('welcome:create-storage'), this.model.setupInProgress())}
+        </button>
       </form>
     `
   }
@@ -1044,7 +1025,9 @@ export class WelcomeSetupSection extends ReatomLitElement {
               </span>
 
               ${this.model.shared.errorText()
-                ? html`<cv-callout variant="danger" role="alert">${this.model.shared.errorText()}</cv-callout>`
+                ? html`<cv-callout variant="danger" role="alert"
+                    >${this.model.shared.errorText()}</cv-callout
+                  >`
                 : nothing}
               ${this.renderMasterPasswordForm(true)}
             `
@@ -1060,6 +1043,8 @@ export class WelcomeSetupSection extends ReatomLitElement {
       <cv-guidance-anchor anchor-id="welcome.vault-mode" surface="welcome" owner="welcome">
         <div class="welcome-actions mobile-first-run-actions">
           <cv-button
+            id="welcome.mode.local"
+            control-id="welcome.mode.local"
             class="mobile-create-storage-action"
             data-create-storage
             variant="primary"
@@ -1085,10 +1070,15 @@ export class WelcomeSetupSection extends ReatomLitElement {
 
     const setupStep = this.model.effectiveStep()
     const busy = this.model.busy()
-    const setupInProgress = this.model.setupInProgress()
-    const unlockInProgress = this.model.unlockInProgress()
     const isNeedInit = this.model.isNeedInit()
     const isDesktopRemoteSupported = this.model.isDesktopRemoteSupported()
+
+    if (
+      this.layout === 'desktop' &&
+      (setupStep === 'remote-connect' || setupStep === 'remote-pair' || setupStep === 'remote-wait')
+    ) {
+      return html`<remote-desktop-preauth .model=${this.model}></remote-desktop-preauth>`
+    }
 
     if (setupStep === 'remote-connect') {
       return renderRemoteHostsFlowPanel({
@@ -1101,7 +1091,6 @@ export class WelcomeSetupSection extends ReatomLitElement {
           onBackToHosts: this.model.onBackFromRemoteUsb,
         },
         ui: {
-          welcomeFrame: this.layout === 'desktop',
           hostsBackLink: {
             label: isNeedInit ? i18n('welcome:back-mode-selection') : i18n('welcome:back-unlock-screen'),
             onBack: this.model.onBackFromRemoteConnect,
@@ -1122,7 +1111,6 @@ export class WelcomeSetupSection extends ReatomLitElement {
           onSubmitPairing: this.model.onSubmitRemotePair,
         },
         ui: {
-          welcomeFrame: this.layout === 'desktop',
           pairBackLink: {
             label: i18n('welcome:back-remote-hosts'),
             onBack: this.model.onBackFromRemotePair,
@@ -1138,7 +1126,6 @@ export class WelcomeSetupSection extends ReatomLitElement {
           onDisconnectTransport: this.model.onBackFromRemoteWait,
         },
         ui: {
-          welcomeFrame: this.layout === 'desktop',
           waitReason: this.model.remoteWaitReason(),
           waitBackLink: {
             label: i18n('welcome:disconnect-remote-transport'),
@@ -1155,24 +1142,13 @@ export class WelcomeSetupSection extends ReatomLitElement {
             ${renderProofIcon()}
             <p>
               ${i18n('welcome:unlock-proof-prefix')}
-              <strong>${i18n('welcome:unlock-proof-device')}</strong>.
-              ${i18n('welcome:unlock-proof-secrets')}
+              <strong>${i18n('welcome:unlock-proof-device')}</strong>. ${i18n('welcome:unlock-proof-secrets')}
               <em>${i18n('welcome:unlock-proof-sealed')}</em>
               ${i18n('welcome:unlock-proof-suffix')}
             </p>
           </div>
           <div class="welcome-actions lockscreen-actions">
-            <cv-button
-              class="lockscreen-unlock-action"
-              variant="primary"
-              ?disabled=${busy}
-              .loading=${unlockInProgress}
-              @click=${this.model.onUnlock}
-            >
-              ${i18n('welcome:unlock-vault')}
-              ${unlockInProgress ? nothing : renderUnlockArrowIcon()}
-            </cv-button>
-            <div class="lockscreen-hint">${i18n('welcome:unlock-prompt-hint')}</div>
+            ${this.renderUnlockForm()}
             ${isDesktopRemoteSupported
               ? html`
                   <cv-button
@@ -1186,47 +1162,12 @@ export class WelcomeSetupSection extends ReatomLitElement {
                 `
               : nothing}
           </div>
-          ${this.renderUnlockSheet()}
         `
       }
 
       return html`
         <div class="welcome-actions">
-          <form class="unlock-inline-form" @submit=${this.handleUnlockSubmit}>
-            <label class="unlock-inline-label" for="welcome-unlock-password-desktop">${i18n('welcome:vault-password')}</label>
-            <cv-input
-              id="welcome-unlock-password-desktop"
-              class="password-sheet-input"
-              type="password"
-              password-toggle
-              autocomplete="current-password"
-              enterkeyhint="done"
-              placeholder="••••••••••••"
-              .value=${this.model.unlockPassword()}
-              ?invalid=${Boolean(this.model.unlockValidationError())}
-              aria-required="true"
-              aria-describedby=${this.model.unlockValidationError()
-                ? 'welcome-unlock-password-desktop-error'
-                : nothing}
-              @cv-input=${this.model.handleUnlockPasswordInput}
-            ></cv-input>
-            ${this.model.unlockValidationError()
-              ? html`
-                  <p id="welcome-unlock-password-desktop-error" class="password-sheet-error" role="alert">
-                    ${this.model.unlockValidationError()}
-                  </p>
-                `
-              : nothing}
-            <cv-button
-              class="unlock-inline-submit"
-              variant="primary"
-              type="submit"
-              ?disabled=${this.model.unlockSubmitDisabled()}
-              .loading=${setupInProgress}
-            >
-              ${i18n('welcome:unlock-vault')}
-            </cv-button>
-          </form>
+          ${this.renderUnlockForm()}
           ${isDesktopRemoteSupported
             ? html`
                 <cv-button variant="ghost" ?disabled=${busy} @click=${this.model.onSelectRemoteMode}>
@@ -1249,7 +1190,12 @@ export class WelcomeSetupSection extends ReatomLitElement {
       return html`
         <cv-guidance-anchor anchor-id="welcome.vault-mode" surface="welcome" owner="welcome">
           <div class="mode-cards">
-            <button class="mode-card mode-card-local" type="button" @click=${this.model.onSelectLocalMode}>
+            <button
+              id="welcome.mode.local"
+              class="mode-card mode-card-local"
+              type="button"
+              @click=${this.model.onSelectLocalMode}
+            >
               <div class="mode-icon">${renderModeIcon('local')}</div>
               <div class="mode-content">
                 <div class="mode-title">${i18n('welcome:mode-local-title')}</div>
@@ -1268,7 +1214,9 @@ export class WelcomeSetupSection extends ReatomLitElement {
                 <div class="mode-title">${i18n('welcome:mode-remote-title')}</div>
                 <div class="mode-desc">${i18n('welcome:mode-remote-desc')}</div>
                 <div class="mode-badge">
-                  ${isDesktopRemoteSupported ? i18n('welcome:mode-remote-badge') : i18n('welcome:mode-remote-disabled')}
+                  ${isDesktopRemoteSupported
+                    ? i18n('welcome:mode-remote-badge')
+                    : i18n('welcome:mode-remote-disabled')}
                 </div>
               </div>
             </button>

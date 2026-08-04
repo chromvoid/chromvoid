@@ -11,7 +11,7 @@ use crate::ssh_agent::server::{
     ApprovalEmitterHandle, PrivateKeyPem, ReadPrivateKeyFuture, TauriApprovalEventEmitter,
 };
 
-use super::{SshAgentEntries, SshAgentRefreshAction, SshAgentStatus, MAIN_WINDOW_LABEL};
+use super::{SshAgentEntries, SshAgentRefreshAction, SshAgentStatus};
 
 pub(super) fn refresh_action(
     is_local_and_unlocked: bool,
@@ -36,17 +36,6 @@ pub(super) fn refresh_action(
     }
 
     SshAgentRefreshAction::Started
-}
-
-pub(crate) fn ensure_main_window_caller(
-    window_label: &str,
-    command_name: &str,
-) -> Result<(), String> {
-    if window_label == MAIN_WINDOW_LABEL {
-        return Ok(());
-    }
-
-    Err(format!("{command_name} is restricted to the main window"))
 }
 
 pub(crate) fn ensure_local_mode(mode: CoreMode, command_name: &str) -> Result<(), String> {

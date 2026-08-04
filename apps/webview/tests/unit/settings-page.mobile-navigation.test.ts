@@ -124,6 +124,26 @@ describe('Settings page mobile navigation and transient UI', () => {
     expect(root.querySelector('[data-settings-route="autofill"]')).toBeNull()
   })
 
+  it('hides external Pro settings and canonicalizes a direct License route', async () => {
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      desktop: false,
+      supports_autofill: true,
+      supports_external_pro: false,
+    })
+    const navigateSpy = vi.spyOn(navigationModel, 'navigateToSettingsRoute')
+
+    const {layout, root} = await renderMobileSettings({kind: 'license'})
+    await flushLayout(layout)
+
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'overview'})
+    expect(navigateSpy).toHaveBeenCalledWith({kind: 'overview'}, 'replace')
+    expect(root.querySelector('[data-settings-route="license"]')).toBeNull()
+    expect(root.querySelector('[data-settings-route="autofill"]')).toBeNull()
+    expect(root.querySelector('.license-input')).toBeNull()
+  })
+
   it('restores focus to the source row after an unsupported Autofill redirect', async () => {
     setRuntimeCapabilities({platform: 'linux', mobile: true, desktop: false, supports_autofill: false})
     const {layout, root} = await renderMobileSettings({kind: 'security'})

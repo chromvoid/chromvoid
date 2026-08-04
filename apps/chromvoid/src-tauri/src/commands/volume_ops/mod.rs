@@ -99,8 +99,8 @@ mod volume_backend_tests {
 
 #[cfg(all(test, target_os = "macos"))]
 mod volume_unmount_safety_tests {
-    use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
     use std::time::Duration;
 
     use tempfile::tempdir;

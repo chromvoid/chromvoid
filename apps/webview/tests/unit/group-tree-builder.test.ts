@@ -8,10 +8,10 @@ describe('group-tree-builder', () => {
 
     const tree = buildGroupTreeNodes(
       [
-        {path: 'Work', entryCount: 2},
-        {path: 'Work/Jira', entryCount: 1},
-        {path: 'Personal', entryCount: 0},
-        {path: 'Personal/Jira', entryCount: 3},
+        {id: 'group-work', path: 'Work', entryCount: 2},
+        {id: 'group-work-jira', path: 'Work/Jira', entryCount: 1},
+        {id: 'group-personal', path: 'Personal', entryCount: 0},
+        {id: 'group-personal-jira', path: 'Personal/Jira', entryCount: 3},
       ],
       expanded,
     )
@@ -37,7 +37,10 @@ describe('group-tree-builder', () => {
   })
 
   it('creates placeholder parents when only leaf path is present', () => {
-    const tree = buildGroupTreeNodes([{path: 'Work/Jira', entryCount: 1}], new Set())
+    const tree = buildGroupTreeNodes(
+      [{id: 'group-work-jira', path: 'Work/Jira', entryCount: 1}],
+      new Set(),
+    )
     expect(tree.map((n) => n.path)).toEqual(['Work'])
     expect(tree[0]!.entryCount).toBe(0)
     expect(tree[0]!.totalEntryCount).toBe(1)

@@ -188,12 +188,8 @@ pub fn autofill_extension_ready() -> bool {
     }
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 pub fn credential_provider_passkeys_lite_supported() -> bool {
-    #[cfg(target_os = "android")]
-    {
-        return true;
-    }
-
     #[cfg(target_os = "ios")]
     {
         return ios::native_bridge::passkeys_lite_supported();
@@ -202,11 +198,6 @@ pub fn credential_provider_passkeys_lite_supported() -> bool {
     #[cfg(target_os = "macos")]
     {
         return objc2::available!(macos = 14.0);
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
-    {
-        false
     }
 }
 

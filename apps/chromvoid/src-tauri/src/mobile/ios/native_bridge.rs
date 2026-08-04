@@ -29,9 +29,49 @@ pub struct IosPickedRestoreSource {
     pub display_name: String,
 }
 
-type RestorePickerResult = Result<IosPickedRestoreSource, String>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IosPickerFailureKind {
+    Cancelled,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IosPickerFailure {
+    kind: IosPickerFailureKind,
+    message: String,
+}
+
+impl IosPickerFailure {
+    fn cancelled(message: impl Into<String>) -> Self {
+        Self {
+            kind: IosPickerFailureKind::Cancelled,
+            message: message.into(),
+        }
+    }
+
+    fn unavailable(message: impl Into<String>) -> Self {
+        Self {
+            kind: IosPickerFailureKind::Unavailable,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn kind(&self) -> IosPickerFailureKind {
+        self.kind
+    }
+}
+
+impl std::fmt::Display for IosPickerFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for IosPickerFailure {}
+
+type RestorePickerResult = Result<IosPickedRestoreSource, IosPickerFailure>;
 type RestorePickerSender = oneshot::Sender<RestorePickerResult>;
-type UploadPickerResult = Result<String, String>;
+type UploadPickerResult = Result<String, IosPickerFailure>;
 type UploadPickerSender = oneshot::Sender<UploadPickerResult>;
 
 pub(crate) struct IosNativeBridgeRuntimeState {
@@ -118,8 +158,14 @@ extern "C" {
     fn chromvoid_ios_native_share_files(payload_json: *const c_char) -> i32;
     fn chromvoid_ios_native_open_app_settings() -> i32;
     fn chromvoid_ios_native_export_backup_path(path: *const c_char) -> i32;
-    fn chromvoid_ios_native_pick_upload_files(upload_id: *const c_char) -> i32;
-    fn chromvoid_ios_native_pick_restore_source(operation_id: *const c_char) -> i32;
+    fn chromvoid_ios_native_pick_upload_files(
+        upload_id: *const c_char,
+        app_group_id: *const c_char,
+    ) -> i32;
+    fn chromvoid_ios_native_pick_restore_source(
+        operation_id: *const c_char,
+        app_group_id: *const c_char,
+    ) -> i32;
     fn chromvoid_ios_native_otp_qr_scan_start(scan_id: *const c_char) -> i32;
     fn chromvoid_ios_native_otp_qr_scan_cancel(scan_id: *const c_char) -> i32;
     fn chromvoid_ios_native_audio_command(command_json: *const c_char) -> i32;
@@ -290,36 +336,52 @@ pub fn export_backup_with_files_picker(path: &Path) -> Result<(), String> {
 pub async fn pick_upload_files(
     runtime: &IosNativeBridgeRuntimeState,
     upload_id: &str,
-) -> Result<String, String> {
-    let upload_id_c = c_string_arg(upload_id, "upload id")?;
+) -> Result<String, IosPickerFailure> {
+    let upload_id_c =
+        c_string_arg(upload_id, "upload id").map_err(IosPickerFailure::unavailable)?;
+    let app_group_id_c = c_string_arg(
+        crate::apple_shared_container::APP_GROUP_ID,
+        "Apple App Group identifier",
+    )
+    .map_err(IosPickerFailure::unavailable)?;
 
     let (tx, rx) = oneshot::channel();
-    runtime.register_upload_picker(upload_id, tx)?;
+    runtime
+        .register_upload_picker(upload_id, tx)
+        .map_err(IosPickerFailure::unavailable)?;
 
     #[cfg(target_os = "ios")]
     {
-        let ok = unsafe { chromvoid_ios_native_pick_upload_files(upload_id_c.as_ptr()) };
+        let ok = unsafe {
+            chromvoid_ios_native_pick_upload_files(upload_id_c.as_ptr(), app_group_id_c.as_ptr())
+        };
         if ok == 0 {
             runtime.remove_upload_picker(upload_id);
-            return Err("iOS upload picker handoff failed".to_string());
+            return Err(IosPickerFailure::unavailable(
+                "iOS upload picker handoff failed",
+            ));
         }
     }
 
     #[cfg(not(target_os = "ios"))]
     {
         runtime.remove_upload_picker(upload_id);
-        let _ = (upload_id_c, rx);
-        Err("Upload file picker requires iOS".to_string())
+        let _ = (upload_id_c, app_group_id_c, rx);
+        Err(IosPickerFailure::unavailable(
+            "Upload file picker requires iOS",
+        ))
     }
 
     #[cfg(target_os = "ios")]
     {
         match tokio::time::timeout(UPLOAD_PICKER_TIMEOUT, rx).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err("iOS upload picker completed without a result".to_string()),
+            Ok(Err(_)) => Err(IosPickerFailure::unavailable(
+                "iOS upload picker completed without a result",
+            )),
             Err(_) => {
                 runtime.remove_upload_picker(upload_id);
-                Err("iOS upload picker timed out".to_string())
+                Err(IosPickerFailure::unavailable("iOS upload picker timed out"))
             }
         }
     }
@@ -328,36 +390,57 @@ pub async fn pick_upload_files(
 pub async fn pick_restore_source(
     runtime: &IosNativeBridgeRuntimeState,
     operation_id: &str,
-) -> Result<IosPickedRestoreSource, String> {
-    let operation_id_c = c_string_arg(operation_id, "operation id")?;
+) -> Result<IosPickedRestoreSource, IosPickerFailure> {
+    let operation_id_c =
+        c_string_arg(operation_id, "operation id").map_err(IosPickerFailure::unavailable)?;
+    let app_group_id_c = c_string_arg(
+        crate::apple_shared_container::APP_GROUP_ID,
+        "Apple App Group identifier",
+    )
+    .map_err(IosPickerFailure::unavailable)?;
 
     let (tx, rx) = oneshot::channel();
-    runtime.register_restore_picker(operation_id, tx)?;
+    runtime
+        .register_restore_picker(operation_id, tx)
+        .map_err(IosPickerFailure::unavailable)?;
 
     #[cfg(target_os = "ios")]
     {
-        let ok = unsafe { chromvoid_ios_native_pick_restore_source(operation_id_c.as_ptr()) };
+        let ok = unsafe {
+            chromvoid_ios_native_pick_restore_source(
+                operation_id_c.as_ptr(),
+                app_group_id_c.as_ptr(),
+            )
+        };
         if ok == 0 {
             runtime.remove_restore_picker(operation_id);
-            return Err("iOS restore source picker handoff failed".to_string());
+            return Err(IosPickerFailure::unavailable(
+                "iOS restore source picker handoff failed",
+            ));
         }
     }
 
     #[cfg(not(target_os = "ios"))]
     {
         runtime.remove_restore_picker(operation_id);
-        let _ = (operation_id_c, rx);
-        Err("Restore source picker requires iOS".to_string())
+        let _ = (operation_id_c, app_group_id_c, rx);
+        Err(IosPickerFailure::unavailable(
+            "Restore source picker requires iOS",
+        ))
     }
 
     #[cfg(target_os = "ios")]
     {
         match tokio::time::timeout(RESTORE_PICKER_TIMEOUT, rx).await {
             Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err("iOS restore source picker completed without a result".to_string()),
+            Ok(Err(_)) => Err(IosPickerFailure::unavailable(
+                "iOS restore source picker completed without a result",
+            )),
             Err(_) => {
                 runtime.remove_restore_picker(operation_id);
-                Err("iOS restore source picker timed out".to_string())
+                Err(IosPickerFailure::unavailable(
+                    "iOS restore source picker timed out",
+                ))
             }
         }
     }
@@ -486,11 +569,15 @@ pub extern "C" fn chromvoid_ios_native_upload_picker_result(
     let result = match status {
         0 => read_c_string(session_id)
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| "iOS upload picker returned invalid session".to_string()),
-        1 => Err("Native upload cancelled".to_string()),
-        _ => Err(read_c_string(error_message)
-            .filter(|message| !message.trim().is_empty())
-            .unwrap_or_else(|| "iOS upload picker failed".to_string())),
+            .ok_or_else(|| {
+                IosPickerFailure::unavailable("iOS upload picker returned invalid session")
+            }),
+        _ => Err(ios_picker_failure_from_status(
+            status,
+            read_c_string(error_message),
+            "Native upload cancelled",
+            "iOS upload picker failed",
+        )),
     };
 
     let Some(bridge_runtime) = runtime::app_ios_native_bridge_runtime() else {
@@ -547,12 +634,16 @@ pub extern "C" fn chromvoid_ios_native_restore_source_result(
                 backup_path,
                 display_name,
             }),
-            _ => Err("iOS restore source picker returned invalid source".to_string()),
+            _ => Err(IosPickerFailure::unavailable(
+                "iOS restore source picker returned invalid source",
+            )),
         },
-        1 => Err("Restore source selection cancelled".to_string()),
-        _ => Err(read_c_string(error_message)
-            .filter(|message| !message.trim().is_empty())
-            .unwrap_or_else(|| "iOS restore source picker failed".to_string())),
+        _ => Err(ios_picker_failure_from_status(
+            status,
+            read_c_string(error_message),
+            "Restore source selection cancelled",
+            "iOS restore source picker failed",
+        )),
     };
 
     let Some(bridge_runtime) = runtime::app_ios_native_bridge_runtime() else {
@@ -562,6 +653,23 @@ pub extern "C" fn chromvoid_ios_native_restore_source_result(
     if let Some(sender) = bridge_runtime.remove_restore_picker(&operation_id) {
         let _ = sender.send(result);
     }
+}
+
+fn ios_picker_failure_from_status(
+    status: i32,
+    error_message: Option<String>,
+    cancelled_message: &'static str,
+    fallback_message: &'static str,
+) -> IosPickerFailure {
+    if status == 1 {
+        return IosPickerFailure::cancelled(cancelled_message);
+    }
+
+    IosPickerFailure::unavailable(
+        error_message
+            .filter(|message| !message.trim().is_empty())
+            .unwrap_or_else(|| fallback_message.to_string()),
+    )
 }
 
 #[unsafe(no_mangle)]
@@ -878,6 +986,32 @@ mod tests {
 
         assert!(second.remove_upload_picker("upload-1").is_none());
         assert!(first.remove_upload_picker("upload-1").is_some());
+    }
+
+    #[test]
+    fn picker_status_one_is_typed_as_cancellation() {
+        let failure = ios_picker_failure_from_status(
+            1,
+            Some("ignored native detail".to_string()),
+            "Selection cancelled",
+            "Picker failed",
+        );
+
+        assert_eq!(failure.kind(), IosPickerFailureKind::Cancelled);
+        assert_eq!(failure.to_string(), "Selection cancelled");
+    }
+
+    #[test]
+    fn picker_failure_preserves_non_empty_native_message() {
+        let failure = ios_picker_failure_from_status(
+            2,
+            Some("App Group unavailable".to_string()),
+            "Selection cancelled",
+            "Picker failed",
+        );
+
+        assert_eq!(failure.kind(), IosPickerFailureKind::Unavailable);
+        assert_eq!(failure.to_string(), "App Group unavailable");
     }
 
     #[test]

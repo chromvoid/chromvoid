@@ -223,6 +223,30 @@ fn test_passmanager_group_ensure_and_root_import_export_roundtrip() {
     let groups = get_groups(&group_list);
     assert!(groups.iter().any(|g| g == "/ops"));
     assert!(groups.iter().any(|g| g == "/ops/platform"));
+    assert!(
+        group_list
+            .result()
+            .and_then(|result| result.get("groups"))
+            .and_then(|groups| groups.as_array())
+            .is_some_and(|groups| groups.iter().all(|group| {
+                group.get("path").and_then(|value| value.as_str()).is_some()
+                    && group
+                        .get("entry_count")
+                        .and_then(|value| value.as_u64())
+                        .is_some()
+            })),
+        "group:list should return typed group summaries"
+    );
+    assert!(
+        group_list
+            .result()
+            .and_then(|result| result.get("groups"))
+            .and_then(|groups| groups.as_array())
+            .is_some_and(|groups| groups.iter().all(|group| {
+                group.get("entry_count").and_then(|value| value.as_u64()) == Some(0)
+            })),
+        "newly ensured groups should not count nested groups as direct entries"
+    );
 
     let imported = router.handle(&RpcRequest::new(
         "passmanager:root:import",

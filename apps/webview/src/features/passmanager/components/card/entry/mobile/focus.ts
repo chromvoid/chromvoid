@@ -176,6 +176,13 @@ export function scheduleInlineEditorFocus(
   }
 
   scheduler.schedule(() => {
+    if (inlineField === 'website') {
+      const editor = getShadowRoot()?.querySelector<HTMLElement & {focusFirst(): boolean}>(
+        'pm-entry-website-editor',
+      )
+      editor?.focusFirst()
+      return
+    }
     focusElement(getShadowRoot, `cv-input[name="inline-${inlineField}"]`)
   })
 }

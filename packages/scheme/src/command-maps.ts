@@ -14,6 +14,7 @@ import type {CredentialOneTimeCode as GeneratedCredentialOneTimeCode} from './ge
 import type {CredentialProviderSessionResponse as GeneratedCredentialProviderSessionResponse} from './generated/CredentialProviderSessionResponse'
 import type {CredentialProviderStatusResponse as GeneratedCredentialProviderStatusResponse} from './generated/CredentialProviderStatusResponse'
 import type {CredentialSecret as GeneratedCredentialSecret} from './generated/CredentialSecret'
+import type {PassmanagerGroupSummary as GeneratedPassmanagerGroupSummary} from './generated/PassmanagerGroupSummary'
 import type {SyncShardResponse} from './generated/SyncShardResponse'
 
 /** Base route type */
@@ -50,6 +51,8 @@ export type CredentialOneTimeCode = GeneratedCredentialOneTimeCode
 export type ProviderStatus = GeneratedCredentialProviderStatusResponse
 
 export type CredentialProviderSession = GeneratedCredentialProviderSessionResponse
+
+export type PassmanagerGroupSummary = GeneratedPassmanagerGroupSummary
 
 export type CredentialSecurityAuditEntrySummary = {
   entryId: string
@@ -119,6 +122,35 @@ export type CatalogCommandMap = {
   'catalog:secret:erase': Route<{nodeId: number}, void>
 
   // === PassManager domain commands (ADR-029) ===
+  'passmanager:entry:create': Route<
+    {
+      entryId: string
+      title: string
+      entryType: 'login' | 'payment_card'
+      createdTs?: number
+      updatedTs?: number
+      urls?: unknown[]
+      username?: string
+      otps?: unknown[]
+      paymentCard?: {
+        cardholderName: string
+        brand?: string
+        expMonth: number
+        expYear: number
+        last4?: string
+      }
+      groupPath?: string
+      iconRef?: string | null
+      tags?: string[]
+      secrets: {
+        password?: string
+        note?: string
+        cardPan?: string
+        cardCvv?: string
+      }
+    },
+    {entryId: string}
+  >
   'passmanager:entry:save': Route<
     {
       entryId?: string
@@ -182,7 +214,10 @@ export type CatalogCommandMap = {
     {path: string; iconRef?: string | null; description?: string | null},
     void
   >
-  'passmanager:group:list': Route<Record<string, never>, {groups: object[]}>
+  'passmanager:group:list': Route<
+    Record<string, never>,
+    {groups: PassmanagerGroupSummary[]}
+  >
   'passmanager:group:delete': Route<{path: string}, void>
   'passmanager:tags:setCatalog': Route<
     {

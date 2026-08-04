@@ -122,6 +122,10 @@ class SettingsPageModel {
   )
   readonly androidQuickLockTileStatus = atom<AndroidQuickLockTileStatus | null>(null)
   readonly sshAgentStatus = atom<SshAgentStatus | null>(null)
+  readonly supportsExternalPro = computed(
+    () => moduleAccessModel.supportsExternalPro(),
+    'settings.supportsExternalPro',
+  )
   readonly activationCodeDraft = atom('')
   readonly activationCodeError = atom('', 'settings.activationCodeError')
   readonly licenseActive = computed(() => moduleAccessModel.entitlement()?.licensed === true)
@@ -291,12 +295,14 @@ class SettingsPageModel {
   }
 
   setActivationCodeDraft(value: string): void {
+    if (!this.supportsExternalPro()) return
     moduleAccessModel.clearError()
     this.activationCodeError.set('')
     this.activationCodeDraft.set(value)
   }
 
   async activateLicense(): Promise<boolean> {
+    if (!this.supportsExternalPro()) return false
     const activationCode = this.activationCodeDraft().trim()
     if (!activationCode) {
       this.activationCodeError.set(i18n('dialogs:field-required'))
@@ -316,6 +322,7 @@ class SettingsPageModel {
   }
 
   async releaseCurrentSeat(): Promise<void> {
+    if (!this.supportsExternalPro()) return
     const ok = await moduleAccessModel.releaseCurrentSeat()
     if (ok) {
       getAppContext().store.pushNotification('success', i18n('settings:license-release-seat-success'))
@@ -328,6 +335,7 @@ class SettingsPageModel {
   }
 
   async openLicenseCabinet(): Promise<void> {
+    if (!this.supportsExternalPro()) return
     const handoff = await moduleAccessModel.createLicenseCabinetHandoff()
     if (!handoff) {
       getAppContext().store.pushNotification(
@@ -513,7 +521,17 @@ class SettingsPageModel {
   }
 
   showsCredentialProviderSection(): boolean {
-    return this.supportsCredentialProviderAutofill()
+    return this.supportsExternalPro() && this.supportsCredentialProviderAutofill()
+  }
+
+  isRouteAvailable(route: SettingsRoute): boolean {
+    if (route.kind === 'license') return this.supportsExternalPro()
+    if (route.kind === 'autofill') return this.showsCredentialProviderSection()
+    return true
+  }
+
+  resolveAvailableRoute(route: SettingsRoute): SettingsRoute {
+    return this.isRouteAvailable(route) ? route : {kind: 'overview'}
   }
 
   async refreshCredentialProviderStatus(): Promise<void> {

@@ -37,6 +37,11 @@ export const pmEntryOtpCreateStyles = css`
     border-radius: 0;
   }
 
+  .otp-create-card cv-input {
+    display: block;
+    inline-size: 100%;
+  }
+
   .otp-create-card cv-input::part(base),
   .otp-create-card cv-number::part(base),
   .otp-create-card cv-select::part(trigger) {

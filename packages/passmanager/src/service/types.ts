@@ -3,10 +3,7 @@ import type {IGroup} from './root'
 import type {CredentialTagCatalogMeta} from './tags'
 import type {CredentialSecurityAuditArtifactV1} from './security-audit'
 
-export type Algorithm =
-  | 'SHA1'
-  | 'SHA256'
-  | 'SHA512'
+export type Algorithm = 'SHA1' | 'SHA256' | 'SHA512'
 
 export type Encoding = 'base32' | 'base64' | 'base16' | 'utf-8'
 
@@ -119,6 +116,11 @@ export type PaymentCardMeta = {
   expYear: number
   brand?: PaymentCardBrand
   last4?: string
+}
+
+export type PaymentCardCreationSecrets = {
+  cardPan: string
+  cardCvv?: string
 }
 
 export type PassManagerSecretSlot = 'password' | 'note' | 'card_pan' | 'card_cvv'
@@ -361,6 +363,39 @@ export type PassManagerSaveEntryMetaPayload =
   | PassManagerSaveLoginEntryMetaPayload
   | PassManagerSavePaymentCardEntryMetaPayload
 
+export type PassManagerCreateLoginEntryPayload = {
+  entryType: 'login'
+  meta: PassManagerSaveLoginEntryMetaPayload
+  secrets: {
+    password?: string
+    note?: string
+    cardPan?: never
+    cardCvv?: never
+  }
+}
+
+export type PassManagerCreatePaymentCardEntryPayload = {
+  entryType: 'payment_card'
+  meta: PassManagerSavePaymentCardEntryMetaPayload
+  secrets: {
+    cardPan: string
+    cardCvv?: string
+    note?: string
+    password?: never
+  }
+}
+
+/**
+ * Point-create contract for one entry.
+ *
+ * Metadata and entry-owned secrets are committed atomically by the storage
+ * boundary. OTP secrets use their dedicated sidecar and are intentionally not
+ * part of this payload.
+ */
+export type PassManagerCreateEntryPayload =
+  | PassManagerCreateLoginEntryPayload
+  | PassManagerCreatePaymentCardEntryPayload
+
 export interface ManagerSaver {
   save(key: string, value: File): Promise<boolean>
   read<T = unknown>(key: string): Promise<T | undefined>
@@ -399,13 +434,21 @@ export interface ManagerSaver {
   saveCredentialSecurityAudit?(artifact: CredentialSecurityAuditArtifactV1): Promise<boolean>
   removeEntrySshPrivateKey(entryId: string, keyId: string): Promise<boolean>
   removeEntrySshPublicKey(entryId: string, keyId: string): Promise<boolean>
+  createEntry(data: PassManagerCreateEntryPayload): Promise<boolean>
   saveEntryMeta(data: PassManagerSaveEntryMetaPayload): Promise<boolean>
   moveEntryToGroup(entryId: string, targetGroupPath: string | undefined): Promise<boolean>
   removeEntry(id: string): Promise<boolean>
+  removeGroup(path: string): Promise<void>
 }
 
 export interface TGroupActions {
-  createEntry(data: Partial<IEntry>, password: string, note: string, otp: OTPOptions | undefined): Entry
+  createEntry(
+    data: Partial<IEntry>,
+    password: string,
+    note: string,
+    otp: OTPOptions | undefined,
+    paymentCardSecrets?: PaymentCardCreationSecrets,
+  ): Entry
   rename?(nextPath: string): boolean
   updateData(data: Partial<IGroup>): void
 }

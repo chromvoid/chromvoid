@@ -137,11 +137,11 @@ describe('NavigationRail shortcut labels and vault lock shortcut', () => {
     getAppContext().store.vaultLockPending.set(true)
 
     const actions = await renderRailActions()
-    const lockButton = Array.from(actions.shadowRoot?.querySelectorAll('cv-button.item') ?? []).find(
-      (button) => (button.textContent ?? '').includes('Lock'),
-    )
+    const lockButton = actions.shadowRoot?.querySelector<HTMLButtonElement>('#app\\.vault\\.lock')
 
-    expect(lockButton?.hasAttribute('disabled')).toBe(true)
+    expect(lockButton?.tagName).toBe('BUTTON')
+    expect(lockButton?.type).toBe('button')
+    expect(lockButton?.disabled).toBe(true)
     expect(lockButton?.getAttribute('aria-busy')).toBe('true')
   })
 

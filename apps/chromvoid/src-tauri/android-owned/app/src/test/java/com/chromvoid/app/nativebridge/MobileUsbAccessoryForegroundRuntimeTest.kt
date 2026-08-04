@@ -467,6 +467,63 @@ class MobileUsbAccessoryForegroundRuntimeTest {
     }
 
     @Test
+    fun nativeShellClientDisconnectedRearmsTenTimesWithoutNewAttachIntent() {
+        val handles = (0..10).map { index -> FakeHandle(sessionId = "session-$index") }
+        val opener = QueueOpener(*handles.toTypedArray())
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        repeat(10) { cycle ->
+            MobileUsbAccessoryNativeShell.onNativeAccessorySessionEnded(
+                context,
+                "session-$cycle",
+                "client_disconnected",
+            )
+        }
+
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals((0..10).map { index -> "session-$index" }, opener.openedSessionIds)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
+    fun nativeShellPairingCancelledReopensCurrentAccessory() {
+        val firstHandle = FakeHandle(sessionId = "session-first")
+        val secondHandle = FakeHandle(sessionId = "session-second")
+        val opener = QueueOpener(firstHandle, secondHandle)
+        val coordinator =
+            MobileUsbAccessoryCoordinator(
+                FakeGateway(hasPermission = true),
+                opener,
+            )
+        MobileUsbAccessoryForegroundRuntime.setCoordinatorForTests(coordinator)
+        MobileUsbAccessoryForegroundRuntime.setCurrentAccessoryProviderForTests {
+            chromVoidAccessory()
+        }
+        ForegroundServiceSupport.setStartForegroundServiceForTests { _, _ -> }
+
+        MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(context)
+        MobileUsbAccessoryNativeShell.onNativeAccessorySessionEnded(
+            context,
+            "session-first",
+            "pairing_cancelled",
+        )
+
+        assertEquals(MobileUsbAccessoryCoordinatorState.Open, coordinator.status.state)
+        assertEquals(listOf("session-first", "session-second"), opener.openedSessionIds)
+        assertNull(shadowOf(context as Application).nextStoppedService)
+    }
+
+    @Test
     fun nativeShellSessionEndedWithPairingCompleteReopensCurrentAccessory() {
         val firstHandle = FakeHandle(sessionId = "session-first")
         val secondHandle = FakeHandle(sessionId = "session-second")

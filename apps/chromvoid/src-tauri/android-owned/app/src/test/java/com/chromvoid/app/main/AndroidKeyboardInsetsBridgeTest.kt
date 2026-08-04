@@ -113,6 +113,7 @@ class AndroidKeyboardInsetsBridgeTest {
         assertTrue(script?.contains("\"bottomInset\":286") == true)
         assertTrue(script?.contains("\"safeAreaTopInset\":24") == true)
         assertTrue(script?.contains("\"safeAreaBottomInset\":18") == true)
+        assertTrue(script?.contains("\"viewportMode\":\"overlay\"") == true)
         assertTrue(script?.contains("__chromvoidAndroidKeyboardInsets") == true)
         assertTrue(script?.contains("new CustomEvent") == true)
     }

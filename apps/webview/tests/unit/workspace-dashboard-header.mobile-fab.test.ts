@@ -44,7 +44,7 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
     document.querySelectorAll('workspace-dashboard-header').forEach((el) => el.remove())
   })
 
-  it('renders the mobile vault header and duplicated toolbar action menu without selection actions', async () => {
+  it('renders one mobile add menu without selection actions', async () => {
     initHeaderContext(false)
     ensureWorkspaceDashboardHeaderDefined()
     const commandSpy = vi.fn()
@@ -61,7 +61,7 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
       {key: 'images', label: 'Images', active: false},
     ]
     header.mobileViewMode = 'list'
-    header.mobileToolbarActions = [
+    header.mobileAddActions = [
       {id: 'create-note', icon: 'book-plus', label: 'Create note'},
       {id: 'create-dir', icon: 'folder-plus', label: 'Create folder'},
       {id: 'upload', icon: 'upload', label: 'Upload files'},
@@ -75,7 +75,7 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
     const mobileTitle = header.shadowRoot?.querySelector('.mobile-title')
     const mobileSubtitle = header.shadowRoot?.querySelector('.mobile-subtitle')
     const breadcrumbs = header.shadowRoot?.querySelector('breadcrumbs-nav')
-    const actionMenu = header.shadowRoot?.querySelector('cv-menu-button.mobile-action-menu')
+    const actionMenu = header.shadowRoot?.querySelector('cv-menu-button.mobile-add-menu')
     const selectionToolbar = header.shadowRoot?.querySelector('.mobile-selection-bar')
     const controls = header.shadowRoot?.querySelector('.workspace-controls')
     const search = header.shadowRoot?.querySelector('cv-input.workspace-search')
@@ -97,6 +97,8 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
     expect(breadcrumbs).toBeNull()
     expect(selectionToolbar).toBeNull()
     expect(actionMenu).not.toBeNull()
+    expect(actionMenu?.getAttribute('aria-label')).toBe('Add')
+    expect(actionMenu?.querySelector('cv-icon[name="plus"]')).not.toBeNull()
     expect(search).not.toBeNull()
     expect(search?.classList.contains('search-box')).toBe(true)
     expect(chipGroup).not.toBeNull()
@@ -144,7 +146,7 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
       {key: 'images', label: 'Images', active: false},
     ]
     header.mobileViewMode = 'list'
-    header.mobileToolbarActions = [
+    header.mobileAddActions = [
       {id: 'create-note', icon: 'book-plus', label: 'Create note'},
       {id: 'create-dir', icon: 'folder-plus', label: 'Create folder'},
       {id: 'upload', icon: 'upload', label: 'Upload files'},
@@ -160,7 +162,7 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
 
     const layout = header.shadowRoot?.querySelector('.workspace-mobile-shell')
     const breadcrumbs = header.shadowRoot?.querySelector('breadcrumbs-nav')
-    const actionMenu = header.shadowRoot?.querySelector('cv-menu-button.mobile-action-menu')
+    const actionMenu = header.shadowRoot?.querySelector('cv-menu-button.mobile-add-menu')
     const selectionToolbar = header.shadowRoot?.querySelector('.mobile-selection-bar')
     const mobileActions = Array.from(
       header.shadowRoot?.querySelectorAll('.mobile-selection-action[data-action]') ?? [],
@@ -171,6 +173,33 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
     expect(actionMenu).toBeNull()
     expect(selectionToolbar).not.toBeNull()
     expect(mobileActions).toEqual(['share-selected', 'move-selected', 'delete-selected', 'selection-done'])
+  })
+
+  it('keeps the selection bar visible when selection mode has no selected items yet', async () => {
+    initHeaderContext(true)
+    ensureWorkspaceDashboardHeaderDefined()
+
+    const header = document.createElement('workspace-dashboard-header') as WorkspaceDashboardHeader
+    header.currentPath = '/'
+    header.filters = createDefaultWorkspaceDashboardHeaderFilters()
+    header.selectedCount = 0
+    header.mobileViewMode = 'list'
+    header.mobileAddActions = [
+      {id: 'create-note', icon: 'book-plus', label: 'Create note'},
+      {id: 'create-dir', icon: 'folder-plus', label: 'Create folder'},
+      {id: 'upload', icon: 'upload', label: 'Upload files'},
+    ]
+    header.mobileSelectionActions = [
+      {id: 'share-selected', icon: 'share-2', label: 'Share', disabled: true},
+      {id: 'move-selected', icon: 'folder-symlink', label: 'Move', disabled: true},
+      {id: 'delete-selected', icon: 'trash-2', label: 'Delete', disabled: true},
+      {id: 'selection-done', icon: 'x', label: 'Clear'},
+    ]
+    document.body.appendChild(header)
+    await header.updateComplete
+
+    expect(header.shadowRoot?.querySelector('cv-menu-button.mobile-add-menu')).toBeNull()
+    expect(header.shadowRoot?.querySelector('.mobile-selection-bar')).not.toBeNull()
   })
 
   it('delegates mobile search, chip, sort, and view controls to filter actions', async () => {

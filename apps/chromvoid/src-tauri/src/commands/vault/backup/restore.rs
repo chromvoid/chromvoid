@@ -51,12 +51,15 @@ pub(crate) async fn restore_local_select_source(
                 display_name: source.display_name,
             }),
             Err(error) => {
-                let code = if error.to_ascii_lowercase().contains("cancel") {
-                    "CANCELLED"
-                } else {
-                    "BAD_REQUEST"
+                let code = match error.kind() {
+                    crate::mobile::ios::native_bridge::IosPickerFailureKind::Cancelled => {
+                        "CANCELLED"
+                    }
+                    crate::mobile::ios::native_bridge::IosPickerFailureKind::Unavailable => {
+                        "BAD_REQUEST"
+                    }
                 };
-                restore_rpc_error(error, Some(code.to_string()))
+                restore_rpc_error(error.to_string(), Some(code.to_string()))
             }
         });
     }

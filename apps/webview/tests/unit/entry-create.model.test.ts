@@ -13,6 +13,30 @@ function deferred<T>() {
   return {promise, resolve}
 }
 
+function createTestEntry(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'entry-created',
+    flushPendingPersistence: vi.fn(async () => {}),
+    ...overrides,
+  }
+}
+
+function createEntryHarness<T extends {id: string}>(entry: T) {
+  const createEntry = vi.fn(() => entry)
+  const presentCreatedEntry = vi.fn()
+  const root = createTestRoot({
+    createEntry,
+    getEntry: vi.fn((id: string) => (id === entry.id ? entry : undefined)),
+    presentCreatedEntry,
+  })
+  Object.assign(entry, {parent: {root}})
+  return {
+    createEntry,
+    presentCreatedEntry,
+    root,
+  }
+}
+
 function createTestRoot(overrides: Record<string, unknown> = {}): typeof window.passmanager {
   return {
     id: 'root',
@@ -21,6 +45,7 @@ function createTestRoot(overrides: Record<string, unknown> = {}): typeof window.
     getEntry: vi.fn(() => undefined),
     getGroup: vi.fn(() => undefined),
     setShowElement: vi.fn(),
+    presentCreatedEntry: vi.fn(),
     showElement: vi.fn(() => 'createEntry'),
     isReadOnly: vi.fn(() => false),
     ...overrides,
@@ -119,9 +144,7 @@ describe('PMEntryCreateModel', () => {
     model.setUseOtp(true)
     model.otp.setSecret('not-valid!')
 
-    await expect(model.submit()).resolves.toEqual(
-      expect.objectContaining({ok: false, reason: 'invalid_otp'}),
-    )
+    await expect(model.submit()).resolves.toEqual(expect.objectContaining({ok: false, reason: 'invalid_otp'}))
     expect(model.detailsSheetOpen()).toBe(true)
     expect(model.detailsSheetView()).toBe('otp')
     expect(model.otp.secretError()).not.toBe('')
@@ -130,12 +153,12 @@ describe('PMEntryCreateModel', () => {
   })
 
   it('creates login entry with separate title, website URL rule, and avatar ref', async () => {
-    const createEntry = vi.fn(() => undefined)
-    window.passmanager = createTestRoot({createEntry})
+    const {createEntry, root} = createEntryHarness(createTestEntry())
+    window.passmanager = root
 
     const model = new PMEntryCreateModel()
     model.setTitle('Example login')
-    model.setWebsite('example.com')
+    model.websiteEditor.setFirstValue('https://example.com/path,segment')
     model.setUsername('john')
     model.setPassword('secret')
     model.setNote('note')
@@ -147,7 +170,13 @@ describe('PMEntryCreateModel', () => {
     expect(createEntry).toHaveBeenCalledTimes(1)
 
     const [entryData, password, note, otp] = createEntry.mock.calls[0] as [
-      {title: string; username: string; urls: Array<{value: string; match: string}>; iconRef?: string; tags?: string[]},
+      {
+        title: string
+        username: string
+        urls: Array<{value: string; match: string}>
+        iconRef?: string
+        tags?: string[]
+      },
       string,
       string,
       unknown,
@@ -155,7 +184,7 @@ describe('PMEntryCreateModel', () => {
 
     expect(entryData.title).toBe('Example login')
     expect(entryData.username).toBe('john')
-    expect(entryData.urls).toEqual([{value: 'https://example.com', match: 'base_domain'}])
+    expect(entryData.urls).toEqual([{value: 'https://example.com/path,segment', match: 'base_domain'}])
     expect(entryData.iconRef).toBe('sha256:icon')
     expect(entryData.tags).toEqual([])
     expect(password).toBe('secret')
@@ -163,9 +192,165 @@ describe('PMEntryCreateModel', () => {
     expect(otp).toBeUndefined()
   })
 
+  it('creates separate URL rules from multiline paste without splitting commas', async () => {
+    const {createEntry, root} = createEntryHarness(createTestEntry())
+    window.passmanager = root
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Multiple websites')
+    model.setUsername('john')
+    model.setPassword('secret')
+    const firstRowId = model.websiteEditor.rows()[0]!.id
+    model.websiteEditor.pasteMultiline(firstRowId, 'https://one.example\nhttps://two.example/path,segment')
+
+    await expect(model.submit()).resolves.toEqual({ok: true})
+    expect(createEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        urls: [
+          {value: 'https://one.example', match: 'base_domain'},
+          {value: 'https://two.example/path,segment', match: 'base_domain'},
+        ],
+      }),
+      'secret',
+      '',
+      undefined,
+    )
+  })
+
+  it('blocks persistence and marks only the later duplicate website row', async () => {
+    const {createEntry, root} = createEntryHarness(createTestEntry())
+    window.passmanager = root
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Duplicate websites')
+    model.setUsername('john')
+    model.setPassword('secret')
+    model.websiteEditor.setFirstValue('example.com')
+    const duplicateId = model.websiteEditor.add()
+    model.websiteEditor.updateMatch(duplicateId, 'exact')
+    model.websiteEditor.updateValue(duplicateId, 'https://example.com')
+
+    await expect(model.submit()).resolves.toEqual({
+      ok: false,
+      reason: 'invalid_website',
+      field: 'urls',
+    })
+    expect(model.websiteEditor.rowErrors()[duplicateId]).toBe('This website is already added')
+    expect(createEntry).not.toHaveBeenCalled()
+  })
+
+  it('waits for durable login persistence before reporting success', async () => {
+    const persistenceStarted = deferred<void>()
+    const persistence = deferred<void>()
+    const entry = createTestEntry({
+      flushPendingPersistence: vi.fn(() => {
+        persistenceStarted.resolve()
+        return persistence.promise
+      }),
+    })
+    const {presentCreatedEntry, root} = createEntryHarness(entry)
+    window.passmanager = root
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Pending login')
+    model.setUsername('alice')
+    model.setPassword('secret')
+
+    const submit = model.submit()
+    await persistenceStarted.promise
+
+    expect(model.isSubmitting()).toBe(true)
+    expect(model.dirty()).toBe(true)
+    expect(presentCreatedEntry).not.toHaveBeenCalled()
+
+    persistence.resolve()
+    await expect(submit).resolves.toEqual({ok: true})
+    expect(model.isSubmitting()).toBe(false)
+    expect(model.dirty()).toBe(false)
+    expect(presentCreatedEntry).toHaveBeenCalledOnce()
+    expect(presentCreatedEntry).toHaveBeenCalledWith(entry)
+  })
+
+  it('does not present a committed entry through an obsolete root', async () => {
+    const persistence = deferred<void>()
+    const entry = createTestEntry({
+      flushPendingPersistence: vi.fn(async () => persistence.promise),
+    })
+    const {presentCreatedEntry, root} = createEntryHarness(entry)
+    window.passmanager = root
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Pending login')
+    model.setUsername('alice')
+    model.setPassword('secret')
+
+    const submit = model.submit()
+    await Promise.resolve()
+    window.passmanager = createTestRoot()
+    persistence.resolve()
+
+    await expect(submit).resolves.toEqual({ok: true})
+    expect(presentCreatedEntry).not.toHaveBeenCalled()
+  })
+
+  it('reports persistence failure and preserves the login draft', async () => {
+    const entry = createTestEntry({
+      flushPendingPersistence: vi.fn(async () => {
+        throw new Error('saveEntryMeta failed')
+      }),
+    })
+    const {presentCreatedEntry, root} = createEntryHarness(entry)
+    window.passmanager = root
+    const showAlertDialog = vi.spyOn(dialogService, 'showAlertDialog').mockResolvedValue(undefined)
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Failed login')
+    model.setUsername('alice')
+    model.setPassword('secret')
+
+    await expect(model.submit()).resolves.toEqual({
+      ok: false,
+      reason: 'persistence_failed',
+      message: 'Save error',
+    })
+
+    expect(model.dirty()).toBe(true)
+    expect(model.title()).toBe('Failed login')
+    expect(model.username()).toBe('alice')
+    expect(model.password()).toBe('secret')
+    expect(presentCreatedEntry).not.toHaveBeenCalled()
+    expect(showAlertDialog).toHaveBeenCalledWith({
+      title: 'Save error',
+      message: 'Save error',
+      variant: 'danger',
+    })
+  })
+
+  it('treats an optimistic entry missing from the root as rolled back', async () => {
+    const entry = createTestEntry()
+    const createEntry = vi.fn(() => entry)
+    window.passmanager = createTestRoot({
+      createEntry,
+      getEntry: vi.fn(() => undefined),
+    })
+    vi.spyOn(dialogService, 'showAlertDialog').mockResolvedValue(undefined)
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Rolled back login')
+    model.setUsername('alice')
+    model.setPassword('secret')
+
+    await expect(model.submit()).resolves.toEqual({
+      ok: false,
+      reason: 'persistence_failed',
+      message: 'Save error',
+    })
+    expect(model.dirty()).toBe(true)
+  })
+
   it('preserves Cyrillic note text when creating a login entry', async () => {
-    const createEntry = vi.fn(() => undefined)
-    window.passmanager = createTestRoot({createEntry})
+    const {createEntry, root} = createEntryHarness(createTestEntry())
+    window.passmanager = root
 
     const note = 'Привет, заметка №1'
     const model = new PMEntryCreateModel()
@@ -185,8 +370,8 @@ describe('PMEntryCreateModel', () => {
   })
 
   it('resets and normalizes draft tags before creating a login entry', async () => {
-    const createEntry = vi.fn(() => undefined)
-    window.passmanager = createTestRoot({createEntry})
+    const {createEntry, root} = createEntryHarness(createTestEntry())
+    window.passmanager = root
 
     const model = new PMEntryCreateModel()
     model.setTags(['  #Work  ', 'work', 'Client   A'])
@@ -214,18 +399,18 @@ describe('PMEntryCreateModel', () => {
   it('suggests title from website until the title is manually edited', () => {
     const model = new PMEntryCreateModel()
 
-    model.setWebsite('github.com')
+    model.websiteEditor.setFirstValue('github.com')
     expect(model.title()).toBe('GitHub')
 
     model.setTitle('Code host')
-    model.setWebsite('example.com')
+    model.websiteEditor.setFirstValue('example.com')
 
     expect(model.title()).toBe('Code host')
   })
 
   it('creates login entry with OTP from QR payload', async () => {
-    const createEntry = vi.fn(() => undefined)
-    window.passmanager = createTestRoot({createEntry})
+    const {createEntry, root} = createEntryHarness(createTestEntry())
+    window.passmanager = root
 
     const model = new PMEntryCreateModel()
     model.setTitle('GitHub')
@@ -255,12 +440,11 @@ describe('PMEntryCreateModel', () => {
 
   it('creates payment card entries and stores PAN/CVV through typed secret slots', async () => {
     const entry = {
+      id: 'payment-card-created',
       flushPendingPersistence: vi.fn(async () => {}),
-      saveCardPan: vi.fn(async () => true),
-      saveCardCvv: vi.fn(async () => true),
     }
-    const createEntry = vi.fn(() => entry)
-    window.passmanager = createTestRoot({createEntry})
+    const {createEntry, presentCreatedEntry, root} = createEntryHarness(entry)
+    window.passmanager = root
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -289,23 +473,28 @@ describe('PMEntryCreateModel', () => {
       '',
       '',
       undefined,
+      {
+        cardPan: '4111111111111111',
+        cardCvv: '123',
+      },
     )
     expect(entry.flushPendingPersistence).toHaveBeenCalledTimes(1)
-    expect(entry.saveCardPan).toHaveBeenCalledWith('4111111111111111')
-    expect(entry.saveCardCvv).toHaveBeenCalledWith('123')
+    expect(presentCreatedEntry).toHaveBeenCalledWith(entry)
+    expect(entry.flushPendingPersistence.mock.invocationCallOrder[0]).toBeLessThan(
+      presentCreatedEntry.mock.invocationCallOrder[0],
+    )
   })
 
-  it('waits for new payment card persistence before storing PAN/CVV', async () => {
+  it('waits for atomic payment card persistence before presentation', async () => {
     const persistence = deferred<void>()
     const entry = {
+      id: 'payment-card-pending',
       flushPendingPersistence: vi.fn(async () => {
         await persistence.promise
       }),
-      saveCardPan: vi.fn(async () => true),
-      saveCardCvv: vi.fn(async () => true),
     }
-    const createEntry = vi.fn(() => entry)
-    window.passmanager = createTestRoot({createEntry})
+    const {createEntry, presentCreatedEntry, root} = createEntryHarness(entry)
+    window.passmanager = root
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -321,27 +510,66 @@ describe('PMEntryCreateModel', () => {
     await Promise.resolve()
 
     expect(entry.flushPendingPersistence).toHaveBeenCalledTimes(1)
-    expect(entry.saveCardPan).not.toHaveBeenCalled()
-    expect(entry.saveCardCvv).not.toHaveBeenCalled()
+    expect(createEntry).toHaveBeenCalledWith(
+      expect.objectContaining({entryType: 'payment_card'}),
+      '',
+      '',
+      undefined,
+      {cardPan: '4111111111111111', cardCvv: '123'},
+    )
+    expect(presentCreatedEntry).not.toHaveBeenCalled()
 
     persistence.resolve()
     await expect(submit).resolves.toEqual({ok: true})
 
-    expect(entry.saveCardPan).toHaveBeenCalledWith('4111111111111111')
-    expect(entry.saveCardCvv).toHaveBeenCalledWith('123')
     expect(entry.flushPendingPersistence.mock.invocationCallOrder[0]).toBeLessThan(
-      entry.saveCardPan.mock.invocationCallOrder[0],
+      presentCreatedEntry.mock.invocationCallOrder[0],
     )
+  })
+
+  it('does not present a payment card when atomic persistence fails', async () => {
+    const entry = {
+      id: 'payment-card-persistence-failed',
+      flushPendingPersistence: vi.fn(async () => {
+        throw new Error('saveEntryMeta failed')
+      }),
+    }
+    const {createEntry, presentCreatedEntry, root} = createEntryHarness(entry)
+    window.passmanager = root
+    vi.spyOn(dialogService, 'showAlertDialog').mockResolvedValue(undefined)
+
+    const model = new PMEntryCreateModel()
+    model.setEntryType('payment_card')
+    model.setTitle('Team Visa')
+    model.setCardholderName('Alice Doe')
+    model.setCardNumber('4111 1111 1111 1111')
+    model.setCardExpMonth('12')
+    model.setCardExpYear('31')
+    model.setCardCvv('123')
+
+    await expect(model.submit()).resolves.toEqual({
+      ok: false,
+      reason: 'persistence_failed',
+      message: 'Save error',
+    })
+    expect(createEntry).toHaveBeenCalledWith(
+      expect.objectContaining({entryType: 'payment_card'}),
+      '',
+      '',
+      undefined,
+      {cardPan: '4111111111111111', cardCvv: '123'},
+    )
+    expect(model.dirty()).toBe(true)
+    expect(presentCreatedEntry).not.toHaveBeenCalled()
   })
 
   it('creates payment card entries with normalized tags', async () => {
     const entry = {
+      id: 'payment-card-tags',
       flushPendingPersistence: vi.fn(async () => {}),
-      saveCardPan: vi.fn(async () => true),
-      cleanCardCvv: vi.fn(async () => true),
     }
-    const createEntry = vi.fn(() => entry)
-    window.passmanager = createTestRoot({createEntry})
+    const {createEntry, root} = createEntryHarness(entry)
+    window.passmanager = root
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -363,6 +591,7 @@ describe('PMEntryCreateModel', () => {
       '',
       '',
       undefined,
+      {cardPan: '4111111111111111', cardCvv: undefined},
     )
   })
 
@@ -430,8 +659,8 @@ describe('PMEntryCreateModel', () => {
   })
 
   it('dedupes repeated submit clicks to a single create flow', async () => {
-    const createEntry = vi.fn(() => undefined)
-    window.passmanager = createTestRoot({createEntry})
+    const {createEntry, root} = createEntryHarness(createTestEntry())
+    window.passmanager = root
 
     const model = new PMEntryCreateModel()
     model.setTitle('Entry')
@@ -446,17 +675,16 @@ describe('PMEntryCreateModel', () => {
     expect(createEntry).toHaveBeenCalledTimes(1)
   })
 
-  it('returns aborted instead of saved when reset aborts an in-flight create', async () => {
+  it('does not reset or abort once an atomic create is in flight', async () => {
     const persistence = deferred<void>()
     const entry = {
+      id: 'payment-card-aborted',
       flushPendingPersistence: vi.fn(async () => {
         await persistence.promise
       }),
-      saveCardPan: vi.fn(async () => true),
-      saveCardCvv: vi.fn(async () => true),
     }
-    const createEntry = vi.fn(() => entry)
-    window.passmanager = createTestRoot({createEntry})
+    const {presentCreatedEntry, root} = createEntryHarness(entry)
+    window.passmanager = root
 
     const model = new PMEntryCreateModel()
     model.setEntryType('payment_card')
@@ -471,12 +699,38 @@ describe('PMEntryCreateModel', () => {
     await Promise.resolve()
     expect(entry.flushPendingPersistence).toHaveBeenCalledTimes(1)
 
-    model.reset()
+    expect(model.reset()).toBe(false)
+    expect(model.title()).toBe('Team Visa')
     persistence.resolve()
 
-    await expect(submit).resolves.toEqual({ok: false, reason: 'aborted'})
-    expect(entry.saveCardPan).not.toHaveBeenCalled()
-    expect(entry.saveCardCvv).not.toHaveBeenCalled()
+    await expect(submit).resolves.toEqual({ok: true})
+    expect(presentCreatedEntry).toHaveBeenCalledWith(entry)
+    expect(model.reset()).toBe(true)
+    expect(model.title()).toBe('')
+  })
+
+  it('blocks discard navigation while an atomic create is in flight', async () => {
+    const persistence = deferred<void>()
+    const entry = createTestEntry({
+      flushPendingPersistence: vi.fn(async () => persistence.promise),
+    })
+    const {root} = createEntryHarness(entry)
+    window.passmanager = root
+
+    const model = new PMEntryCreateModel()
+    model.setTitle('Entry')
+    model.setUsername('alice')
+    model.setPassword('secret')
+    const submit = model.submit()
+    await Promise.resolve()
+
+    const resume = vi.fn()
+    expect(model.requestDiscard(resume)).toBe(true)
+    expect(model.discardSheetOpen()).toBe(false)
+    expect(resume).not.toHaveBeenCalled()
+
+    persistence.resolve()
+    await expect(submit).resolves.toEqual({ok: true})
   })
 
   it('validates a field after blur and validates the full form after submit', async () => {
@@ -578,10 +832,16 @@ describe('PMEntryCreateModel', () => {
 
   it('uses the selected root or group and blocks a stale destination', async () => {
     const group = {id: 'group-work', name: 'Work'}
-    const createEntry = vi.fn()
+    const entry = createTestEntry({id: 'group-entry'})
+    const createEntry = vi.fn(() => entry)
     const getGroup = vi.fn((id: string) => (id === group.id ? group : undefined))
     const setShowElement = vi.fn()
-    window.passmanager = createTestRoot({createEntry, getGroup, setShowElement})
+    window.passmanager = createTestRoot({
+      createEntry,
+      getEntry: vi.fn((id: string) => (id === entry.id ? entry : undefined)),
+      getGroup,
+      setShowElement,
+    })
 
     const model = new PMEntryCreateModel()
     model.reset()
@@ -639,7 +899,7 @@ describe('PMEntryCreateModel', () => {
     expect(model.title()).toBe('github.com')
     expect(model.username()).toBe('alice@example.com')
     expect(model.password()).toBe('pw-123')
-    expect(model.urls()).toBe('https://github.com/login')
+    expect(model.websiteEditor.primaryValue()).toBe('https://github.com/login')
     expect(model.isEditingPassword()).toBe(true)
     expect(model.dirty()).toBe(true)
   })

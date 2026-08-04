@@ -13,6 +13,7 @@ import type {TransportLike} from '../../core/transport/transport'
 import {MockTransport} from '../../core/transport/mock/mock-transport'
 import {TauriTransport} from '../../core/transport/tauri/tauri-transport'
 import {isTauriRuntime} from '../../core/runtime/runtime'
+import {moduleAccessModel} from '../../core/pro/module-access.model'
 import {androidSystemBackModel} from '../navigation/android-system-back.model'
 import {readInitialSurface} from '../navigation/initial-surface'
 import {initAppContext, tryGetAppContext} from '../../shared/services/app-context'
@@ -73,6 +74,11 @@ export const init = () => {
 
   initAppContext({store, ws, catalog, state, router})
   androidSystemBackModel.registerGlobalHandler()
+
+  if (!runtimeIsTauri) {
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
+    void moduleAccessModel.ensureActiveCoreAccess()
+  }
 
   // --- passmanager ports ---
   const transport = new PassmanagerTransport(catalog)

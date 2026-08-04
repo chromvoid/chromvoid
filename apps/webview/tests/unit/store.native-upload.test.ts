@@ -397,7 +397,7 @@ describe('Store native upload', () => {
     )
   })
 
-  it('keeps picker upload failure on the picker path without share partial handling', async () => {
+  it('keeps selected picker upload failures in the transfer panel without an error toast', async () => {
     setRuntimeCapabilities({
       platform: 'android',
       mobile: true,
@@ -424,8 +424,137 @@ describe('Store native upload', () => {
     await harness.store.startNativeUploadFiles('/photos')
 
     expect(harness.ws.uploadNativeFiles).toHaveBeenCalledWith('/photos', expect.objectContaining({uploadId: expect.any(String)}))
-    expect(harness.catalog.refresh).not.toHaveBeenCalled()
+    expect(harness.catalog.refresh).toHaveBeenCalledTimes(1)
     expect(harness.store.uploadTasks().map((task) => task.status())).toEqual(['done', 'error'])
-    expect(pushNotification).toHaveBeenCalledWith('error', 'Upload error: picker failed')
+    expect(harness.store.uploadTasks()[1]?.retryable).toBe(true)
+    expect(harness.store.uploadTasks()[1]?.errorMessage()).toBe(
+      'ChromVoid couldn’t upload the selected files. Try again.',
+    )
+    expect(pushNotification.mock.calls.some(([type]) => type === 'error')).toBe(false)
+  })
+
+  it('creates a persistent retryable task when iOS staging fails before selection', async () => {
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_native_file_upload: true,
+    })
+
+    const harness = createNativeUploadStore(async (_parentPath, opts) => {
+      opts?.onFailed?.({
+        uploadId: opts.uploadId,
+        message: 'Upload staging failed',
+        code: 'NATIVE_UPLOAD_UNAVAILABLE',
+      })
+      throw Object.assign(new Error('Upload staging failed'), {code: 'NATIVE_UPLOAD_UNAVAILABLE'})
+    })
+    const pushNotification = vi.spyOn(harness.store, 'pushNotification')
+
+    await harness.store.startNativeUploadFiles('/docs')
+
+    expect(harness.store.uploadTasks()).toHaveLength(1)
+    const task = harness.store.uploadTasks()[0]
+    expect(task?.name).toBe('Upload files')
+    expect(task?.status()).toBe('error')
+    expect(task?.retryable).toBe(true)
+    expect(task?.errorMessage()).toBe(
+      'ChromVoid couldn’t prepare the selected files in iOS. Try again.',
+    )
+    expect(harness.store.canRetryUploadTask(task!.id)).toBe(true)
+    expect(pushNotification.mock.calls.some(([type]) => type === 'error')).toBe(false)
+  })
+
+  it('treats initial iOS picker cancellation as a silent no-op', async () => {
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_native_file_upload: true,
+    })
+
+    const harness = createNativeUploadStore(async (_parentPath, opts) => {
+      opts?.onFailed?.({
+        uploadId: opts.uploadId,
+        message: 'Native upload cancelled',
+        code: 'NATIVE_UPLOAD_CANCELLED',
+      })
+      throw Object.assign(new Error('Native upload cancelled'), {code: 'NATIVE_UPLOAD_CANCELLED'})
+    })
+    const pushNotification = vi.spyOn(harness.store, 'pushNotification')
+
+    await harness.store.startNativeUploadFiles('/docs')
+
+    expect(harness.store.uploadTasks()).toEqual([])
+    expect(harness.catalog.refresh).not.toHaveBeenCalled()
+    expect(pushNotification).not.toHaveBeenCalled()
+  })
+
+  it('reopens the picker on retry and replaces only the failed native batch after selection', async () => {
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_native_file_upload: true,
+    })
+
+    let attempt = 0
+    const harness = createNativeUploadStore(async (_parentPath, opts) => {
+      attempt += 1
+      if (attempt === 1) {
+        opts?.onFailed?.({
+          uploadId: opts.uploadId,
+          message: 'Upload staging failed',
+          code: 'NATIVE_UPLOAD_UNAVAILABLE',
+        })
+        throw Object.assign(new Error('Upload staging failed'), {code: 'NATIVE_UPLOAD_UNAVAILABLE'})
+      }
+
+      opts?.onSelected?.([
+        {fileId: 'retry-file', nodeId: 71, name: 'retry.txt', mimeType: 'text/plain', totalBytes: 16},
+      ])
+      opts?.onCompleted?.({
+        uploadId: opts.uploadId,
+        fileId: 'retry-file',
+        nodeId: 71,
+        loadedBytes: 16,
+        totalBytes: 16,
+      })
+    })
+
+    await harness.store.startNativeUploadFiles('/docs')
+    const failedTask = harness.store.uploadTasks()[0]!
+
+    await expect(harness.store.retryUploadTask(failedTask.id)).resolves.toBe(true)
+
+    expect(harness.ws.uploadNativeFiles).toHaveBeenCalledTimes(2)
+    expect(harness.store.uploadTasks().map((task) => task.id)).toEqual(['retry-file'])
+    expect(harness.store.uploadTasks()[0]?.status()).toBe('done')
+    expect(harness.catalog.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the previous failed task when a retry picker is cancelled', async () => {
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_native_file_upload: true,
+    })
+
+    let attempt = 0
+    const harness = createNativeUploadStore(async (_parentPath, opts) => {
+      attempt += 1
+      const code = attempt === 1 ? 'NATIVE_UPLOAD_UNAVAILABLE' : 'NATIVE_UPLOAD_CANCELLED'
+      opts?.onFailed?.({uploadId: opts.uploadId, message: 'picker ended', code})
+      throw Object.assign(new Error('picker ended'), {code})
+    })
+    const pushNotification = vi.spyOn(harness.store, 'pushNotification')
+
+    await harness.store.startNativeUploadFiles('/docs')
+    const failedTask = harness.store.uploadTasks()[0]!
+    const originalMessage = failedTask.errorMessage()
+
+    await expect(harness.store.retryUploadTask(failedTask.id)).resolves.toBe(false)
+
+    expect(harness.store.uploadTasks()).toEqual([failedTask])
+    expect(failedTask.status()).toBe('error')
+    expect(failedTask.errorMessage()).toBe(originalMessage)
+    expect(pushNotification.mock.calls.some(([type]) => type === 'error')).toBe(false)
   })
 })

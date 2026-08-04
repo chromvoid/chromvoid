@@ -592,8 +592,8 @@ enum CredentialIPCBridge {
 
     private static func keychainAccessGroupCandidates() -> [String?] {
         var values: [String?] = []
-        if let entitlementGroup = entitlementKeychainAccessGroup() {
-            values.append(entitlementGroup)
+        if let configuredGroup = configuredKeychainAccessGroup() {
+            values.append(configuredGroup)
         }
         values.append(secretKeychainAccessGroup)
         values.append(nil)
@@ -610,14 +610,14 @@ enum CredentialIPCBridge {
         return out
     }
 
-    private static func entitlementKeychainAccessGroup() -> String? {
-        guard let task = SecTaskCreateFromSelf(nil),
-              let value = SecTaskCopyValueForEntitlement(task, "keychain-access-groups" as CFString, nil)
+    private static func configuredKeychainAccessGroup() -> String? {
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "ChromVoidSharedKeychainAccessGroup") as? String,
+              !group.isEmpty,
+              !group.contains("$(")
         else {
             return nil
         }
-        let groups = value as? [String] ?? []
-        return groups.first { $0.hasSuffix(secretKeychainAccessGroup) }
+        return group.hasSuffix(secretKeychainAccessGroup) ? group : nil
     }
 
     private static func containsForbiddenSecretFields(_ value: Any) -> Bool {

@@ -121,6 +121,10 @@ export abstract class FileItemBase extends ReatomLitElement {
     emitItemContextMenu(this.item, this.emitEvent, event)
   }
 
+  protected onSelectStart(event: Event) {
+    event.preventDefault()
+  }
+
   protected readonly onMore = (event: Event) => {
     emitItemMore(this.item, this.emitEvent, event)
   }
@@ -284,6 +288,7 @@ export abstract class FileItemBase extends ReatomLitElement {
         onClick: this.onClick,
         onDoubleClick: this.onDoubleClick,
         onContextMenu: this.onContextMenu,
+        onSelectStart: this.onSelectStart,
         onTouchStart: this.onTouchStart,
         onTouchMove: this.onTouchMove,
         onTouchEnd: this.onTouchEnd,

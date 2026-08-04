@@ -5,19 +5,17 @@ use serde::Serialize;
 use tauri::{Manager, Window};
 
 use crate::app_state::AppState;
+use crate::commands::ensure_main_window_caller;
 
 use approval::resolve_sign_approval;
 #[cfg(test)]
 pub(crate) use support::build_private_key_reader;
 use support::{agent_status, start_ssh_agent_with_entries};
 pub(crate) use support::{
-    collect_ssh_agent_entries, ensure_main_window_caller, ensure_ssh_agent_feature_access,
-    reconcile_ssh_agent_with_vault,
+    collect_ssh_agent_entries, ensure_ssh_agent_feature_access, reconcile_ssh_agent_with_vault,
 };
 #[cfg(test)]
 use support::{ensure_local_mode, refresh_action};
-
-const MAIN_WINDOW_LABEL: &str = "main";
 
 pub(crate) type SshAgentEntries = Vec<crate::ssh_agent::SshAgentEntry>;
 

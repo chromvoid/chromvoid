@@ -19,6 +19,14 @@ async function settle(element: PMGroupCreateDesktop) {
   await Promise.resolve()
 }
 
+function clickSubmit(element: PMGroupCreateDesktop): void {
+  const form = element.shadowRoot?.querySelector('form') as HTMLFormElement | null
+  const submit = element.shadowRoot?.querySelector<HTMLElement>('cv-button[type="submit"]') ?? null
+  if (!form || !submit) return
+  Object.defineProperty(submit, 'form', {configurable: true, value: form})
+  submit.click()
+}
+
 describe('PMGroupCreate desktop', () => {
   let previousPassmanager: typeof window.passmanager
 
@@ -46,11 +54,11 @@ describe('PMGroupCreate desktop', () => {
     await settle(element)
 
     const submit = element.shadowRoot?.querySelector('cv-button[type="submit"]') as HTMLElement | null
+    const form = element.shadowRoot?.querySelector('form') as HTMLFormElement | null
     expect(submit?.hasAttribute('disabled')).toBe(false)
+    expect(form?.noValidate).toBe(true)
 
-    element.shadowRoot
-      ?.querySelector('form')
-      ?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+    clickSubmit(element)
     await settle(element)
 
     const header = element.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
@@ -108,9 +116,7 @@ describe('PMGroupCreate desktop', () => {
     )
     await settle(element)
 
-    const form = element.shadowRoot?.querySelector('form') as HTMLFormElement | null
-    const submitEvent = new Event('submit', {bubbles: true, cancelable: true})
-    form?.dispatchEvent(submitEvent)
+    clickSubmit(element)
     await settle(element)
 
     expect(createGroup).toHaveBeenCalledWith({
@@ -118,6 +124,6 @@ describe('PMGroupCreate desktop', () => {
       description: 'For runbooks and ops links',
       iconRef: undefined,
       entries: [],
-    })
+    }, {presentation: 'defer'})
   })
 })

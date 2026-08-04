@@ -98,7 +98,7 @@ describe('PMGroupCreateModel', () => {
       description: '',
       iconRef: 'sha256:preset',
       entries: [],
-    })
+    }, {presentation: 'defer'})
   })
 
   it('turns the selected preset into an SVG icon-store upload', async () => {

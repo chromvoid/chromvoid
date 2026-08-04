@@ -158,7 +158,9 @@ export class PMSshKeysViewModel {
       await wrap(root.removeSshKey(keyId))
       return true
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : i18n('notify:remove:error'))
+      toast.error(error instanceof Error ? error.message : i18n('notify:remove:error'), undefined, {
+        key: `passmanager.ssh-key.remove:${keyId}`,
+      })
       return false
     }
   }, 'passmanager.sshKeysView.remove').extend(withAsync())

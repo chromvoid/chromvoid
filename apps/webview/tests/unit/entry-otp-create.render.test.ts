@@ -138,7 +138,11 @@ describe('PMEntryOTPCreate card layout', () => {
 
     expect(model.view()).toBe('main')
     expect(element.shadowRoot?.querySelector('[data-view="advanced"]')).toBeNull()
-    expect(element.shadowRoot?.querySelector('.otp-advanced-link')).not.toBeNull()
+    const advancedLink = element.shadowRoot?.querySelector('.otp-advanced-link')
+    expect(advancedLink).not.toBeNull()
+    await vi.waitFor(() => {
+      expect(element.shadowRoot?.activeElement).toBe(advancedLink)
+    })
   })
 
   it('renders validation and preview states from the model', async () => {
@@ -198,5 +202,30 @@ describe('PMEntryOTPCreate card layout', () => {
     expect(model.secretError()).not.toBe('')
     expect(primaryEvent).not.toHaveBeenCalled()
     expect(secretInput?.shadowRoot?.activeElement).toBe(nativeInput)
+  })
+
+  it('keeps the OTP sheet open when returning from advanced settings', async () => {
+    const model = new PMEntryOtpCreateModel()
+    const sheet = document.createElement('pm-entry-otp-create-sheet') as PMEntryOTPCreateSheet
+    sheet.model = model
+    sheet.open = true
+    document.body.append(sheet)
+    await settle(sheet)
+
+    model.actions.openAdvanced()
+    await settle(sheet)
+
+    const bottomSheet = sheet.shadowRoot?.querySelector('cv-bottom-sheet')
+    const form = sheet.shadowRoot?.querySelector('pm-entry-otp-create') as PMEntryOTPCreate | null
+    await form?.updateComplete
+
+    expect(bottomSheet?.closeOnOutsideFocus).toBe(false)
+
+    form?.shadowRoot?.querySelector<HTMLButtonElement>('.otp-advanced-back')?.click()
+    await settle(sheet)
+    if (form) await settle(form)
+
+    expect(sheet.open).toBe(true)
+    expect(model.view()).toBe('main')
   })
 })

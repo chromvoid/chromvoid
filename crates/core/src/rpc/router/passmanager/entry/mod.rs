@@ -25,6 +25,23 @@ pub(in crate::rpc::router::passmanager) use tags::{
     credential_tag_key, normalize_credential_tag_catalog, normalize_entry_tags,
 };
 
+pub(in crate::rpc::router::passmanager) fn handle_create(
+    s: &VaultSession,
+    storage: &crate::storage::Storage,
+    uow: &mut DomainUnitOfWork<'_>,
+    data: &serde_json::Value,
+) -> RpcResponse {
+    let request = match request::parse_entry_create_request(data) {
+        Ok(request) => request,
+        Err(error) => return error.into_rpc_response(),
+    };
+
+    match service::create_entry(s, storage, uow, request) {
+        Ok(result) => RpcResponse::success(result),
+        Err(error) => error.into_rpc_response(),
+    }
+}
+
 pub(in crate::rpc::router::passmanager) fn handle_save(
     s: &VaultSession,
     storage: &crate::storage::Storage,

@@ -64,85 +64,78 @@ export const fileItemViewStyles = css`
 
   /* ========== GRID VIEW ========== */
   :host([view-mode='grid']) {
-    block-size: 200px;
-    border: 1px solid var(--cv-color-border-muted);
-    border-radius: var(--cv-radius-3);
-    overflow: hidden;
-    background: linear-gradient(180deg, var(--cv-color-surface-2), var(--cv-color-surface));
-    box-shadow:
-      inset 0 1px 0 var(--cv-alpha-white-4),
-      0 10px 24px var(--cv-alpha-black-8);
     position: relative;
+    block-size: 208px;
+    overflow: hidden;
+    border: 1px solid var(--cv-color-border-muted);
+    border-radius: var(--cv-radius-2);
+    background: var(--cv-color-surface-2);
+    box-shadow: none;
   }
 
   :host([view-mode='grid'])::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: var(--cv-gradient-subtle);
-    opacity: 0;
-    transition: opacity var(--cv-duration-fast) var(--cv-easing-standard);
-    pointer-events: none;
-    border-radius: var(--cv-radius-3);
+    content: none;
   }
 
   :host([view-mode='grid']:hover) {
-    transform: translateY(-2px);
-    box-shadow:
-      inset 0 1px 0 var(--cv-alpha-white-6),
-      0 14px 30px var(--cv-alpha-black-14);
-    border-color: var(--cv-color-primary-border);
-  }
-
-  :host([view-mode='grid']:hover)::after {
-    opacity: 0.08;
+    border-color: var(--cv-color-border-soft);
+    background: var(--cv-color-surface-highlight);
+    box-shadow: none;
+    transform: none;
   }
 
   :host([view-mode='grid'][active]) {
-    background: linear-gradient(180deg, var(--cv-color-surface-2), var(--cv-color-primary-subtle));
     border-color: var(--cv-color-primary-border-strong);
+    background: var(--cv-color-surface-secondary-glass-soft);
     outline: 1px solid var(--cv-color-primary-ring);
     outline-offset: -1px;
+    box-shadow: none;
+    transform: none;
+  }
+
+  :host([view-mode='grid'][selected]),
+  :host([view-mode='grid'][selected][active]) {
+    border-color: var(--cv-color-primary-border-strong);
+    background: var(--cv-color-primary-subtle);
+    outline: none;
     box-shadow: inset 0 0 0 1px var(--cv-color-primary-border);
     transform: none;
   }
 
-  :host([view-mode='grid'][selected]) {
-    background: linear-gradient(180deg, var(--cv-color-surface-2), var(--cv-color-primary-surface-strong));
-    border-color: var(--cv-color-primary);
-    outline: 1px solid var(--cv-color-primary-ring);
-    outline-offset: -1px;
-    box-shadow:
-      inset 0 0 0 1px var(--cv-color-primary-border-strong),
-      0 0 0 3px var(--cv-color-primary-ring);
-    transform: none;
+  :host([view-mode='grid'][media-active]) {
+    border-color: var(--cv-color-primary-border-strong);
+    box-shadow: inset 0 0 0 1px var(--cv-color-primary-border);
   }
 
-  :host([view-mode='grid'][active])::after,
-  :host([view-mode='grid'][selected])::after {
-    opacity: 0;
+  :host([view-mode='grid']:focus-visible) {
+    outline: 2px solid var(--cv-color-focus);
+    outline-offset: 2px;
   }
 
   :host([view-mode='grid']) .file-item {
     display: grid;
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: 128px minmax(0, 1fr);
     align-items: stretch;
-    gap: 10px;
+    gap: 8px;
     block-size: 100%;
+    padding: 8px;
     text-align: start;
-    padding: 10px;
   }
 
   :host([view-mode='grid']) .thumbnail-shell {
-    font-size: 44px;
     inline-size: 100%;
-    block-size: 110px;
+    block-size: 128px;
+    min-inline-size: 0;
+    min-block-size: 128px;
     margin-block-end: 0;
-    border-radius: calc(var(--cv-radius-3) - 2px);
-    background:
-      linear-gradient(135deg, var(--cv-color-surface-highlight), transparent 48%),
-      var(--cv-color-surface-secondary-glass-soft);
-    box-shadow: inset 0 1px 0 var(--cv-alpha-white-4);
+    border-radius: var(--cv-radius-1);
+    background: var(--cv-color-surface);
+    box-shadow: none;
+    transform: none;
+  }
+
+  :host([view-mode='grid']) .thumbnail-shell.folder:not(.has-image) {
+    background: var(--cv-color-primary-surface);
   }
 
   :host([view-mode='grid']) .media-active-spectrum {
@@ -155,21 +148,23 @@ export const fileItemViewStyles = css`
     inline-size: var(--file-media-spectrum-grid-bar-inline-size);
   }
 
-  :host([view-mode='grid']:hover) .thumbnail-shell {
-    transform: scale(1.015);
-  }
-
   :host([view-mode='grid']) .icon {
-    font-size: 44px;
+    font-size: 48px;
     block-size: 100%;
+    transform: none;
   }
 
   :host([view-mode='grid']) .info {
-    inline-size: 100%;
     display: grid;
+    inline-size: 100%;
+    min-block-size: 0;
     gap: 4px;
     align-content: start;
-    min-block-size: 0;
+  }
+
+  :host([view-mode='grid']) .name-line {
+    inline-size: 100%;
+    min-inline-size: 0;
   }
 
   :host([view-mode='grid']) .name {
@@ -180,7 +175,7 @@ export const fileItemViewStyles = css`
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     font-size: var(--cv-font-size-sm);
-    font-weight: 650;
+    font-weight: var(--cv-font-weight-semibold);
     line-height: 1.2;
     letter-spacing: 0;
   }
@@ -189,66 +184,55 @@ export const fileItemViewStyles = css`
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+    margin-block-start: 0;
     font-size: var(--cv-font-size-xs);
     line-height: 1.15;
-    margin-block-start: 0;
   }
 
-  :host([view-mode='grid']) .file-type {
+  :host([view-mode='grid']) .selection-indicator,
+  :host([view-mode='grid']) .grid-pending-status {
     position: absolute;
-    inset-block-start: 12px;
-    inset-inline-end: 12px;
-    z-index: 2;
-    max-inline-size: calc(100% - 24px);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    border: 1px solid var(--cv-color-border-glass);
-    background: var(--cv-color-surface-glass-strong);
-    box-shadow: 0 4px 12px var(--cv-alpha-black-14);
+    inset-block-start: 8px;
+    z-index: 3;
+    inline-size: 20px;
+    block-size: 20px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--cv-color-border-soft);
+    border-radius: var(--cv-radius-1);
+    background: var(--cv-color-surface);
+    color: var(--cv-color-primary);
+    box-shadow: none;
   }
 
   :host([view-mode='grid']) .selection-indicator {
-    inset-block-start: 12px;
-    inset-inline-start: 12px;
+    inset-inline-start: 8px;
+    cursor: default;
+    pointer-events: none;
   }
 
-  :host([view-mode='grid']) .actions {
-    position: absolute;
-    z-index: 2;
-    inset-block-start: 88px;
-    inset-inline-end: 16px;
-    inset-inline-start: auto;
-    max-inline-size: calc(100% - 32px);
-    padding: 3px;
-    border: 1px solid var(--cv-color-border-glass);
-    border-radius: var(--cv-radius-2);
-    background: var(--cv-color-surface-glass-strong);
-    box-shadow: 0 8px 18px var(--cv-alpha-black-20);
-    justify-content: flex-end;
+  :host([view-mode='grid']) .selection-indicator.is-selected {
+    border-color: transparent;
+    background: var(--cv-color-primary);
+    color: var(--cv-color-on-primary);
   }
 
-  :host([view-mode='grid']:hover) .actions,
-  :host([view-mode='grid']:focus-visible) .actions,
-  :host([view-mode='grid'][active]) .actions {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
+  :host([view-mode='grid']) .grid-pending-status {
+    inset-inline-end: 8px;
   }
 
-  :host([view-mode='grid']) .action-btn {
-    inline-size: 28px;
-    block-size: 28px;
-    display: inline-grid;
-    place-items: center;
-    padding: 0;
-    background: var(--cv-color-surface-tertiary-glass);
+  :host([view-mode='grid']) .grid-pending-status cv-spinner {
+    display: block;
   }
 
-  :host([view-mode='grid'][media-active]) {
-    border-color: var(--cv-color-primary-border-strong);
-    box-shadow:
-      inset 0 0 0 1px var(--cv-color-primary-border),
-      0 14px 32px var(--cv-color-primary-ring);
+  :host([view-mode='grid']:hover) .thumbnail-shell {
+    transform: none;
+  }
+
+  :host([view-mode='grid']:hover) .thumbnail-shell.folder:not(.has-image) {
+    background: var(--cv-color-primary-surface);
+    box-shadow: none;
   }
 
   /* ========== TABLE VIEW ========== */

@@ -25,6 +25,7 @@ import type {
   CatalogFileReplaceOptions,
   CatalogFileReplaceResult,
   CatalogSourceMetadata,
+  CatalogUploadResult,
 } from '../../catalog/catalog'
 import {normalizeFileMediaInfo} from '../../catalog/media-info'
 import {defaultLogger} from '../../logger'
@@ -44,6 +45,7 @@ import {
 } from '../../runtime/runtime-mode.model'
 import {dispatchTauriCatalogCommand} from './tauri-catalog-command-dispatcher'
 import {moduleAccessModel} from '../../pro/module-access.model'
+import {activeCoreAccessContextFromMode} from '../../pro/active-core-access-context'
 import {
   downloadFilePathViaTauri,
   downloadFileViaTauri,
@@ -228,7 +230,10 @@ export class TauriTransport implements TransportLike {
         this.unlisten.push(
           await tauriListen<RuntimeModeSwitchResult>('mode:changed', (payload) => {
             runtimeModeModel.handleModeChanged(payload)
-            void moduleAccessModel.refresh()
+            this.syncModuleAccessContext(
+              payload.current_mode,
+              payload.transport_session_generation,
+            )
             this.emit('mode:changed', payload)
           }),
         )
@@ -266,7 +271,7 @@ export class TauriTransport implements TransportLike {
         try {
           const capabilities = await tauriInvoke<RuntimeCapabilities>('runtime_capabilities')
           setRuntimeCapabilities(capabilities)
-          void moduleAccessModel.refresh()
+          void moduleAccessModel.ensureActiveCoreAccess()
         } catch (error) {
           console.warn('[dashboard][tauri] runtime_capabilities invoke failed', error)
           setRuntimeCapabilities(null)
@@ -280,7 +285,7 @@ export class TauriTransport implements TransportLike {
               modeInfo.remote_core_features,
               modeInfo.transport_session_generation,
             )
-            void moduleAccessModel.refresh()
+            this.syncModuleAccessContext(modeInfo.mode, modeInfo.transport_session_generation)
           } catch (modeStatusError) {
             await this.syncCurrentModeFallback()
             console.warn('[dashboard][tauri] mode_status invoke failed', modeStatusError)
@@ -312,6 +317,7 @@ export class TauriTransport implements TransportLike {
     this.unlisten = []
     setRuntimeCapabilities(null)
     runtimeModeModel.handleTransportDisconnect()
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'pending')
     this.connected.set(false)
     this.connecting.set(false)
   }
@@ -339,14 +345,28 @@ export class TauriTransport implements TransportLike {
       const mode = await tauriInvoke<RpcResult<RuntimeCoreMode>>('get_current_mode')
       if (isSuccess(mode)) {
         runtimeModeModel.setCoreMode(mode.result)
+        this.syncModuleAccessContext(mode.result)
       } else {
         runtimeModeModel.setCoreMode('switching')
+        this.syncModuleAccessContext('switching')
         console.warn('[dashboard][tauri] get_current_mode failed', mode.error)
       }
     } catch (error) {
       runtimeModeModel.setCoreMode('switching')
+      this.syncModuleAccessContext('switching')
       console.warn('[dashboard][tauri] get_current_mode invoke failed', error)
     }
+  }
+
+  private syncModuleAccessContext(mode: unknown, transportSessionGeneration: unknown = null): void {
+    const context = activeCoreAccessContextFromMode(mode, transportSessionGeneration)
+    if (!context) {
+      moduleAccessModel.setActiveCoreContext(moduleAccessModel.activeCoreContext(), 'pending')
+      return
+    }
+    const readiness = context.sourceCore === 'local' ? 'ready' : 'pending'
+    moduleAccessModel.setActiveCoreContext(context, readiness)
+    if (readiness === 'ready') void moduleAccessModel.ensureActiveCoreAccess()
   }
 
   private emit(event: string, payload: unknown): void {
@@ -483,7 +503,7 @@ export class TauriTransport implements TransportLike {
       type?: string
       onProgress?: (c: number, t: number, p: number) => void
     },
-  ): Promise<{nodeId: number}> {
+  ): Promise<CatalogUploadResult> {
     return uploadFileViaTauri(target, file, opts)
   }
 

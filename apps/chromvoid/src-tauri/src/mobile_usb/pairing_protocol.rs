@@ -9,6 +9,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 const PAIRING_HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 const PAIRING_APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const USB_PAIRING_CANCEL_V1: &str = "usb_pairing_cancel_v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct MobileUsbPairingHello {
@@ -16,6 +17,8 @@ pub(crate) struct MobileUsbPairingHello {
     pub peer_label: String,
     pub peer_pubkey_hex: String,
     pub platform: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +35,25 @@ pub(crate) struct MobileUsbPairingApprovalChallenge {
 pub(crate) struct MobileUsbPairingApprovalProof {
     pub attempt_id: String,
     pub proof_hex: String,
+    #[serde(
+        default,
+        skip_serializing_if = "MobileUsbPairingApprovalAction::is_confirm"
+    )]
+    pub action: MobileUsbPairingApprovalAction,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MobileUsbPairingApprovalAction {
+    #[default]
+    Confirm,
+    Cancel,
+}
+
+impl MobileUsbPairingApprovalAction {
+    fn is_confirm(&self) -> bool {
+        *self == Self::Confirm
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -204,4 +226,35 @@ pub(crate) fn verify_pairing_approval_proof(
     let proof =
         hex::decode(proof_hex).map_err(|error| format!("decode approval proof: {error}"))?;
     Ok(mac.verify_slice(&proof).is_ok())
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_pairing_hello_defaults_capabilities_to_empty() {
+        let hello: MobileUsbPairingHello = serde_json::from_value(serde_json::json!({
+            "peer_id": "legacy-peer",
+            "peer_label": "Legacy peer",
+            "peer_pubkey_hex": "00",
+            "platform": "android"
+        }))
+        .expect("legacy hello");
+
+        assert!(hello.capabilities.is_empty());
+    }
+
+    #[test]
+    fn legacy_pairing_proof_defaults_to_confirm_and_confirm_stays_wire_compatible() {
+        let proof: MobileUsbPairingApprovalProof = serde_json::from_value(serde_json::json!({
+            "attempt_id": "attempt-1",
+            "proof_hex": "abcd"
+        }))
+        .expect("legacy proof");
+        assert_eq!(proof.action, MobileUsbPairingApprovalAction::Confirm);
+
+        let encoded = serde_json::to_value(proof).expect("encode confirm proof");
+        assert!(encoded.get("action").is_none());
+    }
 }

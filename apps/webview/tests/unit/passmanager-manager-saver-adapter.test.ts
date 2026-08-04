@@ -22,11 +22,45 @@ function createRepository(): PasswordsRepository {
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
+    createEntry: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    removeGroup: vi.fn(async () => undefined),
   } as unknown as PasswordsRepository
 }
+
+describe('ManagerSaverAdapter.removeGroup', () => {
+  it('forwards the point mutation to the repository', async () => {
+    const repository = createRepository()
+    const adapter = new ManagerSaverAdapter(repository, createOtpSecretsGateway())
+
+    await expect(adapter.removeGroup('Work/Archive')).resolves.toBeUndefined()
+    expect(repository.removeGroup).toHaveBeenCalledWith('Work/Archive')
+  })
+})
+
+describe('ManagerSaverAdapter.createEntry', () => {
+  it('forwards the atomic point-create payload to the repository', async () => {
+    const repository = createRepository()
+    const adapter = new ManagerSaverAdapter(repository, createOtpSecretsGateway())
+    const payload = {
+      entryType: 'login' as const,
+      meta: {
+        id: 'entry-1',
+        entryType: 'login' as const,
+        title: 'Example',
+        urls: [],
+        username: 'alice',
+        otps: [],
+      },
+      secrets: {password: 'secret', note: 'private'},
+    }
+
+    await expect(adapter.createEntry(payload)).resolves.toBe(true)
+    expect(repository.createEntry).toHaveBeenCalledWith(payload)
+  })
+})
 
 function createOtpSecretsGateway(overrides: Partial<OTPSecretsGateway> = {}): OTPSecretsGateway {
   return {

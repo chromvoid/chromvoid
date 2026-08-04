@@ -1,4 +1,4 @@
-import {type Browser, type BrowserContext, type Page, chromium} from 'playwright'
+import {type Browser, type BrowserContext, type BrowserType, type Page, chromium, webkit} from 'playwright'
 import {afterAll, afterEach, beforeAll, beforeEach} from 'vitest'
 
 import {ensureViteStarted, stopVite} from './server'
@@ -9,6 +9,12 @@ let browser: Browser
 let context: BrowserContext | undefined
 let page: Page | undefined
 let baselineMockStateText: string | undefined
+
+function getBrowserType(name: string): BrowserType {
+  if (name === 'chromium') return chromium
+  if (name === 'webkit') return webkit
+  throw new Error(`Unsupported DASHBOARD_E2E_BROWSER: ${name}`)
+}
 
 declare global {
   var __E2E_BASELINE_MOCK_STATE__: string | undefined
@@ -53,7 +59,8 @@ async function createPage() {
   await resetMockState()
   await resetMockTransportLog()
   const isHeaded = process.env['HEADED'] === '1'
-  browser = await chromium.launch({headless: !isHeaded})
+  const browserName = process.env['DASHBOARD_E2E_BROWSER'] ?? 'chromium'
+  browser = await getBrowserType(browserName).launch({headless: !isHeaded})
   context = await browser.newContext()
   page = await context.newPage()
 

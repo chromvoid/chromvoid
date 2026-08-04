@@ -6,57 +6,16 @@ export const appRouteStyles = [
   sharedStyles,
   css`
     :host {
-      height: 100%;
+      height: calc(100% + var(--app-runtime-visual-viewport-inset-block-end-active, 0px));
       display: block;
       background: var(--cv-color-bg);
       color: var(--cv-color-text);
       overflow-y: auto;
     }
 
-    :host-context(html:not([data-mobile-keyboard-expanded]):not([data-visual-viewport-shrunken])) {
-      height: calc(100% + var(--app-runtime-visual-viewport-inset-block-end, 0px));
-    }
-
     password-manager {
       display: grid;
       grid-template-rows: auto;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-create-actions {
-      display: inline-flex;
-      align-items: center;
-      gap: var(--pm-toolbar-control-gap);
-      min-inline-size: 0;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-password-search {
-      flex: 1 1 auto;
-      min-inline-size: 220px;
-      max-block-size: min(52vh, 320px);
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-quick-filters {
-      flex: 0 0 400px;
-      inline-size: 400px;
-      min-inline-size: 360px;
-      padding-block-start: 1px;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-sort-controls {
-      flex: 0 0 340px;
-      inline-size: min(340px, 40%);
-      min-inline-size: 304px;
-      padding-block-start: 1px;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-actions-menu {
-      flex: 0 0 auto;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-actions-menu::part(trigger) {
-      align-items: center;
-      block-size: var(--pm-toolbar-control-block-size);
-      min-inline-size: var(--pm-toolbar-control-block-size);
     }
 
     desktop-shell-toolbar.wallet-desktop-toolbar .wallet-desktop-context,
@@ -130,54 +89,6 @@ export const appRouteStyles = [
     desktop-shell-toolbar.wallet-desktop-toolbar .wallet-desktop-overflow::part(label),
     desktop-shell-toolbar.wallet-desktop-toolbar .wallet-desktop-overflow::part(dropdown-icon) {
       display: none;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-actions-menu::part(label),
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-actions-menu::part(dropdown-icon) {
-      display: none;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-actions-trigger {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-actions-trigger cv-icon {
-      inline-size: 15px;
-      block-size: 15px;
-    }
-
-    workspace-dashboard-header.passwords-desktop-toolbar .toolbar-menu-item[data-danger='true'] {
-      --cv-color-text: var(--cv-color-danger, var(--cv-color-text));
-    }
-
-    @container (width < 1024px) {
-      workspace-dashboard-header.passwords-desktop-toolbar .toolbar-quick-filters {
-        flex-basis: 240px;
-        min-inline-size: 200px;
-      }
-
-      workspace-dashboard-header.passwords-desktop-toolbar .toolbar-sort-controls {
-        flex-basis: 320px;
-        inline-size: min(320px, 48%);
-        min-inline-size: 288px;
-      }
-
-    }
-
-    @container (width < 760px) {
-      workspace-dashboard-header.passwords-desktop-toolbar .toolbar-password-search,
-      workspace-dashboard-header.passwords-desktop-toolbar .toolbar-quick-filters,
-      workspace-dashboard-header.passwords-desktop-toolbar .toolbar-sort-controls {
-        flex: 1 1 100%;
-        inline-size: 100%;
-        min-inline-size: 0;
-      }
-
-      workspace-dashboard-header.passwords-desktop-toolbar .toolbar-button::part(label) {
-        display: none;
-      }
     }
 
     no-license {

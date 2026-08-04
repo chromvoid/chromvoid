@@ -1,16 +1,34 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css, nothing, type TemplateResult} from 'lit'
+import {nothing, type PropertyValues, type TemplateResult} from 'lit'
+import {repeat} from 'lit/directives/repeat.js'
 
 import {CVIcon} from '@chromvoid/uikit/components/cv-icon'
 import {Group} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
-import {hostContentContainStyles} from 'root/shared/ui/shared-styles'
-
 import type {GroupTreeNode} from '../../models/group-tree'
 import {pmGroupTreeModel} from '../../models/pm-group-tree-model'
 import {pmEntryMoveModel, type PMDragPayload} from '../../models/pm-entry-move-model'
+import {
+  pmListMutationMotionModel,
+  type PMListMutationRow,
+  type PMListMutationVisibleRow,
+} from '../../models/pm-list-mutation-motion.model'
+import type {PMGroupRow} from '../../models/pm-root-search-projection'
 import {pmModel} from '../../password-manager.model'
+import {
+  elementScopedViewTransitionCoordinator,
+  prefersReducedMotion,
+} from 'root/utils/view-transitions'
+import {groupTreeViewStyles} from './group-tree-view.styles'
+
+type GroupTreeRenderItem = {
+  node: GroupTreeNode
+  depth: number
+  row: PMListMutationRow
+}
+
+let nextGroupTreeMutationScope = 0
 
 export class GroupTreeView extends ReatomLitElement {
   static define() {
@@ -20,254 +38,14 @@ export class GroupTreeView extends ReatomLitElement {
     CVIcon.define()
   }
 
-  static styles = [
-    hostContentContainStyles,
-    css`
-      :host {
-        user-select: none;
-        display: block;
-        min-block-size: 0;
-      }
+  static styles = groupTreeViewStyles
 
-      .tree {
-        display: grid;
-        gap: 6px;
-        padding: 0 0 12px;
-        min-block-size: 0;
-      }
-
-      .row {
-        position: relative;
-        display: grid;
-        grid-template-columns: 18px 1fr min-content;
-        align-items: center;
-        gap: 8px;
-        padding-block: 8px;
-        padding-inline-start: calc(
-          var(--pm-credentials-content-inset-start, 8px) + (attr(data-depth number, 0) * 12px)
-        );
-        padding-inline-end: var(--pm-credentials-content-inset-end, 10px);
-        border-radius: 14px;
-        border: 1px solid transparent;
-        background: transparent;
-        cursor: pointer;
-        transition:
-          background-color var(--cv-duration-fast) var(--cv-easing-standard),
-          border-color var(--cv-duration-fast) var(--cv-easing-standard),
-          transform var(--cv-duration-fast) var(--cv-easing-standard);
-      }
-
-      .row::before {
-        content: '';
-        position: absolute;
-        inset-inline-start: 0;
-        inset-block: 9px;
-        inline-size: 3px;
-        border-radius: 999px;
-        background: var(--cv-color-primary);
-        opacity: 0;
-        transform: scaleY(0.45);
-        transition:
-          opacity var(--cv-duration-fast) var(--cv-easing-standard),
-          transform var(--cv-duration-fast) var(--cv-easing-standard);
-      }
-
-      .row * {
-        -webkit-user-drag: none;
-      }
-
-      .row.empty-group {
-        opacity: 0.55;
-      }
-
-      .row.empty-group .name {
-        color: var(--cv-color-text-muted);
-      }
-
-      .row:hover {
-        transform: translateX(3px);
-        background: var(--cv-color-surface-2);
-      }
-
-      .row.selected {
-        background: var(--cv-color-surface-2);
-      }
-
-      .row.selected::before {
-        opacity: 1;
-        transform: scaleY(1);
-      }
-
-      .row.drop-target {
-        transform: translateX(6px);
-        border-color: transparent;
-        background: var(--cv-color-primary-surface);
-        outline: var(
-          --pm-active-outline,
-          2px solid var(--cv-color-primary-ring)
-        );
-        outline-offset: var(--pm-active-outline-offset, -2px);
-      }
-
-      .row.selected:hover {
-        background: var(--cv-color-surface-3);
-      }
-
-      .row.drop-target::before {
-        opacity: 1;
-        transform: scaleY(1);
-      }
-
-      .label {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-width: 0;
-      }
-
-      .name {
-        font-size: var(--cv-font-size-sm);
-        font-weight: var(--cv-font-weight-medium);
-        color: var(--cv-color-text);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .group-icon-image {
-        width: 18px;
-        height: 18px;
-        --pm-avatar-radius: 5px;
-        --pm-avatar-image-fit: contain;
-        --pm-avatar-image-padding: 0px;
-        --pm-avatar-image-inset-shadow-color: transparent;
-        --pm-avatar-contrast: calc(var(--pm-avatar-contrast-base) + 2%);
-        --pm-avatar-shadow-opacity: 30%;
-        --pm-avatar-icon-size: 16px;
-      }
-
-      .row.selected .group-icon-image {
-        --pm-avatar-contrast: calc(var(--pm-avatar-contrast-base) + 8%);
-        --pm-avatar-border-source: transparent;
-        --pm-avatar-shadow-opacity: 20%;
-      }
-
-      .row.selected .name {
-        color: var(--cv-color-text);
-        font-weight: 600;
-      }
-
-      .count {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-inline-size: auto;
-        min-block-size: 16px;
-        padding-inline: 4px;
-        border-radius: 999px;
-        font-size: 10px;
-        font-family: var(--cv-font-family-code);
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        color: var(--cv-color-text-secondary);
-        background: transparent;
-      }
-
-      .row.selected .count {
-        color: var(--cv-color-primary);
-        background: var(--cv-color-primary-surface);
-      }
-
-      .root {
-        font-style: italic;
-        opacity: 0.9;
-      }
-
-      .chevron {
-        width: 18px;
-        height: 18px;
-        border: none;
-        background: transparent;
-        padding: 0;
-        margin: 0;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--cv-color-text-muted);
-        cursor: pointer;
-        transition: transform var(--cv-duration-fast) var(--cv-easing-standard);
-      }
-
-      .chevron.expanded {
-        transform: rotate(90deg);
-      }
-
-      .chevron[aria-hidden='true'] {
-        cursor: default;
-      }
-
-      .chevron cv-icon {
-        width: 12px;
-        height: 12px;
-      }
-
-      .actions {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        opacity: 0;
-        pointer-events: none;
-        transform: translateX(6px);
-        transition:
-          opacity var(--cv-duration-fast) var(--cv-easing-standard),
-          transform var(--cv-duration-fast) var(--cv-easing-standard);
-      }
-
-      .row:hover .actions,
-      .row.selected .actions,
-      .row:focus-within .actions {
-        opacity: 1;
-        pointer-events: auto;
-        transform: translateX(0);
-      }
-
-      .action-btn {
-        width: 22px;
-        height: 22px;
-        border-radius: var(--cv-radius-1);
-        border: 1px solid transparent;
-        background: var(--cv-color-primary-surface-strong);
-        color: var(--cv-color-text);
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .action-btn:hover {
-        background: var(--cv-color-primary);
-        color: white;
-        border-color: var(--cv-color-primary);
-        transform: scale(1.08);
-      }
-
-      .action-btn cv-icon {
-        width: 12px;
-        height: 12px;
-      }
-
-      .root-icon {
-        width: 16px;
-        height: 16px;
-      }
-
-      @container (max-width: 280px) {
-        .count {
-          display: none;
-        }
-      }
-    `,
-  ]
+  private readonly mutationScopeId = `desktop-tree:${++nextGroupTreeMutationScope}`
+  private lastTreeRows: PMListMutationRow[] = []
+  private lastTreeItems = new Map<string, GroupTreeRenderItem>()
+  private readonly pendingExitIds = new Set<string>()
+  private exitFrame: number | null = null
+  private enterFrame: number | null = null
 
   private onSelectRoot = () => {
     pmGroupTreeModel.select(null)
@@ -286,6 +64,20 @@ export class GroupTreeView extends ReatomLitElement {
     e.stopPropagation()
     e.preventDefault()
     await pmGroupTreeModel.createGroupUnder(parentPath)
+  }
+
+  private onRowKeyDown(event: KeyboardEvent, path: string | null): void {
+    if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) {
+      return
+    }
+
+    event.preventDefault()
+    if (path === null) {
+      this.onSelectRoot()
+      return
+    }
+
+    this.onSelectGroup(path)
   }
 
   private getRoot() {
@@ -329,11 +121,25 @@ export class GroupTreeView extends ReatomLitElement {
   }
 
   disconnectedCallback() {
-    super.disconnectedCallback()
+    if (this.exitFrame !== null) cancelAnimationFrame(this.exitFrame)
+    if (this.enterFrame !== null) cancelAnimationFrame(this.enterFrame)
+    this.exitFrame = null
+    this.enterFrame = null
+    pmListMutationMotionModel.resetScope(this.mutationScopeId)
     pmEntryMoveModel.unregisterDropZone(this.renderRoot as ShadowRoot)
     if (this.pointerDrag?.active) this.endPointerDrag()
     this.pointerDrag = null
     this.cleanupPointerListeners()
+    super.disconnectedCallback()
+  }
+
+  protected override updated(changedProperties: PropertyValues): void {
+    super.updated(changedProperties)
+    if (prefersReducedMotion()) {
+      this.finishReducedMotionRows()
+      return
+    }
+    this.scheduleStagedEnters()
   }
 
   // --- Pointer-based drag (initiation) ---
@@ -521,7 +327,8 @@ export class GroupTreeView extends ReatomLitElement {
     pmEntryMoveModel.setDropTarget(null)
   }
 
-  private renderGroup(node: GroupTreeNode, depth: number): TemplateResult {
+  private renderGroup(item: GroupTreeRenderItem): TemplateResult {
+    const {node, depth, row} = item
     const selected = pmGroupTreeModel.selectedPath() === node.path
     const hasChildren = node.children.length > 0
     const isEmpty = node.totalEntryCount === 0
@@ -530,54 +337,66 @@ export class GroupTreeView extends ReatomLitElement {
 
     return html`
       <div
-        class="row ${selected ? 'selected' : ''} ${isEmpty ? 'empty-group' : ''} ${isDropTarget
-          ? 'drop-target'
-          : ''}"
-        data-depth=${String(depth)}
-        data-kind="group"
-        role="button"
-        tabindex="0"
-        data-drop-target-id=${targetId ?? nothing}
-        @pointerdown=${(e: PointerEvent) => this.onRowPointerDown(e, node.path)}
-        @click=${() => this.onSelectGroup(node.path)}
-        @contextmenu=${(e: Event) => void this.onCreateGroup(e, node.path)}
-        @dragstart=${this.preventNativeDrag}
-        @dragover=${(event: DragEvent) => this.onDragOverTarget(event, node.path)}
-        @dragenter=${(event: DragEvent) => this.onDragOverTarget(event, node.path)}
-        @drop=${(event: DragEvent) => this.onDropTarget(event, node.path)}
+        class="tree-branch"
+        data-tree-id=${row.id}
+        ?data-delete-exiting=${row.deleteExiting === true}
+        data-entering=${row.entering ?? nothing}
+        aria-hidden=${row.deleteExiting ? 'true' : nothing}
+        @animationend=${row.deleteExiting
+          ? (event: AnimationEvent) => this.onDeleteAnimationEnd(event, row.id)
+          : row.entering
+            ? (event: AnimationEvent) => this.onEnterAnimationEnd(event, row.id)
+            : undefined}
       >
-        ${hasChildren
-          ? html`
-              <cv-button unstyled
-                class="chevron ${node.expanded ? 'expanded' : ''}"
-                aria-label=${node.expanded ? i18n('button:collapse_group') : i18n('button:expand_group')}
-                @click=${(e: Event) => this.onToggle(e, node.path)}
-              >
-                <cv-icon name="chevron-right"></cv-icon>
-              </cv-button>
-            `
-          : html`<cv-button unstyled class="chevron" aria-hidden="true" button-tabindex="-1"></cv-button>`}
+        <div
+          class="row ${selected ? 'selected' : ''} ${isEmpty ? 'empty-group' : ''} ${isDropTarget
+            ? 'drop-target'
+            : ''}"
+          data-depth=${String(depth)}
+          data-kind="group"
+          role="button"
+          tabindex="0"
+          data-drop-target-id=${targetId ?? nothing}
+          @pointerdown=${(e: PointerEvent) => this.onRowPointerDown(e, node.path)}
+          @click=${() => this.onSelectGroup(node.path)}
+          @keydown=${(event: KeyboardEvent) => this.onRowKeyDown(event, node.path)}
+          @contextmenu=${(e: Event) => void this.onCreateGroup(e, node.path)}
+          @dragstart=${this.preventNativeDrag}
+          @dragover=${(event: DragEvent) => this.onDragOverTarget(event, node.path)}
+          @dragenter=${(event: DragEvent) => this.onDragOverTarget(event, node.path)}
+          @drop=${(event: DragEvent) => this.onDropTarget(event, node.path)}
+        >
+          ${hasChildren
+            ? html`
+                <cv-button unstyled
+                  class="chevron ${node.expanded ? 'expanded' : ''}"
+                  aria-label=${node.expanded
+                    ? i18n('button:collapse_group')
+                    : i18n('button:expand_group')}
+                  @click=${(e: Event) => this.onToggle(e, node.path)}
+                >
+                  <cv-icon name="chevron-right"></cv-icon>
+                </cv-button>
+              `
+            : html`<cv-button unstyled class="chevron" aria-hidden="true" button-tabindex="-1"></cv-button>`}
 
-        <div class="label">
-          ${this.renderNodeIcon(node)}
-          <span class="name">${node.name}</span>
-          <span class="count">${node.totalEntryCount}</span>
-        </div>
+          <div class="label">
+            ${this.renderNodeIcon(node)}
+            <span class="name">${node.name}</span>
+            <span class="count">${node.totalEntryCount}</span>
+          </div>
 
-        <div class="actions">
-          <cv-button unstyled
-            class="action-btn"
-            @click=${(e: Event) => void this.onCreateGroup(e, node.path)}
-            aria-label=${i18n('group:create:subgroup')}
-          >
-            <cv-icon name="plus"></cv-icon>
-          </cv-button>
+          <div class="actions">
+            <cv-button unstyled
+              class="action-btn"
+              @click=${(e: Event) => void this.onCreateGroup(e, node.path)}
+              aria-label=${i18n('group:create:subgroup')}
+            >
+              <cv-icon name="plus"></cv-icon>
+            </cv-button>
+          </div>
         </div>
       </div>
-
-      ${hasChildren && node.expanded
-        ? html`${node.children.map((c) => this.renderGroup(c, depth + 1))}`
-        : nothing}
     `
   }
 
@@ -588,6 +407,29 @@ export class GroupTreeView extends ReatomLitElement {
     const tree = pmGroupTreeModel.tree()
     const selected = pmGroupTreeModel.selectedPath()
     const isRootDropTarget = pmEntryMoveModel.dropTargetId() === root.id
+    const sourceItems = this.createTreeProjection(tree.groups)
+    const previousRows: PMListMutationVisibleRow[] = this.lastTreeRows.map((row, index) => ({
+      row,
+      index,
+    }))
+    const sourceRows = sourceItems.map(({row}) => row)
+    pmListMutationMotionModel.syncProjection(
+      this.mutationScopeId,
+      sourceRows,
+      previousRows,
+      sourceRows.length > 0 ? {first: 0, last: sourceRows.length - 1} : null,
+    )
+    const decoratedRows = pmListMutationMotionModel.decorateProjection(
+      this.mutationScopeId,
+      sourceRows,
+    )
+    const currentItems = new Map(sourceItems.map((item) => [item.row.id, item]))
+    const renderItems = decoratedRows.flatMap((row) => {
+      const item = currentItems.get(row.id) ?? this.lastTreeItems.get(row.id)
+      return item ? [{...item, row}] : []
+    })
+    this.lastTreeRows = decoratedRows
+    this.lastTreeItems = new Map(renderItems.map((item) => [item.row.id, item]))
 
     return html`
       <div class="tree" @dragleave=${this.onTreeDragLeave}>
@@ -599,6 +441,7 @@ export class GroupTreeView extends ReatomLitElement {
           tabindex="0"
           data-drop-target-id=${root.id}
           @click=${this.onSelectRoot}
+          @keydown=${(event: KeyboardEvent) => this.onRowKeyDown(event, null)}
           @contextmenu=${(e: Event) => void this.onCreateGroup(e, null)}
           @dragover=${(event: DragEvent) => this.onDragOverTarget(event, null)}
           @dragenter=${(event: DragEvent) => this.onDragOverTarget(event, null)}
@@ -607,23 +450,135 @@ export class GroupTreeView extends ReatomLitElement {
           <cv-button unstyled class="chevron" aria-hidden="true" button-tabindex="-1"></cv-button>
           <div class="label">
             <cv-icon class="root-icon" name="folder2-open"></cv-icon>
-            <span class="name root">/</span>
+            <span class="name root">${i18n('root:title-short')}</span>
             <span class="count">${tree.rootEntries.length}</span>
-          </div>
-          <div class="actions">
-            <cv-button unstyled
-              class="action-btn"
-              @click=${(e: Event) => void this.onCreateGroup(e, null)}
-              aria-label=${i18n('group:create:title')}
-            >
-              <cv-icon name="plus"></cv-icon>
-            </cv-button>
           </div>
         </div>
 
-        ${tree.groups.map((g) => this.renderGroup(g, 0))}
+        ${repeat(
+          renderItems,
+          (item) => item.row.id,
+          (item) => this.renderGroup(item),
+        )}
       </div>
     `
+  }
+
+  private createTreeProjection(nodes: readonly GroupTreeNode[]): GroupTreeRenderItem[] {
+    const items: GroupTreeRenderItem[] = []
+    const append = (node: GroupTreeNode, depth: number) => {
+      const group = this.resolveGroupByPath(node.path)
+      const row: PMGroupRow = group
+        ? {kind: 'group', id: node.id, item: group}
+        : {kind: 'header', id: node.id, label: node.name, count: node.totalEntryCount}
+      items.push({node, depth, row})
+      if (node.expanded) {
+        for (const child of node.children) append(child, depth + 1)
+      }
+    }
+    for (const node of nodes) append(node, 0)
+    return items
+  }
+
+  private onDeleteAnimationEnd(event: AnimationEvent, id: string): void {
+    if (event.target !== event.currentTarget) return
+    this.pendingExitIds.add(id)
+    if (this.exitFrame !== null) return
+
+    this.exitFrame = requestAnimationFrame(() => {
+      this.exitFrame = null
+      const ids = [...this.pendingExitIds]
+      this.pendingExitIds.clear()
+      void this.runTreeMutation(() => {
+        pmListMutationMotionModel.completeExitBatch(this.mutationScopeId, ids)
+      })
+    })
+  }
+
+  private onEnterAnimationEnd(event: AnimationEvent, id: string): void {
+    if (event.target !== event.currentTarget) return
+    pmListMutationMotionModel.consumeEnter(this.mutationScopeId, id)
+  }
+
+  private finishReducedMotionRows(): void {
+    const exitingIds = this.lastTreeRows.filter((row) => row.deleteExiting).map((row) => row.id)
+    const enteringIds = this.lastTreeRows.filter((row) => row.entering).map((row) => row.id)
+    const stagedIds = pmListMutationMotionModel.getStagedEnterIds(this.mutationScopeId)
+    if (exitingIds.length > 0) {
+      pmListMutationMotionModel.completeExitBatch(this.mutationScopeId, exitingIds)
+    }
+    if (stagedIds.length > 0) {
+      pmListMutationMotionModel.revealEnterBatch(this.mutationScopeId, stagedIds)
+      for (const id of stagedIds) pmListMutationMotionModel.consumeEnter(this.mutationScopeId, id)
+    }
+    for (const id of enteringIds) pmListMutationMotionModel.consumeEnter(this.mutationScopeId, id)
+  }
+
+  private scheduleStagedEnters(): void {
+    if (this.enterFrame !== null) return
+    const ids = pmListMutationMotionModel.getStagedEnterIds(this.mutationScopeId)
+    if (ids.length === 0) return
+
+    this.enterFrame = requestAnimationFrame(() => {
+      this.enterFrame = null
+      void this.runTreeMutation(() => {
+        pmListMutationMotionModel.revealEnterBatch(this.mutationScopeId, ids)
+      })
+    })
+  }
+
+  private async runTreeMutation(update: () => void): Promise<void> {
+    const before = this.captureTreeRects()
+    const scope = this.renderRoot.querySelector<HTMLElement>('.tree')
+    if (scope) scope.dataset['pmTreeTransition'] = 'true'
+    const result = await elementScopedViewTransitionCoordinator.run({
+      scope,
+      enabled:
+        typeof CSS !== 'undefined' && CSS.supports('view-transition-name', 'match-element'),
+      update,
+      settle: async () => {
+        await this.updateComplete
+      },
+    })
+    if (scope) delete scope.dataset['pmTreeTransition']
+    if (result.state !== 'applied' && result.state !== 'joined-active' && !prefersReducedMotion()) {
+      this.animateTreeCompaction(before)
+    }
+  }
+
+  private captureTreeRects(): Map<string, DOMRect> {
+    const rects = new Map<string, DOMRect>()
+    for (const element of this.renderRoot.querySelectorAll<HTMLElement>('.tree-branch[data-tree-id]')) {
+      if (element.hasAttribute('data-delete-exiting')) continue
+      const id = element.dataset['treeId']
+      if (id) rects.set(id, element.getBoundingClientRect())
+    }
+    return rects
+  }
+
+  private animateTreeCompaction(before: Map<string, DOMRect>): void {
+    if (before.size === 0) return
+    const style = getComputedStyle(this)
+    const durationValue = style.getPropertyValue('--cv-duration-normal').trim()
+    const duration = durationValue.endsWith('ms')
+      ? Number.parseFloat(durationValue) || 250
+      : (Number.parseFloat(durationValue) || 0.25) * 1000
+    const easing = style.getPropertyValue('--cv-easing-decelerate').trim() || 'cubic-bezier(0, 0, 0.2, 1)'
+
+    for (const element of this.renderRoot.querySelectorAll<HTMLElement>('.tree-branch[data-tree-id]')) {
+      const id = element.dataset['treeId']
+      const previous = id ? before.get(id) : undefined
+      if (!previous || typeof element.animate !== 'function') continue
+
+      const next = element.getBoundingClientRect()
+      const deltaX = previous.left - next.left
+      const deltaY = previous.top - next.top
+      if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) continue
+      element.animate(
+        [{transform: `translate(${deltaX}px, ${deltaY}px)`}, {transform: 'translate(0, 0)'}],
+        {duration, easing},
+      )
+    }
   }
 
   private renderNodeIcon(node: GroupTreeNode): TemplateResult {

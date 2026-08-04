@@ -28,6 +28,7 @@ import {markdownPreviewModel} from 'root/features/file-manager/models/markdown-p
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {defaultLogger} from 'root/core/logger'
 import {moduleAccessModel} from 'root/core/pro/module-access.model'
+import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {i18n} from 'root/i18n'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
 import {getAppContext, getRouter, tryGetAppContext} from 'root/shared/services/app-context'
@@ -57,6 +58,7 @@ export type MobileToolbarStatus = {
 
 export type MobileToolbarState = {
   show: boolean
+  hideTabBar: boolean
   title: string
   titleAction?: {
     id: string
@@ -415,6 +417,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
 
   const noActions: MobileToolbarState = {
     show: false,
+    hideTabBar: false,
     title: '',
     leading: 'none',
     backDisabled: false,
@@ -430,6 +433,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     const ctx = remoteStorageModel.getMobileToolbarContext()
     return {
       show: true,
+      hideTabBar: false,
       title: ctx.title,
       leading: ctx.canGoBack ? 'back' : 'menu',
       backDisabled: ctx.backDisabled,
@@ -439,10 +443,13 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
   }
 
   if (surface === 'remote') {
+    const capabilities = getRuntimeCapabilities()
+    const isMobileHost = capabilities.mobile && capabilities.supports_network_remote
     return {
       show: true,
+      hideTabBar: false,
       title: i18n('navigation:remote'),
-      subtitle: i18n('remote:subtitle'),
+      subtitle: i18n(isMobileHost ? 'remote:mobile-host-subtitle' : 'remote:subtitle'),
       leading: 'menu',
       backDisabled: false,
       maxVisible: 3,
@@ -452,6 +459,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
   if (surface === 'gateway') {
     return {
       show: true,
+      hideTabBar: false,
       title: i18n('gateway:page-title'),
       leading: 'menu',
       backDisabled: false,
@@ -479,6 +487,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
 
       return {
         show: true,
+        hideTabBar: false,
         title: i18n(titleKey),
         leading: 'back',
         backDisabled: settingsRoute.kind === 'vault-rekey' && vaultRekeyModel.busy(),
@@ -489,6 +498,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
 
     return {
       show: true,
+      hideTabBar: false,
       title: i18n('navigation:settings'),
       subtitle: i18n('settings:subtitle'),
       leading: 'menu',
@@ -500,6 +510,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
   if (surface === 'passkeys') {
     return {
       show: true,
+      hideTabBar: false,
       title: i18n('navigation:passkeys'),
       subtitle: i18n('passkeys:mobile-description'),
       leading: 'menu',
@@ -513,6 +524,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     if (!context.ready) {
       return {
         show: true,
+        hideTabBar: false,
         title: i18n('navigation:wallet'),
         subtitle: i18n('wallet:subtitle'),
         leading: 'menu',
@@ -539,6 +551,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
 
     return {
       show: true,
+      hideTabBar: false,
       title: context.walletLabel,
       titleAction: {
         id: 'switch-wallet',
@@ -576,7 +589,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
           overflowOnly: true,
         },
       ],
-      executeAction: executeWalletToolbarAction,
+      executeAction: (actionId) => executeWalletToolbarAction(actionId, 'mobile'),
     }
   }
 
@@ -585,6 +598,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     if (!passmanagerReady) {
       return {
         show: true,
+        hideTabBar: false,
         title: i18n('navigation:passwords'),
         subtitle: pmMobileChromeModel.getRootSubtitle(),
         leading: 'menu',
@@ -597,6 +611,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     const actions = pmMobileChromeModel.getToolbarActions()
     return {
       show: true,
+      hideTabBar: ctx.hideTabBar,
       title: ctx.title,
       subtitle: ctx.subtitle,
       meta: ctx.meta,
@@ -614,6 +629,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     const fileManagerModel = getFileManagerModel()
     return {
       show: true,
+      hideTabBar: false,
       title: i18n('navigation:notes' as never),
       subtitle: i18n('notes:quick_view:subtitle' as never),
       leading: 'menu',
@@ -638,6 +654,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     const maxVisible = 3
     return {
       show: true,
+      hideTabBar: false,
       title: filesDocument.fileName,
       subtitle: chrome.subtitle,
       status: chrome.status,
@@ -651,22 +668,21 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     }
   }
 
-  const filesActions = fileManagerModel.getMobileToolbarActions()
-
   if (selectionActive) {
     return {
       show: true,
+      hideTabBar: false,
       title: getFilesToolbarTitle(currentPath),
       leading: 'back',
       backDisabled: false,
       maxVisible: 4,
       actions: [],
-      executeAction: (actionId: string) => fileManagerModel.executeMobileCommand(actionId),
     }
   }
 
   return {
     show: true,
+    hideTabBar: false,
     title: getFilesToolbarTitle(currentPath),
     subtitle:
       currentPath === '/' && !hasOverlay && !hasFilesDocument
@@ -675,9 +691,7 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
     leading: hasOverlay || hasFilesDocument || currentPath !== '/' ? 'back' : 'menu',
     backDisabled: false,
     maxVisible: 3,
-    overflowFromIndex: filesActions.length > 0 ? 0 : undefined,
-    actions: filesActions,
-    executeAction: (actionId: string) => fileManagerModel.executeMobileCommand(actionId),
+    actions: [],
   }
 }
 
@@ -836,7 +850,6 @@ export class ChromVoidAppModel {
     this.initializeRenderedRoute(getRouter().route())
     this.toolbarStore = store
     this.applyLayoutParam(store)
-    void moduleAccessModel.refresh()
     navigationModel.connect()
     this.unregisterMarkdownNavigationGuard = registerMarkdownNavigationGuard()
     this.unregisterMobileSidebarBack = transientBackModel.register(() => this.consumeMobileSidebarBack(), {

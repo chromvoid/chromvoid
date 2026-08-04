@@ -1,30 +1,29 @@
 import {hostContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
-import {css} from 'lit'
+import {css, nothing} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
 import {CVToolbar} from '@chromvoid/uikit/components/cv-toolbar'
 import {CVToolbarItem} from '@chromvoid/uikit/components/cv-toolbar-item'
 import type {Group, ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 
-import {
-  folderItemCSS,
-  listItemsCSS,
-  metadataSectionCSS,
-  pmSharedStyles,
-} from '../../../styles/shared'
+import {folderItemCSS, listItemsCSS, metadataSectionCSS, pmSharedStyles} from '../../../styles/shared'
 import {listGroupStyles} from '../../list/list-item-styles'
 import {pmEntryCardStyles} from '../../card/entry-create/styles'
 import {PMWorkspaceHeader} from '../../card/pm-workspace-header'
 import {PMGroupBase} from './group-base'
-import type {PMGroupRow} from './group.model'
+import type {PMGroupPresentation, PMGroupRow} from './group.model'
 import {pmGroupCommonStyles} from './styles'
 
 export const pmGroupDesktopStyles = css`
+  :host {
+    container-type: inline-size;
+  }
+
   .wrapper {
     display: grid;
-    gap: var(--app-spacing-5);
-    grid-template-rows: min-content minmax(0, 1fr) min-content;
+    gap: var(--cv-space-2);
+    grid-template-rows: min-content minmax(0, 1fr);
     animation: var(--app-motion-fade-up-animation, fadeInUp 0.35s var(--cv-easing-standard) both);
     block-size: 100%;
     min-height: 0;
@@ -41,11 +40,11 @@ export const pmGroupDesktopStyles = css`
 
   .group-virtual-list {
     --pm-entry-row-radius: 18px;
-    --pm-entry-row-padding: 0 var(--pm-desktop-list-row-padding-end) 0 var(--pm-desktop-list-row-padding-start);
+    --pm-entry-row-padding: 0 var(--pm-desktop-list-row-padding-end) 0
+      var(--pm-desktop-list-row-padding-start);
     block-size: 100%;
     padding: var(--app-surface-gutter-desktop) var(--pm-desktop-list-inline-padding);
     border-radius: 20px;
-
   }
 
   .pm-group-scroll-edge {
@@ -97,7 +96,7 @@ export const pmGroupDesktopStyles = css`
   }
 
   .group-action-item {
-    --cv-toolbar-item-min-height: 38px;
+    --cv-toolbar-item-min-height: 34px;
   }
 
   .group-action-item-content {
@@ -114,7 +113,7 @@ export const pmGroupDesktopStyles = css`
 
   .group-action-item.icon-only {
     --cv-toolbar-item-padding-inline: var(--cv-space-2);
-    min-inline-size: 36px;
+    min-inline-size: 34px;
   }
 
   .group-action-item.icon-only .group-action-item-content {
@@ -128,6 +127,36 @@ export const pmGroupDesktopStyles = css`
     min-block-size: 0;
     overflow: hidden;
     padding: 0 0;
+  }
+
+  [id='passwords.empty-state'] {
+    display: grid;
+    flex: 1 1 auto;
+    inline-size: 100%;
+    min-inline-size: 0;
+    min-block-size: 0;
+  }
+
+  cv-empty-state {
+    align-self: stretch;
+    align-content: start;
+    block-size: 100%;
+    padding-block-start: clamp(var(--cv-space-6), 8vb, 72px);
+    --cv-empty-state-border: 1px solid transparent;
+    --cv-empty-state-background: transparent;
+    --cv-empty-state-dropzone-border: transparent;
+    --cv-empty-state-dropzone-background: transparent;
+    --cv-empty-state-min-block-size: auto;
+  }
+
+  cv-empty-state::part(base) {
+    inline-size: min(520px, calc(100% - var(--app-surface-gutter-desktop) * 2));
+    justify-self: center;
+  }
+
+  cv-empty-state.drop-active {
+    --cv-empty-state-drop-active-border: var(--cv-color-primary-border-strong);
+    --cv-empty-state-drop-active-background: var(--cv-color-primary-surface);
   }
 
   .entry-row,
@@ -250,13 +279,9 @@ export const pmGroupDesktopStyles = css`
   .group-row:focus-visible {
     z-index: 1;
     color: var(--cv-color-text-strong);
-    outline: var(
-      --pm-active-outline,
-      2px solid var(--cv-color-primary-ring)
-    );
+    outline: var(--pm-active-outline, 2px solid var(--cv-color-primary-ring));
     outline-offset: var(--pm-active-outline-offset, -2px);
   }
-
 
   .group-row.active::after,
   .group-row:focus-visible::after {
@@ -273,10 +298,7 @@ export const pmGroupDesktopStyles = css`
 
   .group-row.drop-target {
     transform: translateX(8px);
-    outline: var(
-      --pm-active-outline,
-      2px solid var(--cv-color-primary-ring)
-    );
+    outline: var(--pm-active-outline, 2px solid var(--cv-color-primary-ring));
     outline-offset: var(--pm-active-outline-offset, -2px);
   }
 
@@ -291,7 +313,7 @@ export const pmGroupDesktopStyles = css`
     transform: scaleY(1);
   }
 
-  @container (width < 560px) {
+  @container (width < 680px) {
     .wrapper {
       padding: 0;
       gap: 14px;
@@ -326,7 +348,6 @@ export const pmGroupDesktopStyles = css`
       display: none;
     }
   }
-
 `
 
 export class PMGroup extends PMGroupBase {
@@ -359,7 +380,57 @@ export class PMGroup extends PMGroupBase {
   ]
 
   protected override getWorkspaceHeaderDensity() {
-    return 'compact' as const
+    return 'workbench' as const
+  }
+
+  protected override getWorkspaceHeaderTitle(group: Group, isRoot: boolean, isEditing: boolean) {
+    if (isRoot) return i18n('root:title-short')
+    return super.getWorkspaceHeaderTitle(group, isRoot, isEditing)
+  }
+
+  protected override getWorkspaceHeaderSupportText(
+    group: Group,
+    _summary: PMGroupPresentation,
+    isRoot: boolean,
+    isEditing: boolean,
+  ) {
+    if (isRoot || isEditing) return ''
+    return group.description?.trim() ?? ''
+  }
+
+  protected override getWorkspaceHeaderContextLabel(summary: PMGroupPresentation, isRoot: boolean) {
+    return isRoot ? '' : super.getWorkspaceHeaderContextLabel(summary, isRoot)
+  }
+
+  protected override getWorkspaceHeaderContextItems(group: Group, isRoot: boolean) {
+    return isRoot ? [] : super.getWorkspaceHeaderContextItems(group, isRoot)
+  }
+
+  protected override getWorkspaceHeaderUpdatedFormatted() {
+    return ''
+  }
+
+  protected override getWorkspaceHeaderCreatedFormatted() {
+    return ''
+  }
+
+  protected override renderWorkspaceHeaderContextEnd() {
+    return nothing
+  }
+
+  protected override getEmptyStatePresentation() {
+    if (this.model.getEmptyStateKind() !== 'filtered') {
+      return super.getEmptyStatePresentation()
+    }
+
+    const headline = i18n('credentials:empty_filtered:title' as never)
+    return {
+      kind: 'filtered' as const,
+      icon: 'search',
+      headline,
+      description: i18n('credentials:empty_filtered:description' as never),
+      ariaLabel: headline,
+    }
   }
 
   protected override getEntryListItemViewMode() {
@@ -371,8 +442,12 @@ export class PMGroup extends PMGroupBase {
       <div class="workbench-list-header" role="presentation">
         <span class="workbench-list-header__name">${i18n('credentials:list:column:name' as never)}</span>
         <span class="workbench-list-header__status">${i18n('credentials:list:column:status' as never)}</span>
-        <span class="workbench-list-header__modified">${i18n('credentials:list:column:modified' as never)}</span>
-        <span class="workbench-list-header__actions">${i18n('credentials:list:column:actions' as never)}</span>
+        <span class="workbench-list-header__modified"
+          >${i18n('credentials:list:column:modified' as never)}</span
+        >
+        <span class="workbench-list-header__actions"
+          >${i18n('credentials:list:column:actions' as never)}</span
+        >
       </div>
     `
   }
@@ -384,10 +459,7 @@ export class PMGroup extends PMGroupBase {
     return html`
       <div class="wrapper">
         ${this.renderHeader(group, summary, isRoot)}
-        <section class="content-shell">
-          ${this.renderGroupsList(group, items)}
-        </section>
-        ${this.renderGroupMetrics(summary)}
+        <section class="content-shell">${this.renderGroupsList(group, items)}</section>
       </div>
     `
   }

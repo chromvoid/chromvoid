@@ -1,6 +1,7 @@
 import {expect, test} from 'vitest'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 
-import {createUniqueName, openFilesRoot} from './utils'
+import {createUniqueName, openFilesRoot, waitForCatalogItem} from './utils'
 
 import type {Page} from 'playwright'
 declare global {
@@ -13,42 +14,38 @@ test('S7: Rename the folder', async () => {
   const initialName = createUniqueName('e2e-rs')
   const renamedName = createUniqueName('e2e-rt')
 
-  await page.evaluate(() => {
-    document.querySelector('chromvoid-file-manager')?.remove()
-  })
-
-  const result = await page.evaluate(
-    async ({sourceName, targetName}) => {
-      const ctx = (window as any).getAppContext?.()
-      if (!ctx?.catalog?.api?.createDir || !ctx?.catalog?.api?.rename) {
-        throw new Error('catalog CRUD API is unavailable')
+  const created = await page.evaluate(
+    async (sourceName) => {
+      const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+      const {getAppContext} = (await dynamicImport(
+        '/shared/services/app-context.ts',
+      )) as typeof AppContextModule
+      const ctx = getAppContext()
+      if (!ctx.catalog.api.createDir) {
+        throw new Error('catalog create API is unavailable')
       }
-
-      await ctx.catalog.api.createDir(sourceName)
-
-      const childrenAfterCreate = ctx.catalog.catalog.getChildren('/')
-      const source = Array.isArray(childrenAfterCreate)
-        ? childrenAfterCreate.find((node: {name?: string; nodeId?: number}) => node?.name === sourceName)
-        : null
-
-      if (!source?.nodeId) {
-        throw new Error(`created folder "${sourceName}" is unavailable`)
-      }
-
-      await ctx.catalog.api.rename(source.nodeId, targetName)
-
-      const childrenAfterRename = ctx.catalog.catalog.getChildren('/')
-      const hasSource = Array.isArray(childrenAfterRename)
-        ? childrenAfterRename.some((node: {name?: string}) => node?.name === sourceName)
-        : false
-      const hasTarget = Array.isArray(childrenAfterRename)
-        ? childrenAfterRename.some((node: {name?: string}) => node?.name === targetName)
-        : false
-
-      return {hasSource, hasTarget}
+      return ctx.catalog.api.createDir(sourceName)
     },
-    {sourceName: initialName, targetName: renamedName},
+    initialName,
+  )
+  expect(created.nodeId).toEqual(expect.any(Number))
+  await waitForCatalogItem(page, initialName, {path: '/'})
+
+  await page.evaluate(
+    async ({nodeId, targetName}) => {
+      const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+      const {getAppContext} = (await dynamicImport(
+        '/shared/services/app-context.ts',
+      )) as typeof AppContextModule
+      const ctx = getAppContext()
+      if (!ctx.catalog.api.rename) {
+        throw new Error('catalog rename API is unavailable')
+      }
+      await ctx.catalog.api.rename(nodeId, targetName)
+    },
+    {nodeId: created.nodeId, targetName: renamedName},
   )
 
-  expect(result).toEqual({hasSource: false, hasTarget: true})
+  await waitForCatalogItem(page, initialName, {exists: false, path: '/'})
+  await waitForCatalogItem(page, renamedName, {path: '/'})
 })

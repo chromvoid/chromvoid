@@ -1,7 +1,7 @@
 use std::fs::File;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -21,7 +21,6 @@ use chromvoid_protocol::{
 };
 use tempfile::TempDir;
 
-static NEXT_RELAY_PORT: AtomicU16 = AtomicU16::new(18_443);
 static TEST_ENV_INIT: std::sync::Once = std::sync::Once::new();
 
 fn enable_local_core_test_keystore() {
@@ -66,16 +65,6 @@ fn repo_relay_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../relay")
 }
 
-fn repo_root_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
-}
-
-fn command_exists(command: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|path| path.join(command).is_file()))
-        .unwrap_or(false)
-}
-
 fn relay_command() -> Command {
     if let Some(command) = std::env::var_os("CHROMVOID_TEST_RELAY_COMMAND") {
         let mut command = Command::new(command);
@@ -83,22 +72,27 @@ fn relay_command() -> Command {
         return command;
     }
 
-    if command_exists("bun") {
-        let mut command = Command::new("bun");
-        command
-            .arg("run")
-            .arg("start")
-            .current_dir(repo_relay_dir());
-        return command;
-    }
-
     let mut command = Command::new("node");
     command
         .arg("--import")
         .arg("tsx")
-        .arg(repo_relay_dir().join("src/index.ts"))
-        .current_dir(repo_root_dir());
+        .arg("src/index.ts")
+        .current_dir(repo_relay_dir());
     command
+}
+
+fn available_relay_ports() -> (u16, u16) {
+    let relay_listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral relay port");
+    let metrics_listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral metrics port");
+    let relay_port = relay_listener
+        .local_addr()
+        .expect("relay local addr")
+        .port();
+    let metrics_port = metrics_listener
+        .local_addr()
+        .expect("metrics local addr")
+        .port();
+    (relay_port, metrics_port)
 }
 
 struct ForceWssAcceptorGuard {
@@ -137,8 +131,7 @@ struct RelayHarness {
 
 impl RelayHarness {
     async fn spawn() -> Self {
-        let relay_port = NEXT_RELAY_PORT.fetch_add(2, Ordering::SeqCst);
-        let metrics_port = relay_port + 1;
+        let (relay_port, metrics_port) = available_relay_ports();
         let log_dir = tempfile::tempdir().expect("tempdir for relay logs");
         let log_path = log_dir.path().join("relay.log");
         let stdout = File::create(&log_path).expect("create relay log");
@@ -151,7 +144,7 @@ impl RelayHarness {
             .stderr(Stdio::from(stderr))
             .spawn()
             .expect("spawn local relay");
-        let harness = Self {
+        let mut harness = Self {
             _log_dir: log_dir,
             log_path,
             child,
@@ -161,6 +154,12 @@ impl RelayHarness {
         let health_url = format!("http://127.0.0.1:{relay_port}/health");
         let started = Instant::now();
         loop {
+            if let Some(status) = harness.child.try_wait().expect("poll relay process") {
+                panic!(
+                    "relay exited before health check with {status}:\n{}",
+                    harness.read_logs()
+                );
+            }
             if started.elapsed() > Duration::from_secs(20) {
                 panic!(
                     "relay health check timed out: {}\n{}",
@@ -169,7 +168,16 @@ impl RelayHarness {
                 );
             }
             match reqwest::get(&health_url).await {
-                Ok(response) if response.status().is_success() => break,
+                Ok(response) if response.status().is_success() => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    if let Some(status) = harness.child.try_wait().expect("poll healthy relay") {
+                        panic!(
+                            "relay exited after health check with {status}:\n{}",
+                            harness.read_logs()
+                        );
+                    }
+                    break;
+                }
                 _ => tokio::time::sleep(Duration::from_millis(200)).await,
             }
         }

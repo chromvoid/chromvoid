@@ -35,13 +35,21 @@ const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3
 const HOST_LOCK_NOTIFICATION_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
 const MOBILE_USB_HOST_UNLOCK_CONFIRMED: &str = "mobile_usb:host_unlock_confirmed";
 const MOBILE_USB_HOST_LOCKED: &str = "mobile_usb:host_locked";
+const MOBILE_USB_SESSION_DISCONNECT: &str = "mobile_usb:session_disconnect";
+const CATALOG_DERIVATIVE_ENSURE: &str = "catalog:derivative:ensure";
+const RECENT_DERIVATIVE_ENSURE_IDS_LIMIT: usize = 64;
 
 mod adapter;
+mod derivative_ensure;
 mod incoming_upload;
 mod media_inspection;
 mod outgoing_streams;
 
 use adapter::{run_host_adapter_task, LazyHostRpcAdapter};
+use derivative_ensure::{
+    shutdown_host_derivative_jobs, spawn_host_derivative_ensure, HostDerivativeEnsureOutcome,
+    HostDerivativeSessionCancellation,
+};
 use incoming_upload::{
     handle_host_upload_continuation, HostIncomingUpload, HostIncomingUploadMode,
 };
@@ -147,8 +155,16 @@ fn is_download_stream_command(command: &str) -> bool {
             | "catalog:downloadRange"
             | "catalog:secret:read"
             | "catalog:derivative:read"
+            | CATALOG_DERIVATIVE_ENSURE
             | "vault:export:download"
     )
+}
+
+fn remember_recent_derivative_ensure_id(recent: &mut VecDeque<u64>, message_id: u64) {
+    if recent.len() >= RECENT_DERIVATIVE_ENSURE_IDS_LIMIT {
+        recent.pop_front();
+    }
+    recent.push_back(message_id);
 }
 
 fn is_usb_pre_approval_command(command: &str) -> bool {
@@ -263,6 +279,7 @@ pub(super) async fn run_host_rpc_loop(
         HEARTBEAT_INTERVAL,
         usb_session_approval,
         None,
+        None,
     )
     .await
 }
@@ -276,6 +293,7 @@ pub(super) async fn run_host_rpc_loop_with_shutdown_source(
     peer_id: String,
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     usb_session_approval: Option<UsbHostSessionApproval>,
+    derivative_ensure_services: Option<Arc<crate::commands::catalog::HostDerivativeEnsureServices>>,
     shutdown_source: Arc<Mutex<Option<super::direct_transport::HostRpcShutdownSource>>>,
 ) -> RemoteIoResult<()> {
     run_host_rpc_loop_inner(
@@ -288,6 +306,7 @@ pub(super) async fn run_host_rpc_loop_with_shutdown_source(
         shutdown_rx,
         HEARTBEAT_INTERVAL,
         usb_session_approval,
+        derivative_ensure_services,
         Some(shutdown_source),
     )
     .await
@@ -316,6 +335,7 @@ async fn run_host_rpc_loop_with_heartbeat_interval(
         heartbeat_interval_duration,
         usb_session_approval,
         None,
+        None,
     )
     .await
 }
@@ -330,6 +350,7 @@ async fn run_host_rpc_loop_inner(
     mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
     heartbeat_interval_duration: std::time::Duration,
     usb_session_approval: Option<UsbHostSessionApproval>,
+    derivative_ensure_services: Option<Arc<crate::commands::catalog::HostDerivativeEnsureServices>>,
     shutdown_source: Option<Arc<Mutex<Option<super::direct_transport::HostRpcShutdownSource>>>>,
 ) -> RemoteIoResult<()> {
     let pairing_storage_root = storage_root.clone();
@@ -348,6 +369,9 @@ async fn run_host_rpc_loop_inner(
     // post-handshake loop to be ready to read before periodic heartbeats begin.
     heartbeat_interval.tick().await;
     let mut server_msg_id = rand::random::<u64>() | 1;
+    let usb_session_approval_context = usb_session_approval
+        .as_ref()
+        .map(|approval| (approval.runtime.clone(), approval.attempt_id.clone()));
     let mut vault_unlock_rx = usb_session_approval
         .as_ref()
         .map(|approval| approval.runtime.subscribe_vault_unlocks());
@@ -369,6 +393,14 @@ async fn run_host_rpc_loop_inner(
     let (media_job_tx, mut media_job_rx) =
         tokio::sync::mpsc::unbounded_channel::<HostMediaInspectionResult>();
     let mut media_jobs = JoinSet::new();
+    let (derivative_job_tx, mut derivative_job_rx) =
+        tokio::sync::mpsc::unbounded_channel::<HostDerivativeEnsureOutcome>();
+    let mut derivative_jobs = JoinSet::new();
+    // Keep this guard declared after the JoinSet so unwinding invalidates
+    // native blocking jobs before the async wrappers are aborted.
+    let mut derivative_session_cancellation = HostDerivativeSessionCancellation::new();
+    let mut derivative_job_cancellations: HashMap<u64, Arc<AtomicU64>> = HashMap::new();
+    let mut recent_derivative_ensure_ids = VecDeque::new();
     // Media inspection commits run on a dedicated background worker so the
     // loop never awaits the adapter mutex or `save()` inline for media jobs;
     // completed commits come back through `media_commit_rx` and only cost the
@@ -428,6 +460,8 @@ async fn run_host_rpc_loop_inner(
                     }
                 }
                 info!(?source, "mobile_acceptor: host rpc loop shutdown peer_id={}", peer_id);
+                derivative_session_cancellation.cancel();
+                shutdown_host_derivative_jobs(&peer_id, &mut derivative_jobs).await;
                 media_inspection_epoch.fetch_add(1, Ordering::SeqCst);
                 shutdown_host_media_jobs(&peer_id, &mut media_jobs).await;
                 shutdown_host_media_commit_worker(&peer_id, media_commit_tx, media_commit_worker)
@@ -441,6 +475,16 @@ async fn run_host_rpc_loop_inner(
                     warn!(
                         "mobile_acceptor: media inspection task join error peer_id={} error={}",
                         peer_id, error
+                    );
+                }
+            }
+
+            join_result = derivative_jobs.join_next(), if !derivative_jobs.is_empty() => {
+                if let Some(Err(error)) = join_result {
+                    warn!(
+                        peer_id,
+                        error = %error,
+                        "mobile_acceptor: derivative ensure task join error"
                     );
                 }
             }
@@ -621,6 +665,95 @@ async fn run_host_rpc_loop_inner(
                 }
             }
 
+            Some(outcome) = derivative_job_rx.recv() => {
+                if derivative_job_cancellations
+                    .remove(&outcome.message_id)
+                    .is_none()
+                {
+                    tracing::debug!(
+                        peer_id,
+                        message_id = outcome.message_id,
+                        "mobile_acceptor: dropped cancelled derivative ensure outcome"
+                    );
+                    continue;
+                }
+                remember_recent_derivative_ensure_id(
+                    &mut recent_derivative_ensure_ids,
+                    outcome.message_id,
+                );
+                match outcome.result {
+                    Ok(stream) => {
+                        if let Err((error, code)) = outcome.cancellation.check() {
+                            let response = RpcResponse::Error {
+                                ok: false,
+                                error,
+                                code,
+                            };
+                            send_encrypted_frame_typed(
+                                transport.as_mut(),
+                                &mut noise,
+                                frame_from_rpc_response(outcome.message_id, &response),
+                            )
+                            .await?;
+                            continue;
+                        }
+                        let output_bytes = stream.bytes.len();
+                        let meta_frame =
+                            frame_stream_meta_response(outcome.message_id, &stream.meta);
+                        start_host_outgoing_stream(
+                            transport.as_mut(),
+                            &mut noise,
+                            outcome.message_id,
+                            &peer_id,
+                            CATALOG_DERIVATIVE_ENSURE,
+                            outcome.peer_stream_control,
+                            meta_frame,
+                            Box::new(std::io::Cursor::new(stream.bytes)),
+                            &mut active_outgoing_streams,
+                            &mut active_outgoing_order,
+                        )
+                        .await?;
+                        info!(
+                            peer_id,
+                            message_id = outcome.message_id,
+                            node_id = outcome.request.node_id,
+                            source_revision = outcome.request.source_version,
+                            tier = outcome.request.tier.label(),
+                            storage_version = outcome.request.version,
+                            output_bytes,
+                            duration_ms = outcome.duration_ms,
+                            transport_type = ?transport_type,
+                            "mobile_acceptor: derivative ensure stream ready"
+                        );
+                    }
+                    Err((error, code)) => {
+                        warn!(
+                            peer_id,
+                            message_id = outcome.message_id,
+                            node_id = outcome.request.node_id,
+                            source_revision = outcome.request.source_version,
+                            tier = outcome.request.tier.label(),
+                            storage_version = outcome.request.version,
+                            code = ?code,
+                            duration_ms = outcome.duration_ms,
+                            transport_type = ?transport_type,
+                            "mobile_acceptor: derivative ensure failed"
+                        );
+                        let response = RpcResponse::Error {
+                            ok: false,
+                            error,
+                            code,
+                        };
+                        send_encrypted_frame_typed(
+                            transport.as_mut(),
+                            &mut noise,
+                            frame_from_rpc_response(outcome.message_id, &response),
+                        )
+                        .await?;
+                    }
+                }
+            }
+
             Some(outcome) = media_commit_rx.recv() => {
                 let response = outcome
                     .response
@@ -666,6 +799,34 @@ async fn run_host_rpc_loop_inner(
                                         snapshot.duration_ms,
                                         active_outgoing_streams.len(),
                                         message
+                                    );
+                                    continue;
+                                }
+                                if let Some(epoch) =
+                                    derivative_job_cancellations.remove(&frame.message_id)
+                                {
+                                    epoch.fetch_add(1, Ordering::SeqCst);
+                                    remember_recent_derivative_ensure_id(
+                                        &mut recent_derivative_ensure_ids,
+                                        frame.message_id,
+                                    );
+                                    info!(
+                                        peer_id,
+                                        message_id = frame.message_id,
+                                        reason = message,
+                                        "mobile_acceptor: derivative ensure cancelled before response metadata"
+                                    );
+                                    continue;
+                                }
+                                if let Some(position) = recent_derivative_ensure_ids
+                                    .iter()
+                                    .position(|message_id| *message_id == frame.message_id)
+                                {
+                                    recent_derivative_ensure_ids.remove(position);
+                                    tracing::debug!(
+                                        peer_id,
+                                        message_id = frame.message_id,
+                                        "mobile_acceptor: ignored late derivative ensure cancellation"
                                     );
                                     continue;
                                 }
@@ -738,6 +899,69 @@ async fn run_host_rpc_loop_inner(
 
                 let req: RpcRequest = serde_json::from_slice(&frame.payload)
                     .map_err(|e| RemoteIoFailure::protocol_error(format!("request parse: {e}")))?;
+
+                if req.command == MOBILE_USB_SESSION_DISCONNECT {
+                    if transport_type != TransportType::UsbMobile {
+                        let response = RpcResponse::Error {
+                            ok: false,
+                            error: "mobile USB session disconnect is only available on USB transport"
+                                .to_string(),
+                            code: Some("REMOTE_CORE_UNSUPPORTED".to_string()),
+                        };
+                        send_encrypted_frame_typed(
+                            transport.as_mut(),
+                            &mut noise,
+                            frame_from_rpc_response(frame.message_id, &response),
+                        )
+                        .await?;
+                        continue;
+                    }
+
+                    if let Some(task) = usb_session_approval_task.take() {
+                        task.abort();
+                    }
+                    if let Some((runtime, attempt_id)) = usb_session_approval_context.as_ref() {
+                        if let Err(error) = runtime.finish_usb_session_approval(attempt_id) {
+                            warn!(
+                                peer_id,
+                                error,
+                                "mobile_acceptor: failed to clear USB session approval during disconnect"
+                            );
+                        }
+                    }
+
+                    derivative_session_cancellation.cancel();
+                    shutdown_host_derivative_jobs(&peer_id, &mut derivative_jobs).await;
+                    media_inspection_epoch.fetch_add(1, Ordering::SeqCst);
+                    shutdown_host_media_jobs(&peer_id, &mut media_jobs).await;
+                    shutdown_host_media_commit_worker(
+                        &peer_id,
+                        media_commit_tx,
+                        media_commit_worker,
+                    )
+                    .await;
+                    let response = RpcResponse::success(serde_json::Value::Null);
+                    send_encrypted_frame_typed(
+                        transport.as_mut(),
+                        &mut noise,
+                        frame_from_rpc_response(frame.message_id, &response),
+                    )
+                    .await?;
+                    if let Some(shutdown_source) = shutdown_source.as_ref() {
+                        super::direct_transport::record_shutdown_source_first(
+                            shutdown_source,
+                            super::direct_transport::HostRpcShutdownSource::RemoteRequest(
+                                super::direct_transport::DirectTransportStopReason::ClientDisconnected,
+                            ),
+                        );
+                    }
+                    info!(
+                        peer_id,
+                        "mobile_acceptor: acknowledged graceful mobile USB session disconnect"
+                    );
+                    let _ = transport.close().await;
+                    return Ok(());
+                }
 
                 if req.command.starts_with("env_runtime:") {
                     warn!(
@@ -821,6 +1045,8 @@ async fn run_host_rpc_loop_inner(
                 }
 
                 if req.command == "vault:lock" {
+                    derivative_session_cancellation.cancel();
+                    shutdown_host_derivative_jobs(&peer_id, &mut derivative_jobs).await;
                     let epoch = media_inspection_epoch
                         .fetch_add(1, Ordering::SeqCst)
                         .saturating_add(1);
@@ -842,12 +1068,93 @@ async fn run_host_rpc_loop_inner(
                         &mut noise,
                         frame_from_rpc_response(frame.message_id, &response),
                     ).await?;
+                    if let Some(shutdown_source) = shutdown_source.as_ref() {
+                        super::direct_transport::record_shutdown_source_first(
+                            shutdown_source,
+                            super::direct_transport::HostRpcShutdownSource::RemoteRequest(
+                                super::direct_transport::DirectTransportStopReason::VaultLocked,
+                            ),
+                        );
+                    }
                     info!(
                         "mobile_acceptor: remote vault lock requested disconnect peer_id={}",
                         peer_id
                     );
                     let _ = transport.close().await;
                     return Ok(());
+                }
+
+                if req.command == CATALOG_DERIVATIVE_ENSURE {
+                    if frame.has_continuation() {
+                        let response = RpcResponse::Error {
+                            ok: false,
+                            error: "Derivative ensure does not accept an input stream".to_string(),
+                            code: Some("STREAM_UNEXPECTED".to_string()),
+                        };
+                        send_encrypted_frame_typed(
+                            transport.as_mut(),
+                            &mut noise,
+                            frame_from_rpc_response(frame.message_id, &response),
+                        )
+                        .await?;
+                        continue;
+                    }
+                    let request = match crate::commands::catalog::HostDerivativeEnsureRequest::parse(
+                        &req.data,
+                    ) {
+                        Ok(request) => request,
+                        Err((error, code)) => {
+                            let response = RpcResponse::Error {
+                                ok: false,
+                                error,
+                                code,
+                            };
+                            send_encrypted_frame_typed(
+                                transport.as_mut(),
+                                &mut noise,
+                                frame_from_rpc_response(frame.message_id, &response),
+                            )
+                            .await?;
+                            continue;
+                        }
+                    };
+                    let Some(services) = derivative_ensure_services.clone() else {
+                        let response = RpcResponse::Error {
+                            ok: false,
+                            error: "Derivative ensure services are unavailable".to_string(),
+                            code: Some("REMOTE_CORE_UNSUPPORTED".to_string()),
+                        };
+                        send_encrypted_frame_typed(
+                            transport.as_mut(),
+                            &mut noise,
+                            frame_from_rpc_response(frame.message_id, &response),
+                        )
+                        .await?;
+                        continue;
+                    };
+                    info!(
+                        peer_id,
+                        message_id = frame.message_id,
+                        node_id = request.node_id,
+                        source_revision = request.source_version,
+                        tier = request.tier.label(),
+                        storage_version = request.version,
+                        refresh_cache = request.refresh_cache,
+                        transport_type = ?transport_type,
+                        "mobile_acceptor: derivative ensure scheduled"
+                    );
+                    let request_cancellation_epoch = spawn_host_derivative_ensure(
+                        &mut derivative_jobs,
+                        derivative_job_tx.clone(),
+                        services,
+                        request,
+                        frame.message_id,
+                        request_advertises_stream_control(&req),
+                        derivative_session_cancellation.epoch_handle(),
+                    );
+                    derivative_job_cancellations
+                        .insert(frame.message_id, request_cancellation_epoch);
+                    continue;
                 }
 
                 if req.command == "catalog:media:inspect" && !frame.has_continuation() {

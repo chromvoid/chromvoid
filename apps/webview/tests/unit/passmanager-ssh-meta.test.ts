@@ -1,7 +1,7 @@
 import {describe, expect, it, vi} from 'vitest'
 
 import {ManagerRoot} from '@project/passmanager'
-import type {ManagerSaver, PassManagerSshKey} from '@project/passmanager/types'
+import type {ManagerSaver, PassManagerCreateEntryPayload, PassManagerSshKey} from '@project/passmanager/types'
 
 function createSaver() {
   const state = {
@@ -22,6 +22,10 @@ function createSaver() {
     saveEntryNote: vi.fn(async () => true),
     removeEntryPassword: vi.fn(async () => true),
     removeEntryNote: vi.fn(async () => true),
+    createEntry: vi.fn(async (data: PassManagerCreateEntryPayload) => {
+      state.lastMetaCall = data.meta
+      return true
+    }),
     saveEntryMeta: vi.fn(async (data: Record<string, unknown>) => {
       state.lastMetaCall = data
       return true

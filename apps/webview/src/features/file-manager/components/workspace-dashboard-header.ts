@@ -36,13 +36,14 @@ import {
   type MobileFileViewMode,
   type MobileQuickFilterChip,
 } from '../models/file-search-filters.model'
-import type {FileManagerMobileToolbarAction} from '../models/file-manager-mobile-toolbar.model'
+import type {FileManagerMobileAction} from '../models/file-manager-mobile-actions.model'
 
 export type WorkspaceDashboardHeaderFilterChip = {
   key: string
   label: string
   count?: number
   active?: boolean
+  colorId?: string
 }
 
 export type WorkspaceDashboardHeaderViewModeOption = {
@@ -233,7 +234,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
       canDownloadSelection: {type: Boolean, attribute: 'can-download-selection'},
       quickFilterChips: {type: Array, attribute: false},
       mobileViewMode: {type: String, attribute: 'mobile-view-mode'},
-      mobileToolbarActions: {type: Array, attribute: false},
+      mobileAddActions: {type: Array, attribute: false},
       mobileSelectionActions: {type: Array, attribute: false},
       filterActions: {attribute: false},
     }
@@ -251,8 +252,8 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
   declare canDownloadSelection: boolean
   declare quickFilterChips: MobileQuickFilterChip[]
   declare mobileViewMode: MobileFileViewMode
-  declare mobileToolbarActions: FileManagerMobileToolbarAction[]
-  declare mobileSelectionActions: FileManagerMobileToolbarAction[]
+  declare mobileAddActions: FileManagerMobileAction[]
+  declare mobileSelectionActions: FileManagerMobileAction[]
   declare filterActions: FileSearchFilterActions | null
 
   private readonly model = new WorkspaceDashboardHeaderModel()
@@ -277,7 +278,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     this.canDownloadSelection = false
     this.quickFilterChips = []
     this.mobileViewMode = 'list'
-    this.mobileToolbarActions = []
+    this.mobileAddActions = []
     this.mobileSelectionActions = []
     this.filterActions = null
     this.syncModelFromProps()
@@ -398,6 +399,66 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
 
       .filter-chip[selected] {
         --cv-chip-color: var(--cv-color-text);
+      }
+
+      :host([surface='passwords']) .filter-chip[data-tag-color-id='violet'] {
+        --cv-chip-border-color: var(--pm-tag-violet-border);
+        --cv-chip-background: var(--pm-tag-violet-surface);
+        --cv-chip-color: var(--pm-tag-violet);
+        --cv-chip-selected-border-color: var(--pm-tag-violet-border-strong);
+        --cv-chip-selected-background: var(--pm-tag-violet-surface-strong);
+      }
+
+      :host([surface='passwords']) .filter-chip[data-tag-color-id='green'] {
+        --cv-chip-border-color: var(--pm-tag-green-border);
+        --cv-chip-background: var(--pm-tag-green-surface);
+        --cv-chip-color: var(--pm-tag-green);
+        --cv-chip-selected-border-color: var(--pm-tag-green-border-strong);
+        --cv-chip-selected-background: var(--pm-tag-green-surface-strong);
+      }
+
+      :host([surface='passwords']) .filter-chip[data-tag-color-id='blue'] {
+        --cv-chip-border-color: var(--pm-tag-blue-border);
+        --cv-chip-background: var(--pm-tag-blue-surface);
+        --cv-chip-color: var(--pm-tag-blue);
+        --cv-chip-selected-border-color: var(--pm-tag-blue-border-strong);
+        --cv-chip-selected-background: var(--pm-tag-blue-surface-strong);
+      }
+
+      :host([surface='passwords']) .filter-chip[data-tag-color-id='pink'] {
+        --cv-chip-border-color: var(--pm-tag-pink-border);
+        --cv-chip-background: var(--pm-tag-pink-surface);
+        --cv-chip-color: var(--pm-tag-pink);
+        --cv-chip-selected-border-color: var(--pm-tag-pink-border-strong);
+        --cv-chip-selected-background: var(--pm-tag-pink-surface-strong);
+      }
+
+      :host([surface='passwords']) .filter-chip[data-tag-color-id='amber'] {
+        --cv-chip-border-color: var(--pm-tag-amber-border);
+        --cv-chip-background: var(--pm-tag-amber-surface);
+        --cv-chip-color: var(--pm-tag-amber);
+        --cv-chip-selected-border-color: var(--pm-tag-amber-border-strong);
+        --cv-chip-selected-background: var(--pm-tag-amber-surface-strong);
+      }
+
+      :host([surface='passwords']) .filter-chip[data-tag-color-id='orange'] {
+        --cv-chip-border-color: var(--pm-tag-orange-border);
+        --cv-chip-background: var(--pm-tag-orange-surface);
+        --cv-chip-color: var(--pm-tag-orange);
+        --cv-chip-selected-border-color: var(--pm-tag-orange-border-strong);
+        --cv-chip-selected-background: var(--pm-tag-orange-surface-strong);
+      }
+
+      :host([surface='passwords']) .filter-chip[data-tag-color-id='cyan'] {
+        --cv-chip-border-color: var(--pm-tag-cyan-border);
+        --cv-chip-background: var(--pm-tag-cyan-surface);
+        --cv-chip-color: var(--pm-tag-cyan);
+        --cv-chip-selected-border-color: var(--pm-tag-cyan-border-strong);
+        --cv-chip-selected-background: var(--pm-tag-cyan-surface-strong);
+      }
+
+      :host([surface='passwords']) .filter-chip[data-tag-color-id] .filter-chip__count {
+        color: inherit;
       }
 
       .filter-chip__label,
@@ -642,12 +703,14 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         block-size: 16px;
       }
 
+      .notes-desktop-header,
       .files-desktop-header {
         container-type: inline-size;
         min-inline-size: 0;
       }
 
-      .files-dashboard-toolbar {
+      .files-dashboard-toolbar,
+      .notes-dashboard-toolbar {
         --app-toolbar-min-block-size: calc(
           var(--file-dashboard-compact-control-block-size) + var(--cv-space-5)
         );
@@ -664,6 +727,79 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
           --file-dashboard-compact-control-font-weight
         );
         --app-dashboard-header-control-gap: var(--cv-space-2);
+      }
+
+      .notes-toolbar-row {
+        display: flex;
+        align-items: center;
+        gap: var(--app-dashboard-header-control-gap);
+        inline-size: 100%;
+        min-inline-size: 0;
+      }
+
+      .notes-toolbar-heading {
+        display: inline-flex;
+        flex: 0 1 auto;
+        align-items: baseline;
+        gap: var(--cv-space-2);
+        max-inline-size: clamp(128px, 24cqi, 320px);
+        min-inline-size: 0;
+        white-space: nowrap;
+      }
+
+      .notes-toolbar-title {
+        flex: 0 0 auto;
+        color: var(--cv-color-text);
+        font-size: var(--cv-font-size-base);
+        font-weight: var(--cv-font-weight-semibold);
+        line-height: 1.2;
+      }
+
+      .notes-toolbar-subtitle {
+        min-inline-size: 0;
+        overflow: hidden;
+        color: var(--cv-color-text-muted);
+        font-size: var(--cv-font-size-xs);
+        line-height: 1.35;
+        text-overflow: ellipsis;
+      }
+
+      .notes-toolbar-row > .workspace-search {
+        flex: 0 1 clamp(132px, 24cqi, 300px);
+        inline-size: auto;
+        min-inline-size: 132px;
+      }
+
+      .notes-toolbar-row > .workspace-filter-row {
+        flex: 1 1 220px;
+        inline-size: auto;
+      }
+
+      .notes-toolbar-row > .workspace-filter-row .workspace-filter-chips {
+        inline-size: auto;
+      }
+
+      .notes-toolbar-row > .workspace-sort-control,
+      .notes-toolbar-row > .workspace-view-switch,
+      .notes-create-action {
+        flex: 0 0 auto;
+      }
+
+      .notes-create-action {
+        --cv-button-min-height: var(--file-dashboard-compact-control-block-size);
+        --cv-button-border-radius: var(--file-dashboard-compact-control-radius);
+        --cv-button-padding-block: 0;
+        --cv-button-padding-inline: var(--file-dashboard-compact-control-padding-inline);
+        --cv-button-font-size: var(--file-dashboard-compact-control-font-size);
+        --cv-button-font-weight: var(--file-dashboard-compact-control-font-weight);
+        --cv-button-gap: 6px;
+        min-inline-size: auto;
+      }
+
+      .notes-create-action cv-icon {
+        --cv-icon-size: 15px;
+        inline-size: 15px;
+        block-size: 15px;
       }
 
       .files-toolbar-row {
@@ -1013,6 +1149,44 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         }
       }
 
+      @container (width < 1100px) {
+        .notes-toolbar-subtitle {
+          display: none;
+        }
+
+        .notes-toolbar-heading {
+          max-inline-size: max-content;
+        }
+      }
+
+      @container (width < 900px) {
+        .notes-toolbar-row {
+          gap: var(--cv-space-1);
+        }
+
+        .notes-toolbar-row > .workspace-search {
+          flex-basis: 132px;
+          min-inline-size: 108px;
+        }
+
+        .notes-toolbar-row > .workspace-filter-row {
+          flex-basis: 120px;
+        }
+
+        .notes-toolbar-row > .workspace-sort-control,
+        .notes-create-action {
+          --cv-button-gap: 0;
+          --cv-button-padding-inline: 0;
+          inline-size: var(--file-dashboard-compact-control-block-size);
+          block-size: var(--file-dashboard-compact-control-block-size);
+        }
+
+        .notes-toolbar-row .workspace-sort-label,
+        .notes-create-label {
+          display: none;
+        }
+      }
+
       .workspace-mobile-shell {
         display: grid;
         grid-auto-flow: row;
@@ -1022,7 +1196,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         padding-inline: var(--app-mobile-surface-gutter-inline);
       }
 
-      .mobile-action-menu,
+      .mobile-add-menu,
       .mobile-selection-action {
         border: none;
         font: inherit;
@@ -1031,14 +1205,14 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         -webkit-tap-highlight-color: transparent;
       }
 
-      .mobile-action-menu cv-icon,
+      .mobile-add-menu cv-icon,
       .mobile-selection-action cv-icon {
         display: block;
         inline-size: 16px;
         block-size: 16px;
       }
 
-      .mobile-action-menu {
+      .mobile-add-menu {
         --cv-menu-button-menu-align: end;
         --cv-menu-button-menu-min-inline-size: 208px;
         --cv-menu-button-menu-z-index: 60;
@@ -1053,7 +1227,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         inset-block-end: var(--app-spacing-2);
       }
 
-      .mobile-action-menu::part(trigger) {
+      .mobile-add-menu::part(trigger) {
         display: inline-grid;
         place-items: center;
         inline-size: 56px;
@@ -1061,37 +1235,38 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         min-inline-size: 56px;
         min-block-size: 56px;
         padding: 0;
-        border: none;
+        border: 1px solid var(--app-glass-border);
         border-radius: 999px;
-        background: var(--cv-color-primary);
-        color: var(--cv-color-on-primary);
+        background: var(--cv-color-surface-elevated);
+        color: var(--cv-color-text);
         box-shadow:
-          0 16px 32px var(--cv-alpha-black-30),
-          0 0 0 1px var(--cv-color-primary-border-strong);
+          var(--app-glass-shadow),
+          inset 0 1px 0 var(--cv-alpha-white-10);
       }
 
-      .mobile-action-menu[open]::part(trigger),
-      .mobile-action-menu::part(trigger):hover {
-        background: var(--cv-color-primary-hover, var(--cv-color-primary));
+      .mobile-add-menu[open]::part(trigger),
+      .mobile-add-menu::part(trigger):hover {
+        border-color: var(--cv-color-accent-border-strong);
+        color: var(--cv-color-accent);
       }
 
-      .mobile-action-menu::part(trigger):active {
+      .mobile-add-menu::part(trigger):active {
         transform: scale(0.96);
       }
 
-      .mobile-action-menu::part(prefix),
-      .mobile-action-menu__trigger {
+      .mobile-add-menu::part(prefix),
+      .mobile-add-menu__trigger {
         display: inline-grid;
         place-items: center;
       }
 
-      .mobile-action-menu::part(label),
-      .mobile-action-menu::part(suffix),
-      .mobile-action-menu::part(dropdown-icon) {
+      .mobile-add-menu::part(label),
+      .mobile-add-menu::part(suffix),
+      .mobile-add-menu::part(dropdown-icon) {
         display: none;
       }
 
-      .mobile-action-menu::part(menu) {
+      .mobile-add-menu::part(menu) {
         gap: 2px;
         padding: 4px;
         border: 1px solid var(--cv-color-border);
@@ -1100,17 +1275,40 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         box-shadow: var(--cv-shadow-3);
       }
 
-      .mobile-action-menu__trigger cv-icon {
+      .mobile-add-menu__trigger cv-icon {
         inline-size: 24px;
         block-size: 24px;
       }
 
-      .mobile-action-menu-item {
+      @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+        .mobile-add-menu::part(trigger) {
+          background: var(--app-glass-background);
+          backdrop-filter: blur(10px) saturate(115%);
+          -webkit-backdrop-filter: blur(10px) saturate(115%);
+        }
+
+        .mobile-add-menu[open]::part(trigger),
+        .mobile-add-menu::part(trigger):hover {
+          background: var(--cv-color-surface-secondary-glass-strong);
+        }
+      }
+
+      @media (prefers-reduced-transparency: reduce) {
+        .mobile-add-menu::part(trigger),
+        .mobile-add-menu[open]::part(trigger),
+        .mobile-add-menu::part(trigger):hover {
+          background: var(--cv-color-surface-elevated);
+          backdrop-filter: none;
+          -webkit-backdrop-filter: none;
+        }
+      }
+
+      .mobile-add-menu-item {
         color: var(--app-editorial-text-primary, var(--cv-color-text));
         font-size: var(--cv-font-size-sm, 14px);
       }
 
-      .mobile-action-menu-item::part(base) {
+      .mobile-add-menu-item::part(base) {
         align-items: center;
         gap: var(--cv-menu-item-gap, 12px);
         padding: 10px 12px;
@@ -1118,19 +1316,14 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         white-space: nowrap;
       }
 
-      .mobile-action-menu-item::part(prefix) {
+      .mobile-add-menu-item::part(prefix) {
         opacity: 0.7;
       }
 
-      .mobile-action-menu-item cv-icon {
+      .mobile-add-menu-item cv-icon {
         font-size: 18px;
         inline-size: 18px;
         block-size: 18px;
-      }
-
-      .mobile-action-menu-item.tone-accent::part(base) {
-        background: var(--cv-color-primary-surface);
-        color: var(--cv-color-primary);
       }
 
       .mobile-selection-bar {
@@ -1138,9 +1331,8 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
         z-index: 45;
         inset-inline: max(12px, var(--app-runtime-safe-area-inline-start, 0px))
           max(12px, var(--app-runtime-safe-area-inline-end, 0px));
-        inset-block-end: calc(
-          var(--app-mobile-tabbar-block-size, 64px) + var(--app-runtime-safe-area-block-end-active, 0px) + 10px
-        );
+        /* The mobile shell content box already ends above the tab bar and its safe area. */
+        inset-block-end: var(--app-spacing-2);
         display: grid;
         grid-template-columns: minmax(84px, auto) minmax(0, 1fr);
         align-items: center;
@@ -1235,7 +1427,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
       changedProperties.has('canDownloadSelection') ||
       changedProperties.has('quickFilterChips') ||
       changedProperties.has('mobileViewMode') ||
-      changedProperties.has('mobileToolbarActions') ||
+      changedProperties.has('mobileAddActions') ||
       changedProperties.has('mobileSelectionActions')
     ) {
       this.syncModelFromProps()
@@ -1252,7 +1444,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
       canDownloadSelection: this.canDownloadSelection,
       quickFilterChips: this.quickFilterChips,
       mobileViewMode: this.mobileViewMode,
-      mobileToolbarActions: this.mobileToolbarActions,
+      mobileAddActions: this.mobileAddActions,
       mobileSelectionActions: this.mobileSelectionActions,
     })
   }
@@ -1866,7 +2058,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     this.dispatchEvent(new CustomEvent('mobile-command', {detail: {actionId}, bubbles: true}))
   }
 
-  private getMobileSelectionActionAriaLabel(action: FileManagerMobileToolbarAction): string {
+  private getMobileSelectionActionAriaLabel(action: FileManagerMobileAction): string {
     if (action.id === 'delete-selected') {
       return i18n('file-manager:delete-selected', {count: String(this.model.selectedCount())})
     }
@@ -1874,7 +2066,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     return action.label
   }
 
-  private resetMobileActionMenuSelection(menu: HTMLElementTagNameMap['cv-menu-button']) {
+  private resetMobileAddMenuSelection(menu: HTMLElementTagNameMap['cv-menu-button']) {
     menu.value = ''
     for (const item of menu.querySelectorAll<HTMLElementTagNameMap['cv-menu-item']>('cv-menu-item')) {
       item.selected = false
@@ -1882,45 +2074,44 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     }
   }
 
-  private onMobileActionMenuInput(event: CustomEvent<{value: string | null; open: boolean}>) {
+  private onMobileAddMenuInput(event: CustomEvent<{value: string | null; open: boolean}>) {
     const actionId = event.detail.value
     if (!actionId) return
 
     const menu = event.currentTarget as HTMLElementTagNameMap['cv-menu-button']
 
     if (event.detail.open) {
-      this.resetMobileActionMenuSelection(menu)
+      this.resetMobileAddMenuSelection(menu)
       return
     }
 
     menu.open = false
-    this.resetMobileActionMenuSelection(menu)
+    this.resetMobileAddMenuSelection(menu)
     this.dispatchEvent(new CustomEvent('mobile-command', {detail: {actionId}, bubbles: true}))
   }
 
-  private renderMobileActionMenu() {
-    const actions = this.model.mobileToolbarActions()
+  private renderMobileAddMenu() {
+    const actions = this.model.mobileAddActions()
     if (actions.length === 0) return nothing
 
     return html`
       <cv-menu-button
-        class="mobile-action-menu"
-        data-action="mobile-actions-menu"
+        class="mobile-add-menu"
+        data-action="mobile-add-menu"
         variant="ghost"
-        preset="icon-overflow"
-        aria-label=${i18n('button:more_actions' as any)}
-        @cv-input=${this.onMobileActionMenuInput}
+        aria-label=${i18n('file-manager:add')}
+        @cv-input=${this.onMobileAddMenuInput}
       >
-        <span slot="prefix" class="mobile-action-menu__trigger">
-          <cv-icon name="three-dots" aria-hidden="true"></cv-icon>
+        <span slot="prefix" class="mobile-add-menu__trigger">
+          <cv-icon name="plus" aria-hidden="true"></cv-icon>
         </span>
-        <span class="sr-only">${i18n('button:more_actions' as any)}</span>
+        <span class="sr-only">${i18n('file-manager:add')}</span>
         ${actions.map(
           (action) => html`
             <cv-menu-item
               slot="menu"
               value=${action.id}
-              class="mobile-action-menu-item ${action.tone === 'accent' ? 'tone-accent' : ''}"
+              class="mobile-add-menu-item"
               ?disabled=${action.disabled}
             >
               <cv-icon slot="prefix" name=${action.icon}></cv-icon>
@@ -1964,13 +2155,14 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
 
   private renderMobileLayout() {
     const selectedCount = this.model.selectedCount()
+    const selectionActive = this.model.selectionModeEnabled() || selectedCount > 0
 
     return html`
       <section class="workspace-mobile-shell" aria-label=${i18n('navigation:files')}>
         ${this.renderWorkspaceControls(this.filesMobileControlsModel)}
       </section>
 
-      ${selectedCount > 0 ? this.renderMobileSelectionBar() : this.renderMobileActionMenu()}
+      ${selectionActive ? this.renderMobileSelectionBar() : this.renderMobileAddMenu()}
     `
   }
 
@@ -2056,6 +2248,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
                     class="filter-chip workspace-filter-chip"
                     value=${chip.key}
                     ?selected=${Boolean(chip.active)}
+                    data-tag-color-id=${chip.colorId ?? nothing}
                   >
                     <span class="filter-chip__label workspace-filter-chip__label">${chip.label}</span>
                     ${chip.count === undefined
@@ -2216,6 +2409,54 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     `
   }
 
+  private renderNotesCreateAction() {
+    const label = i18n('file-manager:create-note')
+
+    return html`
+      <cv-button
+        class="notes-create-action"
+        data-action="create-note"
+        type="button"
+        variant="primary"
+        size="small"
+        aria-label=${label}
+        title=${label}
+        @click=${this.onCreateNoteClick}
+      >
+        <cv-icon name="book-plus" slot="prefix" aria-hidden="true"></cv-icon>
+        <span class="notes-create-label">${label}</span>
+      </cv-button>
+    `
+  }
+
+  private renderNotesDesktopLayout() {
+    const hasTitleSlot = hasNamedSlotContent(this, 'title')
+    const hasSubtitleSlot = hasNamedSlotContent(this, 'subtitle')
+    const controls = this.controlsModel
+
+    return html`
+      <div class="notes-desktop-header">
+        <dashboard-header class="notes-dashboard-toolbar" surface="notes">
+          <div slot="center" class="notes-toolbar-row">
+            <div class="notes-toolbar-heading" ?hidden=${!hasTitleSlot && !hasSubtitleSlot}>
+              <span class="notes-toolbar-title" ?hidden=${!hasTitleSlot}>
+                <slot name="title" @slotchange=${this.handleSlotChange}></slot>
+              </span>
+              <span class="notes-toolbar-subtitle" ?hidden=${!hasSubtitleSlot}>
+                <slot name="subtitle" @slotchange=${this.handleSlotChange}></slot>
+              </span>
+            </div>
+            ${this.renderWorkspaceSearch(controls)}
+            ${this.renderWorkspaceFilterChips(controls)}
+            ${this.renderWorkspaceSortControl(controls)}
+            ${this.renderWorkspaceViewModeSwitch(controls)}
+            ${this.renderNotesCreateAction()}
+          </div>
+        </dashboard-header>
+      </div>
+    `
+  }
+
   private renderGenericDesktopLayout() {
     const hasLeadingSlot = hasNamedSlotContent(this, 'leading')
     const hasTitleSlot = hasNamedSlotContent(this, 'title')
@@ -2278,6 +2519,10 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     if (!this.isFilesSurface()) {
       if (this.embedded) {
         return this.hasWorkspaceControls() ? this.renderWorkspaceControls() : nothing
+      }
+
+      if (this.surface === 'notes') {
+        return this.renderNotesDesktopLayout()
       }
 
       return this.renderGenericDesktopLayout()

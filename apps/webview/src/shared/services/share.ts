@@ -13,6 +13,13 @@ export type ShareableFileInput = {
   lastModified?: number
 }
 
+export type ShareableTextInput = {
+  text: string
+  title?: string
+}
+
+export type ShareTextResult = 'shared' | 'cancelled'
+
 function canUseTauriNativeShare(): boolean {
   const capabilities = getRuntimeCapabilities()
   return isTauriRuntime() && capabilities.supports_native_share
@@ -57,6 +64,29 @@ export function canShareFiles(): boolean {
     return navigator.canShare({files: [testFile]})
   } catch {
     return false
+  }
+}
+
+export function canShareText(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+}
+
+export async function shareText(input: ShareableTextInput): Promise<ShareTextResult> {
+  if (!canShareText()) {
+    throw new Error('Text sharing is unavailable')
+  }
+
+  try {
+    await navigator.share({
+      text: input.text,
+      ...(input.title ? {title: input.title} : {}),
+    })
+    return 'shared'
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return 'cancelled'
+    }
+    throw error
   }
 }
 

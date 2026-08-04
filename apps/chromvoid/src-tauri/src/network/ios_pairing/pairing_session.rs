@@ -235,6 +235,7 @@ pub(super) async fn run_pairing_responder(
         platform: remote.platform,
     })?;
     legacy_store.save()?;
+    acceptor_runtime.clear_peer_revocation(&remote.peer_id)?;
     info!(
         "ios_pairing: run_pairing_responder:stored_legacy_peer session_id={} peer_id={}",
         session.session_id, remote.peer_id

@@ -24,6 +24,8 @@ export type UploadHudSummary = {
 
 export class UploadProgressModel {
   private autoHideTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly autoRevealedFailureIds = new Set<string>()
+  private readonly unsubscribeFailures: () => void
   readonly primaryDisplay = new AnimatedTransferValueModel()
 
   readonly isMobile = computed(() => {
@@ -37,6 +39,9 @@ export class UploadProgressModel {
   // Derived state
   readonly tasks = computed(() => getAppContext().store.uploadTasks())
   readonly hasTasks = computed(() => this.tasks().length > 0)
+  readonly failedTaskIds = computed(
+    () => this.tasks().filter((task) => task.status() === 'error').map((task) => task.id),
+  )
   readonly stats = computed<UploadStats>(() => getAppContext().store.getUploadStats())
   readonly primaryStats = computed<UploadStats>(() => {
     const store = getAppContext().store
@@ -94,6 +99,16 @@ export class UploadProgressModel {
       indeterminate: primaryStats.uploading > 0 && primaryStats.totalBytes <= 0,
     }
   })
+
+  constructor() {
+    this.unsubscribeFailures = this.failedTaskIds.subscribe((taskIds) => {
+      const newTaskIds = taskIds.filter((taskId) => !this.autoRevealedFailureIds.has(taskId))
+      if (newTaskIds.length === 0) return
+      for (const taskId of newTaskIds) this.autoRevealedFailureIds.add(taskId)
+      this.minimized.set(false)
+      if (this.isMobile()) this.expanded.set(true)
+    })
+  }
 
   private getHudDirection(tasks: UploadTask[]): UploadHudSummary['direction'] {
     const hasOpenExternal = tasks.some((task) => task.kind === 'open-external')
@@ -192,6 +207,7 @@ export class UploadProgressModel {
   }
 
   dispose() {
+    this.unsubscribeFailures()
     this.cancelAutoHideClear()
     this.primaryDisplay.dispose()
   }

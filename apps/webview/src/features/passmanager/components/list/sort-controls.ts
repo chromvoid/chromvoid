@@ -399,7 +399,7 @@ export class SortControls extends SortControlsBase {
     }
 
     :host([single-row]) {
-      inline-size: max-content;
+      inline-size: 312px;
     }
 
     :host([single-row]) .sort-controls {
@@ -426,7 +426,7 @@ export class SortControls extends SortControlsBase {
     }
 
     :host([single-row]) .group-by-select {
-      inline-size: 116px;
+      inline-size: 132px;
     }
   `
 

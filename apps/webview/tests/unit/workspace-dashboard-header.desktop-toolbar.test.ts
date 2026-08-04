@@ -102,7 +102,7 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
     ensureWorkspaceDashboardHeaderDefined()
 
     const header = document.createElement('workspace-dashboard-header') as WorkspaceDashboardHeader
-    header.surface = 'notes'
+    header.surface = 'passwords'
 
     const title = document.createElement('span')
     title.slot = 'title'
@@ -134,7 +134,7 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
       ?.querySelector<HTMLSlotElement>('slot[name="center"]')
 
     expect(toolbar).not.toBeNull()
-    expect(toolbar?.getAttribute('surface')).toBe('notes')
+    expect(toolbar?.getAttribute('surface')).toBe('passwords')
     expect(toolbar?.hasAttribute('two-row')).toBe(false)
     expect(titleSlot?.assignedElements()).toContain(title)
     expect(subtitleSlot?.assignedElements()).toContain(subtitle)
@@ -143,6 +143,130 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
     expect(header.shadowRoot?.querySelector('breadcrumbs-nav')).toBeNull()
     expect(header.shadowRoot?.querySelector('file-search')).toBeNull()
     expect(header.shadowRoot?.querySelector('[data-action="create-dir"]')).toBeNull()
+  })
+
+  it('renders the external Notes controls in one dedicated toolbar and preserves their action contracts', async () => {
+    initDesktopHeaderContext()
+    ensureWorkspaceDashboardHeaderDefined()
+
+    const header = document.createElement('workspace-dashboard-header') as WorkspaceDashboardHeader
+    const setSearchValue = vi.fn()
+    const clearSearch = vi.fn()
+    const setFilterValue = vi.fn()
+    const activateSort = vi.fn()
+    const setViewMode = vi.fn()
+    const onCreateNote = vi.fn()
+    header.surface = 'notes'
+    header.controlsModel = {
+      search: {
+        value: () => '',
+        placeholder: () => 'Search notes',
+        ariaLabel: () => 'Search notes',
+        setValue: setSearchValue,
+        clear: clearSearch,
+      },
+      filters: {
+        chips: () => [
+          {key: 'all', label: 'All', count: 2, active: true},
+          {key: 'dir:/Docs', label: 'Docs', count: 1, active: false},
+        ],
+        value: () => 'all',
+        ariaLabel: () => 'Note filters',
+        setValue: setFilterValue,
+      },
+      summary: {
+        label: () => '2 notes',
+      },
+      sort: {
+        label: () => 'Name',
+        ariaLabel: () => 'Sort notes',
+        title: () => 'Sort notes',
+        mode: () => 'name',
+        activate: activateSort,
+      },
+      viewMode: {
+        value: () => 'list',
+        ariaLabel: () => 'Notes view',
+        options: () => [
+          {value: 'list', icon: 'list', label: 'List'},
+          {value: 'grid', icon: 'layout-grid', label: 'Grid'},
+        ],
+        setValue: setViewMode,
+      },
+    }
+    header.addEventListener('create-note', onCreateNote)
+
+    const title = document.createElement('span')
+    title.slot = 'title'
+    title.textContent = 'Notes'
+
+    const subtitle = document.createElement('span')
+    subtitle.slot = 'subtitle'
+    subtitle.textContent = 'Quick notes'
+
+    header.append(title, subtitle)
+    document.body.appendChild(header)
+    await header.updateComplete
+    await Promise.resolve()
+    await header.updateComplete
+
+    const toolbar = header.shadowRoot?.querySelector('dashboard-header')
+    const row = toolbar?.querySelector<HTMLElement>('[slot="center"].notes-toolbar-row')
+    const search = row?.querySelector('cv-input.workspace-search')
+    const chips = row?.querySelector('cv-chip-group.workspace-filter-chips')
+    const sort = row?.querySelector<HTMLElement>('cv-button.workspace-sort-control')
+    const view = row?.querySelector('cv-radio-group.workspace-view-switch')
+    const create = row?.querySelector<HTMLElement>('cv-button.notes-create-action')
+    const orderedControls = Array.from(
+      row?.querySelectorAll(
+        'cv-input.workspace-search, cv-chip-group.workspace-filter-chips, cv-button.workspace-sort-control, cv-radio-group.workspace-view-switch, cv-button.notes-create-action',
+      ) ?? [],
+    )
+    const titleSlot = row
+      ?.querySelector('.notes-toolbar-title')
+      ?.querySelector<HTMLSlotElement>('slot[name="title"]')
+    const subtitleSlot = row
+      ?.querySelector('.notes-toolbar-subtitle')
+      ?.querySelector<HTMLSlotElement>('slot[name="subtitle"]')
+
+    expect(toolbar?.getAttribute('surface')).toBe('notes')
+    expect(toolbar?.hasAttribute('two-row')).toBe(false)
+    expect(titleSlot?.assignedElements()).toContain(title)
+    expect(subtitleSlot?.assignedElements()).toContain(subtitle)
+    expect(orderedControls).toEqual([search, chips, sort, view, create])
+    expect(header.shadowRoot?.querySelector('.workspace-count-row')).toBeNull()
+    expect(header.shadowRoot?.querySelector('.workspace-summary')).toBeNull()
+    expect(create?.getAttribute('variant')).toBe('primary')
+    expect(create?.getAttribute('aria-label')).toBe('Create note')
+    expect(create?.getAttribute('title')).toBe('Create note')
+    expect(create?.querySelector('cv-icon')?.getAttribute('name')).toBe('book-plus')
+
+    search?.dispatchEvent(
+      new CustomEvent('cv-input', {detail: {value: 'roadmap'}, bubbles: true, composed: true}),
+    )
+    search?.dispatchEvent(new CustomEvent('cv-clear', {detail: {}, bubbles: true, composed: true}))
+    chips?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: 'dir:/Docs', changedValue: 'dir:/Docs', selected: true, source: 'click'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    sort?.click()
+    view?.dispatchEvent(
+      new CustomEvent('cv-input', {detail: {value: 'grid'}, bubbles: true, composed: true}),
+    )
+    create?.click()
+
+    expect(setSearchValue).toHaveBeenCalledWith('roadmap')
+    expect(clearSearch).toHaveBeenCalledTimes(1)
+    expect(setFilterValue).toHaveBeenCalledWith(
+      'dir:/Docs',
+      expect.objectContaining({changedValue: 'dir:/Docs', value: 'dir:/Docs'}),
+    )
+    expect(activateSort).toHaveBeenCalledTimes(1)
+    expect(setViewMode).toHaveBeenCalledWith('grid')
+    expect(onCreateNote).toHaveBeenCalledTimes(1)
   })
 
   it('renders generic workspace controls from a controls model and invokes model methods', async () => {
@@ -156,7 +280,7 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
     const activateFilterLeadingAction = vi.fn()
     const activateSort = vi.fn()
     const setViewMode = vi.fn()
-    header.surface = 'notes'
+    header.surface = 'passwords'
     header.controlsModel = {
       search: {
         value: () => '',
@@ -364,6 +488,11 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
     expect(search).not.toBeNull()
     const focusSearch = vi.spyOn(search!, 'focus')
 
+    expect(header.shadowRoot?.querySelector('dashboard-header')).toBeNull()
+    expect(header.shadowRoot?.querySelector('.notes-toolbar-row')).toBeNull()
+    expect(header.shadowRoot?.querySelector('[data-action="create-note"]')).toBeNull()
+    expect(header.shadowRoot?.querySelector('.workspace-controls')).not.toBeNull()
+    expect(header.shadowRoot?.querySelector('.workspace-summary')?.textContent).toBe('2 notes')
     expect(header.shadowRoot?.querySelector('.workspace-count-actions')).not.toBeNull()
     expect(slot?.assignedElements()).toContain(countAction)
 

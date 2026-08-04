@@ -32,7 +32,6 @@ export const pmGroupCommonStyles = css`
     block-size: 100%;
     min-height: 0 !important;
     overflow-y: auto;
-    contain: layout style !important;
     scrollbar-gutter: stable both-edges;
     padding-inline-start: 0;
     padding-inline-end: 14px;
@@ -55,10 +54,42 @@ export const pmGroupCommonStyles = css`
   .entry-row[data-delete-exiting],
   .group-row-wrap[data-delete-exiting] {
     pointer-events: none;
+  }
+
+  .pm-row-motion-surface {
+    inline-size: 100%;
+  }
+
+  :is(.entry-row, .group-row-wrap)[data-delete-exiting] > .pm-row-motion-surface {
     transform-origin: center;
-    animation: pm-delete-row-exit var(--cv-duration-normal, 250ms)
-      var(--cv-easing-decelerate, cubic-bezier(0, 0, 0.2, 1)) both;
+    animation: pm-delete-row-exit var(--cv-duration-fast)
+      var(--cv-easing-accelerate) both;
     will-change: transform, opacity;
+  }
+
+  :is(.entry-row, .group-row-wrap)[data-entering] > .pm-row-motion-surface {
+    animation: pm-mutation-row-enter var(--cv-duration-normal)
+      var(--cv-easing-decelerate) both;
+    will-change: transform, opacity;
+  }
+
+  :is(.entry-row, .group-row-wrap)[data-entering='restore'] > .pm-row-motion-surface {
+    animation-name: pm-mutation-row-restore;
+  }
+
+  .pm-group-scroll-edge[data-pm-list-transition='true'] {
+    view-transition-name: none;
+  }
+
+  .pm-group-scroll-edge[data-pm-list-transition='true']
+    .pm-row-motion-surface {
+    view-transition-name: match-element;
+    view-transition-class: pm-list-row;
+  }
+
+  .pm-group-scroll-edge::view-transition-group(*.pm-list-row) {
+    animation-duration: var(--cv-duration-normal);
+    animation-timing-function: var(--cv-easing-decelerate);
   }
 
   @keyframes pm-delete-row-exit {
@@ -67,29 +98,32 @@ export const pmGroupCommonStyles = css`
       transform: scale(1);
     }
 
-    35% {
-      opacity: 0.92;
-      transform: scale(1.025, 0.94);
-    }
-
     100% {
       opacity: 0;
-      transform: scale(0.96, 0.82);
+      transform: translateY(calc(-1 * var(--cv-space-1))) scale(0.98);
+    }
+  }
+
+  @keyframes pm-mutation-row-enter {
+    from {
+      opacity: 0;
+      transform: translateY(calc(-1 * var(--cv-space-2))) scale(0.985);
+    }
+  }
+
+  @keyframes pm-mutation-row-restore {
+    from {
+      opacity: 0;
+      transform: translateY(var(--cv-space-1)) scale(0.985);
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .entry-row[data-delete-exiting],
-    .group-row-wrap[data-delete-exiting] {
-      animation: pm-delete-row-exit-reduced 1ms linear both;
+    :is(.entry-row, .group-row-wrap)[data-delete-exiting] > .pm-row-motion-surface,
+    :is(.entry-row, .group-row-wrap)[data-entering] > .pm-row-motion-surface {
+      animation: none;
       transform: none;
-      will-change: opacity;
-    }
-
-    @keyframes pm-delete-row-exit-reduced {
-      to {
-        opacity: 0;
-      }
+      will-change: auto;
     }
   }
 

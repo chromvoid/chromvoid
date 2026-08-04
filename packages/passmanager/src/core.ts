@@ -1,5 +1,6 @@
 export {ManagerRoot, Group, ALGORITHMS, ENCODINGS, filterEntries} from './service/root'
 export type {IGroup, RootJSONData, Entry as EntryType} from './service/root'
+export type {GroupSaveChangesInput, GroupSaveChangesResult} from './service/group'
 export type {
   PassManagerRootV2FolderMeta,
   PassManagerRootV3FolderMeta,
@@ -20,6 +21,7 @@ export type {
   PassManagerConfirmVariant,
 } from './service/dialog'
 export {Entry, DEFAULT_OPTIONS} from './service/entry'
+export type {MutationPresentation} from './service/mutation-presentation'
 export {OTP} from './service/otp'
 export {
   parseOtpAuthUri,

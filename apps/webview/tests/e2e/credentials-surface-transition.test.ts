@@ -81,35 +81,24 @@ async function installTransitionProbe(page: Page): Promise<void> {
   })
 }
 
-async function delayCredentialSessionPrewarm(page: Page): Promise<void> {
+async function holdCredentialPresentationReadiness(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const importModule = Function('path', 'return import(path)') as (
       path: string,
     ) => Promise<Record<string, any>>
     const {pmModel} = await importModule('/features/passmanager/password-manager.model.ts')
-    const currentRoot = pmModel.root()
-    const managerSaver = currentRoot?.managerSaver
-    if (!managerSaver) throw new Error('PassManager saver is unavailable')
+    const whenSessionSettled = pmModel.whenSessionSettled.bind(pmModel)
 
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
     })
-    const delayedSaver = new Proxy(managerSaver, {
-      get(target, property) {
-        if (property === 'read') {
-          return async (...args: unknown[]) => {
-            await gate
-            return target.read(...args)
-          }
-        }
-        const value = Reflect.get(target, property)
-        return typeof value === 'function' ? value.bind(target) : value
-      },
-    })
-
-    pmModel.configure(delayedSaver)
-    void pmModel.prepareSession('e2e-delayed-session')
+    ;(window as any).__credentialsReadinessRequested = false
+    pmModel.whenSessionSettled = async () => {
+      ;(window as any).__credentialsReadinessRequested = true
+      await gate
+      return whenSessionSettled()
+    }
     ;(window as any).__releaseCredentialsPrewarm = release
   })
 }
@@ -126,10 +115,10 @@ test.each(transitionCases)(
     await page.goto(`http://localhost:4400/index.html?surface=files&layout=${layout}`)
     await waitForAuthenticated(page)
     await installTransitionProbe(page)
-    await delayCredentialSessionPrewarm(page)
+    await holdCredentialPresentationReadiness(page)
 
     await openNavigationItem(page, label)
-    await page.waitForTimeout(50)
+    await page.waitForFunction(() => (window as any).__credentialsReadinessRequested === true)
     await expect(
       page.evaluate(() => new URL(window.location.href).searchParams.get('surface')),
     ).resolves.toBe('files')

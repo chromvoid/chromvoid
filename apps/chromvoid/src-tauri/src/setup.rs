@@ -286,12 +286,22 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     #[cfg(desktop)]
     let app_identifier = app.config().identifier.clone();
     #[cfg(desktop)]
+    let mobile_usb_secret_service =
+        crate::mobile_usb::mobile_usb_secret_service_for_app_identifier(&app_identifier)
+            .ok_or_else(|| {
+                boxed_error(format!(
+                    "unsupported app identifier for mobile USB secret isolation: {app_identifier}"
+                ))
+            })?;
+    #[cfg(desktop)]
     let mobile_usb_runtime = Arc::new(crate::mobile_usb::MobileUsbController::new(
         create_mobile_usb_bridge(&app_identifier),
         Arc::new(crate::mobile_usb::JsonMobileUsbPairingStore::new(
             storage_root.clone(),
         )),
-        Arc::new(crate::mobile_usb::KeyringMobileUsbSecretStore::default()),
+        Arc::new(crate::mobile_usb::KeyringMobileUsbSecretStore::new(
+            mobile_usb_secret_service,
+        )),
         Arc::new(crate::mobile_usb::TauriMobileUsbSessionStarter::new(
             app_handle.clone(),
             adapter_arc.clone(),
@@ -313,6 +323,24 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             .map_err(|error| boxed_error(format!("env_runtime: {}", error.message)))?,
     );
 
+    let vault_background_io_runtime =
+        Arc::new(crate::vault_background_io::VaultBackgroundIoRuntimeState::new());
+    let catalog_blocking_io_runtime =
+        Arc::new(crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new());
+    let image_preview_runtime = Arc::new(crate::image_preview::ImagePreviewRuntimeState::new());
+    let mobile_acceptor_runtime =
+        Arc::new(crate::network::mobile_acceptor::MobileAcceptorRuntimeState::new());
+    mobile_acceptor_runtime
+        .configure_derivative_ensure_services(Arc::new(
+            crate::commands::catalog::HostDerivativeEnsureServices::new(
+                adapter_arc.clone(),
+                image_preview_runtime.clone(),
+                catalog_blocking_io_runtime.clone(),
+                vault_background_io_runtime.cancellation_epoch_handle(),
+            ),
+        ))
+        .map_err(|error| boxed_error(format!("derivative ensure services: {error}")))?;
+
     app.manage(AppState {
         adapter: adapter_arc,
         core_rpc_dispatcher,
@@ -329,18 +357,14 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         session_settings: Arc::new(Mutex::new(session_settings)),
         mobile_is_foreground: Arc::new(Mutex::new(cfg!(mobile))),
         last_activity,
-        vault_background_io_runtime: Arc::new(
-            crate::vault_background_io::VaultBackgroundIoRuntimeState::new(),
-        ),
-        catalog_blocking_io_runtime: Arc::new(
-            crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new(),
-        ),
+        vault_background_io_runtime,
+        catalog_blocking_io_runtime,
         #[cfg(desktop)]
         host_path_capabilities: Arc::new(
             crate::host_path_capability::HostPathCapabilityRegistry::new(),
         ),
         task_lifecycle: Arc::new(crate::task_lifecycle::TaskLifecycleRuntime::new()),
-        image_preview_runtime: Arc::new(crate::image_preview::ImagePreviewRuntimeState::new()),
+        image_preview_runtime,
         prepared_preview_runtime: Arc::new(
             crate::commands::catalog::PreparedPreviewRuntimeState::new(),
         ),
@@ -360,9 +384,7 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         mode_transition_coordinator: Arc::new(
             crate::mode_transition_coordinator::ModeTransitionCoordinator::new(),
         ),
-        mobile_acceptor_runtime: Arc::new(
-            crate::network::mobile_acceptor::MobileAcceptorRuntimeState::new(),
-        ),
+        mobile_acceptor_runtime,
         ios_lifecycle_runtime: Arc::new(crate::network::ios_lifecycle::IosLifecycleRuntimeState::new()),
         ios_host_runtime: Arc::new(crate::network::ios_pairing::IosHostRuntimeState::new()),
         android_host_runtime: Arc::new(crate::network::mobile_host::AndroidHostRuntimeState::new()),

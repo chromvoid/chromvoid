@@ -375,6 +375,7 @@ impl RpcRouter {
             // Passkeys domain commands (ADR-034): scoped access to /.passkeys only.
             "passkeys:list" => self.handle_passkeys_list(),
             "passkeys:delete" => self.handle_passkeys_delete(&request.data),
+            "passmanager:entry:create" => self.handle_passmanager_entry_create(&request.data),
             "passmanager:entry:save" => self.handle_passmanager_entry_save(&request.data),
             "passmanager:entry:read" => self.handle_passmanager_entry_read(&request.data),
             "passmanager:entry:delete" => self.handle_passmanager_entry_delete(&request.data),

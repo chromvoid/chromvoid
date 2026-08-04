@@ -64,16 +64,6 @@ async function mountTools(layout: 'desktop' | 'mobile') {
   return section
 }
 
-async function mountToolsWithModel(layout: 'desktop' | 'mobile', model: WelcomeToolsModel) {
-  const section = document.createElement('welcome-tools-section') as WelcomeToolsSection
-  section.layout = layout
-  section.model = model
-  document.body.append(section)
-  await section.updateComplete
-  await Promise.resolve()
-  return section
-}
-
 function findButtonByText(root: ShadowRoot | null | undefined, text: string): HTMLElement | null {
   return (
     [...(root?.querySelectorAll<HTMLElement>('cv-button') ?? [])].find((button) =>
@@ -122,24 +112,16 @@ describe('welcome tools section', () => {
     expect(text).toContain('System')
   })
 
-  it('renders remote flow summary inside desktop utilities', async () => {
-    const model = new WelcomeToolsModel(new WelcomeSharedModel(), {
-      desktopStatusItems: () => [
-        {label: 'screen', value: 'hosts'},
-        {label: 'transport', value: 'none', state: 'idle'},
-        {label: 'peer', value: 'n/a'},
-        {label: 'hosts', value: '0'},
-      ],
-    })
-    const section = await mountToolsWithModel('desktop', model)
-    const text = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
+  it('renders only the desktop utility actions in the footer', async () => {
+    const section = await mountTools('desktop')
+    const footer = section.shadowRoot?.querySelector('.desktop-utilities')
+    const text = (footer?.textContent ?? '').replace(/\s+/g, ' ')
 
-    expect(section.shadowRoot?.querySelector('.desktop-utility-status')).not.toBeNull()
-    expect(section.shadowRoot?.querySelector('.desktop-utilities-label')).toBeNull()
-    expect(text).toContain('screen · hosts')
-    expect(text).toContain('transport · none')
-    expect(text).toContain('peer · n/a')
-    expect(text).toContain('hosts · 0')
+    expect(footer?.children).toHaveLength(1)
+    expect(footer?.querySelectorAll('.desktop-utility-button')).toHaveLength(2)
+    expect(text).toContain('Device utilities')
+    expect(text).toContain('System')
+    expect(text).not.toContain('SECONDARY')
   })
 
   it('renders mobile device utilities without the storage location panel', async () => {
@@ -166,9 +148,9 @@ describe('welcome tools section', () => {
       | null
     await expect.poll(() => sheet?.open).toBe(true)
 
-    const restoreRow = [...(section.shadowRoot?.querySelectorAll<HTMLButtonElement>('.utilities-row') ?? [])].find(
-      (row) => (row.textContent ?? '').includes('Restore device'),
-    )
+    const restoreRow = [
+      ...(section.shadowRoot?.querySelectorAll<HTMLButtonElement>('.utilities-row') ?? []),
+    ].find((row) => (row.textContent ?? '').includes('Restore device'))
     restoreRow?.click()
     await section.updateComplete
 
@@ -192,9 +174,9 @@ describe('welcome tools section', () => {
     })
 
     const section = await mountTools('desktop')
-    const systemButton = [...(section.shadowRoot?.querySelectorAll<HTMLButtonElement>('.desktop-utility-button') ?? [])].find(
-      (button) => (button.textContent ?? '').includes('System'),
-    )
+    const systemButton = [
+      ...(section.shadowRoot?.querySelectorAll<HTMLButtonElement>('.desktop-utility-button') ?? []),
+    ].find((button) => (button.textContent ?? '').includes('System'))
     systemButton?.click()
     await section.updateComplete
 
@@ -202,7 +184,9 @@ describe('welcome tools section', () => {
     expect(section.model?.deviceUtilitiesSheetOpen()).toBe(true)
     expect(section.model?.deviceUtilitiesScreen()).toBe('system')
     await expect.poll(() => section.shadowRoot?.querySelector('.utilities-system-panel')).not.toBeNull()
-    await expect.poll(() => (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')).toContain('Change Location')
+    await expect
+      .poll(() => (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' '))
+      .toContain('Change Location')
     const updatedText = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
     expect(updatedText).toContain('Use Default Location')
   })

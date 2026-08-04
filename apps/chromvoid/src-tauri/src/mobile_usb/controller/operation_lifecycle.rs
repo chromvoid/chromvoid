@@ -47,15 +47,28 @@ impl MobileUsbController {
         let error_code = result.as_ref().err().map(|error| error.code);
         let transition = self.with_state(|state| {
             let state_from = state.session_state();
-            if let Err(error) = result {
-                state.fail_operation(token, error.code);
-            } else {
-                state.complete_operation(token);
+            let retryable_pairing_rejection = matches!(
+                result,
+                Err(error) if error.code == MobileUsbErrorCode::PairingApprovalRejected
+            ) && state.session_state()
+                == MobileUsbSessionState::PairingApprovalRequired;
+            if !retryable_pairing_rejection {
+                if let Err(error) = result {
+                    state.fail_operation(token, error.code);
+                } else {
+                    state.complete_operation(token);
+                }
             }
-            (state_from, state.session_state())
+            (
+                state_from,
+                state.session_state(),
+                retryable_pairing_rejection,
+            )
         });
-        if let Ok((state_from, state_to)) = transition {
-            self.record_state_transition(state_from, state_to, error_code, host_id, session_id);
+        if let Ok((state_from, state_to, retryable_pairing_rejection)) = transition {
+            if !retryable_pairing_rejection {
+                self.record_state_transition(state_from, state_to, error_code, host_id, session_id);
+            }
         }
         self.record_operation_result(
             mobile_usb_operation_name(token.kind),

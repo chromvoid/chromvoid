@@ -32,6 +32,7 @@ import {isPassmanagerReadOnlyOrMissing, passmanagerRoot} from './pm-root.adapter
 
 export type PMCredentialTagSheetMode = 'manage' | 'create' | 'rename' | 'delete-confirm'
 export type PMCredentialTagSheetSelectionScope = 'filter' | 'entry'
+export type PMCredentialTagEntrySelectionPresentation = 'sheet' | 'embedded'
 
 type PMCredentialTagEntrySelectionSession = {
   initialTags: string[]
@@ -66,6 +67,7 @@ function parseChipGroupValue(value: unknown): string[] {
 
 class PMCredentialTagsModel {
   private entrySelectionSession: PMCredentialTagEntrySelectionSession | undefined
+  private entrySelectionPresentation: PMCredentialTagEntrySelectionPresentation = 'sheet'
 
   readonly filterSheetOpen = atom(false, 'pm_credential_tags.filter_sheet_open')
   readonly sheetSelectionScope = atom<PMCredentialTagSheetSelectionScope>(
@@ -191,13 +193,12 @@ class PMCredentialTagsModel {
   }
 
   closeSheet(): void {
-    const session = this.takeEntrySelectionSession()
-    this.resetSheetState()
-    session?.onCancel()
+    this.cancelEntryTagSelection()
   }
 
   openManageSheet(): void {
     this.cancelEntrySelectionSession()
+    this.entrySelectionPresentation = 'sheet'
     this.sheetSelectionScope.set('filter')
     this.filterSheetOpen.set(true)
     this.sheetMode.set('manage')
@@ -209,15 +210,17 @@ class PMCredentialTagsModel {
   openEntryTagSelection(
     tags: readonly string[],
     session: Omit<PMCredentialTagEntrySelectionSession, 'initialTags'>,
+    options: {presentation?: PMCredentialTagEntrySelectionPresentation} = {},
   ): void {
     this.cancelEntrySelectionSession()
     const initialTags = normalizeCredentialTags(tags)
+    this.entrySelectionPresentation = options.presentation ?? 'sheet'
     this.entrySelectionSession = {...session, initialTags}
     this.sheetSelectionScope.set('entry')
     this.entrySelectionTagKeys.set(initialTags.map(credentialTagKey).filter(Boolean))
     this.entrySelectionSaving.set(false)
     this.entrySelectionError.set('')
-    this.filterSheetOpen.set(true)
+    this.filterSheetOpen.set(this.entrySelectionPresentation === 'sheet')
     this.sheetMode.set('manage')
     this.sheetEditMode.set(false)
     this.filterSheetQuery.set('')
@@ -230,8 +233,12 @@ class PMCredentialTagsModel {
       return
     }
 
+    await this.confirmEntryTagSelection()
+  }
+
+  async confirmEntryTagSelection(): Promise<boolean> {
     const session = this.entrySelectionSession
-    if (!session || this.entrySelectionSaving()) return
+    if (!session || this.entrySelectionSaving()) return false
 
     this.entrySelectionSaving.set(true)
     this.entrySelectionError.set('')
@@ -239,12 +246,24 @@ class PMCredentialTagsModel {
     try {
       const tags = this.resolveLabelsFromTagKeys(this.effectiveSheetSelectedTagKeys(), session.initialTags)
       await session.onConfirm(tags)
+      if (this.entrySelectionSession !== session) return false
+
       this.entrySelectionSession = undefined
       this.resetSheetState()
+      return true
     } catch (error) {
+      if (this.entrySelectionSession !== session) return false
+
       this.entrySelectionError.set((error as Error).message || i18n('error:save'))
       this.entrySelectionSaving.set(false)
+      return false
     }
+  }
+
+  cancelEntryTagSelection(): void {
+    const session = this.takeEntrySelectionSession()
+    this.resetSheetState()
+    session?.onCancel()
   }
 
   cancelTagMutation(): void {
@@ -260,7 +279,7 @@ class PMCredentialTagsModel {
   }
 
   openCreateTag(): void {
-    this.filterSheetOpen.set(true)
+    this.ensureActivePresentationVisible()
     this.sheetMode.set('create')
     this.activeTagKey.set(null)
     this.tagDraft.set('')
@@ -274,7 +293,7 @@ class PMCredentialTagsModel {
     if (!normalizedKey) return
 
     const option = this.availableTags().find((item) => item.key === normalizedKey)
-    this.filterSheetOpen.set(true)
+    this.ensureActivePresentationVisible()
     this.sheetMode.set('rename')
     this.activeTagKey.set(normalizedKey)
     this.tagDraft.set(option?.label ?? '')
@@ -287,7 +306,7 @@ class PMCredentialTagsModel {
     const normalizedKey = credentialTagKey(key)
     if (!normalizedKey) return
 
-    this.filterSheetOpen.set(true)
+    this.ensureActivePresentationVisible()
     this.sheetMode.set('delete-confirm')
     this.activeTagKey.set(normalizedKey)
     this.tagDraft.set('')
@@ -591,6 +610,7 @@ class PMCredentialTagsModel {
   }
 
   private resetSheetState(): void {
+    this.entrySelectionPresentation = 'sheet'
     this.filterSheetOpen.set(false)
     this.sheetSelectionScope.set('filter')
     this.entrySelectionTagKeys.set([])
@@ -605,6 +625,15 @@ class PMCredentialTagsModel {
   private returnToTagGrid(): void {
     this.sheetMode.set('manage')
     this.clearMutationState()
+  }
+
+  private ensureActivePresentationVisible(): void {
+    if (
+      this.sheetSelectionScope() !== 'entry' ||
+      this.entrySelectionPresentation === 'sheet'
+    ) {
+      this.filterSheetOpen.set(true)
+    }
   }
 
   private ensureWritable(): boolean {

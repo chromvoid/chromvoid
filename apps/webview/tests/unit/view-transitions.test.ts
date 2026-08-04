@@ -1,6 +1,8 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {
+  elementScopedViewTransitionCoordinator,
+  supportsElementScopedViewTransitions,
   viewTransition,
   viewTransitionCoordinator,
   withViewTransitionName,
@@ -62,6 +64,25 @@ function setVisibilityState(state: DocumentVisibilityState): void {
   Object.defineProperty(document, 'visibilityState', {
     configurable: true,
     value: state,
+  })
+}
+
+function setElementStartViewTransition(
+  element: HTMLElement,
+  startViewTransition: (options: {
+    callback: () => void | Promise<void>
+    update?: () => void | Promise<void>
+    types?: readonly string[]
+  }) => {
+    ready: Promise<void>
+    updateCallbackDone: Promise<void>
+    finished: Promise<void>
+    skipTransition?: () => void
+  },
+): void {
+  Object.defineProperty(element, 'startViewTransition', {
+    configurable: true,
+    value: startViewTransition,
   })
 }
 
@@ -392,5 +413,186 @@ describe('view transition utilities', () => {
 
     expect(result).toEqual({state: 'skipped-unsupported'})
     expect(callback).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies an element-scoped transition and settles exactly once', async () => {
+    const scope = document.createElement('div')
+    const update = vi.fn()
+    const settle = vi.fn()
+    const start = vi.fn(({callback}: {callback: () => void | Promise<void>}) => {
+      const updateCallbackDone = Promise.resolve(callback()).then(() => undefined)
+      return {
+        ready: Promise.resolve(),
+        updateCallbackDone,
+        finished: updateCallbackDone,
+      }
+    })
+    setElementStartViewTransition(scope, start)
+
+    await expect(
+      elementScopedViewTransitionCoordinator.run({
+        scope,
+        update,
+        settle,
+        types: ['pm-list-mutation'],
+      }),
+    ).resolves.toEqual({state: 'applied'})
+
+    expect(supportsElementScopedViewTransitions(scope)).toBe(true)
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({types: ['pm-list-mutation']}),
+    )
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(settle).toHaveBeenCalledTimes(1)
+  })
+
+  it('supports WebViews that still invoke the scoped update option', async () => {
+    const scope = document.createElement('div')
+    const update = vi.fn()
+    setElementStartViewTransition(scope, ({update: runUpdate}) => {
+      const updateCallbackDone = Promise.resolve(runUpdate?.()).then(() => undefined)
+      return {
+        ready: Promise.resolve(),
+        updateCallbackDone,
+        finished: updateCallbackDone,
+      }
+    })
+
+    await expect(
+      elementScopedViewTransitionCoordinator.run({scope, update}),
+    ).resolves.toEqual({state: 'applied'})
+    expect(update).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back for missing, unsupported, ineligible, reduced, and hidden scopes', async () => {
+    const unsupportedScope = document.createElement('div')
+    const supportedScope = document.createElement('div')
+    const start = vi.fn()
+    setElementStartViewTransition(supportedScope, start)
+
+    const missingUpdate = vi.fn()
+    await expect(
+      elementScopedViewTransitionCoordinator.run({scope: null, update: missingUpdate}),
+    ).resolves.toEqual({state: 'skipped-missing-target'})
+
+    const unsupportedUpdate = vi.fn()
+    await expect(
+      elementScopedViewTransitionCoordinator.run({scope: unsupportedScope, update: unsupportedUpdate}),
+    ).resolves.toEqual({state: 'skipped-unsupported'})
+
+    const ineligibleUpdate = vi.fn()
+    await expect(
+      elementScopedViewTransitionCoordinator.run({
+        scope: supportedScope,
+        enabled: false,
+        update: ineligibleUpdate,
+      }),
+    ).resolves.toEqual({state: 'skipped-ineligible'})
+
+    setReducedMotion(true)
+    const reducedUpdate = vi.fn()
+    await expect(
+      elementScopedViewTransitionCoordinator.run({scope: supportedScope, update: reducedUpdate}),
+    ).resolves.toEqual({state: 'skipped-reduced-motion'})
+
+    setReducedMotion(false)
+    setVisibilityState('hidden')
+    const hiddenUpdate = vi.fn()
+    await expect(
+      elementScopedViewTransitionCoordinator.run({scope: supportedScope, update: hiddenUpdate}),
+    ).resolves.toEqual({state: 'skipped-hidden'})
+
+    expect(start).not.toHaveBeenCalled()
+    for (const update of [missingUpdate, unsupportedUpdate, ineligibleUpdate, reducedUpdate, hiddenUpdate]) {
+      expect(update).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('runs different element scopes concurrently', async () => {
+    const firstScope = document.createElement('div')
+    const secondScope = document.createElement('div')
+    const finishes: Array<() => void> = []
+    const install = (scope: HTMLElement) => {
+      setElementStartViewTransition(scope, ({callback}) => {
+        const updateCallbackDone = Promise.resolve(callback()).then(() => undefined)
+        return {
+          ready: Promise.resolve(),
+          updateCallbackDone,
+          finished: new Promise<void>((resolve) => finishes.push(resolve)),
+        }
+      })
+    }
+    install(firstScope)
+    install(secondScope)
+    const firstUpdate = vi.fn()
+    const secondUpdate = vi.fn()
+
+    const first = elementScopedViewTransitionCoordinator.run({scope: firstScope, update: firstUpdate})
+    const second = elementScopedViewTransitionCoordinator.run({scope: secondScope, update: secondUpdate})
+    await vi.waitFor(() => {
+      expect(firstUpdate).toHaveBeenCalledTimes(1)
+      expect(secondUpdate).toHaveBeenCalledTimes(1)
+      expect(finishes).toHaveLength(2)
+    })
+
+    for (const finish of finishes) finish()
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      {state: 'applied'},
+      {state: 'applied'},
+    ])
+  })
+
+  it('skips an active transition only within the same element scope', async () => {
+    const scope = document.createElement('div')
+    let startCount = 0
+    let finishFirst!: () => void
+    let firstUpdateDone!: Promise<void>
+    const skipFirst = vi.fn(() => finishFirst())
+    setElementStartViewTransition(scope, ({callback}) => {
+      startCount += 1
+      const updateCallbackDone = Promise.resolve(callback()).then(() => undefined)
+      if (startCount === 1) {
+        firstUpdateDone = updateCallbackDone
+        return {
+          ready: Promise.resolve(),
+          updateCallbackDone,
+          finished: new Promise<void>((resolve) => {
+            finishFirst = resolve
+          }),
+          skipTransition: skipFirst,
+        }
+      }
+      return {ready: Promise.resolve(), updateCallbackDone, finished: updateCallbackDone}
+    })
+    const firstUpdate = vi.fn()
+    const secondUpdate = vi.fn()
+
+    const first = elementScopedViewTransitionCoordinator.run({scope, update: firstUpdate})
+    await vi.waitFor(() => expect(firstUpdate).toHaveBeenCalledTimes(1))
+    await firstUpdateDone
+    const second = elementScopedViewTransitionCoordinator.run({scope, update: secondUpdate})
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      {state: 'applied'},
+      {state: 'applied'},
+    ])
+    expect(skipFirst).toHaveBeenCalledTimes(1)
+    expect(firstUpdate).toHaveBeenCalledTimes(1)
+    expect(secondUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back exactly once when an element-scoped API invocation throws', async () => {
+    const scope = document.createElement('div')
+    setElementStartViewTransition(scope, () => {
+      throw new Error('scoped transition unavailable')
+    })
+    const update = vi.fn()
+    const settle = vi.fn()
+
+    await expect(
+      elementScopedViewTransitionCoordinator.run({scope, update, settle}),
+    ).resolves.toEqual({state: 'skipped-unsupported'})
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(settle).toHaveBeenCalledTimes(1)
   })
 })

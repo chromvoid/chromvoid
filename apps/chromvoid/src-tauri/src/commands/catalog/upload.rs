@@ -453,11 +453,12 @@ pub(crate) async fn catalog_upload_native_files(
     {
         Ok(session_id) => session_id,
         Err(error) => {
-            let code = ios_native_upload_error_code(&error);
-            ios_emit_native_upload_failed(&app, &upload_id, &error, Some(code));
+            let code = ios_native_upload_error_code(error.kind());
+            let message = error.to_string();
+            ios_emit_native_upload_failed(&app, &upload_id, &message, Some(code));
             return Ok(RpcResult::Error {
                 ok: false,
-                error,
+                error: message,
                 code: Some(code.to_string()),
             });
         }
@@ -1016,11 +1017,16 @@ fn ios_stream_staged_upload_file(
 }
 
 #[cfg(target_os = "ios")]
-fn ios_native_upload_error_code(message: &str) -> &'static str {
-    if message.trim() == "Native upload cancelled" {
-        "NATIVE_UPLOAD"
-    } else {
-        "NATIVE_UPLOAD_UNAVAILABLE"
+fn ios_native_upload_error_code(
+    kind: crate::mobile::ios::native_bridge::IosPickerFailureKind,
+) -> &'static str {
+    match kind {
+        crate::mobile::ios::native_bridge::IosPickerFailureKind::Cancelled => {
+            "NATIVE_UPLOAD_CANCELLED"
+        }
+        crate::mobile::ios::native_bridge::IosPickerFailureKind::Unavailable => {
+            "NATIVE_UPLOAD_UNAVAILABLE"
+        }
     }
 }
 

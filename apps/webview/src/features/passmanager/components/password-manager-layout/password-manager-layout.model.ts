@@ -4,6 +4,7 @@ import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {filterValue, quickFilters} from '@project/passmanager/select'
 import {defaultLogger} from 'root/core/logger'
+import {isSshKeysEnabled} from 'root/core/config/app-feature-flags'
 import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
 import {pmEntryEditorModel} from '../../models/pm-entry-editor.model'
@@ -23,9 +24,10 @@ import {pmSshKeysViewModel} from '../ssh-keys-view/ssh-keys-view.model'
 import {envRuntimeI18n} from '../env-runtime/env-runtime.i18n'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'pm-sidebar-width'
-const MIN_SIDEBAR_WIDTH = 200
-const MAX_SIDEBAR_WIDTH = 500
-const DEFAULT_SIDEBAR_WIDTH = 300
+export const PM_SIDEBAR_MIN_WIDTH = 232
+export const PM_SIDEBAR_MAX_WIDTH = 320
+const PM_SIDEBAR_DEFAULT_WIDTH = 256
+export const PM_SIDEBAR_WIDTH_STEP = 8
 const INTERACTIVE_TARGET_SELECTOR = [
   'cv-button',
   'cv-menu-button',
@@ -83,6 +85,7 @@ export type PMDesktopToolbarContext = {
   canCreateGroup: boolean
   canCreateEntry: boolean
   canOpenOtpView: boolean
+  showSshKeysView: boolean
   canOpenSshView: boolean
   showEnvRuntimeView: boolean
   canOpenEnvRuntimeView: boolean
@@ -111,6 +114,7 @@ function describeDesktopToolbarContext(context: PMDesktopToolbarContext) {
     canCreateGroup: context.canCreateGroup,
     canCreateEntry: context.canCreateEntry,
     canOpenOtpView: context.canOpenOtpView,
+    showSshKeysView: context.showSshKeysView,
     canOpenSshView: context.canOpenSshView,
     showEnvRuntimeView: context.showEnvRuntimeView,
     canOpenEnvRuntimeView: context.canOpenEnvRuntimeView,
@@ -121,9 +125,7 @@ export class PasswordManagerLayoutModel {
   private readonly logger = defaultLogger
   private readonly groupActionsModel = new PMGroupModel()
 
-  readonly sidebarWidth = atom(DEFAULT_SIDEBAR_WIDTH)
-  readonly isSidebarDragging = atom(false)
-  readonly sidebarWidthCss = computed(() => `${this.sidebarWidth()}px`)
+  readonly sidebarWidth = atom(PM_SIDEBAR_DEFAULT_WIDTH)
   readonly hasActiveFilters = computed(
     () =>
       filterValue().trim().length > 0 ||
@@ -133,8 +135,6 @@ export class PasswordManagerLayoutModel {
       groupBy() !== 'none',
   )
 
-  private sidebarResizeStartX = 0
-  private sidebarResizeStartWidth = DEFAULT_SIDEBAR_WIDTH
   private desktopToolbarSearchElement: PMSearchElement | null = null
 
   isLoading(): boolean {
@@ -220,6 +220,10 @@ export class PasswordManagerLayoutModel {
     pmModel.onCreateGroup()
   }
 
+  createTopLevelGroup(): void {
+    pmModel.onCreateTopLevelGroup()
+  }
+
   exportEntries(): void {
     pmModel.onExport()
   }
@@ -237,6 +241,7 @@ export class PasswordManagerLayoutModel {
   }
 
   openSshView(): void {
+    if (!isSshKeysEnabled()) return
     pmModel.openSshView()
   }
 
@@ -388,40 +393,40 @@ export class PasswordManagerLayoutModel {
 
   initializeSidebarWidth(): void {
     const savedWidth = globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
-    const parsedWidth = savedWidth ? Number.parseInt(savedWidth, 10) : DEFAULT_SIDEBAR_WIDTH
-    this.setSidebarWidth(Number.isFinite(parsedWidth) ? parsedWidth : DEFAULT_SIDEBAR_WIDTH)
-  }
+    const parsedWidth = savedWidth === null ? PM_SIDEBAR_DEFAULT_WIDTH : Number.parseFloat(savedWidth)
+    const normalizedWidth = this.normalizeSidebarWidth(
+      Number.isFinite(parsedWidth) ? parsedWidth : PM_SIDEBAR_DEFAULT_WIDTH,
+    )
 
-  beginSidebarResize(clientX: number): void {
-    this.isSidebarDragging.set(true)
-    this.sidebarResizeStartX = clientX
-    this.sidebarResizeStartWidth = this.sidebarWidth()
-  }
-
-  updateSidebarResize(clientX: number): void {
-    if (!this.isSidebarDragging()) {
-      return
+    this.sidebarWidth.set(normalizedWidth)
+    if (savedWidth !== null && savedWidth !== String(normalizedWidth)) {
+      globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(normalizedWidth))
     }
-
-    const deltaX = clientX - this.sidebarResizeStartX
-    this.setSidebarWidth(this.sidebarResizeStartWidth + deltaX)
   }
 
-  endSidebarResize(): void {
-    this.isSidebarDragging.set(false)
+  previewSidebarWidth(width: number): void {
+    this.sidebarWidth.set(this.normalizeSidebarWidth(width))
+  }
+
+  commitSidebarWidth(width: number): void {
+    const normalizedWidth = this.normalizeSidebarWidth(width)
+    this.sidebarWidth.set(normalizedWidth)
+    globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(normalizedWidth))
   }
 
   getDesktopToolbarContext(): PMDesktopToolbarContext {
     const readOnly = this.isReadOnly()
     const capabilities = runtimeCapabilitiesAtom()
+    const showSshKeysView = isSshKeysEnabled()
     const showEnvRuntimeView = capabilities.desktop && !capabilities.mobile
 
     const context: PMDesktopToolbarContext = {
       readOnly,
-      canCreateGroup: !readOnly,
+      canCreateGroup: this.canCreateGroup(),
       canCreateEntry: !readOnly,
       canOpenOtpView: Boolean(getPassmanagerRoot()) && !this.isLoading(),
-      canOpenSshView: Boolean(getPassmanagerRoot()) && !this.isLoading(),
+      showSshKeysView,
+      canOpenSshView: showSshKeysView && Boolean(getPassmanagerRoot()) && !this.isLoading(),
       showEnvRuntimeView,
       canOpenEnvRuntimeView: showEnvRuntimeView && Boolean(getPassmanagerRoot()) && !this.isLoading(),
     }
@@ -431,6 +436,10 @@ export class PasswordManagerLayoutModel {
     })
 
     return context
+  }
+
+  canCreateGroup(): boolean {
+    return !this.isReadOnly()
   }
 
   getDesktopToolbarSections(): readonly PMDesktopToolbarSection[] {
@@ -448,12 +457,16 @@ export class PasswordManagerLayoutModel {
             label: i18n('otp:quick_view:title' as never),
             disabled: !context.canOpenOtpView,
           },
-          {
-            id: 'pm-ssh-view',
-            icon: 'key',
-            label: i18n('ssh:keys_view:title' as never),
-            disabled: !context.canOpenSshView,
-          },
+          ...(context.showSshKeysView
+            ? [
+                {
+                  id: 'pm-ssh-view' as const,
+                  icon: 'key',
+                  label: i18n('ssh:keys_view:title' as never),
+                  disabled: !context.canOpenSshView,
+                },
+              ]
+            : []),
           ...(context.showEnvRuntimeView
             ? [
                 {
@@ -583,10 +596,8 @@ export class PasswordManagerLayoutModel {
     return undefined
   }
 
-  private setSidebarWidth(width: number): void {
-    const clampedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width))
-    this.sidebarWidth.set(clampedWidth)
-    globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, clampedWidth.toString())
+  private normalizeSidebarWidth(width: number): number {
+    return Math.round(Math.max(PM_SIDEBAR_MIN_WIDTH, Math.min(PM_SIDEBAR_MAX_WIDTH, width)))
   }
 }
 

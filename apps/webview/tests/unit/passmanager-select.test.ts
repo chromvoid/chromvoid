@@ -100,9 +100,11 @@ function createManagerSaver() {
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
+    createEntry: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    removeGroup: vi.fn(async () => undefined),
   } as any
 }
 
@@ -202,6 +204,7 @@ describe('createEntryFilterMatcher', () => {
       '',
       '',
       undefined,
+      {cardPan: '4111111111111111'},
     )
     await Promise.all([login.flushPendingPersistence(), card.flushPendingPersistence()])
 

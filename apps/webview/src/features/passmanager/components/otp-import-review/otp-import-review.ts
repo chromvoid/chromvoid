@@ -3,6 +3,8 @@ import {i18n as passmanagerI18n} from '@project/passmanager/i18n'
 import {css, nothing, type PropertyValues, type TemplateResult} from 'lit'
 
 import {i18n as appI18n} from 'root/i18n'
+import {navigationModel} from 'root/app/navigation/navigation.model'
+import {PMEntryWebsiteEditor} from '../card/entry-website-editor'
 
 import {
   otpImportReviewModel,
@@ -26,6 +28,7 @@ export class OtpImportReview extends ReatomLitElement {
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this)
     }
+    PMEntryWebsiteEditor.define()
   }
 
   static styles = [
@@ -266,13 +269,19 @@ export class OtpImportReview extends ReatomLitElement {
 
   private readonly model = otpImportReviewModel
   private lastFocusToken = 0
+  private unregisterNavigationBlocker?: () => void
 
   connectedCallback(): void {
     super.connectedCallback()
     this.model.connect()
+    this.unregisterNavigationBlocker = navigationModel.registerNavigationBlocker(() =>
+      this.model.isCommitting(),
+    )
   }
 
   disconnectedCallback(): void {
+    this.unregisterNavigationBlocker?.()
+    this.unregisterNavigationBlocker = undefined
     this.model.disconnect()
     super.disconnectedCallback()
   }
@@ -282,6 +291,12 @@ export class OtpImportReview extends ReatomLitElement {
     const request = this.model.focusRequest()
     if (!request || request.token === this.lastFocusToken) return
     this.lastFocusToken = request.token
+    if (request.field === 'website') {
+      this.renderRoot
+        .querySelector<PMEntryWebsiteEditor>('pm-entry-website-editor')
+        ?.focusFirstInvalid()
+      return
+    }
     this.renderRoot.querySelector<HTMLElement>(`#${focusIds[request.field]}`)?.focus()
   }
 
@@ -320,10 +335,6 @@ export class OtpImportReview extends ReatomLitElement {
 
   private handleUsernameInput(event: Event): void {
     this.model.setNewUsername((event.currentTarget as HTMLInputElement).value)
-  }
-
-  private handleWebsiteInput(event: Event): void {
-    this.model.setNewWebsite((event.currentTarget as HTMLInputElement).value)
   }
 
   private handleLabelInput(event: Event): void {
@@ -476,7 +487,6 @@ export class OtpImportReview extends ReatomLitElement {
   }
 
   private renderNewTarget(): TemplateResult {
-    const website = this.model.newWebsite()
     return html`
       <div class="target-fields">
         <cv-field ?invalid=${Boolean(this.model.titleError())} required>
@@ -497,21 +507,12 @@ export class OtpImportReview extends ReatomLitElement {
             @input=${this.handleUsernameInput}
           />
         </cv-field>
-        <cv-field class="span-all" ?invalid=${Boolean(this.model.websiteError())}>
-          <span slot="label">${passmanagerI18n('website')}</span>
-          <input
-            id="otp-import-website"
-            inputmode="url"
-            autocomplete="url"
-            placeholder="https://example.com"
-            .value=${website}
-            @input=${this.handleWebsiteInput}
-          />
-          ${website.trim()
-            ? nothing
-            : html` <span slot="description">${appI18n('otp-import:website-warning')}</span> `}
-          <span slot="error">${this.model.websiteError()}</span>
-        </cv-field>
+        <pm-entry-website-editor
+          id="otp-import-website"
+          class="span-all"
+          .model=${this.model.websiteEditor}
+          .contextDescription=${appI18n('otp-import:website-warning')}
+        ></pm-entry-website-editor>
       </div>
     `
   }
@@ -595,12 +596,14 @@ export class OtpImportReview extends ReatomLitElement {
     const visible = this.model.visible()
     const phase = this.model.phase()
     const submitError = this.model.submitError()
+    const isCommitting = this.model.isCommitting()
     return html`
       <cv-dialog
         .open=${visible}
-        .closeOnEscape=${true}
+        .closeOnEscape=${!isCommitting}
         .closeOnOutsidePointer=${false}
         .closeOnOutsideFocus=${false}
+        .closable=${!isCommitting}
         .initialFocusId=${phase === 'review'
           ? 'otp-import-target-existing'
           : phase === 'error'
@@ -624,7 +627,11 @@ export class OtpImportReview extends ReatomLitElement {
         ${phase === 'review'
           ? html`
               <div class="footer" slot="footer">
-                <cv-button type="button" variant="default" @click=${this.handleCancel}
+                <cv-button
+                  type="button"
+                  variant="default"
+                  ?disabled=${isCommitting}
+                  @click=${this.handleCancel}
                   >${passmanagerI18n('button:cancel')}</cv-button
                 >
                 <cv-button
@@ -640,7 +647,7 @@ export class OtpImportReview extends ReatomLitElement {
             `
           : html`
               <div class="footer" slot="footer">
-                <cv-button variant="default" @click=${this.handleCancel}
+                <cv-button variant="default" ?disabled=${isCommitting} @click=${this.handleCancel}
                   >${passmanagerI18n('button:cancel')}</cv-button
                 >
               </div>

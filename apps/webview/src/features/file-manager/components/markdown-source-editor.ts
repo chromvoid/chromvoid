@@ -30,8 +30,11 @@ import {
 } from '@codemirror/view'
 import {css, html, LitElement, type PropertyValues} from 'lit'
 
+import {getRuntimeCapabilities} from '../../../core/runtime/runtime-capabilities'
+import {mobileKeyboardOccluding} from '../../../app/bootstrap/mobile-keyboard/keyboard-occlusion.model'
 import type {
   MarkdownEditorFocusRequest,
+  MarkdownEditorSelectionRequest,
   MarkdownImageInsertionSelection,
   MarkdownViewportAnchor,
 } from '../models/markdown-preview.model'
@@ -73,6 +76,16 @@ export type MarkdownSourceCommandDetail = {
 type KeyboardScrollGeometry = {
   readonly bottomMargin: number
   readonly keyboardInset: number
+  readonly visibleRect: {
+    readonly bottom: number
+    readonly top: number
+  } | null
+}
+
+type KeyboardSelectionRevealMeasurement = {
+  readonly geometry: KeyboardScrollGeometry
+  readonly selectionHead: number
+  readonly selectionNeedsReveal: boolean
 }
 
 const IMAGE_FILE_NAME_PATTERN = /\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i
@@ -225,6 +238,7 @@ export class MarkdownSourceEditor extends LitElement {
       fileLinkCompletionProvider: {attribute: false},
       focusRequest: {attribute: false},
       noteLinkCompletions: {attribute: false},
+      selectionRequest: {attribute: false},
       source: {type: String},
     }
   }
@@ -239,6 +253,7 @@ export class MarkdownSourceEditor extends LitElement {
   declare fileLinkCompletionProvider: MarkdownFileLinkCompletionProvider
   declare focusRequest: MarkdownEditorFocusRequest | null
   declare noteLinkCompletions: MarkdownNoteLinkCompletion[]
+  declare selectionRequest: MarkdownEditorSelectionRequest | null
   declare source: string
 
   private view: EditorView | null = null
@@ -248,6 +263,7 @@ export class MarkdownSourceEditor extends LitElement {
   private keyboardSelectionRevealFrame = 0
   private keyboardGeometrySyncPending = false
   private lastFocusRequestId = 0
+  private lastSelectionRequestId = 0
   private pendingCompletionAlias = ''
   private scrollerScrollCleanup: (() => void) | null = null
 
@@ -257,6 +273,7 @@ export class MarkdownSourceEditor extends LitElement {
     this.fileLinkCompletionProvider = async () => []
     this.focusRequest = null
     this.noteLinkCompletions = []
+    this.selectionRequest = null
     this.source = ''
   }
 
@@ -290,13 +307,21 @@ export class MarkdownSourceEditor extends LitElement {
     })
     this.setupKeyboardGeometryListeners(this.view)
     this.setupScrollForwarding(this.view)
+    this.applySelectionRequest()
     this.applyFocusRequest()
   }
 
   protected updated(changedProperties: PropertyValues): void {
     super.updated(changedProperties)
+    const selectionRequestChanged = changedProperties.has('selectionRequest')
+    if (selectionRequestChanged) {
+      this.releaseFocusForHiddenMobileKeyboard()
+    }
     if (changedProperties.has('source')) {
       this.syncSourceFromProperty()
+    }
+    if (selectionRequestChanged) {
+      this.applySelectionRequest()
     }
     if (changedProperties.has('focusRequest')) {
       this.applyFocusRequest()
@@ -588,18 +613,33 @@ export class MarkdownSourceEditor extends LitElement {
     this.keyboardGeometrySyncPending = true
     view.requestMeasure({
       key: this,
-      read: (measureView) => this.readKeyboardScrollGeometry(measureView),
-      write: (geometry, measureView) => {
+      read: (measureView): KeyboardSelectionRevealMeasurement => {
+        const geometry = this.readKeyboardScrollGeometry(measureView)
+        const selectionHead = measureView.state.selection.main.head
+        return {
+          geometry,
+          selectionHead,
+          selectionNeedsReveal: this.isSelectionHeadOutsideVisibleKeyboardViewport(measureView, geometry),
+        }
+      },
+      write: (measurement, measureView) => {
         this.keyboardGeometrySyncPending = false
         if (this.view !== measureView) {
           return
         }
 
+        const {geometry} = measurement
         const contentClearance = measureView.hasFocus ? geometry.bottomMargin : 0
         this.applyKeyboardContentClearance(contentClearance)
-        if (geometry.keyboardInset <= MOBILE_KEYBOARD_MIN_OVERLAP_PX || !measureView.hasFocus) return
+        if (
+          geometry.keyboardInset <= MOBILE_KEYBOARD_MIN_OVERLAP_PX ||
+          !measureView.hasFocus ||
+          !measurement.selectionNeedsReveal
+        ) {
+          return
+        }
 
-        this.queueKeyboardSelectionScrollEffect(measureView)
+        this.queueKeyboardSelectionScrollEffect(measureView, measurement.selectionHead)
       },
     })
   }
@@ -614,7 +654,7 @@ export class MarkdownSourceEditor extends LitElement {
     this.style.setProperty(MOBILE_KEYBOARD_CONTENT_CLEARANCE_PROPERTY, `${normalizedClearance}px`)
   }
 
-  private queueKeyboardSelectionScrollEffect(view: EditorView): void {
+  private queueKeyboardSelectionScrollEffect(view: EditorView, selectionHead: number): void {
     const ownerWindow = view.dom.ownerDocument.defaultView
     if (!ownerWindow || this.keyboardSelectionRevealFrame) {
       return
@@ -626,8 +666,13 @@ export class MarkdownSourceEditor extends LitElement {
         return
       }
 
+      if (view.state.selection.main.head !== selectionHead) {
+        this.scheduleKeyboardGeometrySync(view)
+        return
+      }
+
       view.dispatch({
-        effects: EditorView.scrollIntoView(view.state.selection.main, {
+        effects: EditorView.scrollIntoView(selectionHead, {
           y: 'nearest',
           yMargin: MOBILE_KEYBOARD_SELECTION_MARGIN_PX,
         }),
@@ -639,25 +684,27 @@ export class MarkdownSourceEditor extends LitElement {
     const ownerDocument = view.dom.ownerDocument
     const ownerWindow = ownerDocument.defaultView
     if (!ownerWindow) {
-      return {bottomMargin: 0, keyboardInset: 0}
+      return {bottomMargin: 0, keyboardInset: 0, visibleRect: null}
     }
 
     const root = ownerDocument.documentElement
     const layoutHeight =
       this.getPositiveDimension(root.clientHeight) || this.getPositiveDimension(ownerWindow.innerHeight)
     if (layoutHeight <= 0) {
-      return {bottomMargin: 0, keyboardInset: 0}
+      return {bottomMargin: 0, keyboardInset: 0, visibleRect: null}
     }
 
     const visualViewport = ownerWindow.visualViewport
+    const visualTop =
+      visualViewport && Number.isFinite(visualViewport.offsetTop) ? Math.max(0, visualViewport.offsetTop) : 0
     const visualBottom = visualViewport
-      ? this.getPositiveDimension(visualViewport.offsetTop) + this.getPositiveDimension(visualViewport.height)
+      ? visualTop + this.getPositiveDimension(visualViewport.height)
       : this.getPositiveDimension(ownerWindow.innerHeight) || layoutHeight
     const visualViewportInset = Math.max(0, layoutHeight - visualBottom)
     const rootInset = this.readRootKeyboardInset(root, ownerWindow)
     const keyboardInset = Math.max(rootInset, visualViewportInset)
     if (keyboardInset <= MOBILE_KEYBOARD_MIN_OVERLAP_PX) {
-      return {bottomMargin: 0, keyboardInset}
+      return {bottomMargin: 0, keyboardInset, visibleRect: null}
     }
 
     const keyboardTop = Math.min(
@@ -665,20 +712,44 @@ export class MarkdownSourceEditor extends LitElement {
       visualViewportInset > 0 ? visualBottom : Number.POSITIVE_INFINITY,
     )
     if (!Number.isFinite(keyboardTop)) {
-      return {bottomMargin: 0, keyboardInset}
+      return {bottomMargin: 0, keyboardInset, visibleRect: null}
     }
 
     const scrollerRect = view.scrollDOM.getBoundingClientRect()
     const overlap = scrollerRect.bottom - keyboardTop
     if (overlap <= MOBILE_KEYBOARD_MIN_OVERLAP_PX) {
-      return {bottomMargin: 0, keyboardInset}
+      return {bottomMargin: 0, keyboardInset, visibleRect: null}
     }
 
     const maxMargin = Math.max(0, scrollerRect.height - MOBILE_KEYBOARD_SELECTION_MARGIN_PX - 1)
     return {
       bottomMargin: Math.min(Math.ceil(overlap), Math.floor(maxMargin)),
       keyboardInset,
+      visibleRect: {
+        bottom: Math.min(scrollerRect.bottom, keyboardTop),
+        top: Math.max(scrollerRect.top, visualTop),
+      },
     }
+  }
+
+  private isSelectionHeadOutsideVisibleKeyboardViewport(
+    view: EditorView,
+    geometry: KeyboardScrollGeometry,
+  ): boolean {
+    const visibleRect = geometry.visibleRect
+    if (!visibleRect || visibleRect.bottom <= visibleRect.top) return false
+
+    const selection = view.state.selection.main
+    const selectionHeadRect = view.coordsAtPos(
+      selection.head,
+      selection.assoc || (selection.head > selection.anchor ? -1 : 1),
+    )
+    if (!selectionHeadRect) return true
+
+    return (
+      selectionHeadRect.top < visibleRect.top - MOBILE_KEYBOARD_MIN_OVERLAP_PX ||
+      selectionHeadRect.bottom > visibleRect.bottom + MOBILE_KEYBOARD_MIN_OVERLAP_PX
+    )
   }
 
   private readKeyboardScrollMargin(view: EditorView): number {
@@ -808,15 +879,12 @@ export class MarkdownSourceEditor extends LitElement {
       '.cm-cursor': {
         borderInlineStartColor: 'var(--cv-color-accent)',
       },
-      '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+      '&.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, &.cm-editor > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
         background: 'var(--cv-color-editor-selection-background, var(--cv-color-selected))',
       },
-      '.cm-content ::selection': {
-        background: 'var(--cv-color-text-selection-background)',
-        color: 'var(--cv-color-text-selection-foreground)',
-      },
       '.cm-activeLine': {
-        background: 'var(--cv-color-surface-glass-subtle)',
+        background: 'transparent',
+        boxShadow: 'inset 2px 0 var(--cv-color-primary-border-strong)',
       },
       '.cm-tooltip': {
         border: '1px solid var(--cv-color-border-muted)',
@@ -883,7 +951,7 @@ export class MarkdownSourceEditor extends LitElement {
         marginInline: '0.32em 0.28em',
         border: '1px solid var(--cv-color-border-muted)',
         borderRadius: 'var(--cv-radius-1)',
-        verticalAlign: '-0.18em',
+        verticalAlign: 'middle',
         backgroundColor: 'var(--cv-color-surface-tertiary-glass)',
         color: 'var(--cv-color-primary)',
         cursor: 'pointer',
@@ -1074,6 +1142,25 @@ export class MarkdownSourceEditor extends LitElement {
 
     this.lastFocusRequestId = request.id
     this.focusAt(request.selectionStart)
+  }
+
+  private applySelectionRequest(): void {
+    const request = this.selectionRequest
+    if (!request || request.id === this.lastSelectionRequestId) {
+      return
+    }
+
+    this.lastSelectionRequestId = request.id
+    this.setSelectionRange(request.selectionStart, request.selectionEnd)
+  }
+
+  private releaseFocusForHiddenMobileKeyboard(): void {
+    const view = this.view
+    if (!view?.hasFocus || !getRuntimeCapabilities().mobile || mobileKeyboardOccluding()) {
+      return
+    }
+
+    view.contentDOM.blur()
   }
 
   private handleViewUpdate(update: ViewUpdate): void {

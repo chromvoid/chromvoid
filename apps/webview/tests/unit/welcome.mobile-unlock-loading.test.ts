@@ -63,13 +63,9 @@ describe('mobile welcome vault unlock loading', () => {
       )
       expect(hero?.shadowRoot?.querySelector('.hero.unlocking')).not.toBeNull()
 
-      const unlockButton = setup?.shadowRoot?.querySelector<HTMLElement & {updateComplete: Promise<unknown>}>(
-        '.lockscreen-unlock-action',
-      )
-      await unlockButton?.updateComplete
-      expect(unlockButton?.hasAttribute('loading')).toBe(true)
-      expect(unlockButton?.shadowRoot?.querySelector('[part="spinner"]')).not.toBeNull()
-      expect(setup?.shadowRoot?.querySelector('.unlock-arrow')).toBeNull()
+      const unlockButton = setup?.shadowRoot?.querySelector<HTMLButtonElement>('.unlock-inline-submit')
+      expect(unlockButton?.getAttribute('aria-busy')).toBe('true')
+      expect(unlockButton?.querySelector('.welcome-primary-spinner')).not.toBeNull()
     })
 
     model.setup.setupInProgress.set(false)
@@ -82,8 +78,10 @@ describe('mobile welcome vault unlock loading', () => {
 
       expect(page.shadowRoot?.querySelector('.unlock-loading-scrim')).toBeNull()
       expect(page.shadowRoot?.querySelector('.locked-vault')?.hasAttribute('aria-busy')).toBe(false)
-      expect(setup?.shadowRoot?.querySelector('.lockscreen-unlock-action')?.hasAttribute('loading')).toBe(false)
-      expect(setup?.shadowRoot?.querySelector('.unlock-arrow')).not.toBeNull()
+      expect(setup?.shadowRoot?.querySelector('.unlock-inline-submit')?.hasAttribute('aria-busy')).toBe(
+        false,
+      )
+      expect(setup?.shadowRoot?.querySelector('.welcome-primary-spinner')).toBeNull()
     })
   })
 })

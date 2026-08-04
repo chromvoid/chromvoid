@@ -9,7 +9,7 @@ import type {
   MobileFileViewMode,
   MobileQuickFilterChip,
 } from '../models/file-search-filters.model'
-import type {FileManagerMobileToolbarAction} from '../models/file-manager-mobile-toolbar.model'
+import type {FileManagerMobileAction} from '../models/file-manager-mobile-actions.model'
 
 export const createDefaultWorkspaceDashboardHeaderFilters = (): SearchFilters => ({
   query: '',
@@ -38,8 +38,8 @@ export type WorkspaceDashboardHeaderSnapshot = {
   canDownloadSelection: boolean
   quickFilterChips: MobileQuickFilterChip[]
   mobileViewMode: MobileFileViewMode
-  mobileToolbarActions: FileManagerMobileToolbarAction[]
-  mobileSelectionActions: FileManagerMobileToolbarAction[]
+  mobileAddActions: FileManagerMobileAction[]
+  mobileSelectionActions: FileManagerMobileAction[]
 }
 
 export class WorkspaceDashboardHeaderModel {
@@ -51,8 +51,8 @@ export class WorkspaceDashboardHeaderModel {
   readonly canDownloadSelection = atom(false)
   readonly quickFilterChips = atom<MobileQuickFilterChip[]>([])
   readonly mobileViewMode = atom<MobileFileViewMode>('list')
-  readonly mobileToolbarActions = atom<FileManagerMobileToolbarAction[]>([])
-  readonly mobileSelectionActions = atom<FileManagerMobileToolbarAction[]>([])
+  readonly mobileAddActions = atom<FileManagerMobileAction[]>([])
+  readonly mobileSelectionActions = atom<FileManagerMobileAction[]>([])
   private readonly breakpointMobile = atom(false)
 
   readonly isMobile = computed(() => {
@@ -81,7 +81,7 @@ export class WorkspaceDashboardHeaderModel {
     this.canDownloadSelection.set(snapshot.canDownloadSelection)
     this.quickFilterChips.set(snapshot.quickFilterChips)
     this.mobileViewMode.set(snapshot.mobileViewMode)
-    this.mobileToolbarActions.set(snapshot.mobileToolbarActions)
+    this.mobileAddActions.set(snapshot.mobileAddActions)
     this.mobileSelectionActions.set(snapshot.mobileSelectionActions)
   }
 

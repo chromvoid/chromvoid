@@ -223,4 +223,29 @@ describe('upload-task-item', () => {
     expect(retryUploadTask).toHaveBeenCalledWith('task-browser-failed')
     expect(updateUploadTask).not.toHaveBeenCalled()
   })
+
+  it('renders a persistent native failure reason without unknown size progress', async () => {
+    const task = new UploadTask({
+      id: 'task-native-staging-failed',
+      name: 'Upload files',
+      total: 0,
+      kind: 'transfer',
+      initialStatus: 'error',
+      retryable: true,
+      errorMessage: 'ChromVoid couldn’t prepare the selected files in iOS. Try again.',
+    })
+
+    const element = document.createElement('upload-task-item') as UploadTaskItem
+    element.task = task
+    document.body.appendChild(element)
+    await settle(element)
+
+    const error = element.shadowRoot?.querySelector('.task-error')
+    expect(error?.textContent).toBe(
+      'ChromVoid couldn’t prepare the selected files in iOS. Try again.',
+    )
+    expect(error?.getAttribute('aria-live')).toBe('polite')
+    expect(element.shadowRoot?.querySelector('.task-size-row')).toBeNull()
+    expect(element.shadowRoot?.textContent).toContain('Retry')
+  })
 })

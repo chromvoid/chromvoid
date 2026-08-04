@@ -1,6 +1,28 @@
 import {atom, type Atom} from '@reatom/core'
 
 export type PassmanagerMotionDirection = 'none' | 'forward' | 'back' | 'open' | 'close' | 'replace'
+export type PassmanagerMotionReason = 'navigation' | 'create-success' | 'delete-success'
+export type PassmanagerSurfaceKind =
+  | 'root'
+  | 'group'
+  | 'entry'
+  | 'create-entry'
+  | 'create-group'
+  | 'import'
+  | 'otp-view'
+  | 'ssh-view'
+  | 'env-runtime-view'
+
+const SNAPSHOT_SAFE_SURFACES = new Set<PassmanagerSurfaceKind>(['root', 'group', 'create-group'])
+
+export function isPassmanagerMotionSnapshotSafe(
+  intent: Exclude<PassmanagerMotionIntent, {kind: 'none'}>,
+): boolean {
+  return (
+    SNAPSHOT_SAFE_SURFACES.has(intent.sourceSurface) &&
+    SNAPSHOT_SAFE_SURFACES.has(intent.targetSurface)
+  )
+}
 
 export type PassmanagerMotionIntent =
   | {
@@ -12,6 +34,9 @@ export type PassmanagerMotionIntent =
       kind: 'surface-change'
       direction: Exclude<PassmanagerMotionDirection, 'none'>
       target: string
+      reason: PassmanagerMotionReason
+      sourceSurface: PassmanagerSurfaceKind
+      targetSurface: PassmanagerSurfaceKind
     }
 
 export const PASSMANAGER_NO_MOTION_INTENT: PassmanagerMotionIntent = {

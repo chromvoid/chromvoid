@@ -1,12 +1,14 @@
 import {html, nothing} from '@chromvoid/uikit/reatom-lit'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import {Group, ManagerRoot} from '@project/passmanager/core'
+import {Group, ManagerRoot, setPassManagerDialogAdapter} from '@project/passmanager/core'
 import {PMWorkspaceHeader} from '../../src/features/passmanager/components/card/pm-workspace-header'
 import {PMGroupBase} from '../../src/features/passmanager/components/group/group/group-base'
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group/group.model'
 import {pmDeleteMotionModel} from '../../src/features/passmanager/models/pm-delete-motion.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
+import {dialogService} from '../../src/shared/services/dialog-service'
+import {toast} from '../../src/shared/services/toast-manager'
 
 let defined = false
 
@@ -65,11 +67,11 @@ describe('PMGroup inline edit', () => {
 
   afterEach(() => {
     const editModel = new PMGroupModel()
-    editModel.syncEditDrafts(null)
     editModel.exitEditMode()
     document.body.innerHTML = ''
     window.passmanager = previousPassmanager
     setPassmanagerRoot(previousPassmanager as any)
+    setPassManagerDialogAdapter(null)
     pmDeleteMotionModel.reset()
     vi.restoreAllMocks()
   })
@@ -138,7 +140,7 @@ describe('PMGroup inline edit', () => {
       updatedTs: now,
     })
     const root = createRoot(group, [child])
-    const saveSpy = vi.spyOn(root, 'save').mockResolvedValue(undefined)
+    const saveSpy = vi.spyOn(root, 'save').mockResolvedValue(true)
     window.passmanager = root as typeof window.passmanager
     setPassmanagerRoot(root as any)
 
@@ -204,7 +206,8 @@ describe('PMGroup inline edit', () => {
       updatedTs: now,
     })
     const root = createRoot(group)
-    const saveSpy = vi.spyOn(root, 'save').mockResolvedValue(undefined)
+    const saveSpy = vi.spyOn(root, 'save').mockResolvedValue(true)
+    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
     window.passmanager = root as typeof window.passmanager
     setPassmanagerRoot(root as any)
 
@@ -258,10 +261,12 @@ describe('PMGroup inline edit', () => {
     model.enterEditMode()
     model.setEditedName('Infra')
 
-    await expect(model.saveEdit()).rejects.toThrow('save failed')
+    await expect(model.saveEdit()).resolves.toBe(false)
 
     expect(model.isEditMode()).toBe(true)
-    expect(group.name).toBe('Infra')
+    expect(model.editedName()).toBe('Infra')
+    expect(model.editSubmitError()).not.toBe('')
+    expect(group.name).toBe('Services')
   })
 
   it('clears delete motion when a failed delete leaves the group in the mounted root', async () => {
@@ -276,7 +281,17 @@ describe('PMGroup inline edit', () => {
     })
     const root = createRoot(group)
     ;(root as ManagerRoot & {getCardByID: (id: string) => Group | null}).getCardByID = vi.fn(() => group)
-    vi.spyOn(group, 'remove').mockRejectedValue(new Error('remove failed'))
+    const remove = vi
+      .spyOn(group, 'remove')
+      .mockRejectedValueOnce(new Error('remove failed'))
+      .mockResolvedValueOnce(true)
+    const updateToast = vi.fn(() => true)
+    vi.spyOn(toast, 'loading').mockReturnValue({
+      id: 'group-delete-toast',
+      update: updateToast,
+      dismiss: vi.fn(),
+    })
+    setPassManagerDialogAdapter({confirm: vi.fn(async () => true)})
     window.passmanager = root as typeof window.passmanager
     setPassmanagerRoot(root as any)
 
@@ -289,5 +304,88 @@ describe('PMGroup inline edit', () => {
     await new Promise((resolve) => window.setTimeout(resolve, 0))
 
     expect(pmDeleteMotionModel.revision()).toBe(revisionBefore + 2)
+    expect(updateToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: `passmanager.group.delete:${group.id}`,
+        message: 'Couldn’t delete “Services”. The group is still in the vault.',
+        variant: 'error',
+      }),
+    )
+
+    const retry = updateToast.mock.calls[0]?.[0].actions?.[0]?.onClick
+    retry?.()
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() =>
+      expect(updateToast).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          key: `passmanager.group.delete:${group.id}`,
+          message: '“Services” deleted',
+          variant: 'success',
+        }),
+      ),
+    )
+  })
+
+  it('does not start delete motion when group removal is cancelled', async () => {
+    const now = Date.now()
+    const group = new Group({
+      id: 'group-current',
+      name: 'Services',
+      description: 'Current notes',
+      entries: [],
+      createdTs: now,
+      updatedTs: now,
+    })
+    const root = createRoot(group)
+    const confirm = vi.fn(async () => false)
+    setPassManagerDialogAdapter({confirm})
+    window.passmanager = root as typeof window.passmanager
+    setPassmanagerRoot(root as any)
+
+    const model = new PMGroupModel()
+    const revisionBefore = pmDeleteMotionModel.revision()
+
+    model.deleteGroup(group)
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalledOnce())
+    await Promise.resolve()
+
+    expect(pmDeleteMotionModel.revision()).toBe(revisionBefore)
+    expect(root.entriesList()).toEqual([group])
+  })
+
+  it('deduplicates repeated delete taps while the RPC is pending', async () => {
+    const group = new Group({
+      id: 'group-pending',
+      name: 'Pending',
+      entries: [],
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+    })
+    const root = createRoot(group)
+    let resolveRemoval: (() => void) | undefined
+    const remove = vi.spyOn(group, 'remove').mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveRemoval = () => resolve(true)
+        }),
+    )
+    const confirm = vi.fn(async () => true)
+    setPassManagerDialogAdapter({confirm})
+    vi.spyOn(toast, 'loading').mockReturnValue({
+      id: 'group-pending-toast',
+      update: vi.fn(() => true),
+      dismiss: vi.fn(),
+    })
+    window.passmanager = root as typeof window.passmanager
+    setPassmanagerRoot(root as any)
+
+    const model = new PMGroupModel()
+    model.deleteGroup(group)
+    model.deleteGroup(group)
+
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledOnce())
+    expect(confirm).toHaveBeenCalledOnce()
+    resolveRemoval?.()
+    await Promise.resolve()
   })
 })

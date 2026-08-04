@@ -94,10 +94,7 @@ export async function runPasswordSaveReviewSmoke({driver, artifactRoot}) {
     const create = layout?.shadowRoot?.querySelector('pm-entry-create-mobile')
     const createRoot = create?.shadowRoot
     const form = createRoot?.querySelector('form')
-    const submit =
-      createRoot?.querySelector('cv-button[type="submit"]')
-      ?? createRoot?.querySelector('.create-footer cv-button')
-      ?? createRoot?.querySelector('cv-button.submit')
+    const submit = createRoot?.querySelector('#passwords\\.create\\.submit')
     const titleInput = createRoot?.querySelector('[name="title"]')?.shadowRoot?.querySelector('input')
     const usernameInput =
       createRoot?.querySelector('[name="username"]')?.shadowRoot?.querySelector('input')
@@ -133,10 +130,7 @@ export async function runPasswordSaveReviewSmoke({driver, artifactRoot}) {
     const create = layout?.shadowRoot?.querySelector('pm-entry-create-mobile')
     const createRoot = create?.shadowRoot
     const form = createRoot?.querySelector('form')
-    const submit =
-      createRoot?.querySelector('cv-button[type="submit"]')
-      ?? createRoot?.querySelector('.create-footer cv-button')
-      ?? createRoot?.querySelector('cv-button.submit')
+    const submit = createRoot?.querySelector('#passwords\\.create\\.submit')
     if (form instanceof HTMLFormElement) {
       form.requestSubmit()
       return

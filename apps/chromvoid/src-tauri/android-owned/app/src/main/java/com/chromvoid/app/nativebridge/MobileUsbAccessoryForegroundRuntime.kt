@@ -344,6 +344,8 @@ internal object MobileUsbAccessoryForegroundRuntime {
             // a cable replug, so the host must re-arm itself or the next
             // desktop connect fails its IK handshake against a dead listener.
             "accessory_detached",
+            "client_disconnected",
+            "pairing_cancelled",
             "peer_closed",
             "pairing_complete",
             "vault_locked",

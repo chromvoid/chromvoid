@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
+import { promises as fs, mkdtempSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { promises as fs } from 'node:fs';
-import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,7 +32,7 @@ const scales = {
   ios: parseScale('ICON_SCALE_IOS', 0.92),
   android: parseScale('ICON_SCALE_ANDROID', 0.67),
 };
-const androidLauncherBackground = '#030507';
+const iconBackground = '#030507';
 const androidSplashLogoPath = path.join(
   androidOwnedResDir,
   'drawable-nodpi',
@@ -100,6 +100,12 @@ async function buildScaledIcon(sourcePath, scale, label, workspaceDir, options =
   run('sips', padArgs);
   await fs.rm(scaledPath, { force: true });
 
+  if (options.background) {
+    const opaquePath = path.join(workspaceDir, `${label}.opaque.png`);
+    await sharp(paddedPath).flatten({ background: options.background }).png().toFile(opaquePath);
+    await fs.rename(opaquePath, paddedPath);
+  }
+
   return paddedPath;
 }
 
@@ -127,6 +133,26 @@ async function copyIosIcons(fromDir, toDir) {
   );
 }
 
+async function removeIosAlphaChannels(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const iconPaths = entries
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.png'))
+    .map((entry) => path.join(directory, entry.name));
+
+  await Promise.all(
+    iconPaths.map(async (iconPath) => {
+      const opaquePath = `${iconPath}.opaque.png`;
+      await sharp(iconPath).flatten({ background: '#000000' }).png().toFile(opaquePath);
+      await fs.rename(opaquePath, iconPath);
+
+      const metadata = await sharp(iconPath).metadata();
+      if (metadata.hasAlpha) {
+        throw new Error(`Generated iOS icon still contains an alpha channel: ${iconPath}`);
+      }
+    }),
+  );
+}
+
 async function copyAndroidTree(fromDir, toDir) {
   await fs.rm(toDir, { recursive: true, force: true });
   await fs.cp(fromDir, toDir, { recursive: true });
@@ -136,7 +162,7 @@ async function writeAndroidLauncherBackground(filePath) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(
     filePath,
-    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <color name="ic_launcher_background">${androidLauncherBackground}</color>\n</resources>\n`,
+    `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <color name="ic_launcher_background">${iconBackground}</color>\n</resources>\n`,
   );
 }
 
@@ -180,7 +206,9 @@ async function main() {
   try {
     await fs.access(sourceIcon);
 
-    const desktopIcon = await buildScaledIcon(sourceIcon, scales.desktop, 'desktop', tempRoot);
+    const desktopIcon = await buildScaledIcon(sourceIcon, scales.desktop, 'desktop', tempRoot, {
+      background: iconBackground,
+    });
     const iosIcon = await buildScaledIcon(sourceIcon, scales.ios, 'ios', tempRoot, {
       padColor: '000000',
     });
@@ -189,6 +217,8 @@ async function main() {
     run('bun', ['run', 'tauri', '--', 'icon', desktopIcon, '-o', tempDesktopOut], appRoot);
     run('bun', ['run', 'tauri', '--', 'icon', iosIcon, '-o', tempIosOut], appRoot);
     run('bun', ['run', 'tauri', '--', 'icon', androidIcon, '-o', tempAndroidOut], appRoot);
+
+    await removeIosAlphaChannels(path.join(tempIosOut, 'ios'));
 
     await copyRootFiles(tempDesktopOut, iconsDir);
     await copyIosIcons(path.join(tempIosOut, 'ios'), iosIconSetDir);

@@ -70,6 +70,7 @@
   --app-scroll-edge-default-inline-end: 0px;
   --app-scroll-edge-default-surface: var(--cv-color-surface);
   --app-scroll-edge-default-surface-fade: var(--cv-color-surface);
+  --app-scroll-edge-mobile-block-size: 20px;
   --app-scroll-edge-list-block-size: 52px;
   --app-scroll-edge-list-inline-end: 12px;
   --app-scroll-edge-group-block-size: 46px;

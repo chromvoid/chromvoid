@@ -52,7 +52,6 @@ export const sharedStyles: CSSResult[] = [
 
     /*Basic focus-visible for interactive elements*/
     .focus-ring:focus-visible,
-    cv-button:focus-within,
     button:focus-visible,
     [role='button']:focus-visible,
     a:focus-visible,

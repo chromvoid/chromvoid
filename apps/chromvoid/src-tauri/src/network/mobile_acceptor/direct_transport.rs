@@ -22,6 +22,8 @@ use super::MobileAcceptorRuntimeState;
 pub(crate) enum DirectTransportStopReason {
     Shutdown,
     VaultLocked,
+    ClientDisconnected,
+    PairingCancelled,
     PeerClosed,
     AccessoryDetached,
     ExplicitDisconnect,
@@ -44,6 +46,19 @@ pub(crate) enum DirectTransportStopReason {
 pub(crate) enum HostRpcShutdownSource {
     PeerRemoved,
     ExternalStop(DirectTransportStopReason),
+    RemoteRequest(DirectTransportStopReason),
+}
+
+pub(crate) fn record_shutdown_source_first(
+    target: &Arc<Mutex<Option<HostRpcShutdownSource>>>,
+    source: HostRpcShutdownSource,
+) -> bool {
+    let mut current = target.lock().expect("host rpc shutdown source lock");
+    if current.is_some() {
+        return false;
+    }
+    *current = Some(source);
+    true
 }
 
 pub(crate) type DirectTransportShutdownSignal =
@@ -64,6 +79,7 @@ pub(crate) enum DirectTransportAcceptFailure {
     TransportClosed { message: String },
     TransportTimeout { message: String },
     PairingComplete { peer_pubkey_hex: String },
+    PairingCancelled { message: String },
     ProtocolError { message: String },
     DataPlaneError { message: String },
     Error { message: String },
@@ -100,7 +116,8 @@ impl std::fmt::Display for DirectTransportAcceptFailure {
             | Self::TransportTimeout { message }
             | Self::ProtocolError { message }
             | Self::DataPlaneError { message }
-            | Self::Error { message } => write!(f, "{message}"),
+            | Self::Error { message }
+            | Self::PairingCancelled { message } => write!(f, "{message}"),
             Self::PairingComplete { peer_pubkey_hex } => {
                 write!(f, "unknown_peer:{peer_pubkey_hex}")
             }
@@ -113,6 +130,8 @@ impl DirectTransportStopReason {
         match self {
             Self::Shutdown => "shutdown",
             Self::VaultLocked => "vault_locked",
+            Self::ClientDisconnected => "client_disconnected",
+            Self::PairingCancelled => "pairing_cancelled",
             Self::PeerClosed => "peer_closed",
             Self::AccessoryDetached => "accessory_detached",
             Self::ExplicitDisconnect => "explicit_disconnect",
@@ -223,7 +242,8 @@ pub(super) fn stop_reason_from_rpc_loop_result(
     match result {
         Ok(()) => match shutdown_source {
             Some(HostRpcShutdownSource::PeerRemoved) => DirectTransportStopReason::PeerClosed,
-            Some(HostRpcShutdownSource::ExternalStop(reason)) => reason,
+            Some(HostRpcShutdownSource::ExternalStop(reason))
+            | Some(HostRpcShutdownSource::RemoteRequest(reason)) => reason,
             None => DirectTransportStopReason::Shutdown,
         },
         Err(failure) => stop_reason_from_remote_failure(failure)
@@ -342,6 +362,41 @@ mod tests {
                 )),
             ),
             DirectTransportStopReason::AccessoryDetached,
+        );
+    }
+
+    #[test]
+    fn stop_reason_from_rpc_loop_result_maps_remote_request_reason() {
+        let result: RemoteIoResult<()> = Ok(());
+
+        assert_eq!(
+            stop_reason_from_rpc_loop_result(
+                &result,
+                Some(HostRpcShutdownSource::RemoteRequest(
+                    DirectTransportStopReason::ClientDisconnected,
+                )),
+            ),
+            DirectTransportStopReason::ClientDisconnected,
+        );
+    }
+
+    #[test]
+    fn shutdown_source_is_first_writer_wins() {
+        let source = Arc::new(Mutex::new(None));
+
+        assert!(record_shutdown_source_first(
+            &source,
+            HostRpcShutdownSource::ExternalStop(DirectTransportStopReason::AccessoryDetached),
+        ));
+        assert!(!record_shutdown_source_first(
+            &source,
+            HostRpcShutdownSource::RemoteRequest(DirectTransportStopReason::VaultLocked),
+        ));
+        assert_eq!(
+            *source.lock().expect("source"),
+            Some(HostRpcShutdownSource::ExternalStop(
+                DirectTransportStopReason::AccessoryDetached,
+            )),
         );
     }
 }

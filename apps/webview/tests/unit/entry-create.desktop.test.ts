@@ -12,6 +12,12 @@ const settle = async (component: PMEntryCreateDesktop) => {
   await component.updateComplete
 }
 
+function clickSubmit(button: CVButton | null, form: HTMLFormElement | null): void {
+  if (!button || !form) return
+  Object.defineProperty(button, 'form', {configurable: true, value: form})
+  button.click()
+}
+
 function installTagRoot({
   catalog = [],
   readOnly = false,
@@ -29,6 +35,7 @@ function installTagRoot({
     getEntry: vi.fn(() => undefined),
     getGroup: vi.fn(() => undefined),
     setShowElement: vi.fn(),
+    presentCreatedEntry: vi.fn(),
     showElement: vi.fn(() => 'createEntry'),
     allEntries: [],
     credentialTags: () => rootCatalog,
@@ -85,12 +92,12 @@ describe('PMEntryCreate desktop layout', () => {
     const detailsSection = component.shadowRoot?.querySelector('.section-desktop-details')
     expect(detailsSection).not.toBeNull()
     expect(detailsSection?.querySelector('cv-input[name="title"]')).not.toBeNull()
-    expect(detailsSection?.querySelector('cv-input[name="urls"]')).not.toBeNull()
+    expect(detailsSection?.querySelector('pm-entry-website-editor')).not.toBeNull()
 
     const credentialsSection = component.shadowRoot?.querySelector('.section-desktop-credentials')
     expect(credentialsSection).not.toBeNull()
     expect(credentialsSection?.querySelector('cv-input[name="username"]')).not.toBeNull()
-    expect(credentialsSection?.querySelector('cv-input[name="urls"]')).toBeNull()
+    expect(credentialsSection?.querySelector('pm-entry-website-editor')).toBeNull()
     expect(credentialsSection?.querySelector('cv-input[name="password"]')).not.toBeNull()
 
     const notesSection = component.shadowRoot?.querySelector('.section-desktop-notes')
@@ -150,8 +157,17 @@ describe('PMEntryCreate desktop layout', () => {
   })
 
   it('submits the title entered through the details field', async () => {
-    const createEntry = vi.fn()
-    installTagRoot({overrides: {createEntry}})
+    const entry = {
+      id: 'desktop-created-entry',
+      flushPendingPersistence: vi.fn(async () => {}),
+    }
+    const createEntry = vi.fn(() => entry)
+    installTagRoot({
+      overrides: {
+        createEntry,
+        getEntry: vi.fn((id: string) => (id === entry.id ? entry : undefined)),
+      },
+    })
 
     const component = document.createElement('pm-entry-create-desktop') as PMEntryCreateDesktop
     document.body.append(component)
@@ -169,8 +185,8 @@ describe('PMEntryCreate desktop layout', () => {
     await settle(component)
 
     const form = component.shadowRoot?.querySelector('form') as HTMLFormElement | null
-    const submitEvent = new Event('submit', {bubbles: true, cancelable: true})
-    form?.dispatchEvent(submitEvent)
+    const submitButton = component.shadowRoot?.querySelector('.create-footer cv-button') as CVButton | null
+    clickSubmit(submitButton, form)
     await settle(component)
 
     expect(createEntry).toHaveBeenCalledWith(
@@ -192,10 +208,11 @@ describe('PMEntryCreate desktop layout', () => {
     await settle(component)
 
     const submitButton = component.shadowRoot?.querySelector('.create-footer cv-button') as CVButton | null
-    expect(submitButton?.disabled).toBe(false)
-
     const form = component.shadowRoot?.querySelector('form') as HTMLFormElement | null
-    form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+    expect(submitButton?.disabled).toBe(false)
+    expect(form?.noValidate).toBe(true)
+
+    clickSubmit(submitButton, form)
     await settle(component)
 
     const titleInput = component.shadowRoot?.querySelector('cv-input[name="title"]') as CVInput | null
@@ -209,7 +226,7 @@ describe('PMEntryCreate desktop layout', () => {
     await settle(component)
 
     expect(submitButton?.disabled).toBe(false)
-    form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+    clickSubmit(submitButton, form)
     await settle(component)
 
     const usernameInput = component.shadowRoot?.querySelector('cv-input[name="username"]') as CVInput | null

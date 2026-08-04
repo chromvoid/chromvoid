@@ -1,5 +1,5 @@
 import {nothing, type TemplateResult} from 'lit'
-import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
+import {createAfterRenderScheduler, html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import type {Algorithm, Encoding, OTPOptions, OTPType} from '@project/passmanager/types'
@@ -39,10 +39,17 @@ export class PMEntryOTPCreate extends ReatomLitElement {
   declare model: PMEntryOtpCreateModel
   declare layout: PMEntryOtpLayout
 
+  private readonly afterRenderScheduler = createAfterRenderScheduler(this)
+
   constructor() {
     super()
     this.model = new PMEntryOtpCreateModel()
     this.layout = 'default'
+  }
+
+  override disconnectedCallback(): void {
+    this.afterRenderScheduler.cancel()
+    super.disconnectedCallback()
   }
 
   getFormData(): OTPOptions {
@@ -162,6 +169,15 @@ export class PMEntryOTPCreate extends ReatomLitElement {
 
   private onAdvancedBack() {
     this.model.actions.closeAdvanced()
+    this.afterRenderScheduler.schedule(() => {
+      this.shadowRoot?.querySelector<HTMLElement>('.otp-advanced-link')?.focus({preventScroll: true})
+    })
+    this.dispatchEvent(
+      new CustomEvent('pm-entry-otp-advanced-back', {
+        bubbles: true,
+        composed: true,
+      }),
+    )
   }
 
   private onQrScanClick() {

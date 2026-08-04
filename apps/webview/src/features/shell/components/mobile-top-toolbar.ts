@@ -9,42 +9,22 @@ import {notificationIndicatorStyles} from 'root/shared/ui/notification-indicator
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 
-export type MobileToolbarLeadingMode = 'menu' | 'back' | 'none'
+import type {
+  MobileToolbarAction,
+  MobileToolbarLeadingMode,
+  MobileToolbarMetaItem,
+  MobileToolbarStatus,
+  MobileToolbarTitleAction,
+} from './mobile-top-toolbar.types'
 
-export type MobileToolbarAction = {
-  id: string
-  icon: string
-  label: string
-  disabled?: boolean
-  active?: boolean
-  tone?: 'accent'
-  overflowOnly?: boolean
-  preserveFocusOnPress?: boolean
-}
-
-export type MobileToolbarTitleAction = {
-  id: string
-  label: string
-  disabled?: boolean
-  expanded?: boolean
-  popup?: 'dialog' | 'menu'
-}
-
-export type MobileToolbarStatusTone = 'saved' | 'dirty' | 'saving' | 'error' | 'readonly' | 'neutral'
-
-export type MobileToolbarStatus = {
-  tone: MobileToolbarStatusTone
-  icon: string
-  label: string
-  spinner?: boolean
-}
-
-export type MobileToolbarMetaItem = {
-  id: string
-  icon: string
-  label: string
-  value: string
-}
+export type {
+  MobileToolbarAction,
+  MobileToolbarLeadingMode,
+  MobileToolbarMetaItem,
+  MobileToolbarStatus,
+  MobileToolbarStatusTone,
+  MobileToolbarTitleAction,
+} from './mobile-top-toolbar.types'
 
 export class MobileTopToolbar extends ReatomLitElement {
   static elementName = 'mobile-top-toolbar'
@@ -143,10 +123,6 @@ export class MobileTopToolbar extends ReatomLitElement {
         background: transparent;
         font: inherit;
         cursor: pointer;
-      }
-
-      .title-action:hover {
-        background: var(--cv-color-primary-surface);
       }
 
       .title-action:focus-visible {
@@ -315,6 +291,8 @@ export class MobileTopToolbar extends ReatomLitElement {
       }
 
       .action-btn {
+        appearance: none;
+        -webkit-appearance: none;
         inline-size: 44px;
         block-size: 44px;
         min-inline-size: 44px;
@@ -326,14 +304,12 @@ export class MobileTopToolbar extends ReatomLitElement {
         border-radius: 999px;
         background: transparent;
         color: var(--app-editorial-text-primary, var(--cv-color-text));
+        padding: 0;
+        font: inherit;
         cursor: pointer;
         position: relative;
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
-      }
-
-      .action-btn:hover {
-        background: var(--cv-color-primary-surface);
       }
 
       .action-btn:active {
@@ -354,20 +330,12 @@ export class MobileTopToolbar extends ReatomLitElement {
         color: var(--cv-color-primary);
       }
 
-      .action-btn.active:hover {
-        background: var(--cv-color-primary-surface-strong, var(--cv-color-primary-subtle));
-      }
-
       .action-btn.tone-accent {
         background: var(--cv-color-primary-surface);
         color: var(--cv-color-primary);
         box-shadow:
           inset 0 0 0 1px var(--cv-color-border-accent),
           0 0 0 1px var(--cv-color-primary-surface-strong);
-      }
-
-      .action-btn.tone-accent:hover {
-        background: var(--cv-color-primary-surface-strong);
       }
 
       .action-indicator {
@@ -403,10 +371,6 @@ export class MobileTopToolbar extends ReatomLitElement {
         -webkit-tap-highlight-color: transparent;
       }
 
-      .overflow-menu::part(trigger):hover {
-        background: var(--cv-color-primary-surface);
-      }
-
       .overflow-menu::part(trigger):active {
         transform: scale(0.94);
       }
@@ -417,9 +381,22 @@ export class MobileTopToolbar extends ReatomLitElement {
         color: var(--cv-color-primary);
       }
 
-      .overflow-menu.active::part(trigger):hover,
-      .overflow-menu[open]::part(trigger):hover {
-        background: var(--cv-color-primary-surface-strong, var(--cv-color-primary-subtle));
+      @media (hover: hover) and (pointer: fine) {
+        .title-action:hover,
+        .action-btn:hover,
+        .overflow-menu::part(trigger):hover {
+          background: var(--cv-color-primary-surface);
+        }
+
+        .action-btn.active:hover,
+        .overflow-menu.active::part(trigger):hover,
+        .overflow-menu[open]::part(trigger):hover {
+          background: var(--cv-color-primary-surface-strong, var(--cv-color-primary-subtle));
+        }
+
+        .action-btn.tone-accent:hover {
+          background: var(--cv-color-primary-surface-strong);
+        }
       }
 
       .overflow-menu::part(prefix) {
@@ -481,7 +458,6 @@ export class MobileTopToolbar extends ReatomLitElement {
         background: var(--cv-color-primary-surface);
         color: var(--cv-color-primary);
       }
-
     `,
   ]
 
@@ -595,7 +571,9 @@ export class MobileTopToolbar extends ReatomLitElement {
         : i18n('nav:back' as any)
 
     return html`
-      <cv-button unstyled
+      <button
+        type="button"
+        id=${this.leading === 'menu' ? 'app.navigation.menu' : nothing}
         class="action-btn"
         data-action="mobile-leading"
         @click=${this.onLeadingClick}
@@ -603,7 +581,7 @@ export class MobileTopToolbar extends ReatomLitElement {
         aria-label=${label}
       >
         <cv-icon name=${icon}></cv-icon>
-      </cv-button>
+      </button>
     `
   }
 
@@ -672,29 +650,43 @@ export class MobileTopToolbar extends ReatomLitElement {
         `
       : nothing
     const visibleButtons = visible.map((a) => {
-      const button = html`
-        <cv-button unstyled
-          class="action-btn ${a.active ? 'active' : ''} ${a.tone === 'accent' ? 'tone-accent' : ''}"
-          data-action=${a.id}
-          ?disabled=${a.disabled}
-          aria-label=${a.label}
-          @pointerdown=${this.onActionButtonPointerDown}
-          @click=${this.onActionButtonClick}
-        >
-          <cv-icon name=${a.icon}></cv-icon>
-          ${a.active
-            ? html`<span class="notification-dot action-indicator" aria-hidden="true"></span>`
-            : nothing}
-        </cv-button>
+      const content = html`
+        <cv-icon name=${a.icon}></cv-icon>
+        ${a.active
+          ? html`<span class="notification-dot action-indicator" aria-hidden="true"></span>`
+          : nothing}
       `
 
       if (a.id !== 'pm-create-entry') {
-        return button
+        return html`
+          <cv-button
+            unstyled
+            class="action-btn ${a.active ? 'active' : ''} ${a.tone === 'accent' ? 'tone-accent' : ''}"
+            data-action=${a.id}
+            ?disabled=${a.disabled}
+            aria-label=${a.label}
+            @pointerdown=${this.onActionButtonPointerDown}
+            @click=${this.onActionButtonClick}
+          >
+            ${content}
+          </cv-button>
+        `
       }
 
       return html`
         <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
-          ${button}
+          <button
+            id="passwords.create-entry"
+            type="button"
+            class="action-btn ${a.active ? 'active' : ''} ${a.tone === 'accent' ? 'tone-accent' : ''}"
+            data-action=${a.id}
+            ?disabled=${a.disabled}
+            aria-label=${a.label}
+            @pointerdown=${this.onActionButtonPointerDown}
+            @click=${this.onActionButtonClick}
+          >
+            ${content}
+          </button>
         </cv-guidance-anchor>
       `
     })
@@ -721,9 +713,7 @@ export class MobileTopToolbar extends ReatomLitElement {
     const meta = this.meta.filter((item) => item.value.length > 0)
     if (meta.length === 0) return nothing
 
-    const label =
-      this.metaLabel ||
-      meta.map((item) => `${item.label}: ${item.value}`).join(', ')
+    const label = this.metaLabel || meta.map((item) => `${item.label}: ${item.value}`).join(', ')
 
     return html`
       <div class="meta-row" aria-label=${label}>
@@ -776,8 +766,7 @@ export class MobileTopToolbar extends ReatomLitElement {
         <div>${this.renderLeading()}</div>
         ${this.renderTitleBlock()}
         <div class="trailing">
-          ${this.renderStatusChip()}
-          ${this.renderActions()}
+          ${this.renderStatusChip()} ${this.renderActions()}
           <slot name="actions"></slot>
         </div>
       </header>

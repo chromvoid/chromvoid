@@ -48,6 +48,14 @@ export class WelcomePageDesktopLayout extends WelcomePageLayoutBase {
         mask-image: radial-gradient(680px 520px at 50% 40%, black 0%, transparent 78%);
       }
 
+      .desktop-surface--remote-flow {
+        background: var(--cv-color-bg);
+      }
+
+      .desktop-surface--remote-flow::before {
+        display: none;
+      }
+
       .main-card {
         position: relative;
         z-index: 1;
@@ -65,13 +73,15 @@ export class WelcomePageDesktopLayout extends WelcomePageLayoutBase {
         display: grid;
         align-self: stretch;
         align-content: start;
-        justify-self: stretch;
+        justify-self: center;
         min-inline-size: 0;
         min-block-size: 0;
-        inline-size: auto;
-        margin: clamp(18px, 2.5dvh, 30px) clamp(18px, 2vw, 28px) 0;
-        padding: 0 0 28px;
-        gap: 14px;
+        inline-size: min(1040px, 100%);
+        margin: 0;
+        padding: clamp(20px, 3dvh, 32px) clamp(20px, 3vw, 36px) 28px;
+        overflow: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
       }
 
       .main-card--remote-flow > welcome-setup-section {
@@ -90,8 +100,8 @@ export class WelcomePageDesktopLayout extends WelcomePageLayoutBase {
         }
 
         .main-card--remote-flow {
-          margin: 16px 12px 0;
-          padding-block-end: 24px;
+          inline-size: 100%;
+          padding: 18px 14px 24px;
         }
       }
     `,

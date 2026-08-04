@@ -171,7 +171,7 @@ export class PMGroupCreateMobile extends PMGroupCreateBase {
     const submitError = this.model.submitError()
 
     return html`
-      <form @submit=${this.onSubmit}>
+      <form novalidate @submit=${this.onSubmit}>
         <div class="create-scroll">
           ${this.renderLocation()}
 

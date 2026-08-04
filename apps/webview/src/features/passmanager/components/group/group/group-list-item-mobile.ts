@@ -103,6 +103,10 @@ export class PMGroupListItemMobile extends ReatomLitElement {
     this.swipe.close()
   }
 
+  private handleSelectStart(event: Event): void {
+    event.preventDefault()
+  }
+
   private handleSwipeDelete(event: Event): void {
     event.preventDefault()
     event.stopPropagation()
@@ -165,6 +169,7 @@ export class PMGroupListItemMobile extends ReatomLitElement {
           tabindex=${String(rowTabIndex)}
           @focus=${this.handleFocus}
           @click=${this.handleRowClick}
+          @selectstart=${this.handleSelectStart}
           @touchstart=${this.handleTouchStart}
           @touchmove=${this.handleTouchMove}
           @touchend=${this.handleTouchEnd}

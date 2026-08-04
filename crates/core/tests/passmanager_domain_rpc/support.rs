@@ -45,7 +45,13 @@ pub(super) fn get_groups(response: &RpcResponse) -> Vec<String> {
         .as_array()
         .expect("groups should be array")
         .iter()
-        .filter_map(|v| v.as_str().map(ToString::to_string))
+        .map(|value| {
+            value
+                .get("path")
+                .and_then(|path| path.as_str())
+                .expect("group should have a path")
+                .to_string()
+        })
         .collect()
 }
 

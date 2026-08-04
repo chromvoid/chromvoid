@@ -1,9 +1,10 @@
 use super::*;
 
 #[test]
-fn default_auto_mount_is_false() {
+fn automated_session_security_is_opt_in_by_default() {
     let s = SessionSettings::default();
-    assert!(s.require_biometric_app_gate);
+    assert_eq!(s.auto_lock_timeout_secs, 0);
+    assert!(!s.require_biometric_app_gate);
     assert!(!s.auto_mount_after_unlock);
     assert!(!s.auto_start_ssh_agent_after_unlock);
     assert!(!s.lock_on_mobile_background);
@@ -21,7 +22,7 @@ fn round_trip_persistence() {
     let path = dir.path().join("session_settings.json");
 
     let mut settings = SessionSettings::default();
-    settings.require_biometric_app_gate = false;
+    settings.require_biometric_app_gate = true;
     settings.auto_mount_after_unlock = true;
     settings.auto_start_ssh_agent_after_unlock = true;
     settings.auto_lock_timeout_secs = 120;
@@ -36,7 +37,7 @@ fn round_trip_persistence() {
     settings.save(&path);
 
     let loaded = SessionSettings::load(&path);
-    assert!(!loaded.require_biometric_app_gate);
+    assert!(loaded.require_biometric_app_gate);
     assert!(loaded.auto_mount_after_unlock);
     assert!(loaded.auto_start_ssh_agent_after_unlock);
     assert_eq!(loaded.auto_lock_timeout_secs, 120);
@@ -62,7 +63,7 @@ fn backward_compat_missing_field() {
     assert_eq!(loaded.auto_lock_timeout_secs, 300);
     assert!(loaded.lock_on_sleep);
     assert!(!loaded.lock_on_mobile_background);
-    assert!(loaded.require_biometric_app_gate);
+    assert!(!loaded.require_biometric_app_gate);
     assert!(!loaded.auto_mount_after_unlock);
     assert!(!loaded.auto_start_ssh_agent_after_unlock);
     assert!(!loaded.keep_screen_awake_when_unlocked);
@@ -76,10 +77,10 @@ fn backward_compat_missing_field() {
 #[test]
 fn load_nonexistent_returns_default() {
     let loaded = SessionSettings::load(std::path::Path::new("/tmp/__nonexistent__.json"));
-    assert_eq!(loaded.auto_lock_timeout_secs, 5 * 60);
+    assert_eq!(loaded.auto_lock_timeout_secs, 0);
     assert!(loaded.lock_on_sleep);
     assert!(!loaded.lock_on_mobile_background);
-    assert!(loaded.require_biometric_app_gate);
+    assert!(!loaded.require_biometric_app_gate);
     assert!(!loaded.auto_mount_after_unlock);
     assert!(!loaded.auto_start_ssh_agent_after_unlock);
     assert!(!loaded.keep_screen_awake_when_unlocked);
@@ -98,8 +99,8 @@ fn load_invalid_json_returns_default() {
 
     let loaded = SessionSettings::load(&path);
 
-    assert_eq!(loaded.auto_lock_timeout_secs, 5 * 60);
+    assert_eq!(loaded.auto_lock_timeout_secs, 0);
     assert!(loaded.lock_on_sleep);
     assert!(!loaded.lock_on_mobile_background);
-    assert!(loaded.require_biometric_app_gate);
+    assert!(!loaded.require_biometric_app_gate);
 }

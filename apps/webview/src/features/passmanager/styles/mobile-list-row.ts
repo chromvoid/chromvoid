@@ -15,6 +15,7 @@ export const pmMobileListRowStyles = css`
     touch-action: pan-y;
     -webkit-touch-callout: none;
     -webkit-user-select: none;
+    user-select: none;
   }
 
   .mobile-list-row-surface:hover,

@@ -1,8 +1,26 @@
 import {describe, expect, it} from 'vitest'
 
 import {resolveLayoutMode} from '../../src/app/layout/layout-mode'
+import {FileManagerMobileLayout} from '../../src/features/file-manager/components/file-manager-mobile-layout'
+import {i18n} from '../../src/i18n'
 
 describe('file-manager layout selection', () => {
+  it('exposes one named mobile files group for accessibility automation', async () => {
+    FileManagerMobileLayout.define()
+    const element = document.createElement('file-manager-mobile-layout') as FileManagerMobileLayout
+    document.body.append(element)
+    await element.updateComplete
+
+    const groups = element.shadowRoot?.querySelectorAll('#app\\.files\\.root')
+    const group = groups?.item(0)
+
+    expect(groups).toHaveLength(1)
+    expect(group?.getAttribute('role')).toBe('group')
+    expect(group?.getAttribute('aria-label')).toBe(i18n('navigation:files-description'))
+
+    element.remove()
+  })
+
   describe('wrapper selects layout deterministically based on layoutMode', () => {
     const selectLayout = (mode: 'mobile' | 'desktop') =>
       mode === 'mobile' ? 'file-manager-mobile-layout' : 'file-manager-desktop-layout'

@@ -36,6 +36,7 @@ enum Command {
     Pair,
     Connect,
     RemoteLock,
+    ReconnectLoop,
     StreamPerf,
 }
 
@@ -55,6 +56,7 @@ struct Args {
     source_revision: Option<u64>,
     range_offset: u64,
     range_length: u64,
+    cycles: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +119,14 @@ struct RemoteLockSummary {
 }
 
 #[derive(Serialize)]
+struct ReconnectLoopSummary {
+    ok: bool,
+    host_id: String,
+    cycles_completed: usize,
+    disconnect_acknowledgements: usize,
+}
+
+#[derive(Serialize)]
 struct StreamPerfSummary {
     ok: bool,
     host_id: String,
@@ -156,6 +166,8 @@ struct PairingHello {
     peer_label: String,
     peer_pubkey_hex: String,
     platform: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    capabilities: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +184,8 @@ struct PairingApprovalChallenge {
 struct PairingApprovalProof {
     attempt_id: String,
     proof_hex: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    action: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,12 +328,20 @@ async fn run() -> Result<(), String> {
             args.storage_root.display()
         )
     })?;
-    let watchdog_done = start_watchdog(args.timeout);
+    let watchdog_timeout = if matches!(args.command, Command::ReconnectLoop) {
+        args.timeout
+            .saturating_mul(u32::try_from(args.cycles).unwrap_or(u32::MAX))
+    } else {
+        args.timeout
+    };
+    let watchdog_done = start_watchdog(watchdog_timeout);
     let bridge = create_android_aoa_mobile_usb_bridge_for_app_identifier(&args.android_package);
     let store = JsonMobileUsbPairingStore::new(&args.storage_root);
     let file_secrets =
         FileMobileUsbSecretStore::new(args.storage_root.join("mobile_usb_secrets.json"));
-    let keyring_secrets = KeyringMobileUsbSecretStore::default();
+    let keyring_secrets = KeyringMobileUsbSecretStore::new(
+        chromvoid_lib::mobile_usb::MOBILE_USB_SMOKE_SECRET_SERVICE,
+    );
     let secrets: &dyn MobileUsbSecretStore = match args.secret_store {
         SecretStoreKind::File => &file_secrets,
         SecretStoreKind::Keyring => &keyring_secrets,
@@ -410,6 +432,21 @@ async fn run() -> Result<(), String> {
             .await?;
             print_json(&summary)
         }
+        Command::ReconnectLoop => {
+            let android_prepare =
+                (!args.skip_android_prepare).then_some(AndroidEndpointPrepare::Full(&args));
+            let summary = reconnect_loop_smoke(
+                bridge.as_ref(),
+                &store,
+                secrets,
+                args.host_id.as_deref(),
+                args.timeout,
+                args.cycles,
+                android_prepare,
+            )
+            .await?;
+            print_json(&summary)
+        }
         Command::StreamPerf => {
             let android_prepare =
                 (!args.skip_android_prepare).then_some(AndroidEndpointPrepare::Full(&args));
@@ -459,6 +496,7 @@ async fn open_smoke_session(
             peer_label: desktop_pairing_label(),
             peer_pubkey_hex: hex_encode(&record.client_pubkey),
             platform: "desktop".to_string(),
+            capabilities: vec!["usb_pairing_cancel_v1".to_string()],
         };
         send_pairing_hello(transport.as_mut(), &mut noise_transport, &hello).await?;
         let remote_hello =
@@ -682,6 +720,59 @@ async fn remote_lock_smoke(
         lock_response,
         before_status_response,
         after_status_response,
+    })
+}
+
+async fn reconnect_loop_smoke(
+    bridge: &dyn MobileUsbBridge,
+    store: &dyn MobileUsbPairingStore,
+    secrets: &dyn MobileUsbSecretStore,
+    host_id: Option<&str>,
+    timeout: Duration,
+    cycles: usize,
+    android_prepare: Option<AndroidEndpointPrepare<'_>>,
+) -> Result<ReconnectLoopSummary, String> {
+    let mut selected_host_id = host_id.map(str::to_string);
+    let mut disconnect_acknowledgements = 0;
+
+    for cycle in 1..=cycles {
+        let session = open_smoke_session(
+            bridge,
+            store,
+            secrets,
+            selected_host_id.as_deref(),
+            timeout,
+            if cycle == 1 { android_prepare } else { None },
+        )
+        .await
+        .map_err(|error| format!("reconnect cycle {cycle} open failed: {error}"))?;
+        selected_host_id.get_or_insert_with(|| session.record.host_id.clone());
+        let mut handle = session.handle;
+        let response = run_json_rpc(&handle.req_tx, "mobile_usb:session_disconnect", timeout)
+            .await
+            .map_err(|error| format!("reconnect cycle {cycle} disconnect failed: {error}"))?;
+        if !response.is_ok() {
+            handle.task_handle.abort();
+            return Err(format!(
+                "reconnect cycle {cycle} disconnect rejected: {}",
+                describe_rpc_error(&response)
+            ));
+        }
+        disconnect_acknowledgements += 1;
+        if !wait_for_remote_disconnect(&mut handle, timeout).await? {
+            handle.task_handle.abort();
+            return Err(format!(
+                "reconnect cycle {cycle} did not observe remote disconnect"
+            ));
+        }
+        handle.task_handle.abort();
+    }
+
+    Ok(ReconnectLoopSummary {
+        ok: true,
+        host_id: selected_host_id.unwrap_or_default(),
+        cycles_completed: cycles,
+        disconnect_acknowledgements,
     })
 }
 
@@ -946,6 +1037,7 @@ async fn pair_smoke(
         peer_label: desktop_pairing_label(),
         peer_pubkey_hex: hex_encode(&keypair.public),
         platform: "desktop".to_string(),
+        capabilities: vec!["usb_pairing_cancel_v1".to_string()],
     };
     send_pairing_hello(transport.as_mut(), &mut noise_transport, &local_hello).await?;
     let remote_hello =
@@ -971,6 +1063,7 @@ async fn pair_smoke(
         &PairingApprovalProof {
             attempt_id: approval_challenge.attempt_id.clone(),
             proof_hex,
+            action: None,
         },
     )
     .await?;
@@ -1213,7 +1306,7 @@ async fn run_json_rpc_timed(
 
 fn smoke_priority_for_command(command: &str) -> RemoteRpcPriority {
     match command {
-        "vault:lock" => RemoteRpcPriority::High,
+        "vault:lock" | "mobile_usb:session_disconnect" => RemoteRpcPriority::High,
         "catalog:downloadRange" => RemoteRpcPriority::Media,
         _ => RemoteRpcPriority::Normal,
     }
@@ -1296,6 +1389,7 @@ fn parse_args() -> Result<Args, String> {
     let mut source_revision = None;
     let mut range_offset = 0_u64;
     let mut range_length = 8 * 1024 * 1024_u64;
+    let mut cycles = 10_usize;
     let mut positionals = Vec::new();
     let mut iter = env::args().skip(1);
 
@@ -1377,6 +1471,12 @@ fn parse_args() -> Result<Args, String> {
                 };
                 range_length = parse_u64_arg("--range-length", &value)?;
             }
+            "--cycles" => {
+                let Some(value) = iter.next() else {
+                    return Err("--cycles requires a value".to_string());
+                };
+                cycles = parse_cycle_count(&value)?;
+            }
             "--skip-android-prepare" => {
                 skip_android_prepare = true;
             }
@@ -1426,6 +1526,9 @@ fn parse_args() -> Result<Args, String> {
                 let value = arg.trim_start_matches("--range-length=");
                 range_length = parse_u64_arg("--range-length", value)?;
             }
+            _ if arg.starts_with("--cycles=") => {
+                cycles = parse_cycle_count(arg.trim_start_matches("--cycles="))?;
+            }
             _ if arg.starts_with('-') => {
                 return Err(format!("unknown argument: {arg}\n{}", usage()))
             }
@@ -1440,6 +1543,7 @@ fn parse_args() -> Result<Args, String> {
         [command] if command == "pair" => Command::Pair,
         [command] if command == "connect" => Command::Connect,
         [command] if command == "remote-lock" => Command::RemoteLock,
+        [command] if command == "reconnect-loop" => Command::ReconnectLoop,
         [command] if command == "stream-perf" => Command::StreamPerf,
         [command] => return Err(format!("unknown command: {command}\n{}", usage())),
         _ => return Err(format!("too many positional arguments\n{}", usage())),
@@ -1464,7 +1568,18 @@ fn parse_args() -> Result<Args, String> {
         source_revision,
         range_offset,
         range_length,
+        cycles,
     })
+}
+
+fn parse_cycle_count(value: &str) -> Result<usize, String> {
+    let cycles = value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid --cycles value: {value}"))?;
+    if !(1..=100).contains(&cycles) {
+        return Err("--cycles must be between 1 and 100".to_string());
+    }
+    Ok(cycles)
 }
 
 fn parse_u64_arg(name: &str, value: &str) -> Result<u64, String> {
@@ -1704,7 +1819,7 @@ fn init_tracing() {
 }
 
 fn usage() -> String {
-    "usage: mobile-usb-smoke [scan|list-paired|pair|connect|remote-lock|stream-perf] [--storage-root PATH] [--host-id HOST_ID] [--timeout-secs N] [--adb PATH] [--adb-serial SERIAL] [--android-package PACKAGE] [--secret-store file|keyring] [--pair-pin PIN] [--node-id ID] [--source-revision REV] [--range-offset BYTES] [--range-length BYTES] [--skip-android-prepare]"
+    "usage: mobile-usb-smoke [scan|list-paired|pair|connect|remote-lock|reconnect-loop|stream-perf] [--storage-root PATH] [--host-id HOST_ID] [--timeout-secs N] [--cycles N] [--adb PATH] [--adb-serial SERIAL] [--android-package PACKAGE] [--secret-store file|keyring] [--pair-pin PIN] [--node-id ID] [--source-revision REV] [--range-offset BYTES] [--range-length BYTES] [--skip-android-prepare]"
         .to_string()
 }
 

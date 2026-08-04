@@ -5,6 +5,9 @@ import {MarkdownDocumentPage} from '../../src/features/file-manager/components/m
 import {ensureRouteComponents} from '../../src/app/bootstrap/surface-component-loader'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {
+  setMobileKeyboardOccluding,
+} from '../../src/app/bootstrap/mobile-keyboard/keyboard-occlusion.model'
+import {
   markdownPreviewModel,
   type MarkdownPreviewReadyState,
 } from '../../src/features/file-manager/models/markdown-preview.model'
@@ -174,6 +177,7 @@ describe('markdown-preview component', () => {
     markdownDocumentRenameModel.reset()
     markdownPreviewModel.cleanup()
     markdownPreviewModel.clearViewportAnchorMemory()
+    setMobileKeyboardOccluding(false)
     resetRuntimeCapabilities()
     vi.useRealTimers()
     vi.restoreAllMocks()
@@ -348,6 +352,27 @@ describe('markdown-preview component', () => {
       kind: 'viewport-top',
     })
   })
+
+  it.each(['preview', 'edit'] as const)(
+    'keeps the saved %s viewport when the Notes document disconnects',
+    async (mode) => {
+      ensureDefined()
+      const fileId = mode === 'preview' ? 45 : 46
+      const element = createElementWithState(readyState({fileId, mode}))
+      await settle(element)
+      const anchor = {
+        sourceLine: 12.5,
+        sourceOffset: 128,
+        viewportOffset: 24,
+        kind: 'viewport-top' as const,
+      }
+      markdownPreviewModel.rememberViewportAnchor(fileId, anchor)
+
+      element.remove()
+
+      expect(markdownPreviewModel.getViewportAnchor(fileId)).toEqual(anchor)
+    },
+  )
 
   it('transfers a focused preview element at its viewport offset when switching modes', async () => {
     ensureDefined()
@@ -633,6 +658,96 @@ describe('markdown-preview component', () => {
     boldButton?.dispatchEvent(event)
 
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('applies quick actions without focusing an unfocused source editor', async () => {
+    ensureDefined()
+    const element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLElement>('.source-editor') as HTMLElement & {
+      getSelection(): {selectionStart: number; selectionEnd: number}
+      setSelectionRange(start: number, end: number): void
+      value: string
+    }
+    const boldButton = element.shadowRoot?.querySelector<HTMLElement>(
+      '.editor-quick-bar [aria-label="Bold"]',
+    )
+
+    editor.setSelectionRange(2, 7)
+    boldButton?.click()
+    await settle(element)
+
+    expect(editor.value).toBe('# **Notes**')
+    expect(editor.getSelection()).toEqual({
+      selectionStart: '# **Notes**'.length,
+      selectionEnd: '# **Notes**'.length,
+    })
+    expect(editor.shadowRoot?.activeElement).not.toBe(getSourceEditorContent(editor))
+    expect(markdownPreviewModel.editorFocusRequest()).toBeNull()
+  })
+
+  it('keeps a focused source editor focused while applying a touch quick action', async () => {
+    ensureDefined()
+    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setMobileKeyboardOccluding(true)
+    const element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLElement>('.source-editor') as HTMLElement & {
+      focus(options?: FocusOptions): void
+      getSelection(): {selectionStart: number; selectionEnd: number}
+      setSelectionRange(start: number, end: number): void
+      value: string
+    }
+    const boldButton = element.shadowRoot?.querySelector<HTMLElement>(
+      '.editor-quick-bar [aria-label="Bold"]',
+    )
+
+    editor.focus()
+    editor.setSelectionRange(2, 7)
+    boldButton?.dispatchEvent(createPointerEvent('pointerdown'))
+    boldButton?.dispatchEvent(createPointerEvent('pointerup'))
+    await settle(element)
+
+    expect(editor.value).toBe('# **Notes**')
+    expect(editor.getSelection()).toEqual({
+      selectionStart: '# **Notes**'.length,
+      selectionEnd: '# **Notes**'.length,
+    })
+    expect(editor.shadowRoot?.activeElement).toBe(getSourceEditorContent(editor))
+    expect(markdownPreviewModel.editorFocusRequest()).toBeNull()
+  })
+
+  it('keeps a dismissed mobile keyboard hidden while applying a touch quick action', async () => {
+    ensureDefined()
+    setRuntimeCapabilities({platform: 'android', mobile: true})
+    const element = createElementWithState(readyState({mode: 'edit'}))
+    await settle(element)
+
+    const editor = element.shadowRoot?.querySelector<HTMLElement>('.source-editor') as HTMLElement & {
+      focus(options?: FocusOptions): void
+      getSelection(): {selectionStart: number; selectionEnd: number}
+      setSelectionRange(start: number, end: number): void
+      value: string
+    }
+    const boldButton = element.shadowRoot?.querySelector<HTMLElement>(
+      '.editor-quick-bar [aria-label="Bold"]',
+    )
+
+    editor.focus()
+    editor.setSelectionRange(2, 7)
+    boldButton?.dispatchEvent(createPointerEvent('pointerdown'))
+    boldButton?.dispatchEvent(createPointerEvent('pointerup'))
+    await settle(element)
+
+    expect(editor.value).toBe('# **Notes**')
+    expect(editor.getSelection()).toEqual({
+      selectionStart: '# **Notes**'.length,
+      selectionEnd: '# **Notes**'.length,
+    })
+    expect(editor.shadowRoot?.activeElement).not.toBe(getSourceEditorContent(editor))
+    expect(markdownPreviewModel.editorFocusRequest()).toBeNull()
   })
 
   it('activates quick text actions on touch pointerup without duplicating the follow-up click', async () => {

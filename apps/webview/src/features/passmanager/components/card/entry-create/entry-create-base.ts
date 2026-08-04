@@ -17,10 +17,8 @@ import {
   type PMEntryTagsComboboxType,
   renderEntryTagsEditor,
 } from '../entry-tags/entry-tags-editor'
-import {
-  PMEntryCreateModel,
-  type PMEntryCreateValidationField,
-} from './entry-create.model'
+import type {PMEntryWebsiteEditor} from '../entry-website-editor'
+import {PMEntryCreateModel, type PMEntryCreateValidationField} from './entry-create.model'
 
 export abstract class PMEntryCreateBase extends ReatomLitElement {
   static properties = {
@@ -58,10 +56,6 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
 
   protected onPasswordInput(e: CVInputInputEvent) {
     this.model.setPassword(e.detail.value)
-  }
-
-  protected onUrlsInput(e: CVInputInputEvent) {
-    this.model.setWebsite(e.detail.value)
   }
 
   protected onNoteInput(e: CVTextareaInputEvent) {
@@ -139,10 +133,11 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
   public override connectedCallback(): void {
     super.connectedCallback()
     this.setAttribute('theme', 'dark')
-    this.model.reset()
-    const prefill = consumeAndroidPasswordSavePrefill()
-    if (prefill) {
-      this.model.applyPrefill(prefill)
+    if (this.model.reset()) {
+      const prefill = consumeAndroidPasswordSavePrefill()
+      if (prefill) {
+        this.model.applyPrefill(prefill)
+      }
     }
     this.scheduleInitialViewportPreparation()
   }
@@ -166,10 +161,6 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
 
   protected onPasswordBlur() {
     this.model.markFieldTouched('password')
-  }
-
-  protected onUrlsBlur() {
-    this.model.markFieldTouched('urls')
   }
 
   protected onCardholderBlur() {
@@ -270,6 +261,11 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
   }
 
   private focusInputByName(name: string): void {
+    if (name === 'urls') {
+      this.shadowRoot?.querySelector<PMEntryWebsiteEditor>('pm-entry-website-editor')?.focusFirstInvalid()
+      return
+    }
+
     const field = this.getFieldFocusSelectors(name)
       .map((selector) => this.shadowRoot?.querySelector<HTMLElement>(selector) ?? null)
       .find((element): element is HTMLElement => Boolean(element))
@@ -324,9 +320,11 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
 
   protected render(): TemplateResult | typeof nothing {
     return html`
-      <form @submit=${this.onSubmit}>
+      <form novalidate @submit=${this.onSubmit}>
         <cv-switch size="small" @cv-change=${this.changeSwitch} ?checked=${this.model.useOtp()}></cv-switch>
-        ${this.model.useOtp() ? html`<pm-entry-otp-create short .model=${this.model.otp}></pm-entry-otp-create>` : null}
+        ${this.model.useOtp()
+          ? html`<pm-entry-otp-create short .model=${this.model.otp}></pm-entry-otp-create>`
+          : null}
       </form>
     `
   }

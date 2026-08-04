@@ -106,16 +106,31 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
       .locked-vault {
         position: relative;
         isolation: isolate;
+        box-sizing: border-box;
         inline-size: auto;
-        block-size: 100%;
+        block-size: calc(
+          var(--app-runtime-visual-viewport-block-size, 100dvh) -
+            var(--app-runtime-safe-area-block-start, 0px)
+        );
         min-block-size: 0;
         padding: var(--app-spacing-1) var(--app-spacing-6) var(--app-spacing-6);
         display: grid;
         gap: var(--app-spacing-5);
         background: var(--welcome-lockscreen-background-gradient);
         color: var(--welcome-lockscreen-foreground);
-        overflow: hidden;
-        grid-template-rows: min-content auto max-content;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
+        scroll-padding-block-end: calc(
+          var(--app-runtime-keyboard-scroll-clearance, 0px) + var(--app-spacing-4)
+        );
+        -webkit-overflow-scrolling: touch;
+        grid-template-rows: max-content max-content max-content;
+        align-content: start;
+      }
+
+      .locked-vault > welcome-tools-section {
+        margin-block-end: var(--app-runtime-keyboard-scroll-clearance, 0px);
       }
 
       .unlock-loading-scrim {

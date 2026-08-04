@@ -13,6 +13,8 @@ import {routeCardStyles} from 'root/shared/ui/route-card.styles'
 import {routeCalloutStyles} from 'root/shared/ui/route-callout.styles'
 import {routeEmptyStateStyles} from 'root/shared/ui/route-empty-state.styles'
 import {remoteHostsFlowStyles} from './remote-hosts-flow.styles'
+import {remoteMobileHostPageStyles} from './remote-mobile-host-page.styles'
+import {remoteUsbSessionStyles} from './remote-usb-session.styles'
 
 export const remotePageStyles = [
   sharedStyles,
@@ -23,6 +25,8 @@ export const remotePageStyles = [
   routePageStyles,
   spinIndicatorStyles,
   remoteHostsFlowStyles,
+  remoteMobileHostPageStyles,
+  remoteUsbSessionStyles,
   routeCardStyles,
   routeCalloutStyles,
   routeEmptyStateStyles,

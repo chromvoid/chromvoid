@@ -3,7 +3,7 @@ import {html, nothing, type TemplateResult} from 'lit'
 import {i18n} from 'root/i18n'
 
 import type {MobileUsbScannedHost, NetworkPairedPeer} from './remote.model'
-import type {RemoteFlowScreen, RemoteHostsFlowModel} from './remote-hosts-flow.model'
+import type {RemoteHostsFlowModel} from './remote-hosts-flow.model'
 
 export interface RemoteHostsFlowBackLink {
   label: string
@@ -15,7 +15,6 @@ export interface RemoteHostsFlowPanelUI {
   pairBackLink?: RemoteHostsFlowBackLink
   waitBackLink?: RemoteHostsFlowBackLink
   waitReason?: 'host_unlock' | 'phone_approval'
-  welcomeFrame?: boolean
 }
 
 export interface RemoteHostsFlowPanelActions {
@@ -28,7 +27,7 @@ export interface RemoteHostsFlowPanelActions {
   onOfferInput?: (event: Event) => void
   onPinInput?: (event: Event) => void
   onDeviceLabelInput?: (event: Event) => void
-  onSubmitPairing?: () => void
+  onSubmitPairing?: (event?: Event) => void | Promise<void>
   onRefreshPresence?: () => void
   onDisconnectTransport?: () => void
   onUsbRefreshStatus?: () => void
@@ -79,25 +78,38 @@ function resolveActions(
     onOfferInput: overrides.onOfferInput ?? model.handleOfferInput,
     onPinInput: overrides.onPinInput ?? model.handlePinInput,
     onDeviceLabelInput: overrides.onDeviceLabelInput ?? model.handleDeviceLabelInput,
-    onSubmitPairing: overrides.onSubmitPairing ?? (() => void model.submitPairing()),
+    onSubmitPairing: async (event) => {
+      const form = event?.currentTarget as ParentNode | null
+      event?.preventDefault()
+      if (overrides.onSubmitPairing) {
+        await overrides.onSubmitPairing(event)
+      } else {
+        await model.submitPairing()
+      }
+
+      if (!model.desktopPairing.submitAttempted()) return
+      const firstInvalid = model.desktopPairing.firstInvalid()
+      const selector = firstInvalid === 'offer' ? '#remote-pairing-offer' : '#remote-pairing-pin'
+      if (firstInvalid) (form?.querySelector<HTMLElement>(selector) ?? null)?.focus()
+    },
     onRefreshPresence: overrides.onRefreshPresence ?? (() => void model.refreshPresence()),
     onDisconnectTransport: overrides.onDisconnectTransport ?? (() => void model.disconnectTransport()),
-    onUsbRefreshStatus: overrides.onUsbRefreshStatus ?? (() => void model.usb.refreshStatus()),
-    onUsbScan: overrides.onUsbScan ?? (() => void model.usb.scan()),
-    onUsbLoadPaired: overrides.onUsbLoadPaired ?? (() => void model.usb.loadPaired()),
-    onUsbPairScannedHost: overrides.onUsbPairScannedHost ?? ((host) => void model.usb.pairScannedHost(host)),
+    onUsbRefreshStatus: overrides.onUsbRefreshStatus ?? (() => void model.refreshUsbStatus()),
+    onUsbScan: overrides.onUsbScan ?? (() => void model.scanUsbHosts()),
+    onUsbLoadPaired: overrides.onUsbLoadPaired ?? (() => void model.loadUsbPairedHosts()),
+    onUsbPairScannedHost: overrides.onUsbPairScannedHost ?? ((host) => void model.pairUsbScannedHost(host)),
     onUsbPairingPinInput:
       overrides.onUsbPairingPinInput ??
       ((event) => {
         const target = event.target as {value?: string} | null
         model.usb.setPairingApprovalPin(target?.value ?? '')
       }),
-    onUsbConfirmPairing: overrides.onUsbConfirmPairing ?? (() => void model.usb.confirmPairing()),
+    onUsbConfirmPairing: overrides.onUsbConfirmPairing ?? (() => void model.confirmUsbPairing()),
     onUsbConnectPairedHost:
-      overrides.onUsbConnectPairedHost ?? ((hostId) => void model.usb.connectPairedHost(hostId)),
+      overrides.onUsbConnectPairedHost ?? ((hostId) => void model.connectUsbPairedHost(hostId)),
     onUsbRemovePairedHost:
       overrides.onUsbRemovePairedHost ?? ((hostId) => void model.removeUsbPairedHost(hostId)),
-    onUsbDisconnect: overrides.onUsbDisconnect ?? (() => void model.usb.disconnect()),
+    onUsbDisconnect: overrides.onUsbDisconnect ?? (() => void model.disconnectUsb()),
     onUsbDismissError: overrides.onUsbDismissError ?? (() => model.usb.dismissError()),
   }
 }
@@ -131,95 +143,6 @@ export function renderBackLink(backLink?: RemoteHostsFlowBackLink): TemplateResu
       </svg>
       ${backLink.label}
     </div>
-  `
-}
-
-function getRemoteFlowScreenLabel(screen: RemoteFlowScreen): string {
-  if (screen === 'hosts') return i18n('welcome:remote-hosts-title')
-  if (screen === 'pair') return i18n('remote:pair-mobile-host')
-  if (screen === 'usb') return i18n('remote:usb-mobile-title')
-  return i18n('welcome:wait-iphone-title')
-}
-
-function getRemoteFlowTransportLabel(ctx: RemoteHostsFlowRenderContext, screen: RemoteFlowScreen): string {
-  if (ctx.model.transportConnected()) return i18n('remote:transport-wss-relay')
-  if (screen === 'usb' || ctx.model.view() === 'usb-mobile') return i18n('remote:transport-usb-mobile')
-  return i18n('remote:transport-none')
-}
-
-function getRemoteFlowVaultState(ctx: RemoteHostsFlowRenderContext, screen: RemoteFlowScreen): string {
-  if (screen === 'wait' || ctx.model.transportConnected())
-    return i18n('welcome:remote-flow-vault-host-unlock')
-  return i18n('welcome:remote-flow-vault-local')
-}
-
-function getRemoteFlowMode(screen: RemoteFlowScreen): 'local' | 'switching' | 'remote' {
-  if (screen === 'wait') return 'switching'
-  return 'local'
-}
-
-function renderRemoteFlowStatusbar(
-  ctx: RemoteHostsFlowRenderContext,
-  screen: RemoteFlowScreen,
-): TemplateResult {
-  const transportConnected = ctx.model.transportConnected()
-  const mode = getRemoteFlowMode(screen)
-
-  return html`
-    <div class="remote-flow-statusbar" data-transport=${transportConnected ? 'connected' : 'idle'}>
-      <div class="remote-flow-status-segment remote-flow-status-segment--mode">
-        <span class="remote-flow-status-label">${i18n('welcome:remote-flow-mode-label')}</span>
-        <div class="remote-flow-mode-control" aria-label=${getRemoteFlowScreenLabel(screen)}>
-          <span data-state=${mode === 'local' ? 'active' : 'idle'}>
-            ${i18n('welcome:remote-flow-mode-local')}
-          </span>
-          <span data-state=${mode === 'switching' ? 'active' : 'idle'}>
-            ${i18n('welcome:remote-flow-mode-switching')}
-          </span>
-          <span data-state=${mode === 'remote' ? 'active' : 'idle'}>
-            ${i18n('welcome:remote-flow-mode-remote')}
-          </span>
-        </div>
-      </div>
-      <div class="remote-flow-status-segment">
-        <span class="remote-flow-status-label">${i18n('welcome:remote-flow-peer-label')}</span>
-        <strong class="remote-flow-status-value remote-flow-status-value--mono">
-          ${transportConnected ? ctx.model.connectedPeerLabel() : '-'}
-        </strong>
-      </div>
-      <div class="remote-flow-status-segment">
-        <span class="remote-flow-status-label">${i18n('remote:transport')}</span>
-        <strong class="remote-flow-status-value remote-flow-status-value--mono">
-          ${getRemoteFlowTransportLabel(ctx, screen)}
-        </strong>
-      </div>
-      <div class="remote-flow-status-segment remote-flow-status-segment--sync">
-        <span class="remote-flow-status-label">${i18n('welcome:remote-flow-sync-label')}</span>
-        <strong class="remote-flow-status-value remote-flow-status-value--with-dot">
-          <span class="remote-status-dot" aria-hidden="true"></span>
-          ${getRemoteFlowVaultState(ctx, screen)}
-        </strong>
-      </div>
-      <div class="remote-flow-status-segment remote-flow-status-segment--write">
-        <span class="remote-flow-status-label">${i18n('welcome:remote-flow-write-access-label')}</span>
-        <strong class="remote-flow-status-value remote-flow-status-value--mono">
-          ${i18n('welcome:remote-flow-read-write')}
-        </strong>
-      </div>
-    </div>
-  `
-}
-
-export function renderRemoteFlowFrame(
-  ctx: RemoteHostsFlowRenderContext,
-  screen: RemoteFlowScreen,
-  content: TemplateResult,
-): TemplateResult {
-  return html`
-    <section class="remote-flow-frame" data-flow-screen=${screen}>
-      ${renderRemoteFlowStatusbar(ctx, screen)}
-      <div class="remote-flow-surface">${content}</div>
-    </section>
   `
 }
 

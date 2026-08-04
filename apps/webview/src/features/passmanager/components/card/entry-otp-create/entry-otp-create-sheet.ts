@@ -141,7 +141,7 @@ export class PMEntryOTPCreateSheet extends ReatomLitElement {
         .closable=${!qrScannerActive}
         .closeOnEscape=${!qrScannerActive}
         .closeOnOutsidePointer=${!qrScannerActive}
-        .closeOnOutsideFocus=${!qrScannerActive}
+        .closeOnOutsideFocus=${false}
         .dragToClose=${!qrScannerActive}
         @cv-change=${this.handleSheetChange}
       >

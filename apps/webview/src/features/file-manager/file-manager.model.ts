@@ -20,8 +20,8 @@ import {FileListModel} from './models/file-list.model'
 import {FileActionsModel} from './models/file-actions.model'
 import {FileDeletionMotionModel} from './models/file-deletion-motion.model'
 import {FileMoveModel, type FileDragPayload} from './models/file-move.model'
-import {FileManagerMobileToolbarModel} from './models/file-manager-mobile-toolbar.model'
-import type {FileManagerMobileToolbarAction} from './models/file-manager-mobile-toolbar.model'
+import {FileManagerMobileActionsModel} from './models/file-manager-mobile-actions.model'
+import type {FileManagerMobileAction} from './models/file-manager-mobile-actions.model'
 import {
   createDefaultFileSearchFilters,
   createFileSearchFilterActions,
@@ -105,7 +105,7 @@ export class FileManagerModel {
   private readonly actions: FileActionsModel
   readonly deletionMotion = new FileDeletionMotionModel()
   readonly fileMove: FileMoveModel
-  private readonly mobileToolbar: FileManagerMobileToolbarModel
+  private readonly mobileActions: FileManagerMobileActionsModel
   readonly fileItems: FileListModel['fileItems']
   readonly renderItems: FileListModel['renderItems']
   readonly totalCount: FileListModel['totalCount']
@@ -190,12 +190,9 @@ export class FileManagerModel {
       openMoveDialogForItem: (item) => this.openMoveDialogForItem(item),
       onFilesDeleted: (fileIds) => navigationModel.forgetDeletedFiles(fileIds),
     })
-    this.mobileToolbar = new FileManagerMobileToolbarModel(this.fileList, this.actions, {
-      selectionMode: () => this.ctx.store.selectionMode(),
-      hasActiveSearchFilters: () => this.hasActiveSearchFilters(),
+    this.mobileActions = new FileManagerMobileActionsModel(this.fileList, {
       handleMobileBack: () => this.handleMobileBack(),
       handleShareSelected: () => this.handleShareSelected(),
-      handleDownloadSelected: () => this.handleDownloadSelected(),
       handleDeleteSelected: () => this.handleDeleteSelected(),
       handleMoveSelected: () => {
         void this.openMoveDialogForSelectedItems()
@@ -203,8 +200,6 @@ export class FileManagerModel {
       handleCreateMarkdownNote: () => this.handleCreateMarkdownNote(),
       handleCreateDir: () => this.handleCreateDir(),
       handleToolbarUpload: () => this.handleToolbarUpload(),
-      resetSearchFilters: () => this.resetSearchFilters(),
-      executeFileAction: (actionId, item) => this.executeFileAction(actionId, item),
     })
   }
 
@@ -505,16 +500,16 @@ export class FileManagerModel {
     return this.upload.handleNativeUpload()
   }
 
-  getMobileToolbarActions(): FileManagerMobileToolbarAction[] {
-    return this.mobileToolbar.actions()
+  getMobileAddActions(): FileManagerMobileAction[] {
+    return this.mobileActions.addActions()
   }
 
-  getMobileSelectionBarActions(): FileManagerMobileToolbarAction[] {
-    return this.mobileToolbar.selectionBarActions()
+  getMobileSelectionBarActions(): FileManagerMobileAction[] {
+    return this.mobileActions.selectionBarActions()
   }
 
   executeMobileCommand(actionId: string): boolean {
-    return this.mobileToolbar.executeCommand(actionId)
+    return this.mobileActions.executeCommand(actionId)
   }
 
   registerToolbarUploadTrigger(trigger: () => void): () => void {

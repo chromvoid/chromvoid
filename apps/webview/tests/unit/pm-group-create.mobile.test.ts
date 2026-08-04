@@ -38,7 +38,10 @@ function dispatchInput(element: Element | null | undefined, value: string) {
 
 function submitForm(element: PMGroupCreateMobile) {
   const form = element.shadowRoot?.querySelector('form') as HTMLFormElement | null
-  form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
+  const submit = element.shadowRoot?.querySelector<HTMLElement>('cv-button.submit') ?? null
+  if (!form || !submit) return
+  Object.defineProperty(submit, 'form', {configurable: true, value: form})
+  submit.click()
 }
 
 describe('PMGroupCreate mobile', () => {
@@ -128,7 +131,9 @@ describe('PMGroupCreate mobile', () => {
     await settle(element)
 
     const submit = element.shadowRoot?.querySelector('cv-button.submit') as HTMLElement | null
+    const form = element.shadowRoot?.querySelector('form') as HTMLFormElement | null
     expect(submit?.hasAttribute('disabled')).toBe(false)
+    expect(form?.noValidate).toBe(true)
 
     dispatchInput(element.shadowRoot?.querySelector('cv-input[name="name"]'), '   ')
     await settle(element)
@@ -173,7 +178,7 @@ describe('PMGroupCreate mobile', () => {
       description: 'Launch access',
       iconRef: 'sha256:group-preset',
       entries: [],
-    })
+    }, {presentation: 'defer'})
   })
 
   it('offers only preset icons and colors and submits the selected pair', async () => {
@@ -218,7 +223,7 @@ describe('PMGroupCreate mobile', () => {
       description: '',
       iconRef: 'sha256:selected-preset',
       entries: [],
-    })
+    }, {presentation: 'defer'})
     const submitBar = element.shadowRoot?.querySelector(
       'mobile-bottom-action-footer.submit-bar',
     ) as HTMLElement | null

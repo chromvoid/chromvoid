@@ -21,12 +21,13 @@ fn passmanager_create_and_hard_reload_smoke() {
     let vault = TestVault::new_unlocked();
 
     let group_name = "smoke-group";
+    let group_path = format!("/{group_name}");
     let entry_id = "smoke-entry-id";
 
     let create_group = rpc(
         &vault,
         "passmanager:group:ensure",
-        json!({"path": format!("/{group_name}")}),
+        json!({"path": group_path.as_str()}),
     );
     assert_ok(&create_group, "passmanager:group:ensure");
 
@@ -36,7 +37,7 @@ fn passmanager_create_and_hard_reload_smoke() {
         json!({
             "id": entry_id,
             "title": "Smoke Entry",
-            "group_path": format!("/{group_name}"),
+            "group_path": group_path.as_str(),
             "username": "smoke-user",
             "urls": []
         }),
@@ -57,7 +58,8 @@ fn passmanager_create_and_hard_reload_smoke() {
     assert!(
         groups
             .iter()
-            .any(|group| group.as_str() == Some(&format!("/{group_name}"))),
+            .any(|group| group.get("path").and_then(|value| value.as_str())
+                == Some(group_path.as_str())),
         "group must persist across hard reload"
     );
 

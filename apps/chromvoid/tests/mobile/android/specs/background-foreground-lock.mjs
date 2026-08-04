@@ -137,26 +137,58 @@ async function setupLockedLocalVault(driver) {
 }
 
 async function triggerWelcomeUnlock(driver, password) {
+  await driver.waitUntil(
+    async () => {
+      return await driver.execute(() => {
+        const app = document.querySelector('chromvoid-app')
+        const welcomePage = app?.shadowRoot?.querySelector('welcome-page')
+        const layout =
+          welcomePage?.shadowRoot?.querySelector('welcome-page-mobile-layout')
+          || welcomePage?.shadowRoot?.querySelector('welcome-page-desktop-layout')
+        const setupSection = layout?.shadowRoot?.querySelector('welcome-setup-section')
+        const root = setupSection?.shadowRoot
+        return Boolean(
+          root?.querySelector('[control-id="welcome.unlock-password"]')
+          && root?.querySelector('#welcome\\.unlock-submit'),
+        )
+      })
+    },
+    {
+      timeout: 15_000,
+      timeoutMsg: 'Welcome inline unlock form did not initialize',
+      interval: 250,
+    },
+  )
+
   await driver.execute((nextPassword) => {
-    const dialogService = window.dialogService
-    if (!dialogService || typeof dialogService.showInputDialog !== 'function') {
-      throw new Error('dialogService.showInputDialog is unavailable')
-    }
-
-    dialogService.showInputDialog = async () => nextPassword
-
     const app = document.querySelector('chromvoid-app')
     const welcomePage = app?.shadowRoot?.querySelector('welcome-page')
     const layout =
       welcomePage?.shadowRoot?.querySelector('welcome-page-mobile-layout')
       || welcomePage?.shadowRoot?.querySelector('welcome-page-desktop-layout')
-    const onUnlock = layout?.model?.onUnlock
+    const setupSection = layout?.shadowRoot?.querySelector('welcome-setup-section')
+    const inputHost = setupSection?.shadowRoot?.querySelector(
+      '[control-id="welcome.unlock-password"]',
+    )
+    const input = inputHost?.shadowRoot?.querySelector('input')
+    const button = setupSection?.shadowRoot?.querySelector('#welcome\\.unlock-submit')
 
-    if (typeof onUnlock !== 'function') {
-      throw new Error('welcome onUnlock handler is unavailable')
+    if (!(input instanceof HTMLInputElement) || !(button instanceof HTMLButtonElement)) {
+      throw new Error('Welcome inline unlock controls are unavailable')
     }
 
-    void onUnlock.call(layout.model)
+    input.focus()
+    input.value = nextPassword
+    input.dispatchEvent(
+      new InputEvent('input', {
+        bubbles: true,
+        composed: true,
+        data: nextPassword,
+        inputType: 'insertText',
+      }),
+    )
+    input.blur()
+    button.click()
   }, password)
 }
 

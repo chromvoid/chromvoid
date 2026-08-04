@@ -25,6 +25,7 @@ import type {
 import type {
   CatalogFileReplaceOptions,
   CatalogFileReplaceResult,
+  CatalogUploadResult,
 } from '../../catalog/catalog'
 import {normalizeFileMediaInfo} from '../../catalog/media-info'
 import {
@@ -455,13 +456,14 @@ export async function uploadFileViaTauri(
     type?: string
     onProgress?: (c: number, t: number, p: number) => void
   },
-): Promise<{nodeId: number}> {
+): Promise<CatalogUploadResult> {
   const chunkSize = opts?.chunkSize && opts.chunkSize > 0 ? Math.floor(opts.chunkSize) : 512 * 1024
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize))
   const hasRaf = typeof requestAnimationFrame === 'function'
   let lastYield = typeof performance !== 'undefined' ? performance.now() : Date.now()
   let sentChunks = 0
   let nodeId = typeof target === 'number' ? target : undefined
+  let committedResult: CatalogUploadResult | undefined
   const totalSize = file.size
 
   for (let offset = 0; offset < file.size || (file.size === 0 && offset === 0); offset += chunkSize) {
@@ -481,12 +483,38 @@ export async function uploadFileViaTauri(
       payload['mimeType'] = opts?.type ?? file.type
       payload['chunkSize'] = chunkSize
     }
-    const response = await tauriInvoke<RpcResult<{node_id?: number; nodeId?: number}>>(
+    const response = await tauriInvoke<RpcResult<Record<string, unknown>>>(
       'catalog_upload_chunk',
       payload,
     )
     const result = unwrapRpcResult(response, 'catalog:upload chunk failed')
-    nodeId = nodeId ?? result.node_id ?? result.nodeId
+    const resultNodeId = Number(result['node_id'] ?? result['nodeId'])
+    nodeId = nodeId ?? (Number.isFinite(resultNodeId) ? resultNodeId : undefined)
+    if (nodeId !== undefined && result['completed'] === true) {
+      const size = Number(result['size'])
+      const modtime = Number(result['modtime'])
+      const sourceRevision = Number(result['source_revision'] ?? result['sourceRevision'])
+      const mediaInspectedRevision = Number(
+        result['media_inspected_revision'] ?? result['mediaInspectedRevision'],
+      )
+      committedResult = {
+        nodeId,
+        created: result['created'] === true,
+        size: Number.isFinite(size) ? size : undefined,
+        mimeType:
+          typeof result['mime_type'] === 'string'
+            ? result['mime_type']
+            : typeof result['mimeType'] === 'string'
+              ? result['mimeType']
+              : null,
+        modtime: Number.isFinite(modtime) ? modtime : undefined,
+        sourceRevision: Number.isFinite(sourceRevision) ? sourceRevision : null,
+        mediaInfo: normalizeFileMediaInfo(result['media_info'] ?? result['mediaInfo']),
+        mediaInspectedRevision: Number.isFinite(mediaInspectedRevision)
+          ? mediaInspectedRevision
+          : null,
+      }
+    }
 
     sentChunks++
     if (opts?.onProgress) {
@@ -509,7 +537,7 @@ export async function uploadFileViaTauri(
     if (file.size === 0) break
   }
   if (nodeId === undefined) throw new Error('catalog:upload returned no node id')
-  return {nodeId}
+  return committedResult ?? {nodeId}
 }
 
 export async function pickUploadFilesViaTauri(): Promise<HostPathTokenGrant[]> {

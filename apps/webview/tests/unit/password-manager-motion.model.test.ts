@@ -3,6 +3,7 @@ import {describe, expect, it, vi} from 'vitest'
 import {
   PASSMANAGER_NO_MOTION_INTENT,
   PMMotionModel,
+  isPassmanagerMotionSnapshotSafe,
   pmMotionModel,
   type PassmanagerMotionIntent,
 } from '../../src/features/passmanager/models/pm-motion.model'
@@ -20,6 +21,9 @@ describe('PMMotionModel', () => {
       kind: 'surface-change',
       direction: 'forward',
       target: 'entry:entry-a',
+      reason: 'navigation',
+      sourceSurface: 'root',
+      targetSurface: 'entry',
     }
 
     model.setIntent(intent)
@@ -34,6 +38,9 @@ describe('PMMotionModel', () => {
       kind: 'surface-change',
       direction: 'open',
       target: 'import',
+      reason: 'navigation',
+      sourceSurface: 'root',
+      targetSurface: 'import',
     })
 
     model.reset()
@@ -58,7 +65,14 @@ describe('PMMotionModel', () => {
     })
 
     model.run(
-      {kind: 'surface-change', direction: 'forward', target: 'entry:next'},
+      {
+        kind: 'surface-change',
+        direction: 'forward',
+        target: 'entry:next',
+        reason: 'navigation',
+        sourceSurface: 'group',
+        targetSurface: 'entry',
+      },
       commit,
     )
 
@@ -81,11 +95,61 @@ describe('PMMotionModel', () => {
       throw new Error('presentation unavailable')
     })
     model.run(
-      {kind: 'surface-change', direction: 'back', target: 'root:main'},
+      {
+        kind: 'surface-change',
+        direction: 'back',
+        target: 'root:main',
+        reason: 'navigation',
+        sourceSurface: 'entry',
+        targetSurface: 'root',
+      },
       failedCommit,
     )
     await model.whenSettled()
     expect(failedCommit).toHaveBeenCalledTimes(1)
     unregister()
+  })
+
+  it('allows snapshots only when both PM surfaces are non-secret', () => {
+    expect(
+      isPassmanagerMotionSnapshotSafe({
+        kind: 'surface-change',
+        direction: 'forward',
+        target: 'group:next',
+        reason: 'navigation',
+        sourceSurface: 'root',
+        targetSurface: 'group',
+      }),
+    ).toBe(true)
+
+    for (const liveOnlySurface of [
+      'entry',
+      'create-entry',
+      'import',
+      'otp-view',
+      'ssh-view',
+      'env-runtime-view',
+    ] as const) {
+      expect(
+        isPassmanagerMotionSnapshotSafe({
+          kind: 'surface-change',
+          direction: 'forward',
+          target: liveOnlySurface,
+          reason: 'navigation',
+          sourceSurface: 'root',
+          targetSurface: liveOnlySurface,
+        }),
+      ).toBe(false)
+      expect(
+        isPassmanagerMotionSnapshotSafe({
+          kind: 'surface-change',
+          direction: 'back',
+          target: 'root:main',
+          reason: 'navigation',
+          sourceSurface: liveOnlySurface,
+          targetSurface: 'root',
+        }),
+      ).toBe(false)
+    }
   })
 })

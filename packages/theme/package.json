@@ -13,7 +13,6 @@
     "./media.css": "./src/media.css",
     "./welcome.css": "./src/welcome.css",
     "./splash.css": "./src/splash.css",
-    "./remote.css": "./src/remote.css",
     "./webview.css": "./src/webview.css",
     "./package.json": "./package.json"
   },

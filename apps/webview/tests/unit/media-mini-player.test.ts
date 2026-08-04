@@ -116,9 +116,7 @@ describe('media-mini-player', () => {
     expect(mediaPlaybackModel.fullPlayerOpen()).toBe(false)
     expect(openSpy).not.toHaveBeenCalled()
 
-    const stopItem = document.body.querySelector('[data-cv-menu-button-portal] cv-menu-item[value="stop"]') as
-      | HTMLElement
-      | null
+    const stopItem = menu?.querySelector('cv-menu-item[value="stop"]') as HTMLElement | null
     expect(stopItem).not.toBeNull()
     stopItem?.click()
 

@@ -140,6 +140,7 @@ pub(crate) struct RuntimeCapabilities {
     pub(crate) supports_volume: bool,
     pub(crate) supports_gateway: bool,
     pub(crate) supports_network_remote: bool,
+    pub(crate) supports_external_pro: bool,
     pub(crate) supports_mobile_usb_remote: bool,
     pub(crate) supports_biometric: bool,
     pub(crate) supports_autofill: bool,
@@ -291,7 +292,7 @@ pub(crate) enum PreviewFileVariant {
     ThumbnailImage,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(crate) struct PreparePreviewFileArgs {
     #[serde(alias = "nodeId")]
     pub(crate) node_id: u64,
@@ -396,6 +397,9 @@ pub(crate) fn runtime_capabilities_for_current_target() -> RuntimeCapabilities {
         supports_volume: cfg!(desktop),
         supports_gateway: cfg!(desktop),
         supports_network_remote: cfg!(desktop) || cfg!(mobile),
+        // Tauri's mobile Xcode script activates `ios` additively and can retain Cargo defaults.
+        // The iOS distribution must therefore win even if `external-pro` arrived through `default`.
+        supports_external_pro: cfg!(all(feature = "external-pro", not(feature = "ios"))),
         supports_mobile_usb_remote: mobile_usb_remote_enabled_for_target(),
         // Availability for the mobile biometric app gate only.
         supports_biometric: mobile::biometric_bridge_available(),
@@ -666,6 +670,32 @@ mod runtime_capabilities_tests {
             runtime_capabilities_for_current_target().supports_mobile_usb_remote,
             cfg!(desktop),
         );
+    }
+
+    #[test]
+    fn external_pro_capability_follows_the_distribution_feature() {
+        assert_eq!(
+            runtime_capabilities_for_current_target().supports_external_pro,
+            cfg!(all(feature = "external-pro", not(feature = "ios"))),
+        );
+    }
+
+    #[test]
+    fn external_pro_feature_is_excluded_from_ios_and_enabled_elsewhere() {
+        let manifest = include_str!("../Cargo.toml");
+        let features = manifest
+            .split_once("[features]")
+            .expect("Cargo.toml must define a features section")
+            .1
+            .split_once("\n[")
+            .expect("features section must be followed by another section")
+            .0;
+
+        assert!(features.contains("external-pro = []"));
+        assert!(features.contains("desktop = [\n    \"external-pro\","));
+        assert!(features.contains("android = [\"mobile\", \"external-pro\"]"));
+        assert!(features.contains("ios = [\"mobile\"]"));
+        assert!(!features.contains("ios = [\"mobile\", \"external-pro\"]"));
     }
 
     #[test]

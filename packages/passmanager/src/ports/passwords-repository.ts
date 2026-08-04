@@ -5,6 +5,7 @@ In the current integration, this is comparable to using SAVE KEY and ManagerSave
 The UI should depend on this port instead of a low-level API.
 */
 import type {
+  PassManagerCreateEntryPayload,
   PassManagerSaveEntryMetaPayload,
   PassManagerSecretSlot,
   PassManagerSshKey,
@@ -26,8 +27,14 @@ export interface PasswordsRepository {
   /**Point upsert meta.json of one record (without managing the entire structure)*/
   saveEntryMeta(data: PassManagerSaveEntryMetaPayload): Promise<boolean>
 
+  /**Atomically create one record with its entry-owned secrets*/
+  createEntry(data: PassManagerCreateEntryPayload): Promise<boolean>
+
   /**Point removal of the record directory by its id*/
   removeEntry(id: string): Promise<boolean>
+
+  /**Point removal of a group and its nested subtree*/
+  removeGroup(path: string): Promise<void>
 
   /**Point move of the record directory into another group*/
   moveEntryToGroup(entryId: string, targetGroupPath: string | undefined): Promise<boolean>

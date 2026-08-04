@@ -288,8 +288,8 @@ async function configureManualHelpGuidance(page: Page) {
         anchorId: 'e2e.manual-help',
         trigger: 'manual_help',
         presentation: 'popover',
-        titleKey: 'guidance:keyboard.shortcuts.files:title',
-        bodyKey: 'guidance:keyboard.shortcuts.files:body',
+        titleKey: 'guidance:remote.setup-network:title',
+        bodyKey: 'guidance:remote.setup-network:body',
         completion: {kind: 'manual_ack'},
         priority: 999,
         owner: 'e2e',
@@ -525,9 +525,9 @@ async function openBlockedRemoteGuidance(page: Page, status: BlockedStatus) {
     })
   }, status)
 
-  await waitForDeepCount(page, 'cv-popover', 0)
+  await waitForDeepCount(page, 'cv-popover[open]', 0)
   await clickDeep(page, '#e2e-pro-access-anchor')
-  await waitForDeepSelector(page, 'cv-popover')
+  await waitForDeepSelector(page, 'cv-popover[open]')
 }
 
 test('guidance renders intrusive guidance as a desktop popover', async () => {
@@ -537,7 +537,7 @@ test('guidance renders intrusive guidance as a desktop popover', async () => {
   await configureIntrusiveGuidance(page)
 
   await waitForDeepSelector(page, 'app-guidance-host')
-  await waitForDeepSelector(page, 'cv-popover')
+  await waitForDeepSelector(page, 'cv-popover[open]')
   await waitForDeepSelector(page, '.guidance-backdrop')
 
   expect(await queryDeepText(page, 'cv-guidance-panel')).toContain('Pair the browser extension')
@@ -551,7 +551,7 @@ test('guidance renders the same intrusive guidance as a mobile popover overlay',
   await configureIntrusiveGuidance(page)
 
   await waitForDeepSelector(page, 'app-guidance-host')
-  await waitForDeepSelector(page, 'cv-popover')
+  await waitForDeepSelector(page, 'cv-popover[open]')
   await waitForDeepSelector(page, '.guidance-backdrop')
 
   expect(await queryDeepText(page, 'cv-guidance-panel')).toContain('Pair the browser extension')
@@ -569,7 +569,7 @@ test('guidance renders inline hints without an overlay', async () => {
   await waitForDeepText(page, 'cv-guidance-panel', 'Pair over the network')
 
   expect(await queryDeepText(page, 'cv-guidance-panel')).toContain('Network pairing lets this dashboard')
-  expect(await queryDeepCount(page, 'cv-popover')).toBe(0)
+  expect(await queryDeepCount(page, 'cv-popover[open]')).toBe(0)
   expect(await queryDeepCount(page, 'cv-bottom-sheet')).toBe(0)
   expect(await queryDeepCount(page, '.guidance-backdrop')).toBe(0)
 })
@@ -584,7 +584,7 @@ test('guidance renders bottom sheet presentation independently from popovers', a
   await waitForDeepSelector(page, 'cv-bottom-sheet')
 
   expect(await queryDeepText(page, 'cv-guidance-panel')).toContain('Pair over the network')
-  expect(await queryDeepCount(page, 'cv-popover')).toBe(0)
+  expect(await queryDeepCount(page, 'cv-popover[open]')).toBe(0)
   expect(await queryDeepCount(page, '.guidance-backdrop')).toBe(0)
 })
 
@@ -602,7 +602,7 @@ test('missing guidance anchors do not render a fallback overlay', async () => {
     return guidanceModel.activeGuidance().kind === 'waiting_for_anchor'
   })
 
-  expect(await queryDeepCount(page, 'cv-popover')).toBe(0)
+  expect(await queryDeepCount(page, 'cv-popover[open]')).toBe(0)
   expect(await queryDeepCount(page, 'cv-bottom-sheet')).toBe(0)
 })
 
@@ -613,10 +613,10 @@ test('manual help can show a dismissed guidance item', async () => {
   await waitForDeepSelector(page, 'app-guidance-host')
   await configureManualHelpGuidance(page)
 
-  await waitForDeepSelector(page, 'cv-popover')
+  await waitForDeepSelector(page, 'cv-popover[open]')
 
   const panelText = await queryDeepText(page, 'cv-guidance-panel')
-  expect(panelText).toContain('Use keyboard shortcuts in files')
+  expect(panelText).toContain('Pair over the network')
   expect(panelText).toContain('Got it')
   expect(panelText).not.toContain('Later')
   expect(panelText).not.toContain('Dismiss')
@@ -625,7 +625,7 @@ test('manual help can show a dismissed guidance item', async () => {
   expect(await queryDeepCount(page, 'button[data-guidance-action="close"]')).toBe(1)
 
   await clickDeep(page, 'button[data-guidance-action="primary"]')
-  await waitForDeepCount(page, 'cv-popover', 0)
+  await waitForDeepCount(page, 'cv-popover[open]', 0)
 
   await page.evaluate(() => {
     const anchor = document.getElementById('e2e-manual-help-anchor')
@@ -636,9 +636,9 @@ test('manual help can show a dismissed guidance item', async () => {
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
     bridge.guidanceModel.openManualHelp('files', 'e2e.manual-help')
   })
-  await waitForDeepSelector(page, 'cv-popover')
+  await waitForDeepSelector(page, 'cv-popover[open]')
   await clickDeep(page, 'button[data-guidance-action="close"]')
-  await waitForDeepCount(page, 'cv-popover', 0)
+  await waitForDeepCount(page, 'cv-popover[open]', 0)
 
   expect(
     await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.id : null)),
@@ -679,10 +679,10 @@ test('password import dialog has no temporary help button but manual import guid
   expect(await queryDeepCount(page, 'cv-guidance-anchor[anchor-id="passwords.import"]')).toBe(0)
 
   await configurePasswordImportManualHelp(page)
-  await waitForDeepSelector(page, 'cv-popover')
+  await waitForDeepSelector(page, 'cv-popover[open]')
   expect(await queryDeepText(page, 'cv-guidance-panel')).toContain('Import without mixing providers')
   await clickDeep(page, 'button[data-guidance-action="close"]')
-  await waitForDeepCount(page, 'cv-popover', 0)
+  await waitForDeepCount(page, 'cv-popover[open]', 0)
 
   await page.setViewportSize({width: 390, height: 844})
   await openPasswordImportDialog(page, 'mobile')

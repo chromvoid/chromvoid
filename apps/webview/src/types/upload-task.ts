@@ -27,6 +27,7 @@ export type UploadTaskParams = {
   batchIndex?: number
   batchCount?: number
   retryable?: boolean
+  errorMessage?: string | null
 }
 
 export class UploadTask {
@@ -46,6 +47,7 @@ export class UploadTask {
   readonly status = atom<UploadTaskStatus>('uploading')
   readonly speed = atom(0)
   readonly eta = atom(0)
+  readonly errorMessage = atom<string | null>(null)
 
   constructor(params: UploadTaskParams) {
     this.id = params.id
@@ -62,6 +64,7 @@ export class UploadTask {
         : null
     this.total.set(Math.max(0, params.total))
     this.status.set(params.initialStatus ?? 'uploading')
+    this.errorMessage.set(params.errorMessage ?? null)
   }
 
   setTotal(totalBytes: number): void {
@@ -85,16 +88,23 @@ export class UploadTask {
     // We guarantee that loaded matches total at completion.
     if (Number.isFinite(total) && total > 0) this.loaded.set(total)
     this.status.set('done')
+    this.errorMessage.set(null)
     this.speed.set(0)
     this.eta.set(0)
   }
 
-  markError(): void {
+  markError(message?: string | null): void {
+    if (message !== undefined) this.errorMessage.set(message)
     this.status.set('error')
+  }
+
+  setErrorMessage(message: string | null): void {
+    this.errorMessage.set(message)
   }
 
   markQueued(): void {
     this.status.set('queued')
+    this.errorMessage.set(null)
   }
 
   pause(): void {
@@ -103,5 +113,6 @@ export class UploadTask {
 
   resume(): void {
     this.status.set('uploading')
+    this.errorMessage.set(null)
   }
 }

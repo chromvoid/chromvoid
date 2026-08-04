@@ -36,10 +36,24 @@ export class PMSearchInputModel {
   }, 'passmanager.search.renderState')
 
   private debounceTimer: number | undefined
+  private unsubscribeFilterValue: (() => void) | undefined
 
   constructor(private readonly debounceMs = 180) {}
 
+  connect(): void {
+    if (this.unsubscribeFilterValue) return
+
+    this.unsubscribeFilterValue = filterValue.subscribe(
+      wrap((value) => {
+        this.clearDebounce()
+        this.inputValue.set(value)
+      }),
+    )
+  }
+
   dispose(): void {
+    this.unsubscribeFilterValue?.()
+    this.unsubscribeFilterValue = undefined
     this.clearDebounce()
   }
 

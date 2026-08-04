@@ -246,7 +246,7 @@ impl MobileUsbController {
             }
         };
         if !self.with_state(|state| state.is_current_operation(token))? {
-            if let Err(error) = self.session_starter.stop_active_session() {
+            if let Err(error) = self.session_starter.disconnect_terminal() {
                 tracing::warn!(
                     error = %error.message,
                     "mobile_usb failed to stop stale data plane after cancelled connect"
@@ -279,7 +279,7 @@ impl MobileUsbController {
         );
         if let Err(error) = establish_result {
             if error.code == MobileUsbErrorCode::InvalidState {
-                if let Err(stop_error) = self.session_starter.stop_active_session() {
+                if let Err(stop_error) = self.session_starter.disconnect_terminal() {
                     tracing::warn!(
                         error = %stop_error.message,
                         "mobile_usb failed to stop data plane after rejected session establishment"

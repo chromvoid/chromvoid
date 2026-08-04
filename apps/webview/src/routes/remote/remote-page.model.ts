@@ -1,10 +1,12 @@
-import {atom, wrap} from '@reatom/core'
+import {atom, computed, wrap} from '@reatom/core'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {guidanceCompletionBridge} from 'root/core/guidance'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {i18n} from 'root/i18n'
-import {getAppContext} from 'root/shared/services/app-context'
+import {getAppContext, tryGetAppContext} from 'root/shared/services/app-context'
+import {systemClipboardTextWriter} from 'root/shared/services/clipboard'
+import {canShareText, shareText} from 'root/shared/services/share'
 import {toast} from 'root/shared/services/toast-manager'
 
 import type {
@@ -34,6 +36,7 @@ import {
   syncPhaseToState,
 } from './remote.model'
 import {RemoteHostsFlowModel} from './remote-hosts-flow.model'
+import {deriveDesktopUsbRemoteSessionPresentation} from './remote-usb-session.contract'
 
 export class RemotePageModel {
   readonly connectionState = atom<ConnectionState>('disconnected', 'remote.page.connectionState')
@@ -57,10 +60,29 @@ export class RemotePageModel {
 
   remoteHosts = new RemoteHostsFlowModel()
 
+  readonly desktopUsbSessionPresentation = computed(
+    () =>
+      deriveDesktopUsbRemoteSessionPresentation({
+        currentMode: this.currentMode(),
+        connectionState: this.connectionState(),
+        remoteSessionState: getAppContext().store.remoteSessionState(),
+        remoteStatus: this.remoteStatus(),
+        syncSnapshot: this.syncSnapshot(),
+        usbStatus: this.remoteHosts.usb.status(),
+        lastActiveHost: this.remoteHosts.usb.lastActiveHost(),
+        usbPanelOpen: this.remoteHosts.view() === 'usb-mobile',
+        usbErrorText: this.remoteHosts.usb.errorText(),
+        switchingToLocal: this.modeSwitching(),
+      }),
+    'remote.page.desktopUsbSessionPresentation',
+  )
+
   private connected = false
   private lockPollTimer: ReturnType<typeof setInterval> | null = null
   private eventUnlisteners: Array<() => void> = []
   private guidanceCompletionUnsubscribe?: () => void
+  private remotePanelClosePromise: Promise<void> | null = null
+  private remotePanelCloseGeneration = 0
 
   private static readonly LOCK_POLL_INTERVAL_MS = 5_000
 
@@ -74,6 +96,7 @@ export class RemotePageModel {
     )
     this.remoteHosts.connect()
     if (!this.isMobileRuntime()) {
+      this.remoteHosts.activateDesktopInventory()
       void this.loadModeData()
       this.setupModeListeners()
       void this.remoteHosts.loadPeers()
@@ -87,6 +110,8 @@ export class RemotePageModel {
     this.guidanceCompletionUnsubscribe?.()
     this.guidanceCompletionUnsubscribe = undefined
     this.modeSwitching.set(false)
+    this.remotePanelCloseGeneration += 1
+    this.remotePanelClosePromise = null
     this.clearLockPoll()
     this.teardownModeListeners()
     this.remoteHosts.disconnect()
@@ -107,13 +132,28 @@ export class RemotePageModel {
 
   switchToLocal = (): void => {
     if (this.modeSwitching()) return
+    if (this.currentMode() === 'local') {
+      this.remoteHosts.usb.clearLastActiveHost()
+      this.remoteHosts.usb.dismissError()
+      this.remoteHosts.showHosts()
+      return
+    }
     this.modeSwitching.set(true)
     this.modeError.set(null)
-    void switchMode('local').catch((e) => {
-      if (!this.connected) return
-      this.modeError.set(e instanceof Error ? e.message : String(e))
-      this.modeSwitching.set(false)
-    })
+    void switchMode('local')
+      .then(
+        wrap(() => {
+          if (!this.connected) return
+          this.remoteHosts.usb.clearLastActiveHost()
+        }),
+      )
+      .catch(
+        wrap((e) => {
+          if (!this.connected) return
+          this.modeError.set(e instanceof Error ? e.message : String(e))
+          this.modeSwitching.set(false)
+        }),
+      )
   }
 
   syncRetry = (): void => {
@@ -129,7 +169,9 @@ export class RemotePageModel {
   requestWriteLock = (): void => {
     const snap = this.syncSnapshot()
     const holderName = snap.writerLock?.holder ?? this.remoteStatus().writer_device
-    toast.warning(getWriterLockToastMessage(holderName), 'Writer Lock')
+    toast.warning(getWriterLockToastMessage(holderName), 'Writer Lock', {
+      key: 'remote.writer-lock',
+    })
   }
 
   releaseWriteLock = (): void => {
@@ -142,42 +184,62 @@ export class RemotePageModel {
   }
 
   syncRemoteHostsPanel(): void {
-    if (this.remoteHosts.view() === 'wait') return
+    if (this.remoteHosts.isMobileHostRuntime()) return
+    const currentView = this.remoteHosts.view()
+    if (currentView === 'wait') return
 
     const requestedPanel = navigationModel.snapshot().remote?.panel ?? 'hosts'
-    if (requestedPanel === 'pair-ios' && this.remoteHosts.view() !== 'pair-ios') {
-      this.remoteHosts.openPairIos()
+    if (requestedPanel === 'pair-ios' && currentView !== 'pair-ios') {
+      if (!this.remoteHosts.openPairIos()) {
+        navigationModel.navigateToRemotePanel(currentView, 'replace')
+      }
       return
     }
 
-    if (requestedPanel === 'usb-mobile' && this.remoteHosts.view() !== 'usb-mobile') {
-      this.remoteHosts.openUsbMobile()
+    if (requestedPanel === 'usb-mobile' && currentView !== 'usb-mobile') {
+      if (!this.remoteHosts.openUsbMobile()) {
+        navigationModel.navigateToRemotePanel(currentView, 'replace')
+      }
       return
     }
 
-    if (requestedPanel === 'hosts' && this.remoteHosts.view() !== 'hosts') {
-      this.remoteHosts.showHosts()
+    if (requestedPanel === 'hosts' && currentView !== 'hosts') {
+      this.closeRemotePanel(currentView, true)
     }
   }
 
   openPairIos = (): void => {
+    if (!this.remoteHosts.openPairIos()) return
     navigationModel.navigateToRemotePanel('pair-ios')
-    this.remoteHosts.openPairIos()
   }
 
   openUsbMobile = (): void => {
+    if (!this.remoteHosts.openUsbMobile({scan: true})) return
     navigationModel.navigateToRemotePanel('usb-mobile')
-    this.remoteHosts.openUsbMobile({scan: true})
   }
 
   backToHosts = (): void => {
-    if (this.remoteHosts.view() === 'usb-mobile') {
-      void this.remoteHosts.closeUsbMobile()
-      navigationModel.navigateToRemotePanel('hosts', 'replace')
-      return
-    }
-    navigationModel.navigateToRemotePanel('hosts', 'replace')
-    void this.remoteHosts.closePairIos()
+    const view = this.remoteHosts.view()
+    if (view !== 'usb-mobile' && view !== 'pair-ios') return
+    this.closeRemotePanel(view, false)
+  }
+
+  private closeRemotePanel(view: 'pair-ios' | 'usb-mobile', routeAlreadyChanged: boolean): void {
+    if (this.remotePanelClosePromise) return
+    const generation = ++this.remotePanelCloseGeneration
+    this.remotePanelClosePromise = (async () => {
+      const closed = await wrap(
+        view === 'usb-mobile' ? this.remoteHosts.closeUsbMobile() : this.remoteHosts.closePairIos(),
+      )
+      if (generation !== this.remotePanelCloseGeneration) return
+      if (closed && !routeAlreadyChanged) {
+        navigationModel.navigateToRemotePanel('hosts', 'replace')
+      } else if (!closed && routeAlreadyChanged) {
+        navigationModel.navigateToRemotePanel(view, 'replace')
+      }
+    })().finally(() => {
+      if (generation === this.remotePanelCloseGeneration) this.remotePanelClosePromise = null
+    })
   }
 
   refreshRemotePeers = (): void => {
@@ -191,7 +253,9 @@ export class RemotePageModel {
   removeRemotePeer = (peer: NetworkPairedPeer): void => {
     void this.remoteHosts.removePeer(peer).then((removed) => {
       if (removed) {
-        toast.success(i18n('remote:paired-host-removed'), i18n('navigation:remote'))
+        toast.success(i18n('remote:paired-host-removed'), i18n('navigation:remote'), {
+          key: `remote.peer.remove:${peer.peer_id}`,
+        })
       }
     })
   }
@@ -211,7 +275,8 @@ export class RemotePageModel {
     this.remoteHosts.setDeviceLabel(target?.value ?? '')
   }
 
-  submitRemotePairing = async (): Promise<void> => {
+  submitRemotePairing = async (event?: Event): Promise<void> => {
+    event?.preventDefault()
     const success = await this.remoteHosts.submitPairing()
     if (success && !this.remoteHosts.isMobileHostRuntime()) {
       navigationModel.navigateToRemotePanel('hosts', 'replace')
@@ -222,8 +287,50 @@ export class RemotePageModel {
     void this.remoteHosts.refreshPresence()
   }
 
+  canShareMobileHostOffer(): boolean {
+    return canShareText()
+  }
+
+  async copyMobileHostOffer(): Promise<boolean> {
+    const offer = this.remoteHosts.offerText()
+    if (!offer) return false
+
+    try {
+      await wrap(systemClipboardTextWriter.writeText(offer))
+      toast.success(i18n('remote:mobile-host-invitation-copied'), i18n('navigation:remote'), {
+        key: 'remote.mobile-host.copy',
+      })
+      return true
+    } catch {
+      toast.error(i18n('remote:mobile-host-invitation-copy-error'), i18n('navigation:remote'), {
+        key: 'remote.mobile-host.copy',
+      })
+      return false
+    }
+  }
+
+  async shareMobileHostOffer(): Promise<boolean> {
+    const offer = this.remoteHosts.offerText()
+    if (!offer || !this.canShareMobileHostOffer()) return false
+
+    try {
+      const result = await wrap(
+        shareText({
+          title: i18n('remote:mobile-host-share-title'),
+          text: offer,
+        }),
+      )
+      return result === 'shared'
+    } catch {
+      toast.error(i18n('remote:mobile-host-invitation-share-error'), i18n('navigation:remote'), {
+        key: 'remote.mobile-host.share',
+      })
+      return false
+    }
+  }
+
   remoteWaitReason = (): 'host_unlock' | 'phone_approval' => {
-    return getAppContext().store.remoteSessionState() === 'waiting_phone_approval'
+    return tryGetAppContext()?.store.remoteSessionState() === 'waiting_phone_approval'
       ? 'phone_approval'
       : 'host_unlock'
   }

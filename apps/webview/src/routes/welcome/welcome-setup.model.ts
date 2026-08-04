@@ -23,12 +23,9 @@ import {
   type VaultRepairDiagnosisResponse,
   type PasswordStrengthFeedback,
 } from './welcome-rpc'
-import {
-  getModeStatus,
-  isRemoteMode,
-  switchMode,
-  type NetworkPairedPeer,
-} from '../remote/remote.model'
+import {getModeStatus, isRemoteMode, switchMode, type NetworkPairedPeer} from '../remote/remote.model'
+import type {RemoteDesktopPairingSubmitResult} from '../remote/remote-hosts-flow.model'
+import {remoteSessionModel} from '../remote/remote-session.model'
 
 export type WelcomeSetupStep =
   | 'mode-select'
@@ -56,7 +53,7 @@ type WelcomeSetupModelOptions = {
   remote?: WelcomeRemoteModel
 }
 
-const WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE = 'welcome.unlock.password-dialog'
+const WELCOME_UNLOCK_PERFORMANCE_SCOPE = 'welcome.unlock.inline-form'
 
 export class WelcomeSetupModel {
   readonly shared: WelcomeSharedModel
@@ -73,9 +70,7 @@ export class WelcomeSetupModel {
   readonly setupStep = atom<WelcomeSetupStep>(null)
   readonly setupInProgress = atom(false)
   readonly unlockInProgress!: ReturnType<typeof computed<boolean>>
-  readonly unlockSheetOpen = atom(false)
   readonly unlockPassword = atom('')
-  readonly unlockValidationError = atom('', 'welcome.unlockValidationError')
   readonly icon = new WelcomeIconModel()
   readonly unlockSubmitDisabled!: ReturnType<typeof computed<boolean>>
   readonly passwordStrength = atom<PasswordFeedback>(createNeutralPasswordFeedback())
@@ -87,6 +82,8 @@ export class WelcomeSetupModel {
   readonly masterPasswordConfirmError = atom('', 'welcome.masterPasswordConfirmError')
 
   private remoteSessionUnsubscribe: (() => void) | null = null
+  private remoteUsbRecoveryUnsubscribe: (() => void) | null = null
+  private previousRemoteSessionState: RemoteSessionState = 'inactive'
   private passwordStrengthRequestId = 0
 
   constructor(options: WelcomeSetupModelOptions = {}) {
@@ -154,9 +151,7 @@ export class WelcomeSetupModel {
         ? 'phone_approval'
         : 'host_unlock',
     )
-    this.unlockSubmitDisabled = computed<boolean>(
-      () => this.shared.busy() || this.setupInProgress(),
-    )
+    this.unlockSubmitDisabled = computed<boolean>(() => this.shared.busy() || this.setupInProgress())
     this.unlockInProgress = computed<boolean>(
       () => !this.isNeedInit() && this.effectiveStep() === null && this.setupInProgress(),
       'welcome.unlockInProgress',
@@ -179,11 +174,21 @@ export class WelcomeSetupModel {
           this.setupStep.set('remote-connect')
         }
       },
+      onUsbRecoveryRequired: () => {
+        if (this.effectiveStep() === 'remote-wait') {
+          this.setupStep.set('remote-connect')
+        }
+      },
     })
     this.remoteSessionUnsubscribe?.()
     this.syncSetupStepFromRemoteSession(getAppContext().store.remoteSessionState())
     this.remoteSessionUnsubscribe = subscribeAfterInitial(getAppContext().store.remoteSessionState, () => {
       this.syncSetupStepFromRemoteSession(getAppContext().store.remoteSessionState())
+    })
+    this.remoteUsbRecoveryUnsubscribe?.()
+    this.syncUsbRecoveryRequired(remoteSessionModel.usbRecoveryRequired())
+    this.remoteUsbRecoveryUnsubscribe = subscribeAfterInitial(remoteSessionModel.usbRecoveryRequired, () => {
+      this.syncUsbRecoveryRequired(remoteSessionModel.usbRecoveryRequired())
     })
   }
 
@@ -191,6 +196,10 @@ export class WelcomeSetupModel {
     this.remote.disconnect()
     this.remoteSessionUnsubscribe?.()
     this.remoteSessionUnsubscribe = null
+    this.remoteUsbRecoveryUnsubscribe?.()
+    this.remoteUsbRecoveryUnsubscribe = null
+    this.previousRemoteSessionState = 'inactive'
+    this.resetUnlockForm()
   }
 
   handleMasterPasswordInput = (event: Event) => {
@@ -201,9 +210,7 @@ export class WelcomeSetupModel {
       this.masterPasswordError.set(this.getMasterPasswordError(nextValue))
     }
     if (this.masterPasswordConfirmError() && state.p2) {
-      this.masterPasswordConfirmError.set(
-        nextValue === state.p2 ? '' : i18n('welcome:master-mismatch'),
-      )
+      this.masterPasswordConfirmError.set(nextValue === state.p2 ? '' : i18n('welcome:master-mismatch'))
     }
     void this.updatePasswordStrength(nextValue)
   }
@@ -213,9 +220,7 @@ export class WelcomeSetupModel {
     const state = this.creationState()
     this.creationState.set({...state, p2: nextValue})
     if (this.masterPasswordConfirmError()) {
-      this.masterPasswordConfirmError.set(
-        nextValue === state.p1 ? '' : i18n('welcome:master-mismatch'),
-      )
+      this.masterPasswordConfirmError.set(nextValue === state.p1 ? '' : i18n('welcome:master-mismatch'))
     }
   }
 
@@ -224,8 +229,7 @@ export class WelcomeSetupModel {
     const {p1, p2} = this.creationState()
 
     const passwordError = this.getMasterPasswordError(p1)
-    const confirmationError =
-      !passwordError && p1 !== p2 ? i18n('welcome:master-mismatch') : ''
+    const confirmationError = !passwordError && p1 !== p2 ? i18n('welcome:master-mismatch') : ''
     this.masterPasswordError.set(passwordError)
     this.masterPasswordConfirmError.set(confirmationError)
     if (passwordError || confirmationError) return
@@ -248,73 +252,42 @@ export class WelcomeSetupModel {
     }
   }
 
-  onUnlock = () => {
-    if (!isTauriRuntime()) return
-    if (this.shared.busy()) return
-
-    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'unlock-click', {
-      layoutMode: getAppContext().store.layoutMode?.() ?? null,
-    })
-    writeAndroidUnlockDebug('welcome', 'onUnlock:start')
-    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'sheet-open')
-    this.shared.clearError()
-    this.unlockPassword.set('')
-    this.unlockValidationError.set('')
-    this.icon.idle()
-    this.unlockSheetOpen.set(true)
-  }
-
-  closeUnlockSheet = () => {
-    this.unlockSheetOpen.set(false)
-    this.unlockPassword.set('')
-    this.unlockValidationError.set('')
-  }
-
-  handleUnlockSheetChange = (event: Event) => {
-    const detail = (event as CustomEvent<{open?: boolean}>).detail
-    if (detail?.open === false) {
-      this.closeUnlockSheet()
-    }
-  }
-
   handleUnlockPasswordInput = (event: Event) => {
     this.unlockPassword.set(this.resolveInputValue(event))
-    this.unlockValidationError.set('')
   }
 
   submitUnlock = async () => {
     if (!isTauriRuntime()) return
     if (this.shared.busy()) return
 
-    const pwd = this.unlockPassword().trim()
-    markPerformance(WELCOME_UNLOCK_PASSWORD_DIALOG_PERFORMANCE_SCOPE, 'sheet-submit', {
-      cancelled: !pwd,
+    const pwd = this.unlockPassword()
+    const empty = pwd.length === 0
+    markPerformance(WELCOME_UNLOCK_PERFORMANCE_SCOPE, 'submit', {
+      empty,
+      layoutMode: getAppContext().store.layoutMode?.() ?? null,
     })
-    writeAndroidUnlockDebug('welcome', 'onUnlock:sheet submitted', {cancelled: !pwd})
-    if (!pwd) {
-      this.unlockValidationError.set(i18n('welcome:master-required'))
-      return
-    }
+    writeAndroidUnlockDebug('welcome', 'unlock:form submitted', {empty})
+    this.shared.clearError()
 
     try {
       this.setupInProgress.set(true)
       this.shared.setBusy(true)
       this.icon.active()
-      this.closeUnlockSheet()
-      writeAndroidUnlockDebug('welcome', 'onUnlock:vault:unlock start')
+      writeAndroidUnlockDebug('welcome', 'unlock:vault:unlock start')
       await wrap(tauriRpc('vault:unlock', {password: pwd}))
-      writeAndroidUnlockDebug('welcome', 'onUnlock:vault:unlock success')
+      writeAndroidUnlockDebug('welcome', 'unlock:vault:unlock success')
+      this.clearUnlockFields()
       this.markStorageOpened()
     } catch (error) {
       console.error(error)
-      writeAndroidUnlockDebug('welcome', 'onUnlock:error', {
+      writeAndroidUnlockDebug('welcome', 'unlock:error', {
         code: error instanceof RpcError ? error.code : null,
       })
       if (error instanceof RpcError && error.code === 'CATALOG_REPAIR_REQUIRED') {
         try {
           const repaired = await this.tryRepairAndUnlock(pwd)
           if (repaired) {
-            this.closeUnlockSheet()
+            this.clearUnlockFields()
             this.markStorageOpened()
             return
           }
@@ -344,9 +317,9 @@ export class WelcomeSetupModel {
   }
 
   private async tryRepairAndUnlock(password: string): Promise<boolean> {
-    writeAndroidUnlockDebug('welcome', 'onUnlock:repair diagnose start')
+    writeAndroidUnlockDebug('welcome', 'unlock:repair diagnose start')
     const diagnosis = await wrap(tauriRpc<VaultRepairDiagnosisResponse>('vault:repair:diagnose', {password}))
-    writeAndroidUnlockDebug('welcome', 'onUnlock:repair diagnose done', {
+    writeAndroidUnlockDebug('welcome', 'unlock:repair diagnose done', {
       status: diagnosis.status,
       issues: diagnosis.issues.length,
     })
@@ -366,12 +339,12 @@ export class WelcomeSetupModel {
         }),
       )
       if (!confirmed) {
-        writeAndroidUnlockDebug('welcome', 'onUnlock:repair cancelled')
+        writeAndroidUnlockDebug('welcome', 'unlock:repair cancelled')
         return false
       }
     }
 
-    writeAndroidUnlockDebug('welcome', 'onUnlock:repair apply start')
+    writeAndroidUnlockDebug('welcome', 'unlock:repair apply start')
     const response = await wrap(
       tauriRpc<VaultRepairApplyResponse>('vault:repair:apply', {
         password,
@@ -379,7 +352,7 @@ export class WelcomeSetupModel {
         allow_lossy: allowLossy,
       }),
     )
-    writeAndroidUnlockDebug('welcome', 'onUnlock:repair apply done', {
+    writeAndroidUnlockDebug('welcome', 'unlock:repair apply done', {
       unlocked: response.unlocked,
     })
     return response.unlocked
@@ -397,7 +370,7 @@ export class WelcomeSetupModel {
 
   private markStorageOpened(): void {
     getAppContext().state.update({StorageOpened: true})
-    writeAndroidUnlockDebug('welcome', 'onUnlock:state updated', {
+    writeAndroidUnlockDebug('welcome', 'unlock:state updated', {
       storageOpened: true,
     })
   }
@@ -424,12 +397,15 @@ export class WelcomeSetupModel {
     }
 
     this.shared.clearError()
+    this.resetUnlockForm()
     this.remote.showHosts()
+    this.remote.activateDesktopInventory()
     this.setupStep.set('remote-connect')
-    void this.remote.loadPeers()
+    void this.remote.loadPeers('initial')
   }
 
   onBackToModeSelect = () => {
+    this.remote.deactivateDesktopInventory()
     this.remote.showHosts()
     this.shared.clearError()
     this.setupStep.set('mode-select')
@@ -438,7 +414,7 @@ export class WelcomeSetupModel {
 
   onOpenRemotePair = () => {
     this.shared.clearError()
-    this.remote.openPairIos()
+    if (!this.remote.openPairIos()) return
     this.setupStep.set('remote-pair')
   }
 
@@ -457,9 +433,7 @@ export class WelcomeSetupModel {
   }
 
   onBackFromRemoteUsb = (): void => {
-    this.shared.clearError()
-    this.remote.showHosts()
-    this.setupStep.set('remote-connect')
+    void this.backFromRemoteUsb()
   }
 
   onBackFromRemoteWait = () => {
@@ -474,18 +448,51 @@ export class WelcomeSetupModel {
     void this.removeRemotePeer(peer)
   }
 
-  onSubmitRemotePair = () => {
-    void this.submitRemotePair()
+  onSubmitRemotePair = async (): Promise<void> => {
+    await this.submitRemotePair()
   }
+
+  async submitRemotePairForDesktop(): Promise<RemoteDesktopPairingSubmitResult> {
+    this.shared.clearError()
+    const result = await wrap(this.remote.submitDesktopPairing())
+    if (result.status === 'success') {
+      this.setupStep.set('remote-connect')
+    }
+    return result
+  }
+
   private syncSetupStepFromRemoteSession(sessionState: RemoteSessionState): void {
+    const previousSessionState = this.previousRemoteSessionState
+    this.previousRemoteSessionState = sessionState
+
     if (sessionState === 'waiting_host_unlock' || sessionState === 'waiting_phone_approval') {
       this.remote.view.set('wait')
       this.setupStep.set('remote-wait')
       return
     }
-    if (sessionState === 'ready' && this.effectiveStep() === 'remote-wait') {
+    if (
+      sessionState === 'inactive' &&
+      (previousSessionState === 'waiting_host_unlock' || previousSessionState === 'waiting_phone_approval') &&
+      this.effectiveStep() === 'remote-wait'
+    ) {
+      this.remote.showHosts()
+      this.setupStep.set('remote-connect')
+      return
+    }
+    if (sessionState === 'ready' && this.isRemoteSetupStep(this.effectiveStep())) {
+      this.remote.deactivateDesktopInventory()
       this.setupStep.set(null)
     }
+  }
+
+  private syncUsbRecoveryRequired(required: boolean): void {
+    if (!required || getAppContext().store.remoteSessionState() === 'ready') return
+    const opened = this.remote.view() === 'usb-mobile' || this.remote.openUsbMobile()
+    if (opened) this.setupStep.set('remote-connect')
+  }
+
+  private isRemoteSetupStep(step: WelcomeSetupStep): boolean {
+    return step === 'remote-connect' || step === 'remote-pair' || step === 'remote-wait'
   }
 
   private resolveInputValue(event: Event): string {
@@ -504,6 +511,15 @@ export class WelcomeSetupModel {
     this.masterPasswordError.set('')
     this.masterPasswordConfirmError.set('')
     this.resetPasswordStrength()
+  }
+
+  private resetUnlockForm(): void {
+    this.clearUnlockFields()
+    this.icon.idle()
+  }
+
+  private clearUnlockFields(): void {
+    this.unlockPassword.set('')
   }
 
   private getMasterPasswordError(password: string): string {
@@ -555,8 +571,9 @@ export class WelcomeSetupModel {
   private async connectRemotePeer(peerId: string): Promise<void> {
     this.shared.clearError()
     const success = await wrap(this.remote.connectToPeer(peerId))
-    if (!success) {
-      this.shared.setError(this.remote.errorText())
+    if (!success) return
+    if (getAppContext().store.remoteSessionState() === 'ready') {
+      this.setupStep.set(null)
       return
     }
     this.setupStep.set('remote-wait')
@@ -564,27 +581,36 @@ export class WelcomeSetupModel {
 
   private async removeRemotePeer(peer: NetworkPairedPeer): Promise<void> {
     this.shared.clearError()
-    const removed = await wrap(this.remote.removePeer(peer))
-    if (!removed && this.remote.errorText()) {
-      this.shared.setError(this.remote.errorText())
-    }
+    await wrap(this.remote.removePeer(peer))
   }
 
   private async backFromRemoteConnect(): Promise<void> {
-    await wrap(this.remote.exitPreAuthRemote())
+    const closed = await wrap(this.remote.exitPreAuthRemote())
+    if (!closed) return
+    this.remote.deactivateDesktopInventory()
     this.shared.clearError()
     this.setupStep.set(this.isNeedInit() ? 'mode-select' : null)
   }
 
   private async backFromRemotePair(): Promise<void> {
-    await wrap(this.remote.closePairIos())
+    const closed = await wrap(this.remote.closePairIos())
+    if (!closed) return
+    await wrap(this.remote.loadPeers())
+    this.shared.clearError()
+    this.setupStep.set('remote-connect')
+  }
+
+  private async backFromRemoteUsb(): Promise<void> {
+    const closed = await wrap(this.remote.closeUsbMobile())
+    if (!closed) return
     await wrap(this.remote.loadPeers())
     this.shared.clearError()
     this.setupStep.set('remote-connect')
   }
 
   private async backFromRemoteWait(): Promise<void> {
-    await wrap(this.remote.disconnectTransport())
+    const disconnected = await wrap(this.remote.disconnectTransport())
+    if (!disconnected) return
     await wrap(this.remote.loadPeers())
     this.shared.clearError()
     this.setupStep.set('remote-connect')

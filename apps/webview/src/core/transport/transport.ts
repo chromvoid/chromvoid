@@ -4,6 +4,7 @@ import type {
   CatalogFileReplaceOptions,
   CatalogFileReplaceResult,
   CatalogSourceMetadata,
+  CatalogUploadResult,
 } from '../catalog/catalog'
 
 export type Atom<T> = {
@@ -326,7 +327,7 @@ export type TransportLike = {
       type?: string
       onProgress?: (c: number, t: number, p: number) => void
     },
-  ): Promise<{nodeId: number}>
+  ): Promise<CatalogUploadResult>
 
   // Optional fast path for Desktop (Tauri): upload directly from a native file path.
   // The backend owns host paths and only exposes short-lived capability tokens.

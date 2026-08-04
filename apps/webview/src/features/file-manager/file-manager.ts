@@ -410,7 +410,7 @@ export class FileManager extends ReatomLitElement {
               .selectedCount=${model.selectedCount()}
               .quickFilterChips=${model.mobileQuickFilterChips()}
               .mobileViewMode=${model.mobileEffectiveViewMode()}
-              .mobileToolbarActions=${model.getMobileToolbarActions()}
+              .mobileAddActions=${model.getMobileAddActions()}
               .mobileSelectionActions=${model.getMobileSelectionBarActions()}
               @navigate=${this.handleNavigate}
               @filters-change=${this.handleFiltersChange}

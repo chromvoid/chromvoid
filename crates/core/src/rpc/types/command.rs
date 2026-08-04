@@ -74,6 +74,17 @@ pub struct PassmanagerSecurityAuditSetRequest {
     pub artifact: CredentialSecurityAuditArtifactV1,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[serde(deny_unknown_fields)]
+pub struct PassmanagerEntryCreateSecrets {
+    pub password: Option<String>,
+    pub note: Option<String>,
+    pub card_pan: Option<String>,
+    pub card_cvv: Option<String>,
+}
+
 /// All RPC commands as discriminated union (request types)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
@@ -578,6 +589,25 @@ pub enum RpcCommand {
     },
 
     // === PassManager domain commands (ADR-028) ===
+    #[serde(rename = "passmanager:entry:create")]
+    PassmanagerEntryCreate {
+        entry_id: String,
+        title: String,
+        entry_type: String,
+        #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
+        created_ts: Option<u64>,
+        #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
+        updated_ts: Option<u64>,
+        urls: Option<Value>,
+        username: Option<String>,
+        otps: Option<Value>,
+        payment_card: Option<Value>,
+        group_path: Option<String>,
+        icon_ref: Option<String>,
+        tags: Option<Vec<String>>,
+        secrets: PassmanagerEntryCreateSecrets,
+    },
+
     #[serde(rename = "passmanager:entry:save")]
     PassmanagerEntrySave {
         entry_id: Option<String>,

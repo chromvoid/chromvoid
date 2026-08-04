@@ -1,10 +1,22 @@
-import {Entry, Group, ManagerRoot} from '@project/passmanager'
+import {
+  Entry,
+  Group,
+  ManagerRoot,
+  filterValue,
+  quickFilters,
+  selectedCredentialTagFilters,
+} from '@project/passmanager'
 import {html, nothing} from 'lit'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {PMEntryListItem} from '../../src/features/passmanager/components/card/entry-list-item'
 import {PMGroupBase} from '../../src/features/passmanager/components/group/group/group-base'
+import {PMGroup} from '../../src/features/passmanager/components/group/group/group'
+import {PMGroupModel} from '../../src/features/passmanager/components/group/group/group.model'
+import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
 import {pmActiveRowModel} from '../../src/features/passmanager/models/pm-active-row.model'
+import {pmEntryMoveModel} from '../../src/features/passmanager/models/pm-entry-move-model'
+import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
 
 function createGroup(id: string, name: string) {
@@ -56,7 +68,11 @@ class TestPMGroupFocus extends PMGroupBase {
 
     const shouldPreserveListFocus = this.getListFocusState()
     const contextKey = this.model.getListContextKey(group, items.length)
-    const {restoredIndex, activeIndex, contextChanged} = this.model.syncKeyboardState(items, contextKey, group)
+    const {restoredIndex, activeIndex, contextChanged} = this.model.syncKeyboardState(
+      items,
+      contextKey,
+      group,
+    )
     if (restoredIndex !== null) {
       this.focusIndex(restoredIndex)
     } else if (contextChanged && shouldPreserveListFocus && activeIndex >= 0) {
@@ -64,7 +80,9 @@ class TestPMGroupFocus extends PMGroupBase {
     }
 
     const activeId = this.model.getActiveItemId()
-    return html`<div class="test-list">${items.map((item) => this.renderRow(item, item.id === activeId))}</div>`
+    return html`<div class="test-list">
+      ${items.map((item) => this.renderRow(item, item.id === activeId))}
+    </div>`
   }
 
   private focusIndex(index: number) {
@@ -105,7 +123,11 @@ class TestPMGroupFocus extends PMGroupBase {
   }
 }
 
-async function flush(element: TestPMGroupFocus) {
+class TestPMGroupDesktopEmptyState extends PMGroup {
+  static override styles = []
+}
+
+async function flush(element: HTMLElement & {updateComplete?: Promise<unknown>}) {
   await Promise.resolve()
   await element.updateComplete
   await new Promise((resolve) => setTimeout(resolve, 0))
@@ -123,7 +145,9 @@ function getEntryRow(element: TestPMGroupFocus, rowId: string) {
 }
 
 function getFolderRow(element: TestPMGroupFocus, rowId: string) {
-  return element.shadowRoot?.querySelector(`.group-row-wrap[data-row-id="${rowId}"] .group-row`) as HTMLElement | null
+  return element.shadowRoot?.querySelector(
+    `.group-row-wrap[data-row-id="${rowId}"] .group-row`,
+  ) as HTMLElement | null
 }
 
 function getEntryWrapper(element: TestPMGroupFocus, rowId: string) {
@@ -146,6 +170,10 @@ describe('PMGroup focus and selection sync', () => {
     if (!customElements.get('test-pm-group-focus')) {
       customElements.define('test-pm-group-focus', TestPMGroupFocus)
     }
+    PMGroup.define()
+    if (!customElements.get('test-pm-group-desktop-empty-state')) {
+      customElements.define('test-pm-group-desktop-empty-state', TestPMGroupDesktopEmptyState)
+    }
 
     originalPassmanager = window.passmanager
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
@@ -160,9 +188,174 @@ describe('PMGroup focus and selection sync', () => {
 
   afterEach(() => {
     document.querySelectorAll('test-pm-group-focus').forEach((el) => el.remove())
+    document.querySelectorAll('test-pm-group-desktop-empty-state').forEach((el) => el.remove())
     pmActiveRowModel.clearAll()
+    filterValue.set('')
+    quickFilters.set([])
+    selectedCredentialTagFilters.set([])
+    sortField.set('name')
+    sortDirection.set('asc')
+    groupBy.set('none')
+    pmEntryMoveModel.setDropTarget(null)
+    setPassmanagerRoot(undefined)
     window.passmanager = originalPassmanager
     vi.restoreAllMocks()
+  })
+
+  it('marks only the actual empty credential list as a localized accessibility group', async () => {
+    const group = createGroup('empty-parent', 'Empty Parent')
+    window.passmanager = createManagerRoot(group, [group]) as typeof window.passmanager
+
+    const element = document.createElement('test-pm-group-focus') as TestPMGroupFocus
+    document.body.appendChild(element)
+    await flush(element)
+
+    const selector = '[id="passwords.empty-state"]'
+    const marker = element.shadowRoot?.querySelector(selector)
+    expect(marker?.tagName).toBe('DIV')
+    expect(marker?.getAttribute('role')).toBe('group')
+    expect(marker?.getAttribute('aria-label')).toBe('Empty')
+
+    group.entries.set([createEntry(group, 'empty-parent-entry')])
+    await flush(element)
+
+    expect(element.shadowRoot?.querySelector(selector)).toBeNull()
+  })
+
+  it('treats only search, quick filters, and selected tags as content filters', () => {
+    const model = new PMGroupModel()
+    const group = createGroup('content-filter-parent', 'Content Filter Parent')
+    group.entries.set([createEntry(group, 'content-filter-entry')])
+    const root = createManagerRoot(group, [group])
+    window.passmanager = root as typeof window.passmanager
+    setPassmanagerRoot(root)
+
+    expect(model.getEmptyStateKind()).toBe('empty')
+
+    sortField.set('website')
+    sortDirection.set('desc')
+    groupBy.set('website')
+    expect(model.getEmptyStateKind()).toBe('empty')
+
+    filterValue.set('missing')
+    expect(model.getEmptyStateKind()).toBe('filtered')
+    filterValue.set('')
+
+    quickFilters.set(['otp'])
+    expect(model.getEmptyStateKind()).toBe('filtered')
+    quickFilters.set([])
+
+    selectedCredentialTagFilters.set(['work'])
+    expect(model.getEmptyStateKind()).toBe('filtered')
+  })
+
+  it('clears content filters while preserving sorting and grouping choices', () => {
+    const model = new PMGroupModel()
+    filterValue.set('vault')
+    quickFilters.set(['recent', 'otp'])
+    selectedCredentialTagFilters.set(['work'])
+    sortField.set('website')
+    sortDirection.set('desc')
+    groupBy.set('security')
+
+    model.clearContentFilters()
+
+    expect(filterValue()).toBe('')
+    expect(quickFilters()).toEqual([])
+    expect(selectedCredentialTagFilters()).toEqual([])
+    expect(sortField()).toBe('website')
+    expect(sortDirection()).toBe('desc')
+    expect(groupBy()).toBe('security')
+    expect(model.getEmptyStateKind()).toBe('empty')
+  })
+
+  it('renders the desktop filtered-empty state with one clear action that keeps sort and grouping', async () => {
+    const group = createGroup('filtered-parent', 'Filtered Parent')
+    group.entries.set([createEntry(group, 'filtered-entry')])
+    const root = createManagerRoot(group, [group])
+    window.passmanager = root as typeof window.passmanager
+    setPassmanagerRoot(root)
+    filterValue.set('no matches')
+    quickFilters.set(['otp'])
+    selectedCredentialTagFilters.set(['work'])
+    sortField.set('website')
+    sortDirection.set('desc')
+    groupBy.set('security')
+
+    const element = document.createElement(
+      'test-pm-group-desktop-empty-state',
+    ) as TestPMGroupDesktopEmptyState
+    document.body.appendChild(element)
+    await flush(element)
+
+    const marker = element.shadowRoot?.querySelector('[id="passwords.empty-state"]')
+    const emptyState = marker?.querySelector('cv-empty-state')
+    const clearButton = emptyState?.querySelector('cv-button')
+
+    expect(marker?.getAttribute('data-empty-kind')).toBe('filtered')
+    expect(marker?.getAttribute('aria-label')).toBe('No matching credentials')
+    expect(emptyState?.getAttribute('data-empty-kind')).toBe('filtered')
+    expect(emptyState?.getAttribute('headline')).toBe('No matching credentials')
+    expect(emptyState?.getAttribute('description')).toBe('Try another search or clear the active filters.')
+    expect(marker?.closest('cv-guidance-anchor')).toBeNull()
+    expect(clearButton?.textContent?.trim()).toBe('Clear filters')
+    ;(clearButton as HTMLElement | null)?.click()
+    await flush(element)
+
+    expect(filterValue()).toBe('')
+    expect(quickFilters()).toEqual([])
+    expect(selectedCredentialTagFilters()).toEqual([])
+    expect(sortField()).toBe('website')
+    expect(sortDirection()).toBe('desc')
+    expect(groupBy()).toBe('security')
+    expect(element.shadowRoot?.querySelector('[id="passwords.empty-state"]')).toBeNull()
+  })
+
+  it('keeps a truly empty group in the empty state even when content filters are active', () => {
+    const model = new PMGroupModel()
+    const group = createGroup('truly-empty-parent', 'Truly Empty Parent')
+    const root = createManagerRoot(group, [group])
+    window.passmanager = root as typeof window.passmanager
+    setPassmanagerRoot(root)
+    filterValue.set('missing')
+    quickFilters.set(['otp'])
+    selectedCredentialTagFilters.set(['work'])
+
+    expect(model.getEmptyStateKind()).toBe('empty')
+  })
+
+  it('keeps drag-and-drop handlers on the full cv-empty-state host', async () => {
+    const group = createGroup('drop-empty-parent', 'Drop Empty Parent')
+    const root = createManagerRoot(group, [group])
+    window.passmanager = root as typeof window.passmanager
+    setPassmanagerRoot(root)
+    const payload = {domain: 'passmanager', kind: 'entry', id: 'dragged-entry'} as const
+    vi.spyOn(pmEntryMoveModel, 'readDragPayload').mockReturnValue(payload)
+    vi.spyOn(pmEntryMoveModel, 'canDropToTarget').mockReturnValue(true)
+    const drop = vi.spyOn(pmEntryMoveModel, 'dropToTarget').mockResolvedValue(true)
+
+    const element = document.createElement(
+      'test-pm-group-desktop-empty-state',
+    ) as TestPMGroupDesktopEmptyState
+    document.body.appendChild(element)
+    await flush(element)
+
+    const emptyState = element.shadowRoot?.querySelector('cv-empty-state') as HTMLElement | null
+    const dragover = new Event('dragover', {bubbles: true, cancelable: true})
+    Object.defineProperty(dragover, 'dataTransfer', {value: null})
+    emptyState?.dispatchEvent(dragover)
+
+    expect(dragover.defaultPrevented).toBe(true)
+    expect(emptyState?.classList.contains('drop-active')).toBe(true)
+    expect(pmEntryMoveModel.dropTargetId()).toBe(group.id)
+
+    const dropEvent = new Event('drop', {bubbles: true, cancelable: true})
+    Object.defineProperty(dropEvent, 'dataTransfer', {value: null})
+    emptyState?.dispatchEvent(dropEvent)
+
+    expect(dropEvent.defaultPrevented).toBe(true)
+    expect(drop).toHaveBeenCalledWith(group.id, payload)
+    expect(emptyState?.classList.contains('drop-active')).toBe(false)
   })
 
   it('keeps only the active row tabbable and syncs focus-driven activation across folders and entries', async () => {

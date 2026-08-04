@@ -76,12 +76,12 @@ pub(crate) async fn mobile_usb_connect(
 }
 
 #[tauri::command]
-pub(crate) fn mobile_usb_disconnect(
+pub(crate) async fn mobile_usb_disconnect(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<MobileUsbStatus, String> {
     ensure_mobile_usb_enabled()?;
-    let result = state.mobile_usb_runtime.disconnect();
+    let result = state.mobile_usb_runtime.disconnect_user().await;
     let restore_result = if result.is_ok() {
         crate::mobile_usb::restore_local_after_mobile_usb_session_end(
             &app,

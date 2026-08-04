@@ -1,7 +1,6 @@
 import type {CVTextareaInputEvent} from '@chromvoid/uikit/components/cv-textarea'
 import {createAfterRenderScheduler, html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {nothing, type PropertyValues} from 'lit'
-import {keyed} from 'lit/directives/keyed.js'
 
 import '@lit-labs/virtualizer'
 
@@ -13,15 +12,21 @@ import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.m
 import type {PMWorkspaceContextItem, PMWorkspaceHeaderDensity} from '../../card/pm-workspace-header'
 import type {PMSummaryRailItem, PMSummaryRailTone} from '../../summary-rail'
 import type {PMEntryListItemViewMode} from '../../card/entry-list-item'
+import {groupBy, type GroupBy} from '../../list/sort-controls'
 import {pmEntryMoveModel, type PMDragPayload} from '../../../models/pm-entry-move-model'
 import {pmListViewportModel} from '../../../models/pm-list-viewport.model'
 import {
-  pmDeleteMotionModel,
-  type PMDeleteMotionRow,
-  type PMDeleteVisibleRow,
-} from '../../../models/pm-delete-motion.model'
+  pmListMutationMotionModel,
+  type PMListMutationPhase,
+  type PMListMutationRow,
+  type PMListMutationVisibleRow,
+} from '../../../models/pm-list-mutation-motion.model'
 import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
 import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
+import {
+  elementScopedViewTransitionCoordinator,
+  prefersReducedMotion,
+} from 'root/utils/view-transitions'
 import {
   PMGroupModel,
   type PMGroupMetric,
@@ -29,6 +34,7 @@ import {
   type PMGroupRiskIndicator,
   type PMGroupRow,
 } from './group.model'
+import {GROUP_DESCRIPTION_MAX_LENGTH} from '../group-form.constants'
 
 type PMEntryFocusableItem = HTMLElement & {
   focusRow?: () => void
@@ -48,6 +54,28 @@ type PMPointerDragState = {
   active: boolean
 }
 
+type PMGroupEmptyStatePresentation = {
+  kind: 'empty' | 'filtered'
+  icon: string
+  headline: string
+  description: string
+  ariaLabel: string
+}
+
+type PMVirtualRange = {first: number; last: number}
+
+type PMVirtualizerElement = HTMLElement & {
+  element?: (index: number) => {scrollIntoView(options?: ScrollIntoViewOptions): void} | undefined
+  updateComplete?: Promise<unknown>
+  layoutComplete?: Promise<void>
+}
+
+type PMPendingGroupingAnchor = {
+  entryId: string | null
+  contextKey: string
+  shouldFocus: boolean
+}
+
 export abstract class PMGroupBase extends ReatomLitElement implements EventListenerObject {
   static properties = {
     showToolbarActions: {type: Boolean, attribute: 'show-toolbar-actions'},
@@ -62,15 +90,23 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   private dropTargetEl: HTMLElement | null = null
   private pointerDrag: PMPointerDragState | null = null
   private renderedEditMode = false
-  private rangeVirtualizer: HTMLElement | null = null
+  private rangeVirtualizer: PMVirtualizerElement | null = null
   private rangeVirtualizerContextKey: string | null = null
   private renderedListContextKey: string | null = null
+  private renderedGroupBy: GroupBy | null = null
   private scrollSaveFrame: number | null = null
   private pendingScrollSnapshot: {contextKey: string; scrollTop: number} | null = null
-  private scrollRestoreFrame: number | null = null
+  private viewportRestoreGeneration = 0
   private restoringScrollContextKey: string | null = null
-  private lastVirtualRows: PMDeleteMotionRow[] = []
-  private lastVirtualRange: {first: number; last: number} | null = null
+  private lastVirtualRows: PMListMutationRow[] = []
+  private lastVirtualRange: PMVirtualRange | null = null
+  private lastVisibleRange: PMVirtualRange | null = null
+  private pendingGroupingAnchor: PMPendingGroupingAnchor | null = null
+  private currentMutationScopeId: string | null = null
+  private readonly ownedMutationScopes = new Set<string>()
+  private readonly pendingExitCompletionIds = new Set<string>()
+  private exitCompletionFrame: number | null = null
+  private enterRevealFrame: number | null = null
 
   constructor() {
     super()
@@ -95,6 +131,50 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
   protected renderHeaderMeta(_summary: PMGroupPresentation): unknown {
     return nothing
+  }
+
+  protected getWorkspaceHeaderTitle(group: Group, _isRoot: boolean, isEditing: boolean): string {
+    return isEditing ? this.model.editedName() : this.getGroupMetadata(group).title
+  }
+
+  protected getWorkspaceHeaderSupportText(
+    group: Group,
+    summary: PMGroupPresentation,
+    _isRoot: boolean,
+    isEditing: boolean,
+  ): string {
+    return isEditing ? '' : group.description?.trim() || summary.supportText
+  }
+
+  protected getWorkspaceHeaderContextLabel(summary: PMGroupPresentation, _isRoot: boolean): string {
+    return summary.scopeLabel
+  }
+
+  protected getWorkspaceHeaderContextItems(group: Group, isRoot: boolean): PMWorkspaceContextItem[] {
+    return this.getHeaderContextItems(group, isRoot)
+  }
+
+  protected getWorkspaceHeaderUpdatedFormatted(group: Group, _isRoot: boolean): string {
+    return group.updatedFormatted
+  }
+
+  protected getWorkspaceHeaderCreatedFormatted(group: Group, _isRoot: boolean): string {
+    return group.createdFormatted
+  }
+
+  protected renderWorkspaceHeaderContextEnd(summary: PMGroupPresentation): unknown {
+    return html`<span slot="context-end" class="workspace-summary-value">${summary.visibleLabel}</span>`
+  }
+
+  protected getEmptyStatePresentation(): PMGroupEmptyStatePresentation {
+    const headline = i18n('group:no_entries')
+    return {
+      kind: 'empty',
+      icon: 'folder',
+      headline,
+      description: '',
+      ariaLabel: headline,
+    }
   }
 
   protected getEntryListItemViewMode(): PMEntryListItemViewMode {
@@ -214,8 +294,10 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
   protected override updated(changedProperties: PropertyValues): void {
     super.updated(changedProperties)
-    this.syncVirtualizerRangeListener()
+    this.syncVirtualizerViewport()
     this.scrollEdge.scheduleMeasure()
+    this.finishReducedMotionRows()
+    this.scheduleStagedEnterReveal()
 
     const isEditMode = this.model.isEditMode()
     if (isEditMode === this.renderedEditMode) {
@@ -253,8 +335,16 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   }
 
   public override disconnectedCallback(): void {
+    if (this.exitCompletionFrame !== null) cancelAnimationFrame(this.exitCompletionFrame)
+    if (this.enterRevealFrame !== null) cancelAnimationFrame(this.enterRevealFrame)
+    this.exitCompletionFrame = null
+    this.enterRevealFrame = null
+    for (const scopeId of this.ownedMutationScopes) {
+      pmListMutationMotionModel.resetScope(scopeId)
+    }
+    this.ownedMutationScopes.clear()
     this.flushScheduledVirtualizerScrollSave()
-    this.cancelScheduledVirtualizerScrollRestore()
+    this.cancelVirtualizerViewportRestore()
     this.afterRenderScheduler.cancel()
     this.model.exitEditMode()
     super.disconnectedCallback()
@@ -265,7 +355,6 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     this.pointerDrag = null
     this.cleanupPointerListeners()
     if (this.rangeVirtualizer) {
-      this.rangeVirtualizer.removeEventListener('rangeChanged', this)
       this.rangeVirtualizer.removeEventListener('scroll', this)
       this.rangeVirtualizer = null
       this.rangeVirtualizerContextKey = null
@@ -289,33 +378,32 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       return
     }
 
-    if (event.type === 'rangeChanged') {
-      this.onVirtualRangeChanged(event)
-      return
-    }
-
     if (event.type === 'scroll') {
       this.scheduleVirtualizerScrollSave()
     }
   }
 
-  private syncVirtualizerRangeListener(): void {
-    const next = this.renderRoot.querySelector('lit-virtualizer') as HTMLElement | null
+  private syncVirtualizerViewport(): void {
+    const next = this.renderRoot.querySelector('lit-virtualizer') as PMVirtualizerElement | null
     const nextContextKey = this.renderedListContextKey
-    if (next === this.rangeVirtualizer && nextContextKey === this.rangeVirtualizerContextKey) return
+    const nodeChanged = next !== this.rangeVirtualizer
+    const contextChanged = nextContextKey !== this.rangeVirtualizerContextKey
+    if (!nodeChanged && !contextChanged) return
 
     this.flushScheduledVirtualizerScrollSave()
-    this.cancelScheduledVirtualizerScrollRestore()
-    this.rangeVirtualizer?.removeEventListener('rangeChanged', this)
-    this.rangeVirtualizer?.removeEventListener('scroll', this)
+    this.cancelVirtualizerViewportRestore()
+    if (nodeChanged) {
+      this.rangeVirtualizer?.removeEventListener('scroll', this)
+    }
     this.rangeVirtualizer = next
     this.rangeVirtualizerContextKey = nextContextKey
-    this.rangeVirtualizer?.addEventListener('rangeChanged', this)
-    this.rangeVirtualizer?.addEventListener('scroll', this, {passive: true})
-    this.scrollEdge.bindScroller(this.rangeVirtualizer)
+    if (nodeChanged) {
+      this.rangeVirtualizer?.addEventListener('scroll', this, {passive: true})
+      this.scrollEdge.bindScroller(this.rangeVirtualizer)
+    }
 
     if (next && nextContextKey) {
-      this.restoreVirtualizerScroll(next, nextContextKey)
+      this.restoreVirtualizerViewport(next, nextContextKey)
     }
   }
 
@@ -323,10 +411,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     if (!this.rangeVirtualizer || !this.rangeVirtualizerContextKey) return
     if (this.rangeVirtualizerContextKey === this.restoringScrollContextKey) return
 
-    pmListViewportModel.saveScrollTop(
-      this.rangeVirtualizerContextKey,
-      this.rangeVirtualizer.scrollTop,
-    )
+    pmListViewportModel.saveScrollTop(this.rangeVirtualizerContextKey, this.rangeVirtualizer.scrollTop)
   }
 
   private scheduleVirtualizerScrollSave(): void {
@@ -361,70 +446,68 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     }
   }
 
-  private restoreVirtualizerScroll(virtualizer: HTMLElement, contextKey: string): void {
-    const scrollTop = pmListViewportModel.getScrollTop(contextKey)
-    if (scrollTop === null) return
-
+  private restoreVirtualizerViewport(virtualizer: PMVirtualizerElement, contextKey: string): void {
+    const generation = ++this.viewportRestoreGeneration
     this.restoringScrollContextKey = contextKey
-    let attempts = 0
-    const applyScrollTop = () => {
-      this.scrollRestoreFrame = null
-      if (
-        virtualizer !== this.rangeVirtualizer ||
-        contextKey !== this.rangeVirtualizerContextKey ||
-        !virtualizer.isConnected
-      ) {
-        this.restoringScrollContextKey = null
-        return
-      }
-
-      attempts += 1
-      virtualizer.scrollTop = scrollTop
-      this.scrollEdge.scheduleMeasure()
-      if (attempts >= 2 && (Math.abs(virtualizer.scrollTop - scrollTop) <= 1 || attempts >= 12)) {
-        this.restoringScrollContextKey = null
-        this.saveVirtualizerScroll()
-        return
-      }
-
-      this.scrollRestoreFrame = requestAnimationFrame(applyScrollTop)
-    }
-
-    this.scrollRestoreFrame = requestAnimationFrame(applyScrollTop)
+    void this.applyVirtualizerViewportRestore(virtualizer, contextKey, generation)
   }
 
-  private cancelScheduledVirtualizerScrollRestore(): void {
-    if (this.scrollRestoreFrame !== null) {
-      cancelAnimationFrame(this.scrollRestoreFrame)
-      this.scrollRestoreFrame = null
-    }
+  private cancelVirtualizerViewportRestore(): void {
+    this.viewportRestoreGeneration += 1
     this.restoringScrollContextKey = null
   }
 
-  private getRowElementForIndex(index: number): HTMLElement | null {
-    const virtualizer = this.renderRoot.querySelector('lit-virtualizer') as
-      | ({element?: (index: number) => unknown} & HTMLElement)
-      | null
+  private async applyVirtualizerViewportRestore(
+    virtualizer: PMVirtualizerElement,
+    contextKey: string,
+    generation: number,
+  ): Promise<void> {
+    await this.updateComplete
+    await this.waitForVirtualizerLayout(virtualizer)
+    if (!this.isCurrentViewportRestore(virtualizer, contextKey, generation)) return
 
-    const rawElement = virtualizer?.element?.(index)
-    if (rawElement instanceof HTMLElement) {
-      if (
-        rawElement.classList.contains('entry-row') ||
-        rawElement.classList.contains('group-row-wrap') ||
-        rawElement.classList.contains('group-header-row')
-      ) {
-        return rawElement
-      }
+    const groupingAnchor =
+      this.pendingGroupingAnchor?.contextKey === contextKey ? this.pendingGroupingAnchor : null
+    if (groupingAnchor) {
+      const rows = this.lastVirtualRows
+      const index = this.model.resolveGroupingAnchorIndex(rows, groupingAnchor.entryId)
+      if (index !== null) {
+        virtualizer.element?.(index)?.scrollIntoView({block: 'center'})
+        await this.waitForVirtualizerLayout(virtualizer)
+        if (!this.isCurrentViewportRestore(virtualizer, contextKey, generation)) return
 
-      const closestRow = rawElement.closest('.entry-row, .group-row-wrap, .group-header-row')
-      if (closestRow instanceof HTMLElement) {
-        return closestRow
+        if (groupingAnchor.shouldFocus) {
+          const rowId = rows[index]?.id
+          if (rowId) this.focusRowElement(this.getRenderedRowById(rowId))
+        }
       }
+      if (this.pendingGroupingAnchor?.contextKey === contextKey) {
+        this.pendingGroupingAnchor = null
+      }
+    } else {
+      virtualizer.scrollTop = pmListViewportModel.getScrollTop(contextKey) ?? 0
     }
 
-    const itemId = this.model.getKeyboardItemIdByIndex(index)
-    if (!itemId) return null
+    if (!this.isCurrentViewportRestore(virtualizer, contextKey, generation)) return
+    this.restoringScrollContextKey = null
+    this.scrollEdge.scheduleMeasure()
+    this.saveVirtualizerScroll()
+  }
 
+  private isCurrentViewportRestore(
+    virtualizer: PMVirtualizerElement,
+    contextKey: string,
+    generation: number,
+  ): boolean {
+    return (
+      generation === this.viewportRestoreGeneration &&
+      virtualizer === this.rangeVirtualizer &&
+      contextKey === this.rangeVirtualizerContextKey &&
+      virtualizer.isConnected
+    )
+  }
+
+  private getRenderedRowById(itemId: string): HTMLElement | null {
     const rows = this.renderRoot.querySelectorAll<HTMLElement>(
       '.entry-row, .group-row-wrap, .group-header-row',
     )
@@ -471,20 +554,57 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       return false
     }
 
-    if (active.matches('.group-row, pm-entry-list-item, pm-entry-list-item-mobile, pm-group-list-item-mobile')) {
+    if (
+      active.matches('.group-row, pm-entry-list-item, pm-entry-list-item-mobile, pm-group-list-item-mobile')
+    ) {
       return true
     }
 
     return active.closest('.entry-row, .group-row-wrap, .group-row') != null
   }
 
+  private getFocusedListRowId(): string | undefined {
+    const active = this.renderRoot instanceof ShadowRoot ? this.renderRoot.activeElement : null
+    if (!(active instanceof HTMLElement)) return undefined
+
+    const row = active.closest<HTMLElement>('.entry-row, .group-row-wrap')
+    return row?.dataset['rowId']
+  }
+
   private ensureActiveItemVisible(index: number, shouldFocus = false): void {
+    const contextKey = this.renderedListContextKey
+    const itemId = this.model.getKeyboardItemIdByIndex(index)
+    if (!contextKey || !itemId || this.pendingGroupingAnchor?.contextKey === contextKey) return
+
+    void this.scrollVirtualItemIntoView(index, itemId, contextKey, shouldFocus)
+  }
+
+  private async scrollVirtualItemIntoView(
+    index: number,
+    itemId: string,
+    contextKey: string,
+    shouldFocus: boolean,
+  ): Promise<void> {
+    await this.updateComplete
+    const virtualizer = this.rangeVirtualizer
+    if (!virtualizer || contextKey !== this.rangeVirtualizerContextKey) return
+
+    await this.waitForVirtualizerLayout(virtualizer)
+    if (virtualizer !== this.rangeVirtualizer || contextKey !== this.rangeVirtualizerContextKey) return
+
+    virtualizer.element?.(index)?.scrollIntoView({block: 'nearest'})
+    if (!shouldFocus) return
+
+    await this.waitForVirtualizerLayout(virtualizer)
+    if (virtualizer !== this.rangeVirtualizer || contextKey !== this.rangeVirtualizerContextKey) return
+    this.focusRowElement(this.getRenderedRowById(itemId))
+  }
+
+  private focusListContainer(): void {
     requestAnimationFrame(() => {
-      const row = this.getRowElementForIndex(index)
-      row?.scrollIntoView({block: 'nearest'})
-      if (shouldFocus && row) {
-        this.focusRowElement(row)
-      }
+      this.renderRoot
+        .querySelector<HTMLElement>('.group-virtual-list')
+        ?.focus({preventScroll: true})
     })
   }
 
@@ -837,12 +957,17 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   }
 
   protected onEditCancel() {
-    this.model.syncEditDrafts()
-    this.model.exitEditMode()
+    void this.model.requestEditClose()
   }
 
-  protected onEditSave() {
-    void this.model.saveEdit()
+  protected async onEditSave() {
+    if (await this.model.saveEdit()) return
+    if (!this.model.editNameError()) return
+
+    const workspaceHeader = this.renderRoot.querySelector<HTMLElement & {focusTitleInput?: () => void}>(
+      'pm-workspace-header',
+    )
+    workspaceHeader?.focusTitleInput?.()
   }
 
   protected renderTitleEditAction(isEditing: boolean) {
@@ -851,7 +976,8 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     }
 
     return html`
-      <cv-button unstyled
+      <cv-button
+        unstyled
         slot="title-end"
         class="group-title-edit-action edit-icon-action"
         type="button"
@@ -892,29 +1018,50 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   }
 
   protected renderInlineEditSupport() {
-    const error = this.model.editError()
+    const descriptionError = this.model.editDescriptionError()
+    const submitError = this.model.editSubmitError()
+    const pending = this.model.editPending()
+    const readOnly = this.model.isReadOnly()
 
     return html`
       <div slot="support" class="group-inline-edit-stack">
-        <cv-field ?invalid=${Boolean(error)}>
+        <cv-field ?invalid=${Boolean(descriptionError)}>
           <span slot="label">${i18n('group:description')}</span>
           <cv-textarea
             class="group-inline-description-input"
             name="description"
             size="small"
             rows="3"
+            maxlength=${GROUP_DESCRIPTION_MAX_LENGTH}
             .value=${this.model.editedDescription()}
             placeholder=${i18n('group:description:placeholder')}
-            ?invalid=${Boolean(error)}
+            ?invalid=${Boolean(descriptionError)}
+            ?disabled=${readOnly}
             @cv-input=${this.onGroupDescriptionInput}
           ></cv-textarea>
-          ${error ? html`<div slot="error" class="error-text">${error}</div>` : nothing}
+          ${descriptionError
+            ? html`<div slot="error" class="error-text">${descriptionError}</div>`
+            : nothing}
         </cv-field>
+        ${submitError ? html`<div class="error-text" role="alert">${submitError}</div>` : nothing}
         <div class="group-inline-edit-actions">
-          <cv-button unstyled class="inline-edit-cancel" type="button" @click=${this.onEditCancel}>
+          <cv-button
+            unstyled
+            class="inline-edit-cancel"
+            type="button"
+            ?disabled=${pending}
+            @click=${this.onEditCancel}
+          >
             ${i18n('button:cancel')}
           </cv-button>
-          <cv-button unstyled class="inline-edit-save" type="button" @click=${this.onEditSave}>
+          <cv-button
+            unstyled
+            class="inline-edit-save"
+            type="button"
+            .loading=${pending}
+            ?disabled=${pending || readOnly}
+            @click=${this.onEditSave}
+          >
             ${i18n('button:save')}
           </cv-button>
         </div>
@@ -923,19 +1070,19 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   }
 
   protected renderHeader(group: Group, summary: PMGroupPresentation, isRoot: boolean) {
-    const {title} = this.getGroupMetadata(group)
     const isEditing = !isRoot && this.model.isEditMode()
-    const headerTitle = isEditing ? this.model.editedName() : title
-    const supportText = isEditing ? '' : group.description?.trim() || summary.supportText
+    const headerTitle = this.getWorkspaceHeaderTitle(group, isRoot, isEditing)
+    const supportText = this.getWorkspaceHeaderSupportText(group, summary, isRoot, isEditing)
     const avatarLetter = (headerTitle.trim().charAt(0) || '?').toUpperCase()
 
     return html`
       <pm-workspace-header
         .item=${group}
         .density=${this.getWorkspaceHeaderDensity()}
-        .contextLabel=${summary.scopeLabel}
-        .contextItems=${this.getHeaderContextItems(group, isRoot)}
+        .contextLabel=${this.getWorkspaceHeaderContextLabel(summary, isRoot)}
+        .contextItems=${this.getWorkspaceHeaderContextItems(group, isRoot)}
         .title=${headerTitle}
+        .titleError=${isEditing ? this.model.editNameError() : ''}
         .supportText=${supportText}
         .avatarLetter=${avatarLetter}
         .avatarIcon=${'camera'}
@@ -943,14 +1090,13 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         .avatarInteractive=${isEditing}
         .editableTitle=${isEditing}
         .titlePlaceholder=${i18n('group:name')}
-        .updatedFormatted=${group.updatedFormatted}
-        .createdFormatted=${group.createdFormatted}
+        .updatedFormatted=${this.getWorkspaceHeaderUpdatedFormatted(group, isRoot)}
+        .createdFormatted=${this.getWorkspaceHeaderCreatedFormatted(group, isRoot)}
         @pm-workspace-header-navigate=${this.onWorkspaceHeaderNavigate}
         @pm-workspace-header-title-input=${this.onWorkspaceHeaderTitleInput}
         @pm-icon-change=${this.onGroupIconChange}
       >
-        <span slot="context-end" class="workspace-summary-value">${summary.visibleLabel}</span>
-        ${this.renderHeaderMeta(summary)}
+        ${this.renderWorkspaceHeaderContextEnd(summary)} ${this.renderHeaderMeta(summary)}
         ${isEditing ? this.renderInlineEditSupport() : this.renderTitleEditAction(isEditing)}
         ${this.renderHeaderActions(group, isRoot, isEditing)}
       </pm-workspace-header>
@@ -964,9 +1110,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
     const busy = summary.securityStatus === 'idle' || summary.securityStatus === 'loading'
     const degraded = summary.securityStatus === 'degraded'
-    const title = degraded
-      ? `${i18n('metrics:title')}. ${i18n('metrics:degraded')}`
-      : i18n('metrics:title')
+    const title = degraded ? `${i18n('metrics:title')}. ${i18n('metrics:degraded')}` : i18n('metrics:title')
 
     return html`
       <pm-summary-rail
@@ -978,7 +1122,9 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         data-security-status=${summary.securityStatus}
       ></pm-summary-rail>
       ${degraded
-        ? html`<span slot=${slotName ?? nothing} class="group-metrics-status">${i18n('metrics:degraded')}</span>`
+        ? html`<span slot=${slotName ?? nothing} class="group-metrics-status"
+            >${i18n('metrics:degraded')}</span
+          >`
         : nothing}
     `
   }
@@ -1014,8 +1160,12 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     `
   }
 
-
-  protected renderEntryItem(item: Entry, active: boolean, deleteExiting = false) {
+  protected renderEntryItem(
+    item: Entry,
+    active: boolean,
+    deleteExiting = false,
+    entering?: PMListMutationPhase,
+  ) {
     const dragEnabled = this.isItemDragEnabled(item)
 
     return html`
@@ -1023,30 +1173,44 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         class="entry-row"
         data-row-id=${item.id}
         ?data-delete-exiting=${deleteExiting}
+        data-entering=${entering ?? nothing}
         aria-hidden=${deleteExiting ? 'true' : nothing}
         @pointerdown=${dragEnabled
           ? (event: PointerEvent) => this.onItemPointerDown(event, item.id, 'entry')
           : nothing}
         @dragstart=${this.preventNativeDrag}
         @click=${() => this.setActiveItemById(item.id)}
-        @animationend=${deleteExiting
-          ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
-          : undefined}
       >
-        <pm-entry-list-item
-          .entry=${item}
-          .viewMode=${this.getEntryListItemViewMode()}
-          .activeRow=${active}
-          .rowTabIndex=${active ? 0 : -1}
-          .manageActiveRowState=${true}
-          @pm-entry-row-focus=${() => this.setActiveItemById(item.id)}
-          group
-        ></pm-entry-list-item>
+        <div
+          class="pm-row-motion-surface"
+          @animationend=${
+            deleteExiting
+              ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
+              : entering
+                ? (event: AnimationEvent) => this.onEnterAnimationEnd(event, item.id)
+                : undefined
+          }
+        >
+          <pm-entry-list-item
+            .entry=${item}
+            .viewMode=${this.getEntryListItemViewMode()}
+            .activeRow=${active}
+            .rowTabIndex=${active ? 0 : -1}
+            .manageActiveRowState=${true}
+            @pm-entry-row-focus=${() => this.setActiveItemById(item.id)}
+            group
+          ></pm-entry-list-item>
+        </div>
       </div>
     `
   }
 
-  protected renderFolderItem(item: Group, active: boolean, deleteExiting = false) {
+  protected renderFolderItem(
+    item: Group,
+    active: boolean,
+    deleteExiting = false,
+    entering?: PMListMutationPhase,
+  ) {
     const dragEnabled = this.isItemDragEnabled(item)
     const presentation = this.model.getGroupRowPresentation(item)
 
@@ -1055,58 +1219,72 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         class="group-row-wrap"
         data-row-id=${item.id}
         ?data-delete-exiting=${deleteExiting}
+        data-entering=${entering ?? nothing}
         aria-hidden=${deleteExiting ? 'true' : nothing}
-        @animationend=${deleteExiting
-          ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
-          : undefined}
       >
         <div
-          class="group-row ${active ? 'active' : ''}"
-          data-drop-target-id=${item.id}
-          role="button"
-          tabindex=${active ? '0' : '-1'}
-          @focus=${() => this.setActiveItemById(item.id)}
-          @pointerdown=${dragEnabled
-            ? (event: PointerEvent) => this.onItemPointerDown(event, item.id, 'group')
-            : nothing}
-          @click=${(event: MouseEvent) => {
-            this.setActiveItemById(item.id)
-            ;(event.currentTarget as HTMLElement | null)?.focus({preventScroll: true})
-            this.model.selectByID(item.id)
-          }}
-          @dragstart=${this.preventNativeDrag}
-          @dragover=${(event: DragEvent) => this.onDragOverFolder(event, item.id)}
-          @dragenter=${(event: DragEvent) => this.onDragOverFolder(event, item.id)}
-          @drop=${(event: DragEvent) => this.onDropFolder(event, item.id)}
+          class="pm-row-motion-surface"
+          @animationend=${
+            deleteExiting
+              ? (event: AnimationEvent) => this.onDeleteExitAnimationEnd(event, item.id)
+              : entering
+                ? (event: AnimationEvent) => this.onEnterAnimationEnd(event, item.id)
+                : undefined
+          }
         >
-          <div class="group-main-cell">
-            <pm-avatar-icon class="folder-custom-icon" .item=${item} icon="folder"></pm-avatar-icon>
-            <div class="group-copy">
-              <div class="group-name">${presentation.displayName}</div>
-              ${presentation.description
-                ? html`<div class="group-description">${presentation.description}</div>`
-                : nothing}
+          <div
+            class="group-row ${active ? 'active' : ''}"
+            data-drop-target-id=${item.id}
+            role="button"
+            tabindex=${active ? '0' : '-1'}
+            @focus=${() => this.setActiveItemById(item.id)}
+            @pointerdown=${dragEnabled
+              ? (event: PointerEvent) => this.onItemPointerDown(event, item.id, 'group')
+              : nothing}
+            @click=${(event: MouseEvent) => {
+              this.setActiveItemById(item.id)
+              ;(event.currentTarget as HTMLElement | null)?.focus({preventScroll: true})
+              this.model.selectByID(item.id)
+            }}
+            @dragstart=${this.preventNativeDrag}
+            @dragover=${(event: DragEvent) => this.onDragOverFolder(event, item.id)}
+            @dragenter=${(event: DragEvent) => this.onDragOverFolder(event, item.id)}
+            @drop=${(event: DragEvent) => this.onDropFolder(event, item.id)}
+          >
+            <div class="group-main-cell">
+              <pm-avatar-icon class="folder-custom-icon" .item=${item} icon="folder"></pm-avatar-icon>
+              <div class="group-copy">
+                <div class="group-name">${presentation.displayName}</div>
+                ${presentation.description
+                  ? html`<div class="group-description">${presentation.description}</div>`
+                  : nothing}
+              </div>
             </div>
-          </div>
-          <div class="group-trail">
-            <span class="group-size">${presentation.entryCount}</span>
-            ${this.renderGroupRiskDot(presentation.riskIndicator)}
-          </div>
-          <time class="group-modified-cell" datetime=${item.updatedFormatted}>
-            ${item.updatedFormatted}
-          </time>
-          <div class="group-actions-cell">
-            <cv-icon class="group-chevron" name="chevron-right"></cv-icon>
+            <div class="group-trail">
+              <span class="group-size">${presentation.entryCount}</span>
+              ${this.renderGroupRiskDot(presentation.riskIndicator)}
+            </div>
+            <time class="group-modified-cell" datetime=${item.updatedFormatted}>
+              ${item.updatedFormatted}
+            </time>
+            <div class="group-actions-cell">
+              <cv-icon class="group-chevron" name="chevron-right"></cv-icon>
+            </div>
           </div>
         </div>
       </div>
     `
   }
 
-  protected renderGroupItem(item: Entry | Group, active: boolean, deleteExiting = false) {
+  protected renderGroupItem(
+    item: Entry | Group,
+    active: boolean,
+    deleteExiting = false,
+    entering?: PMListMutationPhase,
+  ) {
     return this.isGroup(item)
-      ? this.renderFolderItem(item, active, deleteExiting)
-      : this.renderEntryItem(item, active, deleteExiting)
+      ? this.renderFolderItem(item, active, deleteExiting, entering)
+      : this.renderEntryItem(item, active, deleteExiting, entering)
   }
 
   protected renderGroupHeader(row: Extract<PMGroupRow, {kind: 'header'}>) {
@@ -1121,34 +1299,26 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     `
   }
 
-  protected renderRow(row: PMDeleteMotionRow, active: boolean) {
+  protected renderRow(row: PMListMutationRow, active: boolean) {
     const deleteExiting = row.deleteExiting === true
     switch (row.kind) {
       case 'header':
         return this.renderGroupHeader(row)
       case 'group':
-        return this.renderFolderItem(row.item, active, deleteExiting)
+        return this.renderFolderItem(row.item, active, deleteExiting, row.entering)
       case 'entry':
-        return this.renderEntryItem(row.item, active, deleteExiting)
+        return this.renderEntryItem(row.item, active, deleteExiting, row.entering)
     }
   }
 
-  protected getVirtualListRenderKey(
-    group: Group | ManagerRoot,
-    items: PMGroupRow[],
-  ): string {
-    // Active-row changes must update rows in place; remounting the list resets scroll on focus/click.
-    return this.model.getListContextKey(group, items.length)
-  }
-
-  private getPreviousVisibleRows(): PMDeleteVisibleRow[] {
+  private getPreviousVisibleRows(): PMListMutationVisibleRow[] {
     if (this.lastVirtualRows.length === 0) return []
 
     const fallbackLast = Math.min(this.lastVirtualRows.length - 1, 39)
     const range = this.lastVirtualRange ?? {first: 0, last: fallbackLast}
     const first = Math.max(0, range.first)
     const last = Math.min(this.lastVirtualRows.length - 1, range.last)
-    const rows: PMDeleteVisibleRow[] = []
+    const rows: PMListMutationVisibleRow[] = []
     for (let index = first; index <= last; index += 1) {
       const row = this.lastVirtualRows[index]
       if (row) rows.push({row, index})
@@ -1166,23 +1336,106 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     this.scrollEdge.scheduleMeasure()
   }
 
+  private onVirtualVisibilityChanged(event: Event): void {
+    const detail = event as Event & {first?: number; last?: number}
+    if (typeof detail.first !== 'number' || typeof detail.last !== 'number') return
+    this.lastVisibleRange = {
+      first: Math.max(0, Math.floor(detail.first)),
+      last: Math.max(0, Math.floor(detail.last)),
+    }
+  }
+
   protected onDeleteExitAnimationEnd(event: AnimationEvent, id: string): void {
     if (event.target !== event.currentTarget) return
-
-    const before = this.captureVisibleRowRects()
-    pmDeleteMotionModel.completeExit(id)
-
-    if (this.prefersReducedMotion()) return
-    void this.updateComplete.then(async () => {
-      await this.waitForVirtualizerLayout()
-      this.animateCompaction(before)
-      this.scrollEdge.scheduleMeasure()
+    this.pendingExitCompletionIds.add(id)
+    if (this.exitCompletionFrame !== null) return
+    this.exitCompletionFrame = requestAnimationFrame(() => {
+      this.exitCompletionFrame = null
+      const ids = [...this.pendingExitCompletionIds]
+      this.pendingExitCompletionIds.clear()
+      void this.runProjectionMutation(() => {
+        if (this.currentMutationScopeId) {
+          pmListMutationMotionModel.completeExitBatch(this.currentMutationScopeId, ids)
+        }
+      })
     })
+  }
+
+  protected onEnterAnimationEnd(event: AnimationEvent, id: string): void {
+    if (event.target !== event.currentTarget || !this.currentMutationScopeId) return
+    pmListMutationMotionModel.consumeEnter(this.currentMutationScopeId, id)
+  }
+
+  private finishReducedMotionRows(): void {
+    if (!prefersReducedMotion() || !this.currentMutationScopeId) return
+
+    const exitingIds = this.lastVirtualRows
+      .filter((row) => row.deleteExiting === true)
+      .map((row) => row.id)
+    const enteringIds = this.lastVirtualRows.filter((row) => row.entering).map((row) => row.id)
+    const stagedIds = pmListMutationMotionModel.getStagedEnterIds(this.currentMutationScopeId)
+    if (exitingIds.length > 0) {
+      pmListMutationMotionModel.completeExitBatch(this.currentMutationScopeId, exitingIds)
+    }
+    if (stagedIds.length > 0) {
+      pmListMutationMotionModel.revealEnterBatch(this.currentMutationScopeId, stagedIds)
+      for (const id of stagedIds) pmListMutationMotionModel.consumeEnter(this.currentMutationScopeId, id)
+    }
+    for (const id of enteringIds) {
+      pmListMutationMotionModel.consumeEnter(this.currentMutationScopeId, id)
+    }
+  }
+
+  private scheduleStagedEnterReveal(): void {
+    if (prefersReducedMotion() || !this.currentMutationScopeId || this.enterRevealFrame !== null) return
+    const ids = pmListMutationMotionModel.getStagedEnterIds(this.currentMutationScopeId)
+    if (ids.length === 0) return
+
+    const scopeId = this.currentMutationScopeId
+    this.enterRevealFrame = requestAnimationFrame(() => {
+      this.enterRevealFrame = null
+      void this.runProjectionMutation(() => {
+        pmListMutationMotionModel.revealEnterBatch(scopeId, ids)
+      })
+    })
+  }
+
+  private async runProjectionMutation(update: () => void): Promise<void> {
+    const before = this.captureVisibleRowRects()
+    const scope = this.renderRoot.querySelector<HTMLElement>('.pm-group-scroll-edge')
+    if (scope) scope.dataset['pmListTransition'] = 'true'
+    const result = await elementScopedViewTransitionCoordinator.run({
+      scope,
+      enabled: this.canUseScopedListTransition(),
+      update,
+      settle: async () => {
+        await this.updateComplete
+        await this.waitForVirtualizerLayout()
+      },
+    })
+    if (scope) delete scope.dataset['pmListTransition']
+
+    if (result.state !== 'applied' && result.state !== 'joined-active' && !prefersReducedMotion()) {
+      this.animateCompaction(before)
+    }
+    this.scrollEdge.scheduleMeasure()
+  }
+
+  private canUseScopedListTransition(): boolean {
+    if (typeof CSS === 'undefined' || !CSS.supports('view-transition-name', 'match-element')) {
+      return false
+    }
+
+    const scroller = this.renderRoot.querySelector<HTMLElement>('.group-virtual-list')
+    if (!scroller || !window.matchMedia('(pointer: fine)').matches) return true
+    return scroller.offsetWidth - scroller.clientWidth <= 2
   }
 
   private captureVisibleRowRects(): Map<string, DOMRect> {
     const rows = new Map<string, DOMRect>()
-    for (const element of this.renderRoot.querySelectorAll<HTMLElement>('.entry-row[data-row-id], .group-row-wrap[data-row-id]')) {
+    for (const element of this.renderRoot.querySelectorAll<HTMLElement>(
+      '.entry-row[data-row-id], .group-row-wrap[data-row-id]',
+    )) {
       if (element.hasAttribute('data-delete-exiting')) continue
       const id = element.dataset['rowId']
       if (!id) continue
@@ -1194,52 +1447,67 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   private animateCompaction(before: Map<string, DOMRect>): void {
     if (before.size === 0) return
 
-    for (const element of this.renderRoot.querySelectorAll<HTMLElement>('.entry-row[data-row-id], .group-row-wrap[data-row-id]')) {
+    const style = getComputedStyle(this)
+    const duration = this.readCssTime(style.getPropertyValue('--cv-duration-normal'), 250)
+    const easing = style.getPropertyValue('--cv-easing-decelerate').trim() || 'cubic-bezier(0, 0, 0.2, 1)'
+
+    for (const element of this.renderRoot.querySelectorAll<HTMLElement>(
+      '.entry-row[data-row-id], .group-row-wrap[data-row-id]',
+    )) {
       if (element.hasAttribute('data-delete-exiting')) continue
 
       const id = element.dataset['rowId']
       const previous = id ? before.get(id) : undefined
-      if (!previous || typeof element.animate !== 'function') continue
+      const motionSurface = element.querySelector<HTMLElement>(':scope > .pm-row-motion-surface')
+      if (!previous || !motionSurface || typeof motionSurface.animate !== 'function') continue
 
       const next = element.getBoundingClientRect()
       const deltaX = previous.left - next.left
       const deltaY = previous.top - next.top
       if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) continue
 
-      element.animate(
-        [
-          {transform: `translate(${deltaX}px, ${deltaY}px)`},
-          {transform: 'translate(0, 0)'},
-        ],
-        {
-          duration: 180,
-          easing: 'cubic-bezier(0, 0, 0.2, 1)',
-        },
-      )
+      motionSurface.animate([{transform: `translate(${deltaX}px, ${deltaY}px)`}, {transform: 'translate(0, 0)'}], {
+        duration,
+        easing,
+      })
     }
   }
 
-  private async waitForVirtualizerLayout(): Promise<void> {
-    const virtualizer = this.renderRoot.querySelector('lit-virtualizer') as
-      | ({layoutComplete?: Promise<void>} & HTMLElement)
-      | null
-    await virtualizer?.layoutComplete?.catch(() => {})
+  private readCssTime(value: string, fallback: number): number {
+    const normalized = value.trim()
+    if (normalized.endsWith('ms')) return Number.parseFloat(normalized) || fallback
+    if (normalized.endsWith('s')) return (Number.parseFloat(normalized) || fallback / 1000) * 1000
+    return fallback
   }
 
-  private prefersReducedMotion(): boolean {
-    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+  private async waitForVirtualizerLayout(
+    virtualizer: PMVirtualizerElement | null = this.rangeVirtualizer,
+  ): Promise<void> {
+    await virtualizer?.updateComplete
+    const frameFallback = new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    })
+    const layoutComplete = virtualizer?.layoutComplete
+    await (layoutComplete ? Promise.race([layoutComplete.catch(() => {}), frameFallback]) : frameFallback)
   }
 
   protected renderEmptyState() {
     const group = this.getCurrentGroup()
     const targetId = group ? this.getDropTargetId(group) : undefined
-
-    return html`
-      <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
+    const presentation = this.getEmptyStatePresentation()
+    const surface = html`
+      <div
+        id="passwords.empty-state"
+        role="group"
+        aria-label=${presentation.ariaLabel}
+        data-empty-kind=${presentation.kind}
+      >
         <cv-empty-state
           variant="dropzone"
-          icon="folder"
-          headline=${i18n('group:no_entries')}
+          icon=${presentation.icon}
+          headline=${presentation.headline}
+          description=${presentation.description}
+          data-empty-kind=${presentation.kind}
           data-drop-target-id=${targetId ?? nothing}
           data-mobile-dnd-target-id=${targetId ?? nothing}
           @dragover=${this.onDragOverEmpty}
@@ -1247,26 +1515,90 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
           @drop=${this.onDropEmpty}
           @dragleave=${this.onEmptyDragLeave}
         >
-          ${renderGuidanceInline('passwords.create-entry', 'passwords')}
+          ${presentation.kind === 'empty'
+            ? renderGuidanceInline('passwords.create-entry', 'passwords')
+            : nothing}
+          ${presentation.kind === 'filtered'
+            ? html`
+                <cv-button
+                  slot="actions"
+                  type="button"
+                  size="small"
+                  variant="default"
+                  @click=${this.handleClearContentFilters}
+                >
+                  ${i18n('credentials:clear_filters' as never)}
+                </cv-button>
+              `
+            : nothing}
         </cv-empty-state>
-      </cv-guidance-anchor>
+      </div>
     `
+
+    return presentation.kind === 'empty'
+      ? html`
+          <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
+            ${surface}
+          </cv-guidance-anchor>
+        `
+      : surface
+  }
+
+  private handleClearContentFilters(): void {
+    this.model.clearContentFilters()
   }
 
   protected renderGroupsList(group: Group | ManagerRoot, items: PMGroupRow[]) {
     const previousVisibleRows = this.getPreviousVisibleRows()
-    pmDeleteMotionModel.syncVisibleExits(items, previousVisibleRows, this.lastVirtualRange)
-    const renderItems = pmDeleteMotionModel.decorateRows(items)
     const contextKey = this.model.getListContextKey(group, items.length)
+    const currentGroupBy = groupBy()
+    const groupingChanged = this.renderedGroupBy !== null && currentGroupBy !== this.renderedGroupBy
+    const shouldPreserveListFocus = this.shouldPreserveListFocus()
+    const focusedRowId = shouldPreserveListFocus ? this.getFocusedListRowId() : undefined
+
+    if (groupingChanged) {
+      const entryId =
+        this.pendingGroupingAnchor?.entryId ??
+        this.model.getGroupingAnchorEntryId(
+          this.lastVirtualRows,
+          this.lastVisibleRange ?? this.lastVirtualRange,
+          this.model.getActiveItemId(),
+        )
+      this.pendingGroupingAnchor = {
+        entryId,
+        contextKey,
+        shouldFocus:
+          this.pendingGroupingAnchor?.shouldFocus ?? Boolean(entryId && focusedRowId === entryId),
+      }
+    } else if (this.pendingGroupingAnchor && this.pendingGroupingAnchor.contextKey !== contextKey) {
+      this.pendingGroupingAnchor = null
+    }
+    this.renderedGroupBy = currentGroupBy
+
+    const mutationScopeId = `content:${contextKey}`
+    this.currentMutationScopeId = mutationScopeId
+    this.ownedMutationScopes.add(mutationScopeId)
+    pmListMutationMotionModel.syncProjection(
+      mutationScopeId,
+      items,
+      previousVisibleRows,
+      this.lastVirtualRange,
+    )
+    const renderItems = pmListMutationMotionModel.decorateProjection(mutationScopeId, items)
     this.renderedListContextKey = contextKey
 
     if (!items.length && !renderItems.length) {
       this.model.resetKeyboardState()
       this.lastVirtualRows = []
+      this.lastVirtualRange = null
+      this.lastVisibleRange = null
+      this.pendingGroupingAnchor = null
       return this.renderEmptyState()
     }
 
-    const shouldPreserveListFocus = this.shouldPreserveListFocus()
+    const focusedRowRemoved = Boolean(
+      focusedRowId && !renderItems.some((row) => row.id === focusedRowId),
+    )
     const {restoredIndex, activeIndex, contextChanged} = this.model.syncKeyboardState(
       items,
       contextKey,
@@ -1274,13 +1606,15 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     )
     if (restoredIndex !== null) {
       this.ensureActiveItemVisible(restoredIndex, true)
+    } else if (focusedRowRemoved) {
+      if (activeIndex >= 0) this.ensureActiveItemVisible(activeIndex, true)
+      else this.focusListContainer()
     } else if (contextChanged && shouldPreserveListFocus && activeIndex >= 0) {
       this.ensureActiveItemVisible(activeIndex, true)
     }
 
     const activeId = this.model.getActiveItemId()
     const currentGroupId = this.getDropTargetId(group)
-    const renderKey = this.getVirtualListRenderKey(group, renderItems)
     const hasScrollBlockStart = this.usesBlockStartScrollEdge() && this.scrollEdge.hasBlockStartOverflow()
     const hasScrollBlockEnd = this.scrollEdge.hasBlockEndOverflow()
     this.lastVirtualRows = renderItems
@@ -1293,23 +1627,23 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         data-scroll-block-end=${String(hasScrollBlockEnd)}
       >
         ${this.renderListHeader(group, items)}
-        ${keyed(renderKey, html`
-          <lit-virtualizer
-            class="group-virtual-list scroll-edge-scroller"
-            data-drop-target-id=${currentGroupId ?? nothing}
-            data-mobile-dnd-target-id=${currentGroupId ?? nothing}
-            scroller
-            .items=${renderItems}
-            .keyFunction=${(item: PMDeleteMotionRow) => item.id}
-            .renderItem=${(item: PMDeleteMotionRow) =>
-              this.renderRow(item, item.deleteExiting === true ? false : item.id === activeId)}
-            @rangeChanged=${this.onVirtualRangeChanged}
-            @dragover=${this.onDragOverContentArea}
-            @dragenter=${this.onDragOverContentArea}
-            @drop=${this.onDropContentArea}
-            @dragleave=${this.onContentDragLeave}
-          ></lit-virtualizer>
-        `)}
+        <lit-virtualizer
+          class="group-virtual-list scroll-edge-scroller"
+          tabindex="-1"
+          data-drop-target-id=${currentGroupId ?? nothing}
+          data-mobile-dnd-target-id=${currentGroupId ?? nothing}
+          scroller
+          .items=${renderItems}
+          .keyFunction=${(item: PMListMutationRow) => item.id}
+          .renderItem=${(item: PMListMutationRow) =>
+            this.renderRow(item, item.deleteExiting === true ? false : item.id === activeId)}
+          @rangeChanged=${this.onVirtualRangeChanged}
+          @visibilityChanged=${this.onVirtualVisibilityChanged}
+          @dragover=${this.onDragOverContentArea}
+          @dragenter=${this.onDragOverContentArea}
+          @drop=${this.onDropContentArea}
+          @dragleave=${this.onContentDragLeave}
+        ></lit-virtualizer>
       </div>
     `
   }
@@ -1320,11 +1654,8 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
     return html`
       <div class="wrapper">
-        ${this.renderHeader(group, summary, isRoot)}
-        ${this.renderGroupMetrics(summary)}
-        <section class="content-shell">
-          ${this.renderGroupsList(group, items)}
-        </section>
+        ${this.renderHeader(group, summary, isRoot)} ${this.renderGroupMetrics(summary)}
+        <section class="content-shell">${this.renderGroupsList(group, items)}</section>
       </div>
     `
   }

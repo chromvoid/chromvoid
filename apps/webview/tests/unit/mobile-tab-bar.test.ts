@@ -4,6 +4,7 @@ import {atom} from '@reatom/core'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {DEFAULT_SNAPSHOT} from '../../src/app/navigation/navigation-snapshot'
 import {MobileTabBar} from '../../src/features/shell/components/mobile-tab-bar'
+import {i18n} from '../../src/i18n'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 
 function defineMobileTabBar() {
@@ -49,9 +50,14 @@ describe('mobile-tab-bar', () => {
 
     const tabs = Array.from(element.shadowRoot?.querySelectorAll<HTMLButtonElement>('.tab') ?? [])
     const activeTab = element.shadowRoot?.querySelector<HTMLButtonElement>('.tab.active')
+    const credentialsTab = element.shadowRoot?.querySelector<HTMLButtonElement>('#app\\.tab\\.credentials')
 
     expect(tabs).toHaveLength(4)
     expect(activeTab).toBe(tabs[2])
+    expect(credentialsTab).toBe(activeTab)
+    expect(credentialsTab).toBeInstanceOf(HTMLButtonElement)
+    expect(credentialsTab?.type).toBe('button')
+    expect(credentialsTab?.getAttribute('aria-label')).toBe(i18n('navigation:passwords'))
     expect(activeTab?.querySelector('cv-icon')?.getAttribute('name')).toBe('lock')
   })
 
@@ -135,6 +141,25 @@ describe('mobile-tab-bar', () => {
     expect(navigationModel.snapshot()).toMatchObject({
       surface: 'passwords',
       passwords: {kind: 'otp-view'},
+    })
+  })
+
+  it('opens Credentials from the native Credentials tab', async () => {
+    defineMobileTabBar()
+    setupContext()
+    navigationModel.snapshot.set(DEFAULT_SNAPSHOT)
+
+    const element = document.createElement('mobile-tab-bar') as MobileTabBar
+    document.body.append(element)
+    await element.updateComplete
+
+    const credentialsTab = element.shadowRoot?.querySelector<HTMLButtonElement>('#app\\.tab\\.credentials')
+    credentialsTab?.click()
+    await element.updateComplete
+
+    expect(navigationModel.snapshot()).toMatchObject({
+      surface: 'passwords',
+      passwords: {kind: 'root'},
     })
   })
 

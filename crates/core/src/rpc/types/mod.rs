@@ -36,6 +36,8 @@ pub const CORE_FEATURE_REMOTE_MEDIA_INSPECTION_SPLIT_V1: &str = "remote_media_in
 pub const CORE_FEATURE_REMOTE_RPC_JSON_MULTIPLEX_V1: &str = "remote_rpc_json_multiplex_v1";
 pub const CORE_FEATURE_REMOTE_RPC_PRIORITY_LOCK_V1: &str = "remote_rpc_priority_lock_v1";
 pub const CORE_FEATURE_REMOTE_STREAM_CONTROL_V1: &str = "remote_stream_control_v1";
+pub const CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1: &str =
+    "remote_image_derivative_ensure_v1";
 pub const CORE_FEATURE_PRO_ENTITLEMENTS_SNAPSHOT_V1: &str = "pro_entitlements_snapshot_v1";
 pub const CORE_FEATURE_WALLET_DOMAIN_BASE_V1: &str = "wallet_domain_base_v1";
 pub const CORE_FEATURE_WALLET_CORE_BTC_ETH_V1: &str = "wallet_core_btc_eth_v1";
@@ -54,6 +56,7 @@ pub fn core_capability_features() -> Vec<String> {
         CORE_FEATURE_REMOTE_RPC_JSON_MULTIPLEX_V1.to_string(),
         CORE_FEATURE_REMOTE_RPC_PRIORITY_LOCK_V1.to_string(),
         CORE_FEATURE_REMOTE_STREAM_CONTROL_V1.to_string(),
+        CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1.to_string(),
         CORE_FEATURE_PRO_ENTITLEMENTS_SNAPSHOT_V1.to_string(),
         CORE_FEATURE_CATALOG_REPAIR_V1.to_string(),
         CORE_FEATURE_CATALOG_TRASH_V1.to_string(),

@@ -28,7 +28,8 @@ use super::pairing_protocol::{
 };
 use super::pairing_protocol::{
     pairing_approval_proof_hex, recv_pairing_approval_ack, recv_pairing_approval_challenge,
-    send_pairing_approval_proof, MobileUsbPairingApprovalChallenge, MobileUsbPairingApprovalProof,
+    send_pairing_approval_proof, MobileUsbPairingApprovalAction, MobileUsbPairingApprovalChallenge,
+    MobileUsbPairingApprovalProof, USB_PAIRING_CANCEL_V1,
 };
 use super::pairing_store::{
     classify_scan_result, commit_pairing_with_secret, MobileUsbPairingStore,
@@ -38,11 +39,12 @@ use super::secret_store::MobileUsbSecretStore;
 use super::types::RemoteIoStopReason as MobileUsbRemoteIoStopReason;
 use super::types::{
     HostId, MobileUsbDetectCandidate, MobileUsbDetectedDevice, MobileUsbDetectedPairedMatch,
-    MobileUsbError, MobileUsbErrorCode, MobileUsbHostView, MobileUsbOperationKind,
-    MobileUsbOperationToken, MobileUsbPairConfirmRequest, MobileUsbPairRequest,
-    MobileUsbPairedHostRecord, MobileUsbPairingApprovalView, MobileUsbPairingState,
-    MobileUsbScanClassification, MobileUsbScannedHost, MobileUsbSessionEvent,
-    MobileUsbSessionState, MobileUsbStateMachine, MobileUsbStatus, SessionId,
+    MobileUsbDetectedPairingState, MobileUsbError, MobileUsbErrorCode, MobileUsbHostView,
+    MobileUsbOperationKind, MobileUsbOperationToken, MobileUsbPairConfirmRequest,
+    MobileUsbPairRequest, MobileUsbPairedHostRecord, MobileUsbPairingApprovalView,
+    MobileUsbPairingState, MobileUsbScanClassification, MobileUsbScannedHost,
+    MobileUsbSessionEvent, MobileUsbSessionState, MobileUsbStateMachine, MobileUsbStatus,
+    SessionId,
 };
 
 mod connect;
@@ -73,7 +75,11 @@ pub trait MobileUsbSessionStarter: Send + Sync {
         request: MobileUsbStartSessionRequest,
     ) -> Result<MobileUsbSessionHandle, MobileUsbError>;
 
-    fn stop_active_session(&self) -> Result<(), MobileUsbError> {
+    async fn disconnect_user(&self) -> Result<(), MobileUsbError> {
+        self.disconnect_terminal()
+    }
+
+    fn disconnect_terminal(&self) -> Result<(), MobileUsbError> {
         Ok(())
     }
 }
@@ -95,6 +101,7 @@ struct PendingMobileUsbPairingSession {
     client_private_key: Vec<u8>,
     client_public_key: Vec<u8>,
     peer_pubkey: Vec<u8>,
+    supports_graceful_cancel: bool,
     challenge: MobileUsbPairingApprovalChallenge,
     transport: Box<dyn RemoteTransport>,
     noise_transport: chromvoid_protocol::NoiseTransport,
@@ -212,18 +219,16 @@ impl MobileUsbController {
         result
     }
 
-    pub fn disconnect(&self) -> Result<MobileUsbStatus, MobileUsbError> {
+    pub async fn disconnect_user(&self) -> Result<MobileUsbStatus, MobileUsbError> {
         let started_at = Instant::now();
-        self.discard_pending_pairing();
-        let result = self.with_state(|state| {
-            let state_from = state.session_state();
-            let had_active_session = state.active_session_id().is_some();
-            state.disconnect();
-            (state_from, state.session_state(), had_active_session)
-        });
+        let pending_pairing = self.take_pending_pairing();
+        let result = self.prepare_disconnect_state();
+        if let Some(pending) = pending_pairing {
+            self.cancel_pending_pairing(pending).await;
+        }
         if let Ok((state_from, state_to, had_active_session)) = result {
             if had_active_session {
-                if let Err(error) = self.session_starter.stop_active_session() {
+                if let Err(error) = self.session_starter.disconnect_user().await {
                     tracing::warn!(
                         error = %error.message,
                         "mobile_usb disconnect failed to stop active remote data plane"
@@ -237,17 +242,108 @@ impl MobileUsbController {
         result
     }
 
-    fn discard_pending_pairing(&self) {
+    pub fn disconnect_terminal(&self) -> Result<MobileUsbStatus, MobileUsbError> {
+        let started_at = Instant::now();
+        self.take_pending_pairing();
+        let result = self.prepare_disconnect_state();
+        if let Ok((state_from, state_to, had_active_session)) = result {
+            if had_active_session {
+                if let Err(error) = self.session_starter.disconnect_terminal() {
+                    tracing::warn!(
+                        error = %error.message,
+                        "mobile_usb terminal disconnect failed to stop active remote data plane"
+                    );
+                }
+            }
+            self.record_state_transition(state_from, state_to, None, None, None);
+        }
+        let result = result.map(|_| ()).and_then(|_| self.status_inner());
+        self.record_operation_result("disconnect_terminal", started_at, &result, None, None, None);
+        result
+    }
+
+    fn prepare_disconnect_state(
+        &self,
+    ) -> Result<(MobileUsbSessionState, MobileUsbSessionState, bool), MobileUsbError> {
+        self.with_state(|state| {
+            let state_from = state.session_state();
+            let had_active_session = state.active_session_id().is_some();
+            state.disconnect();
+            (state_from, state.session_state(), had_active_session)
+        })
+    }
+
+    fn take_pending_pairing(&self) -> Option<PendingMobileUsbPairingSession> {
         let discarded = match self.pending_pairing.lock() {
             Ok(mut pending) => pending.take(),
             Err(poisoned) => poisoned.into_inner().take(),
         };
-        if let Some(pending) = discarded {
+        if let Some(pending) = discarded.as_ref() {
             tracing::info!(
                 transport_family = MOBILE_USB_TRANSPORT_FAMILY,
                 attempt_id = %redacted_identifier(Some(&pending.attempt_id)),
                 "mobile_usb disconnect discarded pending pairing approval"
             );
+        }
+        discarded
+    }
+
+    async fn cancel_pending_pairing(&self, mut pending: PendingMobileUsbPairingSession) {
+        if !pending.supports_graceful_cancel {
+            tracing::info!(
+                transport_family = MOBILE_USB_TRANSPORT_FAMILY,
+                attempt_id = %redacted_identifier(Some(&pending.attempt_id)),
+                "mobile_usb pairing peer does not support graceful cancel; using local teardown"
+            );
+            return;
+        }
+
+        const PAIRING_CANCEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+        let result = match tokio::time::timeout(PAIRING_CANCEL_TIMEOUT, async {
+            send_pairing_approval_proof(
+                pending.transport.as_mut(),
+                &mut pending.noise_transport,
+                &MobileUsbPairingApprovalProof {
+                    attempt_id: pending.attempt_id.clone(),
+                    proof_hex: String::new(),
+                    action: MobileUsbPairingApprovalAction::Cancel,
+                },
+            )
+            .await?;
+            let ack =
+                recv_pairing_approval_ack(pending.transport.as_mut(), &mut pending.noise_transport)
+                    .await?;
+            if ack.attempt_id != pending.attempt_id
+                || ack.accepted
+                || ack.error.as_deref() != Some("pairing_cancelled")
+            {
+                return Err(
+                    "mobile USB pairing cancel returned an invalid acknowledgement".to_string(),
+                );
+            }
+            Ok::<(), String>(())
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(format!(
+                "mobile USB pairing cancel timed out after {}ms",
+                PAIRING_CANCEL_TIMEOUT.as_millis()
+            )),
+        };
+
+        match result {
+            Ok(()) => tracing::info!(
+                transport_family = MOBILE_USB_TRANSPORT_FAMILY,
+                attempt_id = %redacted_identifier(Some(&pending.attempt_id)),
+                "mobile_usb pairing cancel acknowledged"
+            ),
+            Err(error) => tracing::warn!(
+                transport_family = MOBILE_USB_TRANSPORT_FAMILY,
+                attempt_id = %redacted_identifier(Some(&pending.attempt_id)),
+                error,
+                "mobile_usb pairing cancel fell back to local teardown"
+            ),
         }
     }
 
@@ -299,7 +395,7 @@ impl MobileUsbController {
         };
 
         if stop_active_session {
-            if let Err(error) = self.session_starter.stop_active_session() {
+            if let Err(error) = self.session_starter.disconnect_terminal() {
                 tracing::warn!(
                     error = %error.message,
                     "mobile_usb host lock failed to stop active remote data plane"

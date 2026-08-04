@@ -22,3 +22,14 @@ pub(crate) mod ssh_agent_cmds;
 pub(crate) mod sync_cmds;
 #[cfg(desktop)]
 pub(crate) mod volume_ops;
+
+pub(crate) fn ensure_main_window_caller(
+    window_label: &str,
+    command_name: &str,
+) -> Result<(), String> {
+    if window_label == "main" {
+        return Ok(());
+    }
+
+    Err(format!("{command_name} is restricted to the main window"))
+}

@@ -52,11 +52,6 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
     this.selectionTapToken = passwordManagerMobileLayoutModel.beginEntryLongPress(entry.id, {
       x: touch.clientX,
       y: touch.clientY,
-    }, () => {
-      try {
-        event.preventDefault?.()
-        event.stopPropagation?.()
-      } catch {}
     })
     pmMobileDebug('entryRow', 'touchStart.arm', {entryId: entry.id, token: this.selectionTapToken})
   }
@@ -187,6 +182,10 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
     this.enterSelectionMode(event)
   }
 
+  private handleSelectStart(event: Event) {
+    event.preventDefault()
+  }
+
   // ── Click override ──
 
   protected override onClick(event: Event) {
@@ -298,8 +297,10 @@ export class PMEntryListItemMobile extends PMEntryListItemBase {
           @pointerup=${this.handlePointerEnd}
           @pointercancel=${this.handlePointerEnd}
           @contextmenu=${this.handleContextMenu}
+          @selectstart=${this.handleSelectStart}
           @transitionend=${this.handleSwipeTransitionEnd}
           role="button"
+          aria-label=${presentation.title}
           tabindex=${String(this.getRowTabIndex())}
         >
           ${this.renderIcon(entry, presentation)}

@@ -1,4 +1,5 @@
 import {expect, test} from 'vitest'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 
 import {createUniqueName, openFilesRoot} from './utils'
 
@@ -13,7 +14,11 @@ test('S6: folder creation', async () => {
   const folderName = createUniqueName('e2e-create-folder')
 
   const hasFolder = await page.evaluate(async (name) => {
-    const ctx = (window as any).getAppContext?.()
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const ctx = getAppContext()
     if (!ctx?.catalog?.api?.createDir) {
       throw new Error('catalog.api.createDir is unavailable')
     }

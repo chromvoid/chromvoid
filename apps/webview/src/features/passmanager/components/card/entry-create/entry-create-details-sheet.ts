@@ -8,12 +8,8 @@ import {i18n} from '@project/passmanager/i18n'
 import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from 'root/features/passmanager/models/pm-root.adapter'
 import {PMIconPickerInline} from '../../pm-icon-picker.inline'
+import {PMMobileTagPicker} from '../../tags/mobile-tag-picker'
 import {PMEntryOTPCreate} from '../entry-otp-create/entry-otp-create'
-import {
-  getSelectedTagIdsFromEvent,
-  renderEntryTagsEditor,
-} from '../entry-tags/entry-tags-editor'
-import {pmEntryTagsStyles} from '../entry-tags/entry-tags.styles'
 import {
   PMEntryCreateModel,
   type PMEntryCreateDetailsView,
@@ -46,6 +42,12 @@ const DETAIL_PRESENTATION: Record<
   },
 }
 
+const PRIMARY_ACTION_LABEL_KEY: Partial<Record<PMEntryCreateDetailsView, string>> = {
+  hub: 'button:done',
+  tags: 'entry:create:detail-tags-apply',
+  otp: 'otp:save',
+}
+
 const detailsSheetStyles = css`
   :host {
     display: contents;
@@ -53,11 +55,23 @@ const detailsSheetStyles = css`
 
   cv-bottom-sheet {
     --cv-bottom-sheet-middle-height: min(72dvh, 600px);
-    --cv-bottom-sheet-header-padding: 0 var(--cv-space-4) var(--cv-space-3);
+    --cv-bottom-sheet-header-padding: var(--cv-space-4) var(--cv-space-4) var(--cv-space-3);
   }
 
   cv-bottom-sheet::part(body) {
     padding: 0 var(--cv-space-4) var(--cv-space-4);
+  }
+
+  cv-bottom-sheet[data-view='tags']::part(header) {
+    min-block-size: 0;
+    block-size: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  cv-bottom-sheet[data-view='tags']::part(body) {
+    overflow: hidden;
+    padding: 0;
   }
 
   cv-bottom-sheet::part(footer) {
@@ -168,6 +182,31 @@ const detailsSheetStyles = css`
     cursor: pointer;
   }
 
+  .tag-back-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    inline-size: 40px;
+    block-size: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--cv-radius-2);
+    color: var(--cv-color-primary);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .tag-back-action:focus-visible {
+    outline: 2px solid var(--cv-color-primary);
+    outline-offset: 2px;
+  }
+
+  pm-mobile-tag-picker {
+    block-size: 100%;
+    min-block-size: 0;
+  }
+
   cv-textarea,
   pm-icon-picker-inline,
   pm-entry-otp-create {
@@ -186,7 +225,7 @@ const detailsSheetStyles = css`
     padding-block-start: var(--cv-space-3);
   }
 
-  .sheet-actions.has-remove {
+  .sheet-actions.has-two-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -209,7 +248,7 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
     model: {attribute: false},
   }
 
-  static styles = [pmEntryTagsStyles, detailsSheetStyles]
+  static styles = [detailsSheetStyles]
 
   declare model: PMEntryCreateModel
 
@@ -226,6 +265,7 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
     CVTextarea.define()
     PMEntryOTPCreate.define()
     PMIconPickerInline.define()
+    PMMobileTagPicker.define()
     if (!customElements.get(this.elementName)) {
       customElements.define(this.elementName, this)
     }
@@ -233,6 +273,7 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
 
   override disconnectedCallback(): void {
     this.afterRenderScheduler.cancel()
+    this.model.cancelTagEditor()
     super.disconnectedCallback()
   }
 
@@ -258,7 +299,7 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
     }
   }
 
-  private async handleDone(): Promise<void> {
+  private async handlePrimaryAction(): Promise<void> {
     const detail = this.getActiveDetail()
     if (!detail) {
       this.model.closeDetailsSheet()
@@ -266,7 +307,8 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
     }
 
     if (detail === 'otp' && !(await this.model.confirmOtpEditor())) return
-    if (detail !== 'otp') this.model.closeDetailsEditor()
+    if (detail === 'tags' && !(await this.model.confirmTagEditor())) return
+    if (detail !== 'otp' && detail !== 'tags') return
     this.afterRenderScheduler.schedule(() => this.focusDetailRow(detail))
   }
 
@@ -278,10 +320,6 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
 
   private handleIconChange(event: CustomEvent<{iconRef: string | undefined}>): void {
     this.model.setIconRef(event.detail.iconRef)
-  }
-
-  private handleTagsSelect(event: Event): void {
-    this.model.setTagsFromKeys(getSelectedTagIdsFromEvent(event))
   }
 
   private handleNoteInput(event: CVTextareaInputEvent): void {
@@ -299,6 +337,15 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
 
   private focusDetailRow(detail: PMEntryCreateOptionalDetail): void {
     this.shadowRoot?.querySelector<HTMLElement>(`[data-detail="${detail}"]`)?.focus()
+  }
+
+  private handleOtpAdvancedBack(): void {
+    this.afterRenderScheduler.schedule(() => {
+      const otpEditor = this.shadowRoot?.querySelector<PMEntryOTPCreate>('pm-entry-otp-create')
+      otpEditor?.shadowRoot
+        ?.querySelector<HTMLElement>('.otp-advanced-link')
+        ?.focus({preventScroll: true})
+    })
   }
 
   private getDetailStatus(detail: PMEntryCreateOptionalDetail): string {
@@ -351,19 +398,41 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
     `
   }
 
-  private renderEditor(view: Exclude<PMEntryCreateDetailsView, 'hub'>): TemplateResult {
+  private renderEditor(view: Exclude<PMEntryCreateDetailsView, 'hub'>, otpAdvanced: boolean): TemplateResult {
+    if (view === 'tags') {
+      return html`
+        <pm-mobile-tag-picker data-detail-editor="tags">
+          <button
+            id="entry-create-tags-back"
+            class="tag-back-action"
+            slot="leading"
+            type="button"
+            data-detail-back
+            aria-label=${i18n('button:back')}
+            @click=${this.handleBack}
+          >
+            <cv-icon name="chevron-left" aria-hidden="true"></cv-icon>
+          </button>
+        </pm-mobile-tag-picker>
+      `
+    }
+
     return html`
       <div class="detail-editor" data-detail-editor=${view}>
-        <button class="back-action" type="button" data-detail-back @click=${this.handleBack}>
-          <cv-icon name="chevron-left" aria-hidden="true"></cv-icon>
-          ${i18n('button:back')}
-        </button>
+        ${otpAdvanced
+          ? nothing
+          : html`
+              <button class="back-action" type="button" data-detail-back @click=${this.handleBack}>
+                <cv-icon name="chevron-left" aria-hidden="true"></cv-icon>
+                ${i18n('button:back')}
+              </button>
+            `}
         ${this.renderEditorBody(view)}
       </div>
     `
   }
 
-  private renderEditorBody(detail: PMEntryCreateOptionalDetail): TemplateResult {
+  private renderEditorBody(detail: Exclude<PMEntryCreateOptionalDetail, 'tags'>): TemplateResult {
     switch (detail) {
       case 'icon':
         return html`
@@ -373,23 +442,14 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
             @pm-icon-change=${this.handleIconChange}
           ></pm-icon-picker-inline>
         `
-      case 'tags':
-        return renderEntryTagsEditor(
-          {
-            tags: this.model.tags(),
-            options: pmCredentialTagsModel.availableTags(),
-            comboboxType: 'select-only',
-            disabled: isPassmanagerReadOnlyOrMissing(),
-            maxTagsVisible: 1,
-            placeholder: i18n('tags:select_placeholder' as never),
-            showManage: false,
-          },
-          {
-            onSelectExistingTagIds: this.handleTagsSelect,
-          },
-        )
       case 'otp':
-        return html`<pm-entry-otp-create layout="card" .model=${this.model.otp}></pm-entry-otp-create>`
+        return html`
+          <pm-entry-otp-create
+            layout="card"
+            .model=${this.model.otp}
+            @pm-entry-otp-advanced-back=${this.handleOtpAdvancedBack}
+          ></pm-entry-otp-create>
+        `
       case 'note':
         return html`
           <cv-textarea
@@ -403,34 +463,54 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
     }
   }
 
-  private renderFooter(view: PMEntryCreateDetailsView): TemplateResult {
+  private renderFooter(view: PMEntryCreateDetailsView): TemplateResult | typeof nothing {
     const detail = view === 'hub' ? null : view
     const canRemove = detail ? this.model.optionalDetailHasData(detail) : false
+    const primaryActionLabelKey = PRIMARY_ACTION_LABEL_KEY[view]
+    const primaryActionLabel = primaryActionLabelKey ? i18n(primaryActionLabelKey as never) : null
+    if (!canRemove && !primaryActionLabel) return nothing
+
+    const tagSelectionSaving = detail === 'tags' && pmCredentialTagsModel.entrySelectionSaving()
+    const hasTwoActions = canRemove && Boolean(primaryActionLabel)
     return html`
-      <div class=${canRemove ? 'sheet-actions has-remove' : 'sheet-actions'} slot="footer">
+      <div class=${hasTwoActions ? 'sheet-actions has-two-actions' : 'sheet-actions'} slot="footer">
         ${canRemove
           ? html`
-              <cv-button type="button" variant="danger" size="large" @click=${this.handleRemove}>
+              <cv-button
+                data-details-remove-action
+                type="button"
+                variant="danger"
+                size="large"
+                ?disabled=${tagSelectionSaving}
+                @click=${this.handleRemove}
+              >
                 ${i18n('button:remove')}
               </cv-button>
             `
           : nothing}
-        <cv-button
-          type="button"
-          variant="primary"
-          preset="action-primary"
-          size="large"
-          .disabled=${isPassmanagerReadOnlyOrMissing()}
-          @click=${this.handleDone}
-        >
-          ${i18n('button:done')}
-        </cv-button>
+        ${primaryActionLabel
+          ? html`
+              <cv-button
+                data-details-primary-action
+                type="button"
+                variant="primary"
+                preset="action-primary"
+                size="large"
+                .loading=${tagSelectionSaving}
+                .disabled=${isPassmanagerReadOnlyOrMissing() || tagSelectionSaving}
+                @click=${this.handlePrimaryAction}
+              >
+                ${primaryActionLabel}
+              </cv-button>
+            `
+          : nothing}
       </div>
     `
   }
 
   protected override render(): TemplateResult {
     const view = this.model.detailsSheetView()
+    const tagsView = view === 'tags'
     const qrScannerActive = view === 'otp' && this.model.otp.qrScannerScanning()
     const otpAdvanced = view === 'otp' && this.model.otp.view() === 'advanced'
     const presentation = view === 'hub' ? null : DETAIL_PRESENTATION[view]
@@ -438,13 +518,16 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
     return html`
       <cv-bottom-sheet
         .open=${this.model.detailsSheetOpen()}
-        .closable=${!qrScannerActive}
+        .closable=${!qrScannerActive && !tagsView}
         .closeOnEscape=${!qrScannerActive}
         .closeOnOutsidePointer=${!qrScannerActive}
-        .closeOnOutsideFocus=${!qrScannerActive}
+        .closeOnOutsideFocus=${false}
         .dragToClose=${!qrScannerActive}
-        detents="middle expanded"
+        .showHandle=${tagsView}
+        .detents=${otpAdvanced ? '' : 'middle expanded'}
         .detent=${view === 'hub' ? 'middle' : 'expanded'}
+        .initialFocusId=${tagsView ? 'entry-create-tags-back' : ''}
+        data-view=${view}
         @cv-change=${this.handleSheetChange}
       >
         <span slot="title">
@@ -454,7 +537,7 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
               ? i18n(presentation.labelKey as never)
               : i18n('entry:create:add-details' as never)}
         </span>
-        ${otpAdvanced
+        ${tagsView || otpAdvanced
           ? nothing
           : html`
               <span slot="description">
@@ -463,7 +546,8 @@ export class PMEntryCreateDetailsSheet extends ReatomLitElement {
                   : i18n('entry:create:add-details-description' as never)}
               </span>
             `}
-        ${view === 'hub' ? this.renderHub() : this.renderEditor(view)} ${this.renderFooter(view)}
+        ${view === 'hub' ? this.renderHub() : this.renderEditor(view, otpAdvanced)}
+        ${otpAdvanced ? nothing : this.renderFooter(view)}
       </cv-bottom-sheet>
     `
   }

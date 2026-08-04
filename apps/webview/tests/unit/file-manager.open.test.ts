@@ -209,10 +209,25 @@ async function captureFileCommands(run: () => Promise<void>): Promise<FileComman
 }
 
 describe('FileManagerModel open dispatcher', () => {
+  let updateGalleryToast: ReturnType<typeof vi.fn>
+
   beforeEach(() => {
-    vi.spyOn(toastManager.toast, 'loading').mockReturnValue(vi.fn())
-    vi.spyOn(toastManager.toast, 'success').mockReturnValue('toast-success')
-    vi.spyOn(toastManager.toast, 'error').mockReturnValue('toast-error')
+    updateGalleryToast = vi.fn(() => true)
+    vi.spyOn(toastManager.toast, 'loading').mockReturnValue({
+      id: 'toast-loading',
+      update: updateGalleryToast,
+      dismiss: vi.fn(),
+    })
+    vi.spyOn(toastManager.toast, 'success').mockReturnValue({
+      id: 'toast-success',
+      update: vi.fn(() => true),
+      dismiss: vi.fn(),
+    })
+    vi.spyOn(toastManager.toast, 'error').mockReturnValue({
+      id: 'toast-error',
+      update: vi.fn(() => true),
+      dismiss: vi.fn(),
+    })
   })
 
   afterEach(() => {
@@ -1052,73 +1067,9 @@ describe('FileManagerModel open dispatcher', () => {
     const contextItems = model.getActionDescriptors(item)
     expect(contextItems.find((entry) => entry.id === 'open')?.disabled).toBe(true)
     expect(contextItems.find((entry) => entry.id === 'open-external')?.disabled).toBe(true)
-    expect(model.getMobileToolbarActions().find((action) => action.id === 'open')?.disabled).toBe(true)
-    expect(model.getMobileToolbarActions().find((action) => action.id === 'open-external')?.disabled).toBe(
-      true,
-    )
 
     resolveOpen?.({path: '/tmp/report.pdf'})
     await openPromise
-  })
-
-  it('surfaces selected file actions through the mobile toolbar contract', () => {
-    const {ctx} = createContext({
-      children: [
-        {
-          nodeId: 9,
-          path: '/report.pdf',
-          name: 'report.pdf',
-          isDir: false,
-          size: 1024,
-          mimeType: 'application/pdf',
-        },
-      ],
-      selectedNodeIds: [9],
-      selectionMode: true,
-    })
-    const model = new FileManagerModel(ctx)
-
-    expect(model.getMobileToolbarActions().map((action) => action.id)).toEqual([
-      'selection-done',
-      'open',
-      'open-external',
-      'rename',
-      'move',
-      'download',
-      'delete',
-    ])
-  })
-
-  it('promotes share into the visible native single-selection toolbar actions', () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true, supports_native_share: true})
-    vi.spyOn(shareService, 'canShareFiles').mockReturnValue(true)
-
-    const {ctx} = createContext({
-      children: [
-        {
-          nodeId: 9,
-          path: '/report.pdf',
-          name: 'report.pdf',
-          isDir: false,
-          size: 1024,
-          mimeType: 'application/pdf',
-        },
-      ],
-      selectedNodeIds: [9],
-      selectionMode: true,
-    })
-    const model = new FileManagerModel(ctx)
-
-    expect(model.getMobileToolbarActions().map((action) => action.id)).toEqual([
-      'selection-done',
-      'share',
-      'open',
-      'open-external',
-      'rename',
-      'move',
-      'download',
-      'delete',
-    ])
   })
 
   it('adds native multi-selection share action and shares only files', async () => {
@@ -1162,12 +1113,11 @@ describe('FileManagerModel open dispatcher', () => {
     const shareFilesSpy = vi.spyOn(shareService, 'shareFiles').mockResolvedValue()
 
     expect(model.canDownloadSelection()).toBe(true)
-    expect(model.getMobileToolbarActions().map((action) => action.id)).toEqual([
-      'selection-done',
+    expect(model.getMobileSelectionBarActions().map((action) => action.id)).toEqual([
       'share-selected',
       'move-selected',
-      'download-selected',
       'delete-selected',
+      'selection-done',
     ])
     expect(model.executeMobileCommand('share-selected')).toBe(true)
     expect(shareFilesSpy).not.toHaveBeenCalled()
@@ -1244,12 +1194,11 @@ describe('FileManagerModel open dispatcher', () => {
     const model = new FileManagerModel(ctx)
 
     expect(model.canDownloadSelection()).toBe(false)
-    expect(model.getMobileToolbarActions()).toEqual([
-      {id: 'selection-done', icon: 'check-lg', label: 'Done'},
+    expect(model.getMobileSelectionBarActions()).toEqual([
       {id: 'share-selected', icon: 'share-2', label: 'Share', disabled: true},
       {id: 'move-selected', icon: 'folder-symlink', label: 'Move', disabled: false},
-      {id: 'download-selected', icon: 'download', label: 'Download', disabled: true},
-      {id: 'delete-selected', icon: 'trash', label: 'Delete selected (2)'},
+      {id: 'delete-selected', icon: 'trash-2', label: 'Delete', disabled: false},
+      {id: 'selection-done', icon: 'x', label: 'Clear'},
     ])
   })
 
@@ -1284,7 +1233,7 @@ describe('FileManagerModel open dispatcher', () => {
     ])
   })
 
-  it('adds an accent reset action when files search filters are active', () => {
+  it('keeps the mobile add menu limited to creation and upload when search filters are active', () => {
     const {ctx} = createContext({
       searchFilters: {
         query: 'report',
@@ -1297,19 +1246,18 @@ describe('FileManagerModel open dispatcher', () => {
     })
     const model = new FileManagerModel(ctx)
 
-    expect(model.getMobileToolbarActions()).toEqual([
-      {id: 'filters-reset', icon: 'x', label: 'Clear filters', tone: 'accent'},
+    expect(model.getMobileAddActions()).toEqual([
       {id: 'create-note', icon: 'book-plus', label: 'Create note'},
       {id: 'create-dir', icon: 'folder-plus', label: 'Create folder'},
       {id: 'upload', icon: 'upload', label: 'Upload files'},
     ])
   })
 
-  it('surfaces create note as the primary default mobile toolbar action', () => {
+  it('surfaces the three default mobile add actions', () => {
     const {ctx} = createContext()
     const model = new FileManagerModel(ctx)
 
-    expect(model.getMobileToolbarActions()).toEqual([
+    expect(model.getMobileAddActions()).toEqual([
       {id: 'create-note', icon: 'book-plus', label: 'Create note'},
       {id: 'create-dir', icon: 'folder-plus', label: 'Create folder'},
       {id: 'upload', icon: 'upload', label: 'Upload files'},
@@ -1363,77 +1311,7 @@ describe('FileManagerModel open dispatcher', () => {
     expect(pushNotification).toHaveBeenCalledWith('success', 'Note "Daily Plan.md" created')
   })
 
-  it('executes selected item toolbar actions through the shared command handler', () => {
-    const {ctx} = createContext({
-      children: [
-        {
-          nodeId: 9,
-          path: '/report.pdf',
-          name: 'report.pdf',
-          isDir: false,
-          size: 1024,
-          mimeType: 'application/pdf',
-        },
-      ],
-      selectedNodeIds: [9],
-      selectionMode: true,
-    })
-    const model = new FileManagerModel(ctx)
-    const actionSpy = vi.spyOn(model, 'executeFileAction').mockReturnValue(true)
-
-    expect(model.executeMobileCommand('rename')).toBe(true)
-    expect(actionSpy).toHaveBeenCalledWith(
-      'rename',
-      expect.objectContaining({
-        id: 9,
-        name: 'report.pdf',
-      }),
-    )
-  })
-
-  it('renames a single selected image from the mobile toolbar command and patches the local list', async () => {
-    const {ctx, renameFile, refreshCatalog, applyCatalogEvent} = createContext({
-      children: [
-        {
-          nodeId: 9,
-          path: '/photo.png',
-          name: 'photo.png',
-          isDir: false,
-          size: 1024,
-          mimeType: 'image/png',
-        },
-      ],
-      selectedNodeIds: [9],
-      selectionMode: true,
-    })
-    const model = new FileManagerModel(ctx)
-    model.connect()
-    const dialogSpy = vi.spyOn(dialogService, 'showRenameFileDialog').mockResolvedValue('renamed.png')
-
-    try {
-      expect(model.executeMobileCommand('rename')).toBe(true)
-      for (let i = 0; i < 5; i++) {
-        await Promise.resolve()
-      }
-
-      expect(dialogSpy).toHaveBeenCalledWith('photo.png', '/')
-      expect(renameFile).toHaveBeenCalledWith(9, 'renamed.png')
-      expect(refreshCatalog).not.toHaveBeenCalled()
-      expect(applyCatalogEvent).toHaveBeenCalledWith({
-        type: CatalogEventType.NODE_RENAMED,
-        nodeId: 9,
-        timestamp: expect.any(Number),
-        version: 0,
-        metadata: {newName: 'renamed.png'},
-      })
-      expect(model.fileItems().find((item) => item.id === 9)?.name).toBe('renamed.png')
-      expect(ctx.store.selectedNodeIds()).toEqual([9])
-    } finally {
-      model.cleanup()
-    }
-  })
-
-  it('resets files search filters through the shared mobile toolbar command handler', () => {
+  it('does not expose filter reset through the mobile add command handler', () => {
     const {ctx} = createContext({
       searchFilters: {
         query: 'report',
@@ -1446,14 +1324,14 @@ describe('FileManagerModel open dispatcher', () => {
     })
     const model = new FileManagerModel(ctx)
 
-    expect(model.executeMobileCommand('filters-reset')).toBe(true)
+    expect(model.executeMobileCommand('filters-reset')).toBe(false)
     expect(ctx.store.searchFilters()).toEqual({
-      query: '',
-      sortBy: 'name',
-      sortDirection: 'asc',
-      viewMode: 'list',
-      showHidden: false,
-      fileTypes: [],
+      query: 'report',
+      sortBy: 'date',
+      sortDirection: 'desc',
+      viewMode: 'grid',
+      showHidden: true,
+      fileTypes: ['documents'],
     })
   })
 
@@ -1483,11 +1361,14 @@ describe('FileManagerModel open dispatcher', () => {
     expect(toastManager.toast.loading).toHaveBeenCalledWith(
       'Saving "photo.jpg" to gallery...',
       undefined,
-      {position: 'bottom-center'},
+      {key: 'files.save-to-gallery:9', position: 'bottom-center'},
     )
     const message =
       'Image "photo.jpg" saved to Pictures > ChromVoid. If it is not at the top, check the photo\'s original date.'
-    expect(toastManager.toast.success).toHaveBeenCalledWith(message, undefined, {
+    expect(updateGalleryToast).toHaveBeenCalledWith({
+      key: 'files.save-to-gallery:9',
+      message,
+      variant: 'success',
       position: 'bottom-center',
       duration: SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS,
     })
@@ -1549,11 +1430,13 @@ describe('FileManagerModel open dispatcher', () => {
     })
 
     expect(saveSpy).toHaveBeenCalledWith(11, 'photo.jpg', 'image/jpeg')
-    expect(toastManager.toast.success).toHaveBeenCalledWith(
-      'Image "photo.jpg" saved to gallery',
-      undefined,
-      {position: 'bottom-center', duration: SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS},
-    )
+    expect(updateGalleryToast).toHaveBeenCalledWith({
+      key: 'files.save-to-gallery:11',
+      message: 'Image "photo.jpg" saved to gallery',
+      variant: 'success',
+      position: 'bottom-center',
+      duration: SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS,
+    })
     expect(ctx.store.pushNotification).toHaveBeenCalledWith('success', 'Image "photo.jpg" saved to gallery')
   })
 

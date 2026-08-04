@@ -202,6 +202,25 @@ export class DesktopShellToolbar extends ReatomLitElement {
         :host([single-row]) .toolbar-primary {
           flex-basis: 100%;
         }
+
+        :host([single-row]) .toolbar {
+          flex-wrap: nowrap;
+        }
+
+        :host([single-row]) .toolbar-primary,
+        :host([single-row]) .toolbar-secondary,
+        :host([single-row]) .center {
+          order: initial;
+        }
+
+        :host([single-row]) .toolbar-primary {
+          flex-basis: 0;
+        }
+
+        :host([single-row]) .center {
+          flex-basis: 0;
+          justify-content: flex-end;
+        }
       }
 
       :host([two-row]) .toolbar {

@@ -4,6 +4,7 @@ vi.mock('@project/utils', () => ({sha256: vi.fn(async (s: string) => `hash:${s}`
 
 import {sha256} from '@project/utils'
 import {Entry} from '../entry'
+import {notify} from '../notify'
 import {ManagerRoot} from '../root'
 import {OTP} from '../otp'
 import type {ManagerSaver, IEntry} from '../types'
@@ -36,9 +37,11 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
+    createEntry: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    removeGroup: vi.fn(async () => undefined),
     ...overrides,
   }
 }
@@ -288,22 +291,87 @@ describe('Entry.persistNew()', () => {
     root = new ManagerRoot(saver)
   })
 
-  it('does not call savePassword for empty password', async () => {
+  it('creates an entry with one atomic storage call and omits empty secrets', async () => {
     const entry = Entry.create(root, {title: 'New', urls: [], username: ''}, '', '', undefined)
     await entry.flushPendingPersistence()
 
-    expect(saver.saveEntryMeta).toHaveBeenCalledOnce()
+    expect(saver.createEntry).toHaveBeenCalledWith({
+      entryType: 'login',
+      meta: expect.objectContaining({
+        id: entry.id,
+        entryType: 'login',
+        title: 'New',
+      }),
+      secrets: {
+        password: undefined,
+        note: undefined,
+      },
+    })
+    expect(saver.saveEntryMeta).not.toHaveBeenCalled()
+    expect(saver.saveEntryPassword).not.toHaveBeenCalled()
+    expect(saver.saveEntryNote).not.toHaveBeenCalled()
+    expect(saver.save).not.toHaveBeenCalled()
+  })
+
+  it('includes login secrets in the atomic create payload', async () => {
+    const entry = Entry.create(root, {title: 'New', urls: [], username: ''}, 'mypass', 'mynote', undefined)
+    await entry.flushPendingPersistence()
+
+    expect(saver.createEntry).toHaveBeenCalledWith({
+      entryType: 'login',
+      meta: expect.objectContaining({id: entry.id, entryType: 'login'}),
+      secrets: {
+        password: 'mypass',
+        note: 'mynote',
+      },
+    })
     expect(saver.saveEntryPassword).not.toHaveBeenCalled()
     expect(saver.saveEntryNote).not.toHaveBeenCalled()
   })
 
-  it('calls savePassword/saveNote for non-empty values', async () => {
-    const entry = Entry.create(root, {title: 'New', urls: [], username: ''}, 'mypass', 'mynote', undefined)
+  it('includes payment-card metadata and secrets in one atomic create payload', async () => {
+    const entry = Entry.create(root, makePaymentCardEntryData(), '', '', undefined, {
+      cardPan: '4111111111111111',
+      cardCvv: '123',
+    })
+
     await entry.flushPendingPersistence()
 
-    expect(saver.saveEntryMeta).toHaveBeenCalledOnce()
-    expect(saver.saveEntryPassword).toHaveBeenCalledWith(entry.id, 'mypass')
-    expect(saver.saveEntryNote).toHaveBeenCalledWith(entry.id, 'mynote')
+    expect(saver.createEntry).toHaveBeenCalledWith({
+      entryType: 'payment_card',
+      meta: expect.objectContaining({
+        id: entry.id,
+        entryType: 'payment_card',
+        paymentCard: makePaymentCardEntryData().paymentCard,
+      }),
+      secrets: {
+        cardPan: '4111111111111111',
+        cardCvv: '123',
+        note: undefined,
+      },
+    })
+    expect(saver.saveEntryMeta).not.toHaveBeenCalled()
+    expect(saver.saveEntrySecret).not.toHaveBeenCalled()
+    expect(saver.save).not.toHaveBeenCalled()
+    expect(root.entriesList()).toContain(entry)
+    await expect(entry.cardPan()).resolves.toBe('4111111111111111')
+    await expect(entry.cardCvv()).resolves.toBe('123')
+  })
+
+  it('rolls back local state when atomic payment-card creation fails', async () => {
+    ;(saver.createEntry as Mock).mockResolvedValueOnce(false)
+
+    const entry = Entry.create(root, makePaymentCardEntryData(), '', '', undefined, {
+      cardPan: '4111111111111111',
+      cardCvv: '123',
+    })
+
+    await expect(entry.flushPendingPersistence()).rejects.toThrow('createEntry failed')
+    expect(root.entriesList()).not.toContain(entry)
+    expect(saver.removeEntry).toHaveBeenCalledWith(entry.id)
+    expect(saver.removeEntrySecret).not.toHaveBeenCalled()
+    await expect(entry.cardPan()).resolves.toBeUndefined()
+    await expect(entry.cardCvv()).resolves.toBeUndefined()
   })
 
   it('uses transient secret cache for a fresh entry without remote reads', async () => {
@@ -326,25 +394,88 @@ describe('Entry.persistNew()', () => {
     expect(saver.readEntryNote).not.toHaveBeenCalled()
   })
 
-  it('removes a failed create from the parent collection while keeping seeded secrets', async () => {
-    ;(saver.saveEntryMeta as Mock).mockRejectedValueOnce(new Error('create fail'))
+  it('removes a failed create from the parent collection and clears transient secrets', async () => {
+    ;(saver.createEntry as Mock).mockRejectedValueOnce(new Error('create fail'))
+    ;(saver.removeEntry as Mock).mockRejectedValueOnce(new Error('cleanup remove fail'))
 
     const entry = Entry.create(root, {title: 'New', urls: [], username: ''}, 'mypass', 'mynote', undefined)
-    await entry.flushPendingPersistence()
+    await expect(entry.flushPendingPersistence()).rejects.toThrow('create fail')
 
     expect(root.entriesList()).toHaveLength(0)
-    await expect(entry.password()).resolves.toBe('mypass')
-    await expect(entry.note()).resolves.toBe('mynote')
+    expect(saver.removeEntry).toHaveBeenCalledWith(entry.id)
+    expect(saver.save).not.toHaveBeenCalled()
+    await expect(entry.password()).resolves.toBeUndefined()
+    await expect(entry.note()).resolves.toBeUndefined()
     expect(saver.saveEntryPassword).not.toHaveBeenCalled()
     expect(saver.saveEntryNote).not.toHaveBeenCalled()
   })
 
-  it('blocks load() while persistNew is in-flight', async () => {
-    let resolveMetaSave!: () => void
-    ;(saver.saveEntryMeta as Mock).mockImplementation(
+  it('persists an OTP sidecar before create and compensates it when create fails', async () => {
+    ;(saver.createEntry as Mock).mockResolvedValueOnce(false)
+
+    const entry = Entry.create(root, {title: 'New', urls: [], username: ''}, 'mypass', 'mynote', {
+      id: '',
+      label: 'Primary',
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: 'JBSWY3DPEHPK3PXP',
+      encoding: 'base32',
+      type: 'TOTP',
+    })
+    await expect(entry.flushPendingPersistence()).rejects.toThrow('createEntry failed')
+
+    expect(root.entriesList()).toHaveLength(0)
+    const createdOtpId = (saver.saveOTP as Mock).mock.calls[0]?.[0]
+    expect(saver.removeOTP).toHaveBeenCalledWith(createdOtpId)
+    expect(saver.removeEntry).toHaveBeenCalledWith(entry.id)
+    expect((saver.saveOTP as Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (saver.createEntry as Mock).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    )
+    expect(saver.save).not.toHaveBeenCalled()
+  })
+
+  it('leaves presentation and success notification to the durable caller', async () => {
+    let resolveCreate!: (value: boolean) => void
+    ;(saver.createEntry as Mock).mockImplementationOnce(
       () =>
         new Promise<boolean>((resolve) => {
-          resolveMetaSave = () => resolve(true)
+          resolveCreate = resolve
+        }),
+    )
+    const notifySuccess = vi.spyOn(notify, 'success').mockImplementation(() => ({
+      id: 'entry-created',
+      update: () => true,
+      dismiss: () => {},
+    }))
+    root.showElement.set('createEntry')
+
+    const entry = root.createEntry({title: 'New', urls: [], username: ''}, '', '', undefined)
+
+    expect(root.entriesList()).toContain(entry)
+    expect(root.showElement()).toBe('createEntry')
+    expect(notifySuccess).not.toHaveBeenCalled()
+
+    resolveCreate(true)
+    await entry.flushPendingPersistence()
+
+    expect(root.showElement()).toBe('createEntry')
+    expect(notifySuccess).not.toHaveBeenCalled()
+
+    root.presentCreatedEntry(entry)
+    expect(root.showElement()).toBe(entry)
+    expect(notifySuccess).toHaveBeenCalledWith('Entry created', undefined, {
+      key: 'passmanager.entry.create',
+    })
+    notifySuccess.mockRestore()
+  })
+
+  it('blocks load() while persistNew is in-flight', async () => {
+    let resolveCreate!: () => void
+    ;(saver.createEntry as Mock).mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveCreate = () => resolve(true)
         }),
     )
     ;(saver.read as Mock).mockResolvedValue(
@@ -365,7 +496,7 @@ describe('Entry.persistNew()', () => {
     expect(root.allEntries.some((e) => e.id === 'remote-1')).toBe(false)
 
     // Complete persistNew
-    resolveMetaSave()
+    resolveCreate()
     await entry.flushPendingPersistence()
 
     // Now load() should work
@@ -391,7 +522,13 @@ describe('Entry.persistNew()', () => {
     const createdOtp = entry.otps()[0]
     expect(createdOtp).toBeDefined()
     expect(createdOtp?.id).toMatch(/^otp:/)
-    expect(saver.saveEntryMeta).toHaveBeenCalledOnce()
+    expect(saver.createEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meta: expect.objectContaining({
+          otps: [expect.objectContaining({id: createdOtp?.id, label: 'Primary'})],
+        }),
+      }),
+    )
     expect(saver.saveOTP).toHaveBeenCalledWith(
       createdOtp?.id,
       'JBSWY3DPEHPK3PXP',

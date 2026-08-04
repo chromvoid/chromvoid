@@ -4,7 +4,7 @@ import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import type {IncomingMessage, ServerResponse} from 'node:http'
 
-import {defineConfig, searchForWorkspaceRoot, type Plugin} from 'vite'
+import {defineConfig, loadEnv, searchForWorkspaceRoot, type Plugin} from 'vite'
 
 import {
   buildPersistedPassmanagerStateFromCatalog,
@@ -28,6 +28,7 @@ const sourceHtmlPath = join(srcDir, 'index.html')
 const distHtmlPath = join(distDir, 'index.html')
 const sourceAssetsDir = join(srcDir, 'assets')
 const isE2E = process.env.DASHBOARD_E2E === '1'
+const sshKeysEnabledEnv = 'CHROMVOID_SSH_KEYS_ENABLED'
 type MockTransportLogEntry = {
   channel: 'catalog' | 'passmanager'
   command: string
@@ -337,8 +338,14 @@ function getChunkGroupName(id: string): string | undefined {
   return undefined
 }
 
-export default defineConfig(({command}) => {
+function isEnabledEnvValue(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === 'true'
+}
+
+export default defineConfig(({command, mode}) => {
   const isDev = command === 'serve'
+  const rootEnv = loadEnv(mode, workspaceRoot, '')
+  const sshKeysEnabled = isEnabledEnvValue(process.env[sshKeysEnabledEnv] ?? rootEnv[sshKeysEnabledEnv])
 
   return {
     appType: 'spa',
@@ -351,6 +358,7 @@ export default defineConfig(({command}) => {
     define: {
       'window.env': JSON.stringify(isDev ? 'dev' : 'prod'),
       'window.__PM_LOG__': isDev ? 'true' : 'false',
+      'window.__CHROMVOID_SSH_KEYS_ENABLED__': JSON.stringify(sshKeysEnabled),
     },
     plugins: [webviewDevContractPlugin(), webviewBuildContractPlugin()],
     resolve: {

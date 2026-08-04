@@ -3,7 +3,9 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 
 use chromvoid_core::error::ErrorCode;
-use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
+use chromvoid_core::rpc::types::{
+    RpcRequest, RpcResponse, CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1,
+};
 use chromvoid_core::rpc::{
     RpcInputStream, RpcOutputStream, RpcRangeOutputStream, RpcRangeStreamMeta, RpcReply,
     RpcStreamMeta,
@@ -19,20 +21,23 @@ use crate::types::*;
 
 use super::derivatives::{
     build_core_backed_image_derivative_stream,
-    build_core_backed_image_derivative_stream_cancellable, build_image_derivative_stream,
+    build_core_backed_image_derivative_stream_with_cancellation, build_image_derivative_stream,
+    ImageDerivativeCancellation,
 };
 use super::gallery::{build_gallery_save_payload, save_gallery_payload, GallerySavePayload};
 use super::preview::{
     handle_prepared_preview_request_with_parts, opaque_preview_staged_file_name,
     prepare_catalog_preview_file_in_root, prepare_catalog_preview_file_in_root_with_runtime,
     purge_catalog_preview_cache_in_root, purge_catalog_staging_cache_roots,
-    release_catalog_preview_file_in_root, PreparedPreviewRuntimeState, PREVIEW_STAGING_DIR,
+    release_catalog_preview_file_in_root, PreparedPreviewRuntimeState, PreparedPreviewSource,
+    PREVIEW_STAGING_DIR,
 };
 use super::staging::{
     prune_staged_external_files, stage_catalog_download_for_external_action_in_root,
     write_stream_to_file_atomically, write_stream_to_staged_file,
     EXTERNAL_ACTION_STAGING_MAX_AGE_SECS, OPEN_EXTERNAL_STAGING_DIR, SHARE_FILES_STAGING_DIR,
 };
+use super::{HostDerivativeEnsureRequest, HostDerivativeEnsureServices};
 const PREVIEW_SOURCE_HEIC: &[u8] = include_bytes!("../../../../tests/fixtures/preview-source.heic");
 
 struct StoredDerivative {
@@ -43,6 +48,10 @@ struct StoredDerivative {
 #[derive(Default)]
 struct ScriptedDerivativeState {
     derivatives: HashMap<String, StoredDerivative>,
+    remote_ensure_streams: HashMap<String, StoredDerivative>,
+    remote_ensure_requests: Vec<serde_json::Value>,
+    remote_ensure_stale_failures_remaining: usize,
+    source_revision_after_remote_ensure_stale: Option<u64>,
     download_calls: usize,
     range_calls: usize,
     derivative_read_calls: usize,
@@ -50,6 +59,8 @@ struct ScriptedDerivativeState {
     save_calls: usize,
     source_revision: u64,
     source_revision_initialized: bool,
+    source_revision_after_derivative_read: Option<u64>,
+    source_size_override: Option<u64>,
     download_fails: bool,
     download_delay_ms: u64,
 }
@@ -58,6 +69,7 @@ struct ScriptedDerivativeAdapter {
     source: StreamOut,
     state: Arc<Mutex<ScriptedDerivativeState>>,
     mode: crate::core_adapter::CoreMode,
+    remote_core_features: Vec<String>,
 }
 
 impl ScriptedDerivativeAdapter {
@@ -89,6 +101,10 @@ impl crate::CoreAdapter for ScriptedDerivativeAdapter {
         true
     }
 
+    fn remote_core_features(&self) -> Vec<String> {
+        self.remote_core_features.clone()
+    }
+
     fn handle(&mut self, req: &RpcRequest) -> RpcResponse {
         match req.command.as_str() {
             "catalog:source:metadata" => {
@@ -98,7 +114,7 @@ impl crate::CoreAdapter for ScriptedDerivativeAdapter {
                     "node_type": 1,
                     "name": self.source.meta.name.clone(),
                     "mime_type": self.source.meta.mime_type.clone(),
-                    "size": self.source.meta.size,
+                    "size": state.source_size_override.unwrap_or(self.source.meta.size),
                     "source_revision": state.source_revision.max(1),
                     "source_revision_initialized": state.source_revision_initialized,
                 }))
@@ -179,11 +195,48 @@ impl crate::CoreAdapter for ScriptedDerivativeAdapter {
                     reader: Box::new(std::io::Cursor::new(range)),
                 })
             }
+            "catalog:derivative:ensure" => {
+                assert!(
+                    stream.is_none(),
+                    "derivative ensure should not include an input stream"
+                );
+                let key = Self::derivative_key(&req.data);
+                let mut state = self.state.lock().expect("state lock");
+                state.remote_ensure_requests.push(req.data.clone());
+                if state.remote_ensure_stale_failures_remaining > 0 {
+                    state.remote_ensure_stale_failures_remaining -= 1;
+                    if let Some(source_revision) =
+                        state.source_revision_after_remote_ensure_stale.take()
+                    {
+                        state.source_revision = source_revision;
+                    }
+                    return RpcReply::Json(RpcResponse::error(
+                        "stale source revision",
+                        Some(ErrorCode::MediaStreamStale),
+                    ));
+                }
+                if let Some(stored) = state.remote_ensure_streams.get(&key) {
+                    RpcReply::Stream(RpcOutputStream {
+                        meta: RpcStreamMeta {
+                            name: stored.meta.name.clone(),
+                            mime_type: stored.meta.mime_type.clone(),
+                            size: stored.meta.size,
+                            chunk_size: stored.meta.chunk_size,
+                        },
+                        reader: Box::new(std::io::Cursor::new(stored.bytes.clone())),
+                    })
+                } else {
+                    RpcReply::Json(RpcResponse::error(
+                        "Derivative ensure stream not scripted",
+                        Some(ErrorCode::NodeNotFound),
+                    ))
+                }
+            }
             "catalog:derivative:read" => {
                 let key = Self::derivative_key(&req.data);
                 let mut state = self.state.lock().expect("state lock");
                 state.derivative_read_calls += 1;
-                if let Some(stored) = state.derivatives.get(&key) {
+                let reply = if let Some(stored) = state.derivatives.get(&key) {
                     RpcReply::Stream(RpcOutputStream {
                         meta: RpcStreamMeta {
                             name: stored.meta.name.clone(),
@@ -198,7 +251,11 @@ impl crate::CoreAdapter for ScriptedDerivativeAdapter {
                         "Derivative not found",
                         Some(ErrorCode::NodeNotFound),
                     ))
+                };
+                if let Some(source_revision) = state.source_revision_after_derivative_read.take() {
+                    state.source_revision = source_revision;
                 }
+                reply
             }
             "catalog:derivative:write" => {
                 let key = Self::derivative_key(&req.data);
@@ -275,12 +332,38 @@ fn scripted_adapter_with_mode(
     Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
     Arc<Mutex<ScriptedDerivativeState>>,
 ) {
+    scripted_adapter_with_remote_features(source, mode, Vec::new())
+}
+
+fn scripted_capable_remote_adapter(
+    source: StreamOut,
+    mode: crate::core_adapter::CoreMode,
+) -> (
+    Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
+    Arc<Mutex<ScriptedDerivativeState>>,
+) {
+    scripted_adapter_with_remote_features(
+        source,
+        mode,
+        vec![CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1.to_string()],
+    )
+}
+
+fn scripted_adapter_with_remote_features(
+    source: StreamOut,
+    mode: crate::core_adapter::CoreMode,
+    remote_core_features: Vec<String>,
+) -> (
+    Arc<Mutex<Box<dyn crate::CoreAdapter>>>,
+    Arc<Mutex<ScriptedDerivativeState>>,
+) {
     let state = Arc::new(Mutex::new(ScriptedDerivativeState::default()));
     state.lock().expect("state lock").source_revision = 1;
     let adapter: Box<dyn crate::CoreAdapter> = Box::new(ScriptedDerivativeAdapter {
         source,
         state: state.clone(),
         mode,
+        remote_core_features,
     });
     (Arc::new(Mutex::new(adapter)), state)
 }
@@ -415,6 +498,30 @@ fn stream_out(name: &str, mime_type: &str, bytes: Vec<u8>) -> StreamOut {
         },
         bytes,
     }
+}
+
+fn script_remote_ensure_stream(
+    state: &Arc<Mutex<ScriptedDerivativeState>>,
+    node_id: u64,
+    source_revision: u64,
+    tier: crate::image_preview::ImageDerivativeTier,
+    stream: StreamOut,
+) {
+    state
+        .lock()
+        .expect("state lock")
+        .remote_ensure_streams
+        .insert(
+            format!(
+                "{node_id}:{source_revision}:{}:{}",
+                tier.label(),
+                crate::image_preview::DERIVATIVE_STORAGE_VERSION
+            ),
+            StoredDerivative {
+                meta: stream.meta,
+                bytes: stream.bytes,
+            },
+        );
 }
 
 #[test]
@@ -749,8 +856,210 @@ fn core_backed_remote_derivative_hit_uses_host_cache() {
 
     let state = state.lock().expect("state lock");
     assert_eq!(state.download_calls, 0);
+    assert_eq!(state.derivative_read_calls, 1);
     assert_eq!(state.derivative_write_calls, 0);
+    assert!(state.remote_ensure_requests.is_empty());
     assert_eq!(result.bytes, b"cached");
+}
+
+#[test]
+fn core_backed_capable_remote_image_derivative_ensure_streams_preview_and_thumbnail() {
+    let source = stream_out("photo.jpg", "image/jpeg", build_jpeg_source(4000, 2500));
+    let (adapter, state) = scripted_capable_remote_adapter(source, remote_wss_mode_for_tests());
+    let image_preview_runtime = crate::image_preview::ImagePreviewRuntimeState::new();
+
+    script_remote_ensure_stream(
+        &state,
+        32,
+        1,
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+        stream_out(
+            "photo.jpg",
+            crate::image_preview::JPEG_PREVIEW_MIME,
+            b"remote-preview".to_vec(),
+        ),
+    );
+    script_remote_ensure_stream(
+        &state,
+        32,
+        1,
+        crate::image_preview::ImageDerivativeTier::Thumbnail,
+        stream_out(
+            "photo.webp",
+            crate::image_preview::WEBP_PREVIEW_MIME,
+            b"remote-thumbnail".to_vec(),
+        ),
+    );
+
+    let preview = build_core_backed_image_derivative_stream(
+        &adapter,
+        &image_preview_runtime,
+        32,
+        "untrusted-client-name.jpg",
+        Some("image/jpeg"),
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+    )
+    .expect("capable remote preview should use the ensure stream");
+    let thumbnail = build_core_backed_image_derivative_stream_with_cancellation(
+        &adapter,
+        &image_preview_runtime,
+        32,
+        "untrusted-client-name.jpg",
+        Some("image/jpeg"),
+        crate::image_preview::ImageDerivativeTier::Thumbnail,
+        ImageDerivativeCancellation::capture(Arc::new(std::sync::atomic::AtomicU64::new(0))),
+        true,
+    )
+    .expect("capable remote thumbnail refresh should use the ensure stream");
+
+    assert_eq!(preview.bytes, b"remote-preview");
+    assert_eq!(
+        preview.meta.mime_type,
+        crate::image_preview::JPEG_PREVIEW_MIME
+    );
+    assert_eq!(thumbnail.bytes, b"remote-thumbnail");
+    assert_eq!(
+        thumbnail.meta.mime_type,
+        crate::image_preview::WEBP_PREVIEW_MIME
+    );
+
+    let state = state.lock().expect("state lock");
+    assert_eq!(
+        state.remote_ensure_requests,
+        vec![
+            serde_json::json!({
+                "node_id": 32,
+                "source_version": 1,
+                "tier": "preview",
+                "version": crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+                "refresh_cache": false,
+            }),
+            serde_json::json!({
+                "node_id": 32,
+                "source_version": 1,
+                "tier": "thumbnail",
+                "version": crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+                "refresh_cache": true,
+            }),
+        ]
+    );
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.range_calls, 0);
+    assert_eq!(state.derivative_read_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
+    assert_eq!(state.save_calls, 0);
+}
+
+#[test]
+fn core_backed_capable_remote_image_derivative_ensures_embedded_audio_artwork_without_range_probe()
+{
+    let source = stream_out(
+        "song.mp3",
+        "audio/mpeg",
+        b"raw-audio-must-not-transfer".to_vec(),
+    );
+    let (adapter, state) = scripted_capable_remote_adapter(source, remote_usb_mode_for_tests());
+    script_remote_ensure_stream(
+        &state,
+        44,
+        1,
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+        stream_out(
+            "song.jpg",
+            crate::image_preview::JPEG_PREVIEW_MIME,
+            b"remote-audio-artwork".to_vec(),
+        ),
+    );
+    let image_preview_runtime = crate::image_preview::ImagePreviewRuntimeState::new();
+
+    let preview = build_core_backed_image_derivative_stream(
+        &adapter,
+        &image_preview_runtime,
+        44,
+        "song.mp3",
+        Some("audio/mpeg"),
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+    )
+    .expect("capable remote audio artwork should use the host ensure stream");
+
+    assert_eq!(preview.bytes, b"remote-audio-artwork");
+    assert_eq!(preview.meta.name, "song.jpg");
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.remote_ensure_requests.len(), 1);
+    assert_eq!(
+        state.remote_ensure_requests[0]
+            .get("tier")
+            .and_then(serde_json::Value::as_str),
+        Some("preview")
+    );
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.range_calls, 0);
+    assert_eq!(state.derivative_read_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
+}
+
+#[test]
+fn core_backed_capable_remote_image_derivative_rejects_invalid_or_oversized_streams() {
+    let malformed_mime = stream_out(
+        "photo.bin",
+        "application/octet-stream",
+        b"not-an-image-derivative".to_vec(),
+    );
+    let empty_preview = stream_out(
+        "photo.jpg",
+        crate::image_preview::JPEG_PREVIEW_MIME,
+        Vec::new(),
+    );
+    let mut oversized_thumbnail = stream_out(
+        "photo.webp",
+        crate::image_preview::WEBP_PREVIEW_MIME,
+        b"oversized-metadata".to_vec(),
+    );
+    oversized_thumbnail.meta.size = 4 * 1024 * 1024 + 1;
+
+    for (node_id, tier, scripted_stream, expected_code) in [
+        (
+            55,
+            crate::image_preview::ImageDerivativeTier::DisplayPreview,
+            malformed_mime,
+            "UNSUPPORTED",
+        ),
+        (
+            57,
+            crate::image_preview::ImageDerivativeTier::DisplayPreview,
+            empty_preview,
+            "INTERNAL",
+        ),
+        (
+            56,
+            crate::image_preview::ImageDerivativeTier::Thumbnail,
+            oversized_thumbnail,
+            "PAYLOAD_TOO_LARGE",
+        ),
+    ] {
+        let source = stream_out("photo.jpg", "image/jpeg", b"raw-must-not-transfer".to_vec());
+        let (adapter, state) = scripted_capable_remote_adapter(source, remote_wss_mode_for_tests());
+        script_remote_ensure_stream(&state, node_id, 1, tier, scripted_stream);
+        let image_preview_runtime = crate::image_preview::ImagePreviewRuntimeState::new();
+
+        let error = build_core_backed_image_derivative_stream(
+            &adapter,
+            &image_preview_runtime,
+            node_id,
+            "photo.jpg",
+            Some("image/jpeg"),
+            tier,
+        )
+        .expect_err("malformed capable remote derivative stream should be rejected");
+
+        assert_eq!(error.1.as_deref(), Some(expected_code));
+        let state = state.lock().expect("state lock");
+        assert_eq!(state.remote_ensure_requests.len(), 1);
+        assert_eq!(state.download_calls, 0);
+        assert_eq!(state.range_calls, 0);
+        assert_eq!(state.derivative_read_calls, 0);
+        assert_eq!(state.derivative_write_calls, 0);
+    }
 }
 
 #[test]
@@ -773,8 +1082,52 @@ fn core_backed_remote_image_derivative_cache_miss_skips_source_download() {
     let state = state.lock().expect("state lock");
     assert_eq!(state.download_calls, 0);
     assert_eq!(state.range_calls, 0);
+    assert!(state.derivative_read_calls > 0);
     assert_eq!(state.derivative_write_calls, 0);
+    assert!(state.remote_ensure_requests.is_empty());
     assert!(state.derivatives.is_empty());
+}
+
+#[test]
+fn core_backed_capable_remote_image_derivative_stale_retry_is_bounded() {
+    let source = stream_out("photo.jpg", "image/jpeg", build_jpeg_source(4000, 2500));
+    let (adapter, state) = scripted_capable_remote_adapter(source, remote_usb_mode_for_tests());
+    {
+        let mut state = state.lock().expect("state lock");
+        state.remote_ensure_stale_failures_remaining = 2;
+        state.source_revision_after_remote_ensure_stale = Some(2);
+    }
+    let image_preview_runtime = crate::image_preview::ImagePreviewRuntimeState::new();
+
+    let error = build_core_backed_image_derivative_stream(
+        &adapter,
+        &image_preview_runtime,
+        77,
+        "photo.jpg",
+        Some("image/jpeg"),
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+    )
+    .expect_err("a second stale ensure result should be terminal");
+
+    assert_eq!(error.1.as_deref(), Some("ERR_MEDIA_STREAM_STALE"));
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.remote_ensure_requests.len(), 2);
+    assert_eq!(
+        state.remote_ensure_requests[0]
+            .get("source_version")
+            .and_then(serde_json::Value::as_u64),
+        Some(1)
+    );
+    assert_eq!(
+        state.remote_ensure_requests[1]
+            .get("source_version")
+            .and_then(serde_json::Value::as_u64),
+        Some(2)
+    );
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.range_calls, 0);
+    assert_eq!(state.derivative_read_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
 }
 
 #[test]
@@ -841,14 +1194,14 @@ fn core_backed_derivative_refresh_bypasses_stored_derivative() {
     )
     .expect("first thumbnail derivative should be generated");
 
-    let refreshed = build_core_backed_image_derivative_stream_cancellable(
+    let refreshed = build_core_backed_image_derivative_stream_with_cancellation(
         &adapter,
         &image_preview_runtime,
         32,
         "photo.jpg",
         Some("image/jpeg"),
         crate::image_preview::ImageDerivativeTier::Thumbnail,
-        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        ImageDerivativeCancellation::capture(Arc::new(std::sync::atomic::AtomicU64::new(0))),
         true,
     )
     .expect("refresh should rebuild thumbnail derivative");
@@ -861,6 +1214,238 @@ fn core_backed_derivative_refresh_bypasses_stored_derivative() {
         refreshed.meta.mime_type,
         crate::image_preview::WEBP_PREVIEW_MIME
     );
+}
+
+#[tokio::test]
+async fn host_service_remote_image_derivative_concurrent_cold_ensure_persists_once() {
+    let source = stream_out("photo.jpg", "image/jpeg", build_jpeg_source(1200, 800));
+    let (adapter, state) = scripted_adapter(source);
+    state.lock().expect("state lock").download_delay_ms = 80;
+    let service = HostDerivativeEnsureServices::new(
+        adapter,
+        Arc::new(crate::image_preview::ImagePreviewRuntimeState::new()),
+        Arc::new(crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new()),
+        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    );
+    let request = HostDerivativeEnsureRequest {
+        node_id: 88,
+        source_version: 1,
+        tier: crate::image_preview::ImageDerivativeTier::DisplayPreview,
+        version: crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+        refresh_cache: false,
+    };
+    let first_cancellation =
+        service.cancellation_snapshot([Arc::new(std::sync::atomic::AtomicU64::new(0))]);
+    let second_cancellation =
+        service.cancellation_snapshot([Arc::new(std::sync::atomic::AtomicU64::new(0))]);
+
+    let (first, second) = tokio::join!(
+        service.ensure(request, first_cancellation),
+        service.ensure(request, second_cancellation),
+    );
+    let first = first.expect("first host ensure should generate the derivative");
+    let second = second.expect("same-key host ensure should reuse the persisted derivative");
+
+    assert_eq!(first.bytes, second.bytes);
+    assert_eq!(
+        first.meta.mime_type,
+        crate::image_preview::JPEG_PREVIEW_MIME
+    );
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.download_calls, 1);
+    assert_eq!(state.derivative_write_calls, 1);
+    assert_eq!(state.derivatives.len(), 1);
+}
+
+#[tokio::test]
+async fn host_service_remote_image_derivative_vault_cancel_prevents_stale_persist() {
+    let source = stream_out("photo.jpg", "image/jpeg", build_jpeg_source(1200, 800));
+    let (adapter, state) = scripted_adapter(source);
+    state.lock().expect("state lock").download_delay_ms = 500;
+    let vault_cancellation_epoch = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let service = HostDerivativeEnsureServices::new(
+        adapter,
+        Arc::new(crate::image_preview::ImagePreviewRuntimeState::new()),
+        Arc::new(crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new()),
+        vault_cancellation_epoch.clone(),
+    );
+    let cancellation =
+        service.cancellation_snapshot([Arc::new(std::sync::atomic::AtomicU64::new(0))]);
+    let job = tokio::spawn(async move {
+        service
+            .ensure(
+                HostDerivativeEnsureRequest {
+                    node_id: 92,
+                    source_version: 1,
+                    tier: crate::image_preview::ImageDerivativeTier::DisplayPreview,
+                    version: crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+                    refresh_cache: false,
+                },
+                cancellation,
+            )
+            .await
+    });
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if state.lock().expect("state lock").download_calls == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("host ensure did not start the source read");
+    vault_cancellation_epoch.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    let error = tokio::time::timeout(std::time::Duration::from_secs(2), job)
+        .await
+        .expect("cancelled host ensure did not finish")
+        .expect("host ensure task panicked")
+        .expect_err("vault cancellation must reject the stale derivative");
+    assert_eq!(error.1.as_deref(), Some("CANCELLED"));
+
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.download_calls, 1);
+    assert_eq!(state.derivative_write_calls, 0);
+    assert!(state.derivatives.is_empty());
+}
+
+#[tokio::test]
+async fn host_service_remote_image_derivative_rejects_oversized_source_metadata_without_download() {
+    let source = stream_out("photo.jpg", "image/jpeg", b"small-scripted-source".to_vec());
+    let (adapter, state) = scripted_adapter(source);
+    state.lock().expect("state lock").source_size_override =
+        Some(crate::image_preview::DERIVATIVE_MAX_INPUT_BYTES as u64 + 1);
+    let service = HostDerivativeEnsureServices::new(
+        adapter,
+        Arc::new(crate::image_preview::ImagePreviewRuntimeState::new()),
+        Arc::new(crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new()),
+        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    );
+    let cancellation =
+        service.cancellation_snapshot([Arc::new(std::sync::atomic::AtomicU64::new(0))]);
+
+    let error = service
+        .ensure(
+            HostDerivativeEnsureRequest {
+                node_id: 89,
+                source_version: 1,
+                tier: crate::image_preview::ImageDerivativeTier::DisplayPreview,
+                version: crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+                refresh_cache: false,
+            },
+            cancellation,
+        )
+        .await
+        .expect_err("oversized authoritative source metadata should fail before raw download");
+
+    assert_eq!(error.1.as_deref(), Some("PREVIEW_DECODE"));
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.range_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
+    assert!(state.derivatives.is_empty());
+}
+
+#[tokio::test]
+async fn host_service_remote_image_derivative_revalidates_source_after_cache_hit() {
+    let source = stream_out("photo.jpg", "image/jpeg", b"raw-must-not-transfer".to_vec());
+    let (adapter, state) = scripted_adapter(source);
+    {
+        let mut state = state.lock().expect("state lock");
+        state.derivatives.insert(
+            format!(
+                "90:1:preview:{}",
+                crate::image_preview::DERIVATIVE_STORAGE_VERSION
+            ),
+            StoredDerivative {
+                meta: RpcStreamMeta {
+                    name: "photo.jpg".to_string(),
+                    mime_type: crate::image_preview::JPEG_PREVIEW_MIME.to_string(),
+                    size: 6,
+                    chunk_size: 3,
+                },
+                bytes: b"cached".to_vec(),
+            },
+        );
+        state.source_revision_after_derivative_read = Some(2);
+    }
+    let service = HostDerivativeEnsureServices::new(
+        adapter,
+        Arc::new(crate::image_preview::ImagePreviewRuntimeState::new()),
+        Arc::new(crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new()),
+        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    );
+    let cancellation =
+        service.cancellation_snapshot([Arc::new(std::sync::atomic::AtomicU64::new(0))]);
+
+    let error = service
+        .ensure(
+            HostDerivativeEnsureRequest {
+                node_id: 90,
+                source_version: 1,
+                tier: crate::image_preview::ImageDerivativeTier::DisplayPreview,
+                version: crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+                refresh_cache: false,
+            },
+            cancellation,
+        )
+        .await
+        .expect_err("source replacement after cache read must invalidate the ensure response");
+
+    assert_eq!(error.1.as_deref(), Some("ERR_MEDIA_STREAM_STALE"));
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.derivative_read_calls, 1);
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
+}
+
+#[tokio::test]
+async fn host_service_remote_image_derivative_rejects_version_and_revision_mismatch() {
+    let source = stream_out("photo.jpg", "image/jpeg", b"raw-must-not-transfer".to_vec());
+    let (adapter, state) = scripted_adapter(source);
+    let service = HostDerivativeEnsureServices::new(
+        adapter,
+        Arc::new(crate::image_preview::ImagePreviewRuntimeState::new()),
+        Arc::new(crate::catalog_blocking_io::CatalogBlockingIoRuntimeState::new()),
+        Arc::new(std::sync::atomic::AtomicU64::new(0)),
+    );
+
+    let version_error = service
+        .ensure(
+            HostDerivativeEnsureRequest {
+                node_id: 91,
+                source_version: 1,
+                tier: crate::image_preview::ImageDerivativeTier::DisplayPreview,
+                version: crate::image_preview::DERIVATIVE_STORAGE_VERSION + 1,
+                refresh_cache: false,
+            },
+            service.cancellation_snapshot([Arc::new(std::sync::atomic::AtomicU64::new(0))]),
+        )
+        .await
+        .expect_err("storage-version mismatch must be rejected");
+    assert_eq!(version_error.1.as_deref(), Some("UNSUPPORTED"));
+
+    let revision_error = service
+        .ensure(
+            HostDerivativeEnsureRequest {
+                node_id: 91,
+                source_version: 2,
+                tier: crate::image_preview::ImageDerivativeTier::DisplayPreview,
+                version: crate::image_preview::DERIVATIVE_STORAGE_VERSION,
+                refresh_cache: false,
+            },
+            service.cancellation_snapshot([Arc::new(std::sync::atomic::AtomicU64::new(0))]),
+        )
+        .await
+        .expect_err("source-revision mismatch must be rejected");
+    assert_eq!(revision_error.1.as_deref(), Some("ERR_MEDIA_STREAM_STALE"));
+
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.range_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
 }
 
 #[test]
@@ -1742,6 +2327,126 @@ fn preview_file_derivative_prepare_warms_storage_and_reuses_runtime_entry() {
     let state = state.lock().expect("state lock");
     assert_eq!(state.download_calls, 1);
     assert_eq!(state.derivative_write_calls, 1);
+}
+
+#[test]
+fn preview_file_capable_remote_image_derivative_stale_retry_refreshes_cache_identity() {
+    let temp_dir = tempfile::tempdir().expect("tempdir should be created");
+    let preview_root = temp_dir.path().join(PREVIEW_STAGING_DIR);
+    let source = stream_out("photo.jpg", "image/jpeg", build_jpeg_source(1200, 800));
+    let (adapter, state) = scripted_capable_remote_adapter(source, remote_wss_mode_for_tests());
+    {
+        let mut state = state.lock().expect("state lock");
+        state.remote_ensure_stale_failures_remaining = 1;
+        state.source_revision_after_remote_ensure_stale = Some(2);
+    }
+    script_remote_ensure_stream(
+        &state,
+        9,
+        2,
+        crate::image_preview::ImageDerivativeTier::DisplayPreview,
+        stream_out(
+            "photo.jpg",
+            crate::image_preview::JPEG_PREVIEW_MIME,
+            b"remote-preview-v2".to_vec(),
+        ),
+    );
+    let image_preview_runtime = crate::image_preview::ImagePreviewRuntimeState::new();
+    let prepared_preview_runtime = PreparedPreviewRuntimeState::new();
+
+    let first = prepare_catalog_preview_file_in_root_with_runtime(
+        &preview_root,
+        &adapter,
+        &image_preview_runtime,
+        &prepared_preview_runtime,
+        PreparePreviewFileArgs {
+            node_id: 9,
+            file_name: "photo.jpg".to_string(),
+            mime_type: Some("image/jpeg".to_string()),
+            variant: PreviewFileVariant::PreviewImage,
+            preview_id: "remote-preview-a".to_string(),
+            refresh_derivative_cache: false,
+        },
+        None,
+    )
+    .expect("stale capable ensure should refresh metadata and retry once");
+    let second = prepare_catalog_preview_file_in_root_with_runtime(
+        &preview_root,
+        &adapter,
+        &image_preview_runtime,
+        &prepared_preview_runtime,
+        PreparePreviewFileArgs {
+            node_id: 9,
+            file_name: "photo.jpg".to_string(),
+            mime_type: Some("image/jpeg".to_string()),
+            variant: PreviewFileVariant::PreviewImage,
+            preview_id: "remote-preview-b".to_string(),
+            refresh_derivative_cache: false,
+        },
+        None,
+    )
+    .expect("successful retry should populate the revision-two prepared cache");
+
+    assert_eq!(first.path, second.path);
+    assert_eq!(first.size, b"remote-preview-v2".len() as u64);
+    let cached_entry = prepared_preview_runtime
+        .entry_for_preview_id("remote-preview-b")
+        .expect("runtime lookup should succeed")
+        .expect("revision-two prepared entry should exist");
+    assert!(matches!(
+        cached_entry.source,
+        PreparedPreviewSource::Derivative {
+            node_id: 9,
+            source_revision: 2,
+            tier: crate::image_preview::ImageDerivativeTier::DisplayPreview,
+        }
+    ));
+
+    let refreshed = prepare_catalog_preview_file_in_root_with_runtime(
+        &preview_root,
+        &adapter,
+        &image_preview_runtime,
+        &prepared_preview_runtime,
+        PreparePreviewFileArgs {
+            node_id: 9,
+            file_name: "photo.jpg".to_string(),
+            mime_type: Some("image/jpeg".to_string()),
+            variant: PreviewFileVariant::PreviewImage,
+            preview_id: "remote-preview-refresh".to_string(),
+            refresh_derivative_cache: true,
+        },
+        None,
+    )
+    .expect("refresh should bypass the prepared cache and forward to remote ensure");
+
+    assert_ne!(first.path, refreshed.path);
+    let state = state.lock().expect("state lock");
+    assert_eq!(state.remote_ensure_requests.len(), 3);
+    assert_eq!(
+        state
+            .remote_ensure_requests
+            .iter()
+            .map(|request| {
+                (
+                    request
+                        .get("source_version")
+                        .and_then(serde_json::Value::as_u64),
+                    request
+                        .get("refresh_cache")
+                        .and_then(serde_json::Value::as_bool),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            (Some(1), Some(false)),
+            (Some(2), Some(false)),
+            (Some(2), Some(true))
+        ]
+    );
+    assert_eq!(state.download_calls, 0);
+    assert_eq!(state.range_calls, 0);
+    assert_eq!(state.derivative_read_calls, 0);
+    assert_eq!(state.derivative_write_calls, 0);
 }
 
 #[test]

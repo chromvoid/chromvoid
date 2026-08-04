@@ -7,6 +7,9 @@ pub(crate) fn redact_rpc_data(command: &str, data: &Value) -> Value {
     if command.starts_with("env_runtime:") {
         return Value::String("<redacted>".to_string());
     }
+    if command == "passmanager:entry:create" {
+        return Value::String("<redacted>".to_string());
+    }
 
     fn should_redact(command: &str, key: &str) -> bool {
         matches!(

@@ -435,6 +435,9 @@ async fn accept_transport_connection_usb_mobile_persists_unknown_xx_pairing() {
             peer_label: "Desktop USB".to_string(),
             peer_pubkey_hex: hex_encode(&client_keypair.public),
             platform: "desktop".to_string(),
+            capabilities: vec![
+                crate::mobile_usb::pairing_protocol::USB_PAIRING_CANCEL_V1.to_string()
+            ],
         },
     )
     .await
@@ -468,6 +471,7 @@ async fn accept_transport_connection_usb_mobile_persists_unknown_xx_pairing() {
         &MobileUsbPairingApprovalProof {
             attempt_id: challenge.attempt_id.clone(),
             proof_hex,
+            action: crate::mobile_usb::pairing_protocol::MobileUsbPairingApprovalAction::Confirm,
         },
     )
     .await
@@ -495,6 +499,115 @@ async fn accept_transport_connection_usb_mobile_persists_unknown_xx_pairing() {
         hex_encode(&host_keypair.private)
     );
     assert_eq!(persisted.platform, "desktop");
+}
+
+#[tokio::test]
+async fn accept_transport_connection_usb_mobile_cancel_clears_approval_without_pairing_record() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let params: NoiseParams = NOISE_PARAMS_XX.parse().expect("XX params");
+    let host_keypair = snow::Builder::new(params.clone())
+        .generate_keypair()
+        .expect("host keypair");
+    let client_keypair = snow::Builder::new(params)
+        .generate_keypair()
+        .expect("client keypair");
+    crate::helpers::storage::write_json_pretty_atomic(
+        &dir.path().join("network_local_identity.json"),
+        &LocalDeviceIdentity {
+            device_id: "android-host-cancel".to_string(),
+            device_label: "Android Host".to_string(),
+            static_pubkey_hex: hex_encode(&host_keypair.public),
+            static_privkey_hex: hex_encode(&host_keypair.private),
+            created_at: 1,
+        },
+    )
+    .expect("write identity");
+
+    let runtime = Arc::new(MobileAcceptorRuntimeState::new());
+    let (mut client_transport, host_transport) = ChannelTransport::pair(TransportType::UsbMobile);
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let storage_root = dir.path().to_path_buf();
+    let accept_runtime = runtime.clone();
+    let accept_task = tokio::spawn(async move {
+        accept_transport_connection(
+            accept_runtime,
+            None,
+            &storage_root,
+            Box::new(host_transport),
+            TransportType::UsbMobile,
+            "android-device-cancel".to_string(),
+            shutdown_rx,
+        )
+        .await
+    });
+
+    let mut client_noise = complete_xx_initiator_handshake_with_transport(
+        &mut client_transport,
+        &client_keypair.private,
+    )
+    .await
+    .expect("client XX handshake");
+    crate::mobile_usb::send_mobile_usb_pairing_hello(
+        &mut client_transport,
+        &mut client_noise,
+        &crate::mobile_usb::MobileUsbPairingHello {
+            peer_id: "desktop-usb-cancel".to_string(),
+            peer_label: "Desktop USB".to_string(),
+            peer_pubkey_hex: hex_encode(&client_keypair.public),
+            platform: "desktop".to_string(),
+            capabilities: vec![
+                crate::mobile_usb::pairing_protocol::USB_PAIRING_CANCEL_V1.to_string()
+            ],
+        },
+    )
+    .await
+    .expect("send pairing hello");
+    let host_hello =
+        crate::mobile_usb::recv_mobile_usb_pairing_hello(&mut client_transport, &mut client_noise)
+            .await
+            .expect("recv host pairing hello");
+    assert!(
+        host_hello
+            .capabilities
+            .iter()
+            .any(|capability| capability
+                == crate::mobile_usb::pairing_protocol::USB_PAIRING_CANCEL_V1)
+    );
+    let challenge = recv_pairing_approval_challenge(&mut client_transport, &mut client_noise)
+        .await
+        .expect("recv pairing approval challenge");
+
+    send_pairing_approval_proof(
+        &mut client_transport,
+        &mut client_noise,
+        &MobileUsbPairingApprovalProof {
+            attempt_id: challenge.attempt_id,
+            proof_hex: String::new(),
+            action: crate::mobile_usb::pairing_protocol::MobileUsbPairingApprovalAction::Cancel,
+        },
+    )
+    .await
+    .expect("send pairing cancel");
+    let cancel_ack = recv_pairing_approval_ack(&mut client_transport, &mut client_noise)
+        .await
+        .expect("recv pairing cancel ack");
+    assert!(!cancel_ack.accepted);
+    assert_eq!(cancel_ack.error.as_deref(), Some("pairing_cancelled"));
+
+    let error = accept_task
+        .await
+        .expect("accept task")
+        .expect_err("pairing must be cancelled");
+    assert!(error.contains("pairing cancelled"));
+    assert!(runtime
+        .pending_usb_pairing_approval()
+        .expect("pending approval")
+        .is_none());
+    assert!(
+        PairedPeerStore::load(&dir.path().join("paired_network_peers.json"))
+            .get("desktop-usb-cancel")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -828,6 +941,7 @@ async fn known_usb_mobile_peer_rejects_pairing_preflight_after_rpc_loop_starts()
             peer_label: "Desktop USB".to_string(),
             peer_pubkey_hex: hex_encode(&client_public),
             platform: "desktop".to_string(),
+            capabilities: Vec::new(),
         },
     )
     .await

@@ -11,6 +11,7 @@ type RootLike = {
   isRoot: true
   createdFormatted: string
   updatedFormatted: string
+  entriesList: () => Array<Group>
   searched: () => Array<Group>
 }
 
@@ -54,6 +55,7 @@ function createRootMock(): RootLike {
     isRoot: true,
     createdFormatted: '2026-03-01',
     updatedFormatted: '2026-03-02',
+    entriesList: () => [],
     searched: () => [],
   }
 }
@@ -136,7 +138,7 @@ describe('PMGroup toolbar actions', () => {
     expect(separator).toBeNull()
   })
 
-  it('renders root summary metadata in the header without the legacy collection shell heading', async () => {
+  it('keeps the root header free of duplicated summary metadata and legacy collection headings', async () => {
     const {passmanager} = createPassmanagerMock(createRootMock())
     const element = await renderGroup(passmanager)
 
@@ -146,10 +148,9 @@ describe('PMGroup toolbar actions', () => {
     const legacyMetadata = element.shadowRoot?.querySelector('.metadata-section')
     const legacyHeading = element.shadowRoot?.querySelector('.content-shell-head')
 
-    expect(summary?.textContent).toContain('0 groups')
-    expect(summary?.textContent).toContain('0 entries')
-    expect(meta?.textContent).toContain('2026-03-01')
-    expect(meta?.textContent).toContain('2026-03-02')
+    expect(header).not.toBeNull()
+    expect(summary).toBeNull()
+    expect(meta).toBeNull()
     expect(legacyMetadata).toBeNull()
     expect(legacyHeading).toBeNull()
   })

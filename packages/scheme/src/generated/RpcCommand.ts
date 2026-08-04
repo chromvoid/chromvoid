@@ -5,6 +5,18 @@ import type {CatalogFolderFilter} from './CatalogFolderFilter'
 import type {CatalogFolderPageRequest} from './CatalogFolderPageRequest'
 import type {CatalogFolderSort} from './CatalogFolderSort'
 import type {DerivativeProtectedRevision} from './DerivativeProtectedRevision'
+import type {EnvProfileCreateRequest} from './EnvProfileCreateRequest'
+import type {EnvProfileDeleteRequest} from './EnvProfileDeleteRequest'
+import type {EnvProfileGetRequest} from './EnvProfileGetRequest'
+import type {EnvProfileListRequest} from './EnvProfileListRequest'
+import type {EnvProfileUpdateRequest} from './EnvProfileUpdateRequest'
+import type {EnvRuntimeStatusRequest} from './EnvRuntimeStatusRequest'
+import type {EnvSecretCreateRequest} from './EnvSecretCreateRequest'
+import type {EnvSecretDeleteRequest} from './EnvSecretDeleteRequest'
+import type {EnvSecretListRequest} from './EnvSecretListRequest'
+import type {EnvSecretRevealRequest} from './EnvSecretRevealRequest'
+import type {EnvSecretUpdateRequest} from './EnvSecretUpdateRequest'
+import type {PassmanagerEntryCreateSecrets} from './PassmanagerEntryCreateSecrets'
 import type {PassmanagerSecurityAuditGetRequest} from './PassmanagerSecurityAuditGetRequest'
 import type {PassmanagerSecurityAuditSetRequest} from './PassmanagerSecurityAuditSetRequest'
 import type {SignedCert} from './SignedCert'
@@ -55,6 +67,17 @@ export type RpcCommand =
   | {command: 'master:rekey'; data: {current_password: string; new_master_password: string}}
   | {command: 'admin:storage:gc:scan'; data: {include_system: boolean | null}}
   | {command: 'admin:storage:gc:delete'; data: {gc_id: string; confirm_delete: boolean}}
+  | {command: 'env_runtime:status'; data: EnvRuntimeStatusRequest}
+  | {command: 'env_runtime:secret:list'; data: EnvSecretListRequest}
+  | {command: 'env_runtime:secret:create'; data: EnvSecretCreateRequest}
+  | {command: 'env_runtime:secret:update'; data: EnvSecretUpdateRequest}
+  | {command: 'env_runtime:secret:reveal'; data: EnvSecretRevealRequest}
+  | {command: 'env_runtime:secret:delete'; data: EnvSecretDeleteRequest}
+  | {command: 'env_runtime:profile:list'; data: EnvProfileListRequest}
+  | {command: 'env_runtime:profile:get'; data: EnvProfileGetRequest}
+  | {command: 'env_runtime:profile:create'; data: EnvProfileCreateRequest}
+  | {command: 'env_runtime:profile:update'; data: EnvProfileUpdateRequest}
+  | {command: 'env_runtime:profile:delete'; data: EnvProfileDeleteRequest}
   | {command: 'wallet:status'; data: WalletStatusRequest}
   | {command: 'wallet:list'; data: WalletListRequest}
   | {command: 'wallet:hd:generateMnemonic'; data: WalletHdGenerateMnemonicRequest}
@@ -227,6 +250,24 @@ export type RpcCommand =
     }
   | {command: 'passkeys:list'; data: Record<string, never>}
   | {command: 'passkeys:delete'; data: {credentialIdB64Url: string}}
+  | {
+      command: 'passmanager:entry:create'
+      data: {
+        entry_id: string
+        title: string
+        entry_type: string
+        created_ts: number | null
+        updated_ts: number | null
+        urls: JsonValue | null
+        username: string | null
+        otps: JsonValue | null
+        payment_card: JsonValue | null
+        group_path: string | null
+        icon_ref: string | null
+        tags: Array<string> | null
+        secrets: PassmanagerEntryCreateSecrets
+      }
+    }
   | {
       command: 'passmanager:entry:save'
       data: {

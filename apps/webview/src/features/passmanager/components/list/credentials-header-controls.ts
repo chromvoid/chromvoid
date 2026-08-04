@@ -75,6 +75,7 @@ function getCredentialTagFilterChips(): WorkspaceDashboardHeaderFilterChip[] {
       label: option.label,
       count: option.count,
       active: selectedKeys.has(option.key),
+      colorId: option.colorId,
     })),
   ]
 }

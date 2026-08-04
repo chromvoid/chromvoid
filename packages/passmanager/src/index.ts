@@ -58,6 +58,7 @@ export type {
   PassManagerSshKey,
   SshKeygenParams,
   SshKeygenResult,
+  PassManagerCreateEntryPayload,
   PassManagerSaveEntryMetaPayload,
 } from './service/types'
 export type {
@@ -71,11 +72,13 @@ export type {
 export type {IEntry, SshKeyEntry, SshKeyType} from './service/types'
 export type {Algorithm, Encoding, OTPType, IEntryExternal} from './service/types'
 export type {IGroup} from './service/root'
+export type {GroupSaveChangesInput, GroupSaveChangesResult} from './service/group'
 export type {PasswordsRepository, OTPSecretsGateway} from './ports'
 export type {RootJSONData} from './service/root'
 export {Group, ALGORITHMS, ENCODINGS, filterEntries} from './service/root'
 export {Entry} from './service/entry'
 export {DEFAULT_OPTIONS} from './service/entry'
+export type {MutationPresentation} from './service/mutation-presentation'
 export {OTP} from './service/otp'
 export {
   parseOtpAuthUri,
@@ -104,4 +107,13 @@ export {
 } from './service/utils'
 export type {FileSnapshot} from './service/entry-file'
 export {transformUrls, showUrls, formatLink, truncateLink, isLink} from './utils'
-export {URLValidator} from './url-validator'
+export {getPrimaryUrlRule, isOpenableUrlRule, matchesAnyUrlRule, matchesUrlRule} from './url-matching'
+export {
+  URLValidator,
+  type UrlMatchDefault,
+  type URLValidationEntry,
+  type URLValidationError,
+  type URLValidationErrorCode,
+  type URLValidationResult,
+  type URLValidatorOptions,
+} from './url-validator'

@@ -1,10 +1,10 @@
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
 import {html} from '@chromvoid/uikit/reatom-lit'
 import {nothing} from 'lit'
-import {keyed} from 'lit/directives/keyed.js'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {PMGroupBase} from '../../src/features/passmanager/components/group/group/group-base'
+import {groupBy} from '../../src/features/passmanager/components/list/sort-controls'
 import {pmActiveRowModel} from '../../src/features/passmanager/models/pm-active-row.model'
 import {pmDeleteMotionModel} from '../../src/features/passmanager/models/pm-delete-motion.model'
 
@@ -86,9 +86,8 @@ class TestPMGroupVirtualizer extends PMGroupBase {
     }
 
     const activeId = this.model.getActiveItemId()
-    const renderKey = this.getVirtualListRenderKey(group, items)
 
-    return keyed(renderKey, html`
+    return html`
       <div class="fake-virtualizer">
         ${items.map((row) => {
           if (row.kind !== 'entry') return nothing
@@ -106,7 +105,7 @@ class TestPMGroupVirtualizer extends PMGroupBase {
           `
         })}
       </div>
-    `)
+    `
   }
 }
 
@@ -186,6 +185,7 @@ describe('PMGroup virtualizer active-row updates', () => {
     }
 
     originalPassmanager = window.passmanager
+    groupBy.set('none')
     originalScrollIntoView = HTMLElement.prototype.scrollIntoView
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
@@ -199,6 +199,7 @@ describe('PMGroup virtualizer active-row updates', () => {
     document.querySelectorAll('test-pm-group-block-start-scroll-edge').forEach((element) => element.remove())
     pmActiveRowModel.clearAll()
     pmDeleteMotionModel.reset()
+    groupBy.set('none')
     window.passmanager = originalPassmanager
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
@@ -235,6 +236,27 @@ describe('PMGroup virtualizer active-row updates', () => {
     expect(virtualizerAfter).toBe(virtualizerBefore)
     expect(virtualizerAfter?.scrollTop).toBe(640)
     expect(pmActiveRowModel.getActive(group.id)).toBe(entries[1]?.id)
+  })
+
+  it('keeps the same lit virtualizer instance when grouping changes', async () => {
+    const group = createGroup('grouping-identity-parent', 'Grouping Identity Parent')
+    const entries = Array.from({length: 18}, (_value, index) =>
+      createEntry(group, `grouping-identity-entry-${index}`, `Grouping Identity Entry ${index}`),
+    )
+    group.entries.set(entries)
+    window.passmanager = createPassmanagerRoot(group, [group])
+
+    const element = document.createElement('test-pm-group-scroll-edge') as TestPMGroupScrollEdge
+    document.body.appendChild(element)
+    await flushFrame(element)
+
+    const virtualizerBefore = getLitVirtualizer(element)
+    expect(virtualizerBefore).not.toBeNull()
+
+    groupBy.set('website')
+    await flushFrame(element)
+
+    expect(getLitVirtualizer(element)).toBe(virtualizerBefore)
   })
 
   it('toggles the group list bottom edge when the virtualizer reaches the end', async () => {

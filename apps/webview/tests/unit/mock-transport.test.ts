@@ -663,6 +663,38 @@ describe('MockTransport', () => {
   })
 
   describe('passmanager secret contracts', () => {
+    it('atomically creates login metadata and secrets', async () => {
+      const created = (await t.sendPassmanager('passmanager:entry:create', {
+        entry_id: 'atomic-login',
+        title: 'Atomic login',
+        entry_type: 'login',
+        group_path: '/Work/Production',
+        username: 'alice',
+        urls: [],
+        secrets: {
+          password: 'secret',
+          note: 'private',
+        },
+      })) as any
+
+      expect(created).toEqual({ok: true, result: {entry_id: 'atomic-login'}})
+      const password = (await t.sendPassmanager('passmanager:secret:read', {
+        entry_id: 'atomic-login',
+        secret_type: 'password',
+      })) as any
+      const note = (await t.sendPassmanager('passmanager:secret:read', {
+        entry_id: 'atomic-login',
+        secret_type: 'note',
+      })) as any
+      const entry = (await t.sendPassmanager('passmanager:entry:read', {
+        entry_id: 'atomic-login',
+      })) as any
+
+      expect(password.result.value).toBe('secret')
+      expect(note.result.value).toBe('private')
+      expect(entry.result.entry.folderPath).toBe('Work/Production')
+    })
+
     it('stores generated SSH keys at root and preserves them when the source entry is deleted', async () => {
       await t.sendPassmanager('passmanager:entry:save', {
         entry_id: 'ssh-source',

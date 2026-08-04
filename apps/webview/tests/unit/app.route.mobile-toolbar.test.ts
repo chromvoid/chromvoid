@@ -17,7 +17,9 @@ import {
 } from '../../src/features/file-manager/models/markdown-preview.model'
 import {mediaPlaybackModel} from '../../src/features/media/models/media-playback.model'
 import {PasswordManagerMobileLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-mobile-layout'
+import {passwordManagerDesktopLayoutModel} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.model'
 import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {pmGroupEditModel} from '../../src/features/passmanager/components/group/group/group-edit.model'
 import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 import {pmSelectionModeModel} from '../../src/features/passmanager/models/pm-selection-mode.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
@@ -32,6 +34,7 @@ import {atom} from '@reatom/core'
 import {i18n as appI18n, setLang as setAppLang} from '../../src/i18n'
 import type {SearchFilters} from '../../src/shared/contracts/file-manager'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import {dialogService} from '../../src/shared/services/dialog-service'
 import {remoteStorageModel} from '../../src/routes/remote-storage/remote-storage.model'
 import {vaultRekeyModel} from '../../src/routes/settings/vault-rekey.model'
 import {walletPageModel} from '../../src/routes/wallet/wallet-page.model'
@@ -433,6 +436,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     sortDirection.set('asc')
     groupBy.set('none')
     pmMobileChromeModel.closeSortGroupSheet()
+    pmGroupEditModel.discard()
     remoteStorageModel.cancelWizard()
     remoteStorageModel.transferStep.set('idle')
     markdownDocumentRenameModel.reset()
@@ -568,6 +572,10 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
       },
     ])
 
+    expect(state.executeAction?.('send')).toBe(true)
+    expect(walletPageModel.overlay()).toBe('send')
+    expect(walletPageModel.mainTab()).toBe('overview')
+    walletPageModel.closeOverlay()
     expect(state.executeAction?.('receive')).toBe(true)
     expect(walletPageModel.overlay()).toBe('receive')
     walletPageModel.closeOverlay()
@@ -597,6 +605,17 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(model.getMobileToolbarState('dashboard')).toMatchObject({
       title: 'Удалённый доступ',
       subtitle: 'Управление режимом подключения и удалёнными устройствами',
+    })
+
+    setRuntimeCapabilities({
+      platform: 'android',
+      mobile: true,
+      desktop: false,
+      supports_network_remote: true,
+    })
+    expect(model.getMobileToolbarState('dashboard')).toMatchObject({
+      title: 'Удалённый доступ',
+      subtitle: 'Подключение компьютеров к этому телефону',
     })
 
     navigationModel.navigateToSurface('settings')
@@ -642,7 +661,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(host.textContent).toContain('Настройки')
   })
 
-  it('shows files toolbar actions even before file manager provider is mounted', () => {
+  it('keeps Files add actions out of the mobile top toolbar', () => {
     setupContext()
     setRoute('dashboard')
     navigationModel.navigateToSurface('files')
@@ -656,12 +675,9 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
 
     expect(state.title).toBe('Files')
     expect(state.maxVisible).toBe(3)
-    expect(state.overflowFromIndex).toBe(0)
-    expect(state.actions).toEqual([
-      {id: 'create-note', icon: 'book-plus', label: 'Create note'},
-      {id: 'create-dir', icon: 'folder-plus', label: 'Create folder'},
-      {id: 'upload', icon: 'upload', label: 'Upload files'},
-    ])
+    expect(state.overflowFromIndex).toBeUndefined()
+    expect(state.actions).toEqual([])
+    expect(state.executeAction).toBeUndefined()
   })
 
   it('resolves mobile shell content scroll mode by surface', () => {
@@ -750,17 +766,17 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(topbar?.shadowRoot?.querySelector('.sort-control')).not.toBeNull()
     expect(topbar?.shadowRoot?.querySelector('.view-switch')).not.toBeNull()
     expect(topbar?.querySelector('[slot="title"]')?.textContent).toBe('Notes')
-    expect(topbar?.querySelector('[slot="subtitle"]')?.textContent).toBe(
-      appI18n('notes:quick_view:subtitle' as never),
-    )
+    expect(topbar?.querySelector('[slot="subtitle"]')).toBeNull()
     expect(notesView?.hasAttribute('external-toolbar')).toBe(true)
   })
 
-  it('renders one contextual desktop wallet toolbar and marks the wallet page as externally headed', () => {
+  it('renders one contextual desktop wallet toolbar and marks the wallet page as externally headed', async () => {
     const store = setupContext()
     store.layoutMode.set('desktop')
     setRoute('dashboard')
     setWalletToolbarFixture()
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
+    await moduleAccessModel.ensureActiveCoreAccess()
     moduleAccessModel.rawStates.set([
       {feature_key: 'crypto-wallet', status: 'enabled', denial_code: null},
     ])
@@ -782,14 +798,34 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(toolbar?.querySelector('[data-action="send"]')?.textContent).toContain('Send')
     expect(toolbar?.querySelector('[data-action="receive"]')?.textContent).toContain('Receive')
     expect(toolbar?.querySelector('cv-menu-item[value="refresh"]')?.textContent).toContain('Refresh')
+    expect(toolbar?.querySelector('[slot="leading"]')).toBeNull()
+    expect(toolbar?.querySelector('.back-link')).toBeNull()
 
     const routeHost = document.createElement('div')
+    expect(navigationModel.currentSurface()).toBe('wallet')
     render((app as any).renderRoute('dashboard'), routeHost, {host: app})
     const walletPage = routeHost.querySelector('wallet-page') as
       | (HTMLElement & {externalToolbar?: boolean})
       | null
+    expect(walletPage).not.toBeNull()
     expect(walletPage?.externalToolbar).toBe(true)
   })
+
+  it.each(['wallet', 'remote-storage', 'remote', 'gateway', 'settings'] as const)(
+    'does not render a desktop route back action for the %s root surface',
+    (surface) => {
+      setupContext()
+      setRoute('dashboard')
+      const app = createApp()
+      const options = (app as any).getDesktopTitleToolbarOptions(surface)
+      const toolbarHost = document.createElement('div')
+
+      render((app as any).renderDesktopTitleToolbar(options), toolbarHost, {host: app})
+
+      expect(toolbarHost.querySelector('[slot="leading"]')).toBeNull()
+      expect(toolbarHost.querySelector('.back-link')).toBeNull()
+    },
+  )
 
   it('binds model-owned download availability into the desktop Files topbar', async () => {
     const store = setupContext()
@@ -814,7 +850,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(topbar?.canDownloadSelection).toBe(true)
   })
 
-  it('renders the desktop Passwords topbar through the workspace dashboard header', async () => {
+  it('mounts the model-backed Password Manager desktop toolbar without the legacy route renderer', async () => {
     const store = setupContext()
     store.layoutMode.set('desktop')
     setRoute('dashboard')
@@ -828,18 +864,28 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     document.body.append(app)
     await app.updateComplete
 
-    const topbar = app.shadowRoot?.querySelector(
-      'workspace-dashboard-header[slot="desktop-topbar"][surface="passwords"]',
-    ) as (HTMLElement & {updateComplete?: Promise<unknown>}) | null
+    const topbar = app.shadowRoot?.querySelector('password-manager-desktop-toolbar[slot="desktop-topbar"]') as
+      | (HTMLElement & {model?: unknown; updateComplete?: Promise<unknown>})
+      | null
     await topbar?.updateComplete
 
     expect(topbar).not.toBeNull()
-    expect(topbar?.classList.contains('passwords-desktop-toolbar')).toBe(true)
+    expect(topbar?.model).toBe(passwordManagerDesktopLayoutModel)
+    expect(
+      app.shadowRoot?.querySelector(
+        'workspace-dashboard-header[slot="desktop-topbar"][surface="passwords"]',
+      ),
+    ).toBeNull()
     expect(app.shadowRoot?.querySelector('dashboard-header[slot="desktop-topbar"]')).toBeNull()
-    expect(topbar?.querySelector('pm-search.toolbar-password-search')).not.toBeNull()
-    expect(topbar?.querySelector('pm-quick-filters.toolbar-quick-filters')).not.toBeNull()
-    expect(topbar?.querySelector('pm-sort-controls.toolbar-sort-controls')).not.toBeNull()
-    expect(topbar?.querySelector('.toolbar-actions-menu')).not.toBeNull()
+    expect(topbar?.querySelector('[slot]')).toBeNull()
+
+    const toolbar = topbar?.shadowRoot?.querySelector('desktop-shell-toolbar')
+    expect(toolbar?.hasAttribute('single-row')).toBe(true)
+    expect(toolbar?.hasAttribute('two-row')).toBe(false)
+    expect(topbar?.shadowRoot?.querySelector('pm-search.toolbar-password-search')).not.toBeNull()
+    expect(topbar?.shadowRoot?.querySelector('pm-quick-filters.toolbar-quick-filters')).not.toBeNull()
+    expect(topbar?.shadowRoot?.querySelector('pm-sort-controls.toolbar-sort-controls')).not.toBeNull()
+    expect(topbar?.shadowRoot?.querySelector('.toolbar-actions-menu')).not.toBeNull()
   })
 
   it('uses surface-owned mobile shell scrolling on the Passkeys surface', async () => {
@@ -1083,7 +1129,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     })
   })
 
-  it('shows a reset action in the files toolbar when search filters are active', () => {
+  it('keeps the Files top toolbar empty when search filters are active', () => {
     const store = setupContext()
     setRoute('dashboard')
     navigationModel.navigateToSurface('files')
@@ -1104,13 +1150,9 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     const state = model.getMobileToolbarState('dashboard')
 
     expect(state.subtitle).toBe('Encrypted files & folders')
-    expect(state.overflowFromIndex).toBe(0)
-    expect(state.actions).toEqual([
-      {id: 'filters-reset', icon: 'x', label: 'Clear filters', tone: 'accent'},
-      {id: 'create-note', icon: 'book-plus', label: 'Create note'},
-      {id: 'create-dir', icon: 'folder-plus', label: 'Create folder'},
-      {id: 'upload', icon: 'upload', label: 'Upload files'},
-    ])
+    expect(state.overflowFromIndex).toBeUndefined()
+    expect(state.actions).toEqual([])
+    expect(state.executeAction).toBeUndefined()
   })
 
   it('keeps files mobile toolbar stable while selection actions move to the bottom bar', () => {
@@ -1229,6 +1271,87 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(state.subtitle).toBe(passmanagerI18n('group:create:mobile-subtitle'))
     expect(state.leading).toBe('back')
     expect(state.actions).toEqual([])
+  })
+
+  it('owns group edit back handling and hides the tab bar until the form closes', async () => {
+    setupContext()
+    setRoute('dashboard')
+    navigationModel.navigateToSurface('passwords')
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-edit', 'Games')
+    root.entries.set([group])
+    root.showElement.set(group)
+    pmModel.alive.set(true)
+    setPassmanagerRoot(root)
+
+    const model = new ChromVoidAppModel(
+      () => {},
+      async () => {},
+    )
+    const readState = model.getMobileToolbarState('dashboard')
+
+    expect(readState.executeAction?.('pm-edit-group')).toBe(true)
+    expect(model.getMobileToolbarState('dashboard')).toMatchObject({
+      title: 'Edit group',
+      leading: 'back',
+      backDisabled: false,
+      hideTabBar: true,
+      actions: [],
+    })
+
+    const confirm = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValueOnce(false)
+    pmGroupEditModel.setName('Gaming')
+    expect(pmMobileChromeModel.handleBack()).toBe(true)
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalledOnce())
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    expect(pmGroupEditModel.active()).toBe(true)
+
+    confirm.mockResolvedValueOnce(true)
+    expect(pmMobileChromeModel.handleBack()).toBe(true)
+    await vi.waitFor(() => expect(pmGroupEditModel.active()).toBe(false))
+    expect(model.getMobileToolbarState('dashboard').hideTabBar).toBe(false)
+  })
+
+  it('disables group edit Back only while persistence is pending', async () => {
+    setupContext()
+    setRoute('dashboard')
+    navigationModel.navigateToSurface('passwords')
+
+    const root = new ManagerRoot({} as any)
+    const group = createGroup('group-edit-pending', 'Games')
+    root.entries.set([group])
+    root.showElement.set(group)
+    pmModel.alive.set(true)
+    setPassmanagerRoot(root)
+
+    let resolveSave!: (value: boolean) => void
+    vi.spyOn(root, 'save').mockImplementation(
+      () => new Promise<boolean>((resolve) => (resolveSave = resolve)),
+    )
+    pmGroupEditModel.enter(group)
+    pmGroupEditModel.setName('Gaming')
+
+    const submit = pmGroupEditModel.submit()
+    await vi.waitFor(() => expect(pmGroupEditModel.submit.pending()).toBe(1))
+
+    const model = new ChromVoidAppModel(
+      () => {},
+      async () => {},
+    )
+    expect(model.getMobileToolbarState('dashboard')).toMatchObject({
+      hideTabBar: true,
+      backDisabled: true,
+    })
+    expect(pmMobileChromeModel.handleBack()).toBe(true)
+    expect(pmGroupEditModel.active()).toBe(true)
+
+    resolveSave(true)
+    await expect(submit).resolves.toBe(true)
+    expect(model.getMobileToolbarState('dashboard')).toMatchObject({
+      hideTabBar: false,
+      backDisabled: false,
+    })
   })
 
   it('uses the root toolbar chrome on the OTP quick view', () => {
@@ -1853,71 +1976,6 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(subscribeSpy).not.toHaveBeenCalled()
 
     model.disconnect()
-  })
-
-  it('executes files toolbar actions through the shared file-manager model contract', async () => {
-    const store = setupContext()
-    setRoute('dashboard')
-    navigationModel.navigateToSurface('files')
-    const model = getFileManagerModel()
-    const createNoteSpy = vi.spyOn(model, 'handleCreateMarkdownNote').mockResolvedValue()
-    const createDirSpy = vi.spyOn(model, 'handleCreateDir').mockResolvedValue()
-    const uploadTrigger = vi.fn()
-    const unregisterUploadTrigger = model.registerToolbarUploadTrigger(uploadTrigger)
-    const appModel = new ChromVoidAppModel(
-      () => {},
-      async () => {},
-    )
-    const state = appModel.getMobileToolbarState('dashboard')
-
-    try {
-      expect(state.executeAction?.('create-note')).toBe(true)
-      expect(createNoteSpy).toHaveBeenCalledTimes(1)
-
-      expect(state.executeAction?.('create-dir')).toBe(true)
-      expect(createDirSpy).toHaveBeenCalledTimes(1)
-
-      expect(state.executeAction?.('upload')).toBe(true)
-      expect(uploadTrigger).toHaveBeenCalledTimes(1)
-
-      store.searchFilters.set({
-        query: 'report',
-        sortBy: 'date',
-        sortDirection: 'desc',
-        viewMode: 'grid',
-        showHidden: true,
-        fileTypes: ['documents'],
-      })
-      expect(state.executeAction?.('filters-reset')).toBe(true)
-      expect(store.searchFilters()).toEqual({
-        query: '',
-        sortBy: 'name',
-        sortDirection: 'asc',
-        viewMode: 'list',
-        showHidden: false,
-        fileTypes: [],
-      })
-    } finally {
-      unregisterUploadTrigger()
-    }
-  })
-
-  it('executes files selection toolbar actions through the shared file-manager model contract', () => {
-    const store = setupContext()
-    setRoute('dashboard')
-    navigationModel.navigateToSurface('files')
-    store.setSelectionMode(true)
-    store.selectedNodeIds.set([7])
-
-    const model = new ChromVoidAppModel(
-      () => {},
-      async () => {},
-    )
-    const state = model.getMobileToolbarState('dashboard')
-
-    expect(state.executeAction?.('selection-done')).toBe(true)
-    expect(store.selectionMode()).toBe(false)
-    expect(store.selectedNodeIds()).toEqual([])
   })
 
   it('updates mounted shell toolbar when remote-storage model state changes', async () => {

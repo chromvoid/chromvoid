@@ -352,8 +352,8 @@ func chromvoid_ios_native_audio_player_event(
 
 private enum NativePickerPurpose {
   case export
-  case upload(uploadId: String)
-  case restore(operationId: String)
+  case upload(uploadId: String, appGroupIdentifier: String)
+  case restore(operationId: String, appGroupIdentifier: String)
 }
 
 private final class NativeDocumentPickerDelegate: NSObject, UIDocumentPickerDelegate {
@@ -367,14 +367,14 @@ private final class NativeDocumentPickerDelegate: NSObject, UIDocumentPickerDele
   }
 
   func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-    if case .upload(let uploadId) = purpose {
+    if case .upload(let uploadId, _) = purpose {
       runtime?.completeUploadPicker(
         uploadId: uploadId,
         sessionId: nil,
         status: 1,
         errorMessage: nil
       )
-    } else if case .restore(let operationId) = purpose {
+    } else if case .restore(let operationId, _) = purpose {
       runtime?.completeRestorePicker(
         operationId: operationId,
         backupPath: nil,
@@ -396,12 +396,16 @@ private final class NativeDocumentPickerDelegate: NSObject, UIDocumentPickerDele
       runtime?.releasePicker(self)
     }
 
-    if case .upload(let uploadId) = purpose {
-      runtime?.stageUploadFiles(uploadId: uploadId, sources: urls)
+    if case .upload(let uploadId, let appGroupIdentifier) = purpose {
+      runtime?.stageUploadFiles(
+        uploadId: uploadId,
+        appGroupIdentifier: appGroupIdentifier,
+        sources: urls
+      )
       return
     }
 
-    guard case .restore(let operationId) = purpose else {
+    guard case .restore(let operationId, let appGroupIdentifier) = purpose else {
       return
     }
 
@@ -416,18 +420,22 @@ private final class NativeDocumentPickerDelegate: NSObject, UIDocumentPickerDele
       return
     }
 
-    runtime?.stageRestoreSource(operationId: operationId, source: url)
+    runtime?.stageRestoreSource(
+      operationId: operationId,
+      appGroupIdentifier: appGroupIdentifier,
+      source: url
+    )
   }
 
   func cancelForLifecycleRelease() {
-    if case .upload(let uploadId) = purpose {
+    if case .upload(let uploadId, _) = purpose {
       runtime?.completeUploadPicker(
         uploadId: uploadId,
         sessionId: nil,
         status: 1,
         errorMessage: "Native session released"
       )
-    } else if case .restore(let operationId) = purpose {
+    } else if case .restore(let operationId, _) = purpose {
       runtime?.completeRestorePicker(
         operationId: operationId,
         backupPath: nil,
@@ -986,7 +994,6 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
   private var activePresentedControllers: [UIViewController] = []
   private var activePickerDelegates: [NativeDocumentPickerDelegate] = []
   private weak var rootViewController: UIViewController?
-  private let appGroupIdentifier = "group.com.chromvoid.app.shared"
   private var activeOtpScanId: String?
   private var activeOtpSession: AVCaptureSession?
   private var activeOtpController: OtpQrScannerViewController?
@@ -1112,8 +1119,8 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
     return 1
   }
 
-  func pickUploadFiles(uploadId: String) -> Int32 {
-    guard !uploadId.isEmpty else {
+  func pickUploadFiles(uploadId: String, appGroupIdentifier: String) -> Int32 {
+    guard !uploadId.isEmpty, !appGroupIdentifier.isEmpty else {
       return 0
     }
 
@@ -1129,7 +1136,10 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
       }
 
       let picker = makeUploadPicker()
-      let delegate = NativeDocumentPickerDelegate(purpose: .upload(uploadId: uploadId), runtime: self)
+      let delegate = NativeDocumentPickerDelegate(
+        purpose: .upload(uploadId: uploadId, appGroupIdentifier: appGroupIdentifier),
+        runtime: self
+      )
       picker.delegate = delegate
       picker.allowsMultipleSelection = true
       self.retainPicker(delegate)
@@ -1139,8 +1149,8 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
     return 1
   }
 
-  func pickRestoreSource(operationId: String) -> Int32 {
-    guard !operationId.isEmpty else {
+  func pickRestoreSource(operationId: String, appGroupIdentifier: String) -> Int32 {
+    guard !operationId.isEmpty, !appGroupIdentifier.isEmpty else {
       return 0
     }
 
@@ -1157,7 +1167,10 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
       }
 
       let picker = makeRestorePicker()
-      let delegate = NativeDocumentPickerDelegate(purpose: .restore(operationId: operationId), runtime: self)
+      let delegate = NativeDocumentPickerDelegate(
+        purpose: .restore(operationId: operationId, appGroupIdentifier: appGroupIdentifier),
+        runtime: self
+      )
       picker.delegate = delegate
       picker.allowsMultipleSelection = false
       self.retainPicker(delegate)
@@ -1167,7 +1180,7 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
     return 1
   }
 
-  func stageUploadFiles(uploadId: String, sources: [URL]) {
+  func stageUploadFiles(uploadId: String, appGroupIdentifier: String, sources: [URL]) {
     guard !sources.isEmpty else {
       completeUploadPicker(
         uploadId: uploadId,
@@ -1179,11 +1192,10 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
     }
 
     do {
-      guard let appGroupUrl = FileManager.default.containerURL(
-        forSecurityApplicationGroupIdentifier: appGroupIdentifier
-      ) else {
-        throw NativeBridgeError.appGroupUnavailable
-      }
+      let appGroupUrl = try stagingContainerURL(
+        appGroupIdentifier: appGroupIdentifier,
+        operation: "upload"
+      )
 
       let sessionId = "upload-\(UUID().uuidString)"
       let sessionRoot = appGroupUrl
@@ -1240,6 +1252,9 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
         errorMessage: nil
       )
     } catch {
+      NSLog(
+        "ios_native_bridge: staging operation=upload result=failed category=\(stagingErrorCategory(error))"
+      )
       completeUploadPicker(
         uploadId: uploadId,
         sessionId: nil,
@@ -1269,7 +1284,11 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
     }
   }
 
-  func stageRestoreSource(operationId: String, source: URL) {
+  func stageRestoreSource(
+    operationId: String,
+    appGroupIdentifier: String,
+    source: URL
+  ) {
     let accessed = source.startAccessingSecurityScopedResource()
     defer {
       if accessed {
@@ -1278,11 +1297,10 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
     }
 
     do {
-      guard let appGroupUrl = FileManager.default.containerURL(
-        forSecurityApplicationGroupIdentifier: appGroupIdentifier
-      ) else {
-        throw NativeBridgeError.appGroupUnavailable
-      }
+      let appGroupUrl = try stagingContainerURL(
+        appGroupIdentifier: appGroupIdentifier,
+        operation: "restore"
+      )
 
       let sessionRoot = appGroupUrl
         .appendingPathComponent("NativeStaging", isDirectory: true)
@@ -1309,6 +1327,9 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
         errorMessage: nil
       )
     } catch {
+      NSLog(
+        "ios_native_bridge: staging operation=restore result=failed category=\(stagingErrorCategory(error))"
+      )
       completeRestorePicker(
         operationId: operationId,
         backupPath: nil,
@@ -1317,6 +1338,20 @@ private final class ChromVoidNativeBridgeRuntime: NSObject, UIDocumentInteractio
         errorMessage: "Restore source staging failed"
       )
     }
+  }
+
+  private func stagingContainerURL(
+    appGroupIdentifier: String,
+    operation: String
+  ) throws -> URL {
+    guard let url = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    ) else {
+      NSLog("ios_native_bridge: staging operation=\(operation) result=unavailable")
+      throw NativeBridgeError.appGroupUnavailable
+    }
+    NSLog("ios_native_bridge: staging operation=\(operation) result=available")
+    return url
   }
 
   func completeRestorePicker(
@@ -1816,6 +1851,14 @@ private enum NativeBridgeError: Error {
   case nativeAudioSourceUnavailable
 }
 
+private func stagingErrorCategory(_ error: Error) -> String {
+  if let nativeError = error as? NativeBridgeError,
+     case .appGroupUnavailable = nativeError {
+    return "container_unavailable"
+  }
+  return "io"
+}
+
 private func withOptionalCString<T>(
   _ value: String?,
   _ body: (UnsafePointer<CChar>?) -> T
@@ -1890,21 +1933,33 @@ func chromvoidIosNativeExportBackupPath(_ pathPtr: UnsafePointer<CChar>?) -> Int
 }
 
 @_cdecl("chromvoid_ios_native_pick_upload_files")
-func chromvoidIosNativePickUploadFiles(_ uploadIdPtr: UnsafePointer<CChar>?) -> Int32 {
-  guard let uploadIdPtr else {
+func chromvoidIosNativePickUploadFiles(
+  _ uploadIdPtr: UnsafePointer<CChar>?,
+  _ appGroupIdentifierPtr: UnsafePointer<CChar>?
+) -> Int32 {
+  guard let uploadIdPtr, let appGroupIdentifierPtr else {
     return 0
   }
 
-  return ChromVoidNativeBridgeRuntime.shared.pickUploadFiles(uploadId: String(cString: uploadIdPtr))
+  return ChromVoidNativeBridgeRuntime.shared.pickUploadFiles(
+    uploadId: String(cString: uploadIdPtr),
+    appGroupIdentifier: String(cString: appGroupIdentifierPtr)
+  )
 }
 
 @_cdecl("chromvoid_ios_native_pick_restore_source")
-func chromvoidIosNativePickRestoreSource(_ operationIdPtr: UnsafePointer<CChar>?) -> Int32 {
-  guard let operationIdPtr else {
+func chromvoidIosNativePickRestoreSource(
+  _ operationIdPtr: UnsafePointer<CChar>?,
+  _ appGroupIdentifierPtr: UnsafePointer<CChar>?
+) -> Int32 {
+  guard let operationIdPtr, let appGroupIdentifierPtr else {
     return 0
   }
 
-  return ChromVoidNativeBridgeRuntime.shared.pickRestoreSource(operationId: String(cString: operationIdPtr))
+  return ChromVoidNativeBridgeRuntime.shared.pickRestoreSource(
+    operationId: String(cString: operationIdPtr),
+    appGroupIdentifier: String(cString: appGroupIdentifierPtr)
+  )
 }
 
 @_cdecl("chromvoid_ios_native_otp_qr_scan_start")

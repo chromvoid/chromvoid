@@ -77,6 +77,8 @@ describe('PMDeleteMotionModel', () => {
     model.completeExit('entry-1')
     model.clearPending(['entry-1'])
 
+    expect(model.decorateRows(rows)[0]).toMatchObject({id: 'entry-1', entering: 'restore'})
+    model.consumeEnter('legacy-content', 'entry-1')
     expect(model.decorateRows(rows)).toEqual(rows)
   })
 

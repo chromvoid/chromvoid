@@ -2,6 +2,7 @@ import {atom} from '@reatom/core'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import type {RemoteSessionState} from 'root/app/state/store'
+import {isSshKeysEnabled} from 'root/core/config/app-feature-flags'
 import {moduleAccessModel, type ModuleAccessState} from 'root/core/pro/module-access.model'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
 import {getAppContext} from 'root/shared/services/app-context'
@@ -45,6 +46,10 @@ class NavigationRailModel {
 
   supportsPasskeys(): boolean {
     return supportsCredentialProviderPasskeysRuntime()
+  }
+
+  supportsSshKeys(): boolean {
+    return isSshKeysEnabled()
   }
 
   supportsWallet(): boolean {
@@ -171,6 +176,7 @@ class NavigationRailModel {
   }
 
   openSshKeys(): void {
+    if (!this.supportsSshKeys()) return
     navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
     this.closeSidebarOnMobile()
   }

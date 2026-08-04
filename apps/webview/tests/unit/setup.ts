@@ -2,6 +2,8 @@
 // Simplified setup for unit tests of web components
 import {beforeAll} from 'vitest'
 
+window.__CHROMVOID_SSH_KEYS_ENABLED__ = true
+
 // Mock localStorage for jsdom (required for Reatom persist adapters)
 const localStorageMock = (() => {
   let store: Record<string, string> = {}

@@ -291,6 +291,10 @@ export class PasswordManagerModel {
     passmanagerNavigationController.openCreateGroup()
   }
 
+  onCreateTopLevelGroup(): void {
+    passmanagerNavigationController.openCreateGroup(null)
+  }
+
   onExport(): void {
     void passmanagerMaintenanceModel.exportRoot()
   }
@@ -321,9 +325,12 @@ export class PasswordManagerModel {
         throw new Error('Secret is unavailable')
       }
       await copyWithAutoWipe(pwd, DEFAULT_CLIPBOARD_WIPE_MS)
-      toast.success(appI18n('password-manager:password-copied' as any))
+      toast.success(appI18n('password-manager:password-copied' as any), undefined, {
+        key: 'passmanager.clipboard.copy',
+      })
     } catch {
       toast.show({
+        key: 'passmanager.clipboard.copy',
         message: appI18n('password-manager:password-copy-failed' as any),
         variant: 'error',
       })

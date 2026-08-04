@@ -329,6 +329,12 @@ pub(crate) fn configure_usb_accessory_host_starter_for_runtime(
                     crate::network::mobile_acceptor::DirectTransportStopReason::VaultLocked => {
                         AndroidMobileUsbHostStopReason::VaultLocked
                     }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::ClientDisconnected => {
+                        AndroidMobileUsbHostStopReason::ClientDisconnected
+                    }
+                    crate::network::mobile_acceptor::DirectTransportStopReason::PairingCancelled => {
+                        AndroidMobileUsbHostStopReason::PairingCancelled
+                    }
                     crate::network::mobile_acceptor::DirectTransportStopReason::PeerClosed => {
                         AndroidMobileUsbHostStopReason::PeerClosed
                     }

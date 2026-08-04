@@ -47,8 +47,8 @@ use listener::{wait_until_next_accept_ready, AcceptErrorClass, RetryBackoffState
 #[cfg(test)]
 use state::AcceptorInner;
 pub use state::MobileAcceptorRuntimeState;
-pub(crate) use state::MobileUsbApprovalKind;
-use state::PeerConnection;
+pub(crate) use state::{MobileUsbApprovalKind, PeerRevocationResult};
+use state::{PeerConnection, PeerRegistrationResult};
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -619,7 +619,7 @@ mod tests {
             )
             .expect("add stale peer");
 
-        assert!(!added);
+        assert_eq!(added, PeerRegistrationResult::StaleGeneration);
         assert!(get_connected_peers(&runtime).unwrap().is_empty());
         assert_eq!(get_status(&runtime).unwrap().state, AcceptorState::Idle);
     }
@@ -634,18 +634,21 @@ mod tests {
             connected_at_ms: now_ms(),
             transport_type: "wss".to_string(),
         };
-        assert!(runtime
-            .add_peer_if_current(
-                generation,
-                peer,
-                PeerConnection {
-                    conn_mgr: NetworkConnectionManager::new(),
+        assert_eq!(
+            runtime
+                .add_peer_if_current(
                     generation,
-                    shutdown_tx: None,
-                    task_handle: None,
-                },
-            )
-            .expect("add peer"));
+                    peer,
+                    PeerConnection {
+                        conn_mgr: NetworkConnectionManager::new(),
+                        generation,
+                        shutdown_tx: None,
+                        task_handle: None,
+                    },
+                )
+                .expect("add peer"),
+            PeerRegistrationResult::Added
+        );
 
         let removed = runtime
             .remove_peer_if_current(generation.saturating_sub(1), "desktop-1")

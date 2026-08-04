@@ -50,6 +50,26 @@ fn redact_passmanager_secret_save_value() {
 }
 
 #[test]
+fn redact_entire_passmanager_entry_create_payload() {
+    let redacted = redact_rpc_data(
+        "passmanager:entry:create",
+        &json!({
+            "entry_id": "entry-1",
+            "title": "Production",
+            "username": "alice@example.com",
+            "secrets": {
+                "password": "super-secret-password",
+                "note": "private note",
+                "card_pan": "4111111111111111",
+                "card_cvv": "123"
+            }
+        }),
+    );
+
+    assert_eq!(redacted, json!("<redacted>"));
+}
+
+#[test]
 fn redact_nested_secret_fields() {
     let redacted = redact_rpc_data(
         "passmanager:root:import",

@@ -1,4 +1,14 @@
-import type {UrlRule} from './service/types'
+import type {UrlMatch, UrlRule} from './service/types'
+
+const OPENABLE_URL_MATCHES: ReadonlySet<UrlMatch> = new Set(['base_domain', 'host', 'starts_with', 'exact'])
+
+export function isOpenableUrlRule(rule: UrlRule): boolean {
+  return OPENABLE_URL_MATCHES.has(rule.match)
+}
+
+export function getPrimaryUrlRule(rules: readonly UrlRule[]): UrlRule | undefined {
+  return rules.find(isOpenableUrlRule)
+}
 
 const COMMON_SLD = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac'])
 
@@ -93,6 +103,6 @@ export function matchesUrlRule(rule: UrlRule, current: URL): boolean {
   return false
 }
 
-export function matchesAnyUrlRule(rules: UrlRule[], current: URL): boolean {
+export function matchesAnyUrlRule(rules: readonly UrlRule[], current: URL): boolean {
   return rules.some((r) => matchesUrlRule(r, current))
 }

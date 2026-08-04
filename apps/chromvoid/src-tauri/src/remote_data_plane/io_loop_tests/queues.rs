@@ -115,3 +115,43 @@ fn wallet_balance_uses_a_long_running_json_deadline() {
         "a caller-provided longer deadline must be preserved"
     );
 }
+
+#[test]
+fn derivative_ensure_requests_stream_control_for_its_response() {
+    assert!(request_needs_stream_control_hint(
+        DERIVATIVE_ENSURE_COMMAND,
+        false
+    ));
+}
+
+#[test]
+fn derivative_ensure_uses_a_long_running_response_meta_deadline() {
+    assert_eq!(
+        json_response_timeout(DERIVATIVE_ENSURE_COMMAND, Duration::from_secs(15)),
+        DERIVATIVE_ENSURE_RESPONSE_META_TIMEOUT
+    );
+    assert_eq!(
+        json_response_timeout(DERIVATIVE_ENSURE_COMMAND, Duration::from_secs(90)),
+        Duration::from_secs(90),
+        "a caller-provided longer deadline must be preserved"
+    );
+}
+
+#[test]
+fn timed_out_derivative_ensure_cancels_only_for_stream_control_peers() {
+    let peer_features = crate::remote_data_plane::RemotePeerFeatures::new();
+    assert!(!timed_out_request_needs_stream_cancel(
+        DERIVATIVE_ENSURE_COMMAND,
+        &peer_features,
+    ));
+
+    peer_features.replace(vec![CORE_FEATURE_REMOTE_STREAM_CONTROL_V1.to_string()]);
+    assert!(timed_out_request_needs_stream_cancel(
+        DERIVATIVE_ENSURE_COMMAND,
+        &peer_features,
+    ));
+    assert!(!timed_out_request_needs_stream_cancel(
+        "catalog:list",
+        &peer_features,
+    ));
+}

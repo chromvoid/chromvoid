@@ -86,11 +86,13 @@ type UploadTaskUpdate = {
   speed?: number
   eta?: number
   status?: UploadTaskStatus
+  errorMessage?: string | null
 }
 
 type UploadTaskRetrySource =
   | {kind: 'browser-file'; currentPath: string; file: File}
   | {kind: 'host-path'; currentPath: string; file: HostPathTokenGrant}
+  | {kind: 'native-picker'; currentPath: string; batchId: string}
 
 function nativeUploadErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -105,6 +107,14 @@ function nativeUploadErrorCode(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null
   const code = (error as {code?: unknown}).code
   return typeof code === 'string' ? code : null
+}
+
+function nativeUploadTaskErrorMessage(code: string | null): string {
+  return i18n(
+    code === 'NATIVE_UPLOAD_UNAVAILABLE'
+      ? 'uploads:native-staging-failed'
+      : 'uploads:native-upload-failed',
+  )
 }
 
 function summarizeNativeUploadFiles(files: NativeUploadFile[]): Record<string, unknown> {
@@ -543,7 +553,7 @@ export class Store {
           task.markQueued()
           break
         case 'error':
-          task.markError()
+          task.markError(updates.errorMessage)
           break
         case 'paused':
           task.pause()
@@ -552,6 +562,8 @@ export class Store {
           task.resume()
           break
       }
+    } else if (updates.errorMessage !== undefined) {
+      task.setErrorMessage(updates.errorMessage)
     }
   }
 
@@ -569,6 +581,20 @@ export class Store {
     },
     'store.uploadTasks.externalCallback.registerImage',
   )
+
+  private readonly replaceFailedNativeBatchFromExternalCallback = action((batchId: string): void => {
+    const failedTaskIds = new Set(
+      this.uploadTasks()
+        .filter((task) => task.batchId === batchId && task.status() === 'error')
+        .map((task) => task.id),
+    )
+    if (failedTaskIds.size === 0) return
+    for (const taskId of failedTaskIds) {
+      this.clearUploadTaskAutoRemove(taskId)
+      this.clearUploadTaskRetrySource(taskId)
+    }
+    this.uploadTasks.set(this.uploadTasks().filter((task) => !failedTaskIds.has(task.id)))
+  }, 'store.uploadTasks.externalCallback.replaceFailedNativeBatch')
 
   clearCompletedUploadTasks() {
     const completedTaskIds = this.uploadTasks()
@@ -600,6 +626,10 @@ export class Store {
     }
 
     this.clearUploadTaskAutoRemove(taskId)
+    if (source.kind === 'native-picker') {
+      return this.startNativeUploadPickerAttempt(source.currentPath, source.batchId)
+    }
+
     task.setProgress(0, 0, 0)
     if (source.kind === 'browser-file') {
       task.setTotal(source.file.size)
@@ -646,7 +676,9 @@ export class Store {
     this.showRemotePage.set(false)
     this.showSettingsPage.set(false)
 
-    toast.warning(i18n('notification:remote-vault-locked'))
+    toast.warning(i18n('notification:remote-vault-locked'), undefined, {
+      key: 'remote.vault-locked',
+    })
   }
 
   private getUploadStatsForTasks(tasks: UploadTask[]): UploadStats {
@@ -980,10 +1012,18 @@ export class Store {
       return
     }
 
+    await this.startNativeUploadPickerAttempt(currentPath)
+  }
+
+  private async startNativeUploadPickerAttempt(
+    currentPath: string,
+    replaceFailedBatchId?: string,
+  ): Promise<boolean> {
     const uploadId = crypto.randomUUID()
     const outcome = await wrap(
       this.runNativeUploadTaskBatch({
         uploadId,
+        nativePicker: {currentPath, replaceFailedBatchId},
         start: async (callbacks) => {
           const filePickerSession = beginMobileFilePickerSession()
           try {
@@ -995,15 +1035,42 @@ export class Store {
       }),
     )
 
-    if (!outcome.ok) {
-      this.pushNotification(
-        'error',
-        i18n('uploads:file-upload-error', {
-          suffix: '',
-          message: nativeUploadErrorMessage(outcome.error),
-        }),
-      )
-      return
+    const cancelled = outcome.result.failedCode === 'NATIVE_UPLOAD_CANCELLED'
+    if (cancelled) return false
+
+    if (!outcome.ok || outcome.result.failedCount > 0) {
+      if (outcome.result.completedCount > 0) {
+        void this.catalog.refresh().catch(() => {})
+      }
+      const errorMessage = nativeUploadTaskErrorMessage(outcome.result.failedCode)
+      const replaceableTasks = replaceFailedBatchId
+        ? this.uploadTasks().filter(
+            (task) => task.batchId === replaceFailedBatchId && task.status() === 'error',
+          )
+        : []
+
+      if (replaceableTasks.length > 0) {
+        for (const task of replaceableTasks) {
+          this.updateUploadTask(task.id, {status: 'error', errorMessage})
+        }
+      } else if (outcome.result.selectedCount === 0) {
+        const task = new UploadTask({
+          id: uploadId,
+          name: i18n('file-manager:upload-files'),
+          total: 0,
+          initialStatus: 'error',
+          batchId: uploadId,
+          retryable: true,
+          errorMessage,
+        })
+        this.addUploadTask(task)
+        this.registerUploadTaskRetrySource(task.id, {
+          kind: 'native-picker',
+          currentPath,
+          batchId: uploadId,
+        })
+      }
+      return false
     }
 
     void this.catalog.refresh().catch(() => {})
@@ -1018,6 +1085,7 @@ export class Store {
     if (outcome.result.hasAtRiskNativeImageUpload) {
       this.pushNotification('warning', i18n('uploads:native-image-location-at-risk'))
     }
+    return outcome.result.selectedCount > 0
   }
 
   async startSharedFilesImport(
@@ -1145,6 +1213,7 @@ export class Store {
     uploadId: string
     diagnosticSource?: 'android_share'
     diagnosticSessionId?: string
+    nativePicker?: {currentPath: string; replaceFailedBatchId?: string}
     start: (callbacks: NativeUploadTaskCallbacks) => Promise<void>
   }): Promise<NativeUploadBatchOutcome> {
     const {uploadId} = options
@@ -1168,11 +1237,14 @@ export class Store {
 
     const markBatchFailed = () => {
       logDiagnostics('batch_mark_failed', {taskCount: taskIds.size})
+      const errorMessage = options.nativePicker
+        ? nativeUploadTaskErrorMessage(failedCode)
+        : undefined
       for (const taskId of taskIds) {
         const task = this.uploadTasks().find((item) => item.id === taskId)
         if (task && task.status() !== 'done') {
           failedFileIds.add(taskId)
-          this.updateUploadTaskFromExternalCallback(taskId, {status: 'error'})
+          this.updateUploadTaskFromExternalCallback(taskId, {status: 'error', errorMessage})
         }
       }
     }
@@ -1180,6 +1252,9 @@ export class Store {
     const handleSelected = (files: NativeUploadFile[]) => {
       selectedCount = files.length
       logDiagnostics('native_selected', summarizeNativeUploadFiles(files))
+      if (files.length > 0 && options.nativePicker?.replaceFailedBatchId) {
+        this.replaceFailedNativeBatchFromExternalCallback(options.nativePicker.replaceFailedBatchId)
+      }
       const tasks = files.map((file, index) => {
         selectedFiles.set(file.fileId, file)
         taskIds.add(file.fileId)
@@ -1192,10 +1267,20 @@ export class Store {
           batchId: uploadId,
           batchIndex: index,
           batchCount: files.length,
+          retryable: Boolean(options.nativePicker),
         })
       })
       if (tasks.length > 0) {
         this.addUploadTasksFromExternalCallback(tasks)
+        if (options.nativePicker) {
+          for (const task of tasks) {
+            this.registerUploadTaskRetrySource(task.id, {
+              kind: 'native-picker',
+              currentPath: options.nativePicker.currentPath,
+              batchId: uploadId,
+            })
+          }
+        }
       }
     }
 
@@ -1269,7 +1354,12 @@ export class Store {
       })
       if (failed.fileId && taskIds.has(failed.fileId)) {
         failedFileIds.add(failed.fileId)
-        this.updateUploadTaskFromExternalCallback(failed.fileId, {status: 'error'})
+        this.updateUploadTaskFromExternalCallback(failed.fileId, {
+          status: 'error',
+          errorMessage: options.nativePicker
+            ? nativeUploadTaskErrorMessage(failedCode)
+            : undefined,
+        })
         return
       }
       markBatchFailed()

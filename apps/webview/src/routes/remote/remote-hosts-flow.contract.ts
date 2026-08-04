@@ -31,6 +31,25 @@ export interface ConnectedDesktopPeer {
   transport_type: string
 }
 
+export type MobileHostPairingTransport = 'usb_mobile' | 'network'
+
+export interface MobileHostPairedComputer {
+  peer_id: string
+  label: string
+  platform: string
+  pairing_transport: MobileHostPairingTransport
+  paired_at_ms: number
+  last_seen_ms: number
+}
+
+export type MobileHostRevokeSessionAction = 'not_connected' | 'disconnect_signalled' | 'disconnect_failed'
+
+export interface MobileHostRevokeResult {
+  peer_id: string
+  pairing_removed: boolean
+  session_action: MobileHostRevokeSessionAction
+}
+
 export interface MobileHostStatus {
   phase: MobileHostPhase
   platform: string
@@ -60,18 +79,13 @@ export interface BootstrapProfile {
 
 export type RemoteHostsCallbacks = {
   onTransportLost?: () => void
+  onUsbRecoveryRequired?: () => void
 }
 
 export type RemoteHostsFlowView = 'hosts' | 'pair-ios' | 'wait' | 'usb-mobile'
 export type RemoteHostsPairPhase = 'idle' | 'starting' | 'waiting' | 'connecting' | 'success' | 'failed'
 export type MobileHostTransportKind = 'wss_relay' | 'usb_mobile'
-export type RemoteFlowScreen = 'hosts' | 'pair' | 'usb' | 'wait'
-
-export type RemoteFlowSummaryItem = {
-  label: string
-  value: string
-  state?: 'connected' | 'idle'
-}
+export type MobileHostPageState = 'off' | 'starting' | 'pairing' | 'ready' | 'connected' | 'error'
 
 export function parsePairingOffer(rawInput: string): PairingOffer {
   const raw = rawInput.trim()
@@ -80,20 +94,36 @@ export function parsePairingOffer(rawInput: string): PairingOffer {
   }
 
   if (raw.startsWith('{')) {
-    return validatePairingOffer(JSON.parse(raw) as Partial<PairingOffer>)
+    try {
+      return validatePairingOffer(JSON.parse(raw), 'ios')
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error(i18n('network-pair:error-offer-format'))
+      }
+      throw error
+    }
   }
 
   if (raw.startsWith('chromvoid://')) {
-    const normalized = raw.replace('chromvoid://', 'https://chromvoid.local/')
-    const parsed = new URL(normalized)
-    const scheme = raw.slice('chromvoid://'.length).split('?')[0] ?? ''
-    return validatePairingOffer({
-      session_id: parsed.searchParams.get('session_id') ?? '',
-      relay_base_url: parsed.searchParams.get('relay_base_url') ?? '',
-      device_label: parsed.searchParams.get('device_label') ?? '',
-      expires_at_ms: Number(parsed.searchParams.get('expires_at_ms') ?? '0'),
-      platform: parsed.searchParams.get('platform') ?? (scheme === 'pair-mobile' ? 'android' : 'ios'),
-    })
+    let parsed: URL
+    try {
+      parsed = new URL(raw)
+    } catch {
+      throw new Error(i18n('network-pair:error-offer-format'))
+    }
+    if (parsed.protocol !== 'chromvoid:' || parsed.hostname !== 'pair-mobile') {
+      throw new Error(i18n('network-pair:error-offer-format'))
+    }
+    return validatePairingOffer(
+      {
+        session_id: parsed.searchParams.get('session_id'),
+        relay_base_url: parsed.searchParams.get('relay_base_url'),
+        device_label: parsed.searchParams.get('device_label'),
+        expires_at_ms: parsed.searchParams.get('expires_at_ms'),
+        platform: parsed.searchParams.get('platform'),
+      },
+      'android',
+    )
   }
 
   throw new Error(i18n('network-pair:error-offer-format'))
@@ -109,33 +139,61 @@ export function shouldAutoRefreshPresence(status: MobileHostStatus, now = Date.n
 }
 
 export function resolveModeRemotePeerId(modeInfo: ModeInfo | null): string | null {
-  return resolveRemotePeerId(modeInfo)
+  return resolveRemoteHostId(resolveModeRemoteHost(modeInfo))
 }
 
 export function resolveActiveRemotePeerId(modeInfo: ModeInfo | null): string | null {
-  if (!modeInfo) return null
-  if (modeInfo.connection_state === 'disconnected' || modeInfo.connection_state === 'error') {
-    return null
-  }
-  return resolveRemotePeerId(modeInfo)
+  return resolveRemoteHostId(resolveActiveRemoteHost(modeInfo))
 }
 
-function validatePairingOffer(offer: Partial<PairingOffer>): PairingOffer {
-  if (!offer.session_id || !offer.relay_base_url || !offer.device_label || !offer.expires_at_ms) {
+export function resolveRemoteHostId(host: RemoteHost | null): string | null {
+  if (!host) return null
+  return host.type === 'tauri_remote_wss' ? host.peer_id : host.host_id
+}
+
+export function resolveModeRemoteHost(modeInfo: ModeInfo | null): RemoteHost | null {
+  if (!modeInfo || !isRemoteMode(modeInfo.mode)) return null
+  return modeInfo.mode.remote.host
+}
+
+export function resolveActiveRemoteHost(modeInfo: ModeInfo | null): RemoteHost | null {
+  if (!modeInfo || modeInfo.connection_state === 'disconnected' || modeInfo.connection_state === 'error') {
+    return null
+  }
+  return resolveModeRemoteHost(modeInfo)
+}
+
+function validatePairingOffer(offer: unknown, defaultPlatform: string): PairingOffer {
+  if (!offer || typeof offer !== 'object' || Array.isArray(offer)) {
+    throw new Error(i18n('network-pair:error-offer-fields'))
+  }
+
+  const candidate = offer as Record<string, unknown>
+  const sessionId = candidate['session_id']
+  const relayBaseUrl = candidate['relay_base_url']
+  const deviceLabel = candidate['device_label']
+  const expiresAtMs = Number(candidate['expires_at_ms'])
+  const platform = candidate['platform']
+
+  if (
+    typeof sessionId !== 'string' ||
+    !sessionId.trim() ||
+    typeof relayBaseUrl !== 'string' ||
+    !relayBaseUrl.trim() ||
+    typeof deviceLabel !== 'string' ||
+    !deviceLabel.trim() ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= 0 ||
+    (platform !== undefined && platform !== null && typeof platform !== 'string')
+  ) {
     throw new Error(i18n('network-pair:error-offer-fields'))
   }
 
   return {
-    session_id: offer.session_id,
-    relay_base_url: offer.relay_base_url,
-    device_label: offer.device_label,
-    expires_at_ms: offer.expires_at_ms,
-    platform: offer.platform ?? 'ios',
+    session_id: sessionId,
+    relay_base_url: relayBaseUrl,
+    device_label: deviceLabel,
+    expires_at_ms: expiresAtMs,
+    platform: (platform as string | null | undefined) ?? defaultPlatform,
   }
-}
-
-function resolveRemotePeerId(modeInfo: ModeInfo | null): string | null {
-  if (!modeInfo || !isRemoteMode(modeInfo.mode)) return null
-  const host = modeInfo.mode.remote.host as RemoteHost
-  return host.type === 'tauri_remote_wss' ? host.peer_id : host.host_id
 }

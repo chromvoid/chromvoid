@@ -27,6 +27,7 @@ export type {
   PassManagerSshKey,
   SshKeygenParams,
   SshKeygenResult,
+  PassManagerCreateEntryPayload,
   PassManagerSaveEntryMetaPayload,
   IEntry,
   IEntryExternal,

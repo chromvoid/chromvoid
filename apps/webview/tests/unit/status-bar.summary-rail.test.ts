@@ -9,6 +9,7 @@ import {ChromVoidState} from '../../src/core/state/app-state'
 import type {CatalogNotesListItem} from '../../src/core/catalog/local-catalog/types'
 import {notesQuickViewModel} from '../../src/features/file-manager/components/notes-quick-view'
 import {pmOtpQuickViewModel} from '../../src/features/passmanager/components/otp-quick-view'
+import {PMSummaryRail} from '../../src/features/passmanager/components/summary-rail'
 import {pmCredentialSecurityAuditModel} from '../../src/features/passmanager/models/pm-credential-security-audit.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {StatusBar} from '../../src/features/shell/components/status-bar'
@@ -188,7 +189,10 @@ describe('status-bar contextual summary rail', () => {
     const summary = getSummary(element)
 
     expect(summary?.getAttribute('data-summary-context')).toBe('notes')
+    expect(summary?.getAttribute('density')).toBe('compact')
+    expect(summary?.shadowRoot?.querySelector('[data-summary-id="total"]')?.textContent).toContain('Total')
     expect(summary?.shadowRoot?.querySelector('[data-summary-id="total"]')?.textContent).toContain('2')
+    expect(summary?.shadowRoot?.querySelector('[data-summary-id="visible"]')?.textContent).toContain('Visible')
     expect(summary?.shadowRoot?.querySelector('[data-summary-id="visible"]')?.textContent).toContain('2')
   })
 
@@ -208,6 +212,7 @@ describe('status-bar contextual summary rail', () => {
     const summary = getSummary(element)
 
     expect(summary?.getAttribute('data-summary-context')).toBe('passwords-otp')
+    expect(summary?.getAttribute('density')).toBe('compact')
     expect(summary?.shadowRoot?.querySelector('[data-summary-id="total"]')?.textContent).toContain('2')
     expect(summary?.shadowRoot?.querySelector('[data-summary-id="totp"]')?.textContent).toContain('1')
     expect(summary?.shadowRoot?.querySelector('[data-summary-id="hotp"]')?.textContent).toContain('1')
@@ -230,6 +235,7 @@ describe('status-bar contextual summary rail', () => {
     const summary = getSummary(element)
 
     expect(summary?.getAttribute('data-summary-context')).toBe('passwords-group')
+    expect(summary?.getAttribute('density')).toBe('compact')
     expect(summary?.shadowRoot?.textContent).toContain('records')
     expect(summary?.shadowRoot?.textContent).toContain('2FA')
     expect(summary?.shadowRoot?.querySelector('[data-summary-id="entries"]')?.textContent).toContain('1')
@@ -248,5 +254,23 @@ describe('status-bar contextual summary rail', () => {
 
     const settingsElement = await renderStatusBar()
     expect(getSummary(settingsElement)).toBeNull()
+  })
+
+  it('keeps a standalone summary rail comfortable by default', async () => {
+    setupContext()
+    PMSummaryRail.define()
+    const summary = document.createElement('pm-summary-rail') as PMSummaryRail
+    summary.items = [
+      {id: 'total', label: 'Total', value: 2},
+      {id: 'visible', label: 'Visible', value: 1},
+    ]
+    summary.label = 'Standalone summary'
+    document.body.append(summary)
+    await summary.updateComplete
+
+    expect(summary.density).toBe('comfortable')
+    expect(summary.getAttribute('density')).toBe('comfortable')
+    expect(summary.shadowRoot?.querySelector('[data-summary-id="total"]')?.textContent).toContain('Total')
+    expect(summary.shadowRoot?.querySelector('[data-summary-id="visible"]')?.textContent).toContain('Visible')
   })
 })

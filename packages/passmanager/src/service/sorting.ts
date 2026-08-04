@@ -1,5 +1,6 @@
 import type {GroupBy, SortDirection, SortField} from './types'
 import type {Entry} from './entry'
+import {getPrimaryUrlRule} from '../url-matching'
 
 /**Utilities for sorting and grouping password manager records
 */
@@ -12,8 +13,7 @@ export interface GroupedEntries {
 }
 
 function getPrimaryUrlValue(entry: Entry): string {
-  // Take the first non-never URL as the primary URL.
-  const rule = entry.urls.find((r) => r.match !== 'never')
+  const rule = getPrimaryUrlRule(entry.urls)
   return (rule?.value ?? '').trim()
 }
 

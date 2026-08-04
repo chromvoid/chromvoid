@@ -7,7 +7,6 @@ import {
   createRenderContext,
   getHostPlatformName,
   renderBackLink,
-  renderRemoteFlowFrame,
   type RemoteHostsFlowPanelOptions,
   type RemoteHostsFlowRenderContext,
 } from './remote-hosts-flow.render.shared'
@@ -78,122 +77,69 @@ function renderAndroidUsbHostPanel(ctx: RemoteHostsFlowRenderContext): TemplateR
 }
 
 function renderDesktopPairPanel(ctx: RemoteHostsFlowRenderContext): TemplateResult {
-  const pairBusy = ctx.model.pairPhase() === 'connecting' || ctx.model.pairPhase() === 'starting'
-
-  if (ctx.ui.welcomeFrame) {
-    return html`
-      ${renderBackLink(ctx.ui.pairBackLink)}
-      ${renderRemoteFlowFrame(
-        ctx,
-        'pair',
-        html`
-          <div class="step active">
-            <div class="remote-panel-heading remote-panel-heading--with-icon">
-              <span class="remote-panel-icon" aria-hidden="true">
-                <cv-icon name="lock-keyhole" size="m"></cv-icon>
-              </span>
-              <div>
-                <div class="remote-field-label">${i18n('welcome:remote-flow-pairing-ceremony')}</div>
-                <div class="step-title">${i18n('remote:pair-mobile-host')}</div>
-                <div class="step-desc">${i18n('network-pair:intro-desktop')}</div>
-              </div>
-            </div>
-
-            ${ctx.model.pairError()
-              ? html`<cv-callout variant="danger">${ctx.model.pairError()}</cv-callout>`
-              : nothing}
-
-            <div class="remote-form-grid">
-              <label class="remote-field">
-                <span class="remote-field-label">${i18n('network-pair:pairing-offer')}</span>
-                <cv-textarea
-                  class="remote-textarea"
-                  placeholder="chromvoid://pair-mobile?session_id=..."
-                  .value=${ctx.model.offerInput()}
-                  @cv-input=${ctx.actions.onOfferInput}
-                ></cv-textarea>
-              </label>
-
-              <div class="remote-form-grid remote-form-grid--pair">
-                <label class="remote-field remote-field--pin">
-                  <span class="remote-field-label">${i18n('network-pair:pin')}</span>
-                  <cv-input
-                    type="text"
-                    inputmode="numeric"
-                    placeholder="123456"
-                    .value=${ctx.model.pinInput()}
-                    @cv-input=${ctx.actions.onPinInput}
-                  ></cv-input>
-                </label>
-
-                <label class="remote-field">
-                  <span class="remote-field-label">${i18n('network-pair:device-label')}</span>
-                  <cv-input
-                    type="text"
-                    placeholder=${i18n('network-pair:default-device-desktop')}
-                    .value=${ctx.model.currentDeviceLabel()}
-                    @cv-input=${ctx.actions.onDeviceLabelInput}
-                  ></cv-input>
-                </label>
-              </div>
-            </div>
-
-            <div class="remote-actions">
-              <cv-guidance-anchor anchor-id="remote.pair-device" surface="remote" owner="remote">
-                <cv-button
-                  variant="primary"
-                  ?disabled=${pairBusy}
-                  .loading=${pairBusy}
-                  @click=${ctx.actions.onSubmitPairing}
-                >
-                  ${i18n('remote:pair-mobile-host')}
-                </cv-button>
-              </cv-guidance-anchor>
-              <cv-button variant="ghost" @click=${ctx.actions.onBackToHosts}
-                >${i18n('button:cancel')}</cv-button
-              >
-            </div>
-          </div>
-        `,
-      )}
-    `
-  }
+  const pairBusy =
+    ctx.model.connectionOperationBusy() ||
+    ctx.model.pairPhase() === 'connecting' ||
+    ctx.model.pairPhase() === 'starting'
+  const pairing = ctx.model.desktopPairing
+  const offerError = pairing.offerError()
+  const pinError = pairing.pinError()
 
   return html`
     ${renderBackLink(ctx.ui.pairBackLink)}
-    <div class="step active">
+    <form class="step active" @submit=${ctx.actions.onSubmitPairing} novalidate>
       <div class="step-title">${i18n('remote:pair-mobile-host')}</div>
       <div class="step-desc">${i18n('network-pair:intro-desktop')}</div>
 
-      ${ctx.model.pairError()
-        ? html`<cv-callout variant="danger">${ctx.model.pairError()}</cv-callout>`
+      ${pairing.backendError()
+        ? html`<cv-callout variant="danger" role="alert">${pairing.backendError()}</cv-callout>`
         : nothing}
 
       <div class="remote-form-grid">
         <label class="remote-field">
           <span class="remote-field-label">${i18n('network-pair:pairing-offer')}</span>
           <cv-textarea
+            id="remote-pairing-offer"
             class="remote-textarea"
             placeholder="chromvoid://pair-mobile?session_id=..."
+            enter-behavior="submit"
+            aria-describedby=${offerError ? 'remote-pairing-offer-error' : nothing}
+            ?invalid=${Boolean(offerError)}
             .value=${ctx.model.offerInput()}
             @cv-input=${ctx.actions.onOfferInput}
           ></cv-textarea>
+          ${offerError
+            ? html`<span id="remote-pairing-offer-error" class="remote-field-error" role="alert"
+                >${offerError}</span
+              >`
+            : nothing}
         </label>
 
         <label class="remote-field">
           <span class="remote-field-label">${i18n('network-pair:pin')}</span>
           <cv-input
+            id="remote-pairing-pin"
             type="text"
             inputmode="numeric"
+            autocomplete="one-time-code"
+            maxlength="6"
             placeholder="123456"
+            aria-describedby=${pinError ? 'remote-pairing-pin-error' : nothing}
+            ?invalid=${Boolean(pinError)}
             .value=${ctx.model.pinInput()}
             @cv-input=${ctx.actions.onPinInput}
           ></cv-input>
+          ${pinError
+            ? html`<span id="remote-pairing-pin-error" class="remote-field-error" role="alert"
+                >${pinError}</span
+              >`
+            : nothing}
         </label>
 
         <label class="remote-field">
           <span class="remote-field-label">${i18n('network-pair:device-label')}</span>
           <cv-input
+            id="remote-pairing-device-label"
             type="text"
             placeholder=${i18n('network-pair:default-device-desktop')}
             .value=${ctx.model.currentDeviceLabel()}
@@ -204,18 +150,15 @@ function renderDesktopPairPanel(ctx: RemoteHostsFlowRenderContext): TemplateResu
 
       <div class="remote-actions">
         <cv-guidance-anchor anchor-id="remote.pair-device" surface="remote" owner="remote">
-          <cv-button
-            variant="primary"
-            ?disabled=${pairBusy}
-            .loading=${pairBusy}
-            @click=${ctx.actions.onSubmitPairing}
-          >
+          <cv-button type="submit" variant="primary" ?disabled=${pairBusy} .loading=${pairBusy}>
             ${i18n('remote:pair-mobile-host')}
           </cv-button>
         </cv-guidance-anchor>
-        <cv-button variant="ghost" @click=${ctx.actions.onBackToHosts}>${i18n('button:cancel')}</cv-button>
+        <cv-button type="button" variant="ghost" ?disabled=${pairBusy} @click=${ctx.actions.onBackToHosts}
+          >${i18n('button:cancel')}</cv-button
+        >
       </div>
-    </div>
+    </form>
   `
 }
 
@@ -355,57 +298,6 @@ export function renderRemoteWaitPanel(options: RemoteHostsFlowPanelOptions): Tem
     waitReason === 'phone_approval'
       ? i18n('welcome:waiting-for-phone-approval-hint')
       : i18n('welcome:waiting-for-peer-hint')
-  const waitProgress =
-    waitReason === 'phone_approval'
-      ? i18n('welcome:remote-flow-waiting-phone-approval')
-      : i18n('welcome:remote-flow-waiting-host-unlock')
-
-  if (ctx.ui.welcomeFrame) {
-    return html`
-      ${renderBackLink(ctx.ui.waitBackLink)}
-      ${renderRemoteFlowFrame(
-        ctx,
-        'wait',
-        html`
-          <div class="step active remote-wait-panel">
-            <div class="remote-wait-badge">
-              <span class="remote-status-dot" aria-hidden="true"></span>
-              ${i18n('welcome:remote-flow-transport-connected')}
-            </div>
-            <div class="remote-wait-icon" aria-hidden="true">
-              <cv-icon name="smartphone" size="l"></cv-icon>
-            </div>
-            <div class="step-title">
-              ${i18n('welcome:waiting-for-peer', {peer: ctx.model.connectedPeerLabel()})}
-            </div>
-            <div class="step-desc">${waitDescription}</div>
-
-            ${ctx.model.statusText()
-              ? html`<cv-callout variant="info">${ctx.model.statusText()}</cv-callout>`
-              : nothing}
-            ${ctx.model.errorText()
-              ? html`<cv-callout variant="danger">${ctx.model.errorText()}</cv-callout>`
-              : nothing}
-
-            <cv-callout class="remote-hosts-callout" variant="warning" density="compact">
-              ${waitHint}
-            </cv-callout>
-
-            <div class="remote-wait-progress">
-              <span class="spinner"></span>
-              <span>${waitProgress}</span>
-            </div>
-
-            <div class="remote-actions">
-              <cv-button variant="ghost" @click=${ctx.actions.onDisconnectTransport}
-                >${i18n('button:disconnect')}</cv-button
-              >
-            </div>
-          </div>
-        `,
-      )}
-    `
-  }
 
   return html`
     ${renderBackLink(ctx.ui.waitBackLink)}

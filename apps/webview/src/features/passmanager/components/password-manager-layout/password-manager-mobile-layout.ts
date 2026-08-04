@@ -1,15 +1,15 @@
-import {css, type PropertyValues} from 'lit'
+import {css} from 'lit'
 import {keyed} from 'lit/directives/keyed.js'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {Entry} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {navigationModel} from 'root/app/navigation/navigation.model'
+import {i18n as appI18n} from 'root/i18n'
 import {MobileActionBar} from 'root/shared/ui/mobile-action-bar'
 import {mobileActionBarButtonStyles} from 'root/shared/ui/mobile-action-bar.styles'
 import {MobileSurfaceLayout} from 'root/shared/ui/mobile-surface-layout'
 import {mobileSurfaceLayoutFlexFillStyles} from 'root/shared/ui/mobile-surface-layout.styles'
-import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 import {
   hostContainStyles,
 } from 'root/shared/ui/shared-styles'
@@ -93,9 +93,74 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
         display: none;
       }
 
+      .pm-content[data-pm-motion-live='true'][data-pm-motion-direction='forward'] > *,
+      .pm-content[data-pm-motion-live='true'][data-pm-motion-direction='open'] > * {
+        animation-name: pm-mobile-surface-from-end;
+      }
+
+      .pm-content[data-pm-motion-live='true'][data-pm-motion-direction='back'] > *,
+      .pm-content[data-pm-motion-live='true'][data-pm-motion-direction='close'] > * {
+        animation-name: pm-mobile-surface-from-start;
+      }
+
+      .pm-content[data-pm-motion-live='true'][data-pm-motion-direction='replace'] > * {
+        animation-name: pm-mobile-surface-replace;
+      }
+
+      .pm-content[data-pm-motion-direction='forward']::view-transition-new(root),
+      .pm-content[data-pm-motion-direction='open']::view-transition-new(root) {
+        animation-name: pm-mobile-surface-from-end;
+      }
+
+      .pm-content[data-pm-motion-direction='back']::view-transition-new(root),
+      .pm-content[data-pm-motion-direction='close']::view-transition-new(root) {
+        animation-name: pm-mobile-surface-from-start;
+      }
+
+      .pm-content[data-pm-motion-direction='replace']::view-transition-new(root) {
+        animation-name: pm-mobile-surface-replace;
+      }
+
+      .pm-content::view-transition-old(root),
+      .pm-content::view-transition-new(root) {
+        animation-duration: var(--cv-duration-normal);
+        animation-timing-function: var(--cv-easing-decelerate);
+      }
+
+      .pm-content::view-transition-old(root) {
+        animation-name: pm-surface-fade-out;
+        animation-timing-function: var(--cv-easing-accelerate);
+      }
+
+      @keyframes pm-mobile-surface-from-end {
+        from {
+          opacity: 0;
+          transform: translateX(var(--cv-space-3));
+        }
+      }
+
+      @keyframes pm-mobile-surface-from-start {
+        from {
+          opacity: 0;
+          transform: translateX(calc(-1 * var(--cv-space-3)));
+        }
+      }
+
+      @keyframes pm-mobile-surface-replace {
+        from {
+          opacity: 0;
+          transform: translateY(var(--cv-space-2)) scale(0.99);
+        }
+      }
+
+      @keyframes pm-surface-fade-out {
+        to {
+          opacity: 0;
+        }
+      }
+
     `,
   ]
-  private unregisterPageTransitionTarget?: () => void
 
   private unregisterBackHandler?: () => void
 
@@ -185,19 +250,7 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
     this.unregisterBackHandler = navigationModel.registerSurfaceBackHandler('passwords', () => pmMobileChromeModel.handleBack())
   }
 
-  protected override firstUpdated(changedProperties: PropertyValues): void {
-    super.firstUpdated(changedProperties)
-    this.unregisterPageTransitionTarget = viewTransitionTargets.register('pm-page', {
-      getElement: () => this.renderRoot.querySelector<HTMLElement>('.pm-content'),
-      settle: async () => {
-        await this.updateComplete
-      },
-    })
-  }
-
   override disconnectedCallback(): void {
-    this.unregisterPageTransitionTarget?.()
-    this.unregisterPageTransitionTarget = undefined
     this.unregisterBackHandler?.()
     this.unregisterBackHandler = undefined
     passwordManagerMobileLayoutModel.cancelLongPress()
@@ -208,7 +261,13 @@ export class PasswordManagerMobileLayout extends PMLayoutBase {
     const selectionStateKey = `${passwordManagerMobileLayoutModel.selection.active() ? '1' : '0'}:${passwordManagerMobileLayoutModel.selection.selectedCount()}`
 
     return html`
-      <div class="wrapper" data-selection-state=${selectionStateKey}>
+      <div
+        id="app.passwords.root"
+        class="wrapper"
+        role="group"
+        aria-label=${appI18n('password-manager')}
+        data-selection-state=${selectionStateKey}
+      >
         <mobile-surface-layout variant="flush" scroll="external">
           <div class="pm-content">${this.renderMain()}</div>
         </mobile-surface-layout>

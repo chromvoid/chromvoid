@@ -943,6 +943,7 @@ async fn run_android_pairing_responder(
         "Android pairing responder peer persistence",
     )
     .await?;
+    acceptor_runtime.clear_peer_revocation(&remote.peer_id)?;
 
     let host_room_id = generate_room_id_for("android_post_pairing_ready_host");
     let _ = mobile_acceptor::stop_listening(&acceptor_runtime);

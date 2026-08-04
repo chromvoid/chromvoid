@@ -9,7 +9,8 @@ use super::hex_decode;
 use crate::mobile_usb::pairing_protocol::{
     pairing_fingerprint, recv_pairing_approval_proof, send_pairing_approval_ack,
     send_pairing_approval_challenge, verify_pairing_approval_proof, MobileUsbPairingApprovalAck,
-    MobileUsbPairingApprovalChallenge, MobileUsbPairingHello,
+    MobileUsbPairingApprovalAction, MobileUsbPairingApprovalChallenge, MobileUsbPairingHello,
+    USB_PAIRING_CANCEL_V1,
 };
 use crate::mobile_usb::{
     mobile_usb_hex_encode, recv_mobile_usb_pairing_hello, send_mobile_usb_pairing_hello,
@@ -29,11 +30,13 @@ pub(super) async fn confirm_usb_mobile_pairing(
     store_path: PathBuf,
     remote_pubkey: Vec<u8>,
     local_identity: &LocalDeviceIdentity,
-) -> Result<(NoiseTransport, String, String), String> {
+) -> Result<(NoiseTransport, String, String), UsbMobilePairingError> {
     let hello = recv_mobile_usb_pairing_hello(transport, &mut noise).await?;
     let remote_pubkey_hex = mobile_usb_hex_encode(&remote_pubkey);
     if hello.peer_pubkey_hex != remote_pubkey_hex {
-        return Err("USB pairing hello pubkey mismatch".to_string());
+        return Err(UsbMobilePairingError::Failed(
+            "USB pairing hello pubkey mismatch".to_string(),
+        ));
     }
 
     let local_pubkey = hex_decode(&local_identity.static_pubkey_hex)?;
@@ -45,6 +48,7 @@ pub(super) async fn confirm_usb_mobile_pairing(
             peer_label: local_identity.device_label.clone(),
             peer_pubkey_hex: local_identity.static_pubkey_hex.clone(),
             platform: "android".to_string(),
+            capabilities: vec![USB_PAIRING_CANCEL_V1.to_string()],
         },
     )
     .await?;
@@ -93,9 +97,26 @@ pub(super) async fn confirm_usb_mobile_pairing(
             .await?;
             if attempts_left == 0 {
                 let _ = runtime.finish_usb_pairing_approval(&attempt_id);
-                return Err("USB pairing approval attempts exhausted".to_string());
+                return Err(UsbMobilePairingError::Failed(
+                    "USB pairing approval attempts exhausted".to_string(),
+                ));
             }
             continue;
+        }
+        if proof.action == MobileUsbPairingApprovalAction::Cancel {
+            let _ = runtime.finish_usb_pairing_approval(&attempt_id);
+            send_pairing_approval_ack(
+                transport,
+                &mut noise,
+                &MobileUsbPairingApprovalAck {
+                    attempt_id,
+                    accepted: false,
+                    error: Some("pairing_cancelled".to_string()),
+                    attempts_left,
+                },
+            )
+            .await?;
+            return Err(UsbMobilePairingError::Cancelled);
         }
         let proof_ok = verify_pairing_approval_proof(
             &approval_pin,
@@ -120,7 +141,9 @@ pub(super) async fn confirm_usb_mobile_pairing(
             .await?;
             if attempts_left == 0 {
                 let _ = runtime.finish_usb_pairing_approval(&attempt_id);
-                return Err("USB pairing approval attempts exhausted".to_string());
+                return Err(UsbMobilePairingError::Failed(
+                    "USB pairing approval attempts exhausted".to_string(),
+                ));
             }
             continue;
         }
@@ -142,7 +165,9 @@ pub(super) async fn confirm_usb_mobile_pairing(
                 },
             )
             .await?;
-            return Err("phone rejected USB pairing approval".to_string());
+            return Err(UsbMobilePairingError::Failed(
+                "phone rejected USB pairing approval".to_string(),
+            ));
         }
         UsbPairingApprovalDecision::Expired | UsbPairingApprovalDecision::Missing => {
             let _ = runtime.finish_usb_pairing_approval(&attempt_id);
@@ -157,7 +182,9 @@ pub(super) async fn confirm_usb_mobile_pairing(
                 },
             )
             .await?;
-            return Err("USB pairing approval expired".to_string());
+            return Err(UsbMobilePairingError::Failed(
+                "USB pairing approval expired".to_string(),
+            ));
         }
     }
 
@@ -189,8 +216,9 @@ pub(super) async fn confirm_usb_mobile_pairing(
             },
         )
         .await?;
-        return Err(error);
+        return Err(UsbMobilePairingError::Failed(error));
     }
+    runtime.clear_peer_revocation(&hello.peer_id)?;
     send_pairing_approval_ack(
         transport,
         &mut noise,
@@ -204,6 +232,18 @@ pub(super) async fn confirm_usb_mobile_pairing(
     .await?;
 
     Ok((noise, hello.peer_id, hello.peer_label))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum UsbMobilePairingError {
+    Cancelled,
+    Failed(String),
+}
+
+impl From<String> for UsbMobilePairingError {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
 }
 
 async fn persist_usb_mobile_pairing_blocking(

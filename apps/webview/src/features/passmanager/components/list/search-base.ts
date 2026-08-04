@@ -135,6 +135,11 @@ export abstract class PMSearchBase extends ReatomLitElement {
   private registeredDesktopToolbarModel: PasswordManagerLayoutModel | null = null
   private unregisterDesktopToolbarSearch?: () => void
 
+  override connectedCallback() {
+    super.connectedCallback()
+    this.searchModel.connect()
+  }
+
   override disconnectedCallback() {
     this.unregisterDesktopToolbarSearch?.()
     this.unregisterDesktopToolbarSearch = undefined

@@ -106,8 +106,13 @@ type MarkdownQuickActionItem = {
   labelKey: MarkdownQuickActionLabelKey
 }
 
-const MARKDOWN_QUICK_CORE_ACTIONS: MarkdownQuickActionItem[] = [
-  {action: 'table', icon: 'table', labelKey: 'markdown:quick-action:table'},
+const MARKDOWN_QUICK_TABLE_ACTION: MarkdownQuickActionItem = {
+  action: 'table',
+  icon: 'table',
+  labelKey: 'markdown:quick-action:table',
+}
+
+const MARKDOWN_QUICK_FORMAT_ACTIONS: MarkdownQuickActionItem[] = [
   {action: 'bold', icon: 'bold', labelKey: 'markdown:quick-action:bold'},
   {action: 'italic', icon: 'italic', labelKey: 'markdown:quick-action:italic'},
   {action: 'strikethrough', icon: 'strikethrough', labelKey: 'markdown:quick-action:strikethrough'},
@@ -452,7 +457,7 @@ export class MarkdownPreview extends ReatomLitElement {
           border-color var(--cv-duration-fast) var(--cv-easing-standard),
           background-color var(--cv-duration-fast) var(--cv-easing-standard),
           color var(--cv-duration-fast) var(--cv-easing-standard);
-        vertical-align: -0.18em;
+        vertical-align: middle;
       }
 
       .rendered-markdown .cv-markdown-task-checkbox:hover {
@@ -832,17 +837,19 @@ export class MarkdownPreview extends ReatomLitElement {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          border: 1px solid var(--cv-color-accent-border);
+          border: 1px solid var(--cv-color-accent-border-strong);
           border-radius: 999px;
-          background:
-            linear-gradient(135deg, var(--cv-color-accent-surface-strong), var(--cv-color-accent-surface)),
-            var(--cv-color-surface-elevated, var(--cv-color-surface));
+          background: var(--cv-color-surface-elevated, var(--cv-color-surface));
           color: var(--cv-color-accent);
           cursor: pointer;
           z-index: 4;
           box-shadow:
-            0 8px 24px var(--cv-alpha-black-35),
-            0 0 0 6px var(--cv-color-surface-elevated, var(--cv-color-surface));
+            var(--app-glass-shadow),
+            inset 0 1px 0 var(--cv-alpha-white-10);
+        }
+
+        .fab-edit:hover {
+          color: var(--cv-color-accent-hover);
         }
 
         .fab-edit:active {
@@ -856,6 +863,27 @@ export class MarkdownPreview extends ReatomLitElement {
 
         .fab-edit cv-icon {
           font-size: 22px;
+        }
+
+        @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+          .fab-edit {
+            background: var(--app-glass-background);
+            backdrop-filter: blur(10px) saturate(115%);
+            -webkit-backdrop-filter: blur(10px) saturate(115%);
+          }
+
+          .fab-edit:hover {
+            background: var(--cv-color-surface-secondary-glass-strong);
+          }
+        }
+
+        @media (prefers-reduced-transparency: reduce) {
+          .fab-edit,
+          .fab-edit:hover {
+            background: var(--cv-color-surface-elevated, var(--cv-color-surface));
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+          }
         }
 
         .rendered-markdown,
@@ -879,10 +907,10 @@ export class MarkdownPreview extends ReatomLitElement {
         }
 
         .source-editor {
-          padding:
-            var(--app-spacing-2) var(--app-spacing-4)
+          padding: var(--app-spacing-2) var(--app-spacing-4)
             calc(
-              var(--app-spacing-2) + var(--file-markdown-editor-quick-bar-block-size) + var(--app-spacing-3)
+              var(--app-spacing-2) + var(--file-markdown-editor-quick-bar-block-size) + var(--app-spacing-3) +
+                var(--app-runtime-keyboard-block-end-action-offset, 0px)
             );
           font-size: var(--cv-font-size-base);
           line-height: 1.6;
@@ -892,12 +920,13 @@ export class MarkdownPreview extends ReatomLitElement {
           box-sizing: border-box;
           position: absolute;
           inset-inline: 0;
-          /* The app layout already reserves the keyboard and safe-area insets
-             below this container, so the bar sits flush at its bottom edge. */
-          inset-block-end: 0;
+          /* The inherited action offset lifts the bar above overlay IMEs while
+             native-resize mode contributes only the shared breathing gap. */
+          inset-block-end: var(--app-runtime-keyboard-block-end-action-offset, 0px);
           min-block-size: var(--file-markdown-editor-quick-bar-block-size);
           display: flex;
           align-items: center;
+          justify-content: space-between;
           gap: var(--app-spacing-1);
           overflow-x: auto;
           overscroll-behavior-inline: contain;
@@ -909,6 +938,13 @@ export class MarkdownPreview extends ReatomLitElement {
           box-shadow: 0 -8px 24px var(--cv-alpha-black-25);
           z-index: 5;
           -webkit-overflow-scrolling: touch;
+        }
+
+        .editor-quick-group {
+          display: flex;
+          flex: 0 0 auto;
+          align-items: center;
+          gap: var(--app-spacing-1);
         }
 
         .editor-quick-button {
@@ -1049,7 +1085,6 @@ export class MarkdownPreview extends ReatomLitElement {
       this.viewportRestoreReleaseFrame = 0
     }
     this.viewportRestoreInProgress = false
-    this.rememberRenderedViewportAnchor()
     this.activeViewportResizeObserver?.disconnect()
     this.activeViewportResizeObserver = null
     this.observedViewportElement = null
@@ -2551,37 +2586,49 @@ export class MarkdownPreview extends ReatomLitElement {
     const linkLabel = i18n('markdown:insert-link')
 
     return html`
-      <div class="editor-quick-bar" role="toolbar" aria-label=${i18n('markdown:quick-actions')}>
-        <button
-          class="editor-quick-button"
-          type="button"
-          ?disabled=${!markdownPreviewModel.canInsertImage()}
-          aria-label=${imageLabel}
-          @pointerdown=${this.handleQuickActionPointerDown}
-          @pointerup=${this.handleQuickInsertImagePointerUp}
-          @pointercancel=${this.handleQuickActionPointerCancel}
-          @click=${this.handleInsertImageClick}
-        >
-          ${markdownPreviewModel.imageAttaching()
-            ? html`<cv-spinner size="xs" label=${imageLabel}></cv-spinner>`
-            : html`<cv-icon name="image-plus"></cv-icon>`}
-          <span>${imageLabel}</span>
-        </button>
-        <button
-          class="editor-quick-button"
-          type="button"
-          ?disabled=${!markdownPreviewModel.canInsertFileLink()}
-          aria-label=${linkLabel}
-          @pointerdown=${this.handleQuickActionPointerDown}
-          @pointerup=${this.handleQuickInsertLinkPointerUp}
-          @pointercancel=${this.handleQuickActionPointerCancel}
-          @click=${this.handleInsertLinkClick}
-        >
-          <cv-icon name="link"></cv-icon>
-          <span>${linkLabel}</span>
-        </button>
-        ${MARKDOWN_QUICK_CORE_ACTIONS.map((item) => this.renderEditorQuickButton(item))}
-        ${this.renderEditorQuickOverflow()}
+      <div
+        class="editor-quick-bar"
+        role="toolbar"
+        aria-label=${i18n('markdown:quick-actions')}
+        data-mobile-keyboard-preserve
+      >
+        <div class="editor-quick-group" data-quick-action-group="insert">
+          <button
+            class="editor-quick-button"
+            type="button"
+            ?disabled=${!markdownPreviewModel.canInsertImage()}
+            aria-label=${imageLabel}
+            @pointerdown=${this.handleQuickActionPointerDown}
+            @pointerup=${this.handleQuickInsertImagePointerUp}
+            @pointercancel=${this.handleQuickActionPointerCancel}
+            @click=${this.handleInsertImageClick}
+          >
+            ${markdownPreviewModel.imageAttaching()
+              ? html`<cv-spinner size="xs" label=${imageLabel}></cv-spinner>`
+              : html`<cv-icon name="image-plus"></cv-icon>`}
+            <span>${imageLabel}</span>
+          </button>
+          <button
+            class="editor-quick-button"
+            type="button"
+            ?disabled=${!markdownPreviewModel.canInsertFileLink()}
+            aria-label=${linkLabel}
+            @pointerdown=${this.handleQuickActionPointerDown}
+            @pointerup=${this.handleQuickInsertLinkPointerUp}
+            @pointercancel=${this.handleQuickActionPointerCancel}
+            @click=${this.handleInsertLinkClick}
+          >
+            <cv-icon name="link"></cv-icon>
+            <span>${linkLabel}</span>
+          </button>
+          ${this.renderEditorQuickButton(MARKDOWN_QUICK_TABLE_ACTION)}
+        </div>
+        <div class="editor-quick-group" data-quick-action-group="format">
+          ${MARKDOWN_QUICK_FORMAT_ACTIONS.map((item) => this.renderEditorQuickButton(item))}
+        </div>
+        <div class="editor-quick-group" data-quick-action-group="overflow">
+          ${this.renderEditorQuickOverflow()}
+        </div>
       </div>
     `
   }
@@ -2757,6 +2804,7 @@ export class MarkdownPreview extends ReatomLitElement {
           .fileLinkCompletionProvider=${this.completeFileLinks}
           .focusRequest=${markdownPreviewModel.editorFocusRequest()}
           .noteLinkCompletions=${markdownPreviewModel.noteLinkCompletions()}
+          .selectionRequest=${markdownPreviewModel.editorSelectionRequest()}
           editor-label=${i18n('markdown:editor-label')}
           @dragover=${this.handleSourceDragOver}
           @drop=${this.handleSourceDrop}

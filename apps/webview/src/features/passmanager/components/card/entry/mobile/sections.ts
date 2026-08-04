@@ -5,6 +5,7 @@ import {i18n} from '@project/passmanager/i18n'
 
 import {pmCredentialTagsModel} from '../../../../models/pm-credential-tags.model'
 import {renderEntryTagsReadOnly} from '../../entry-tags/entry-tags-editor'
+import {getUrlMatchLabel} from '../entry.model'
 import type {PMEntryMobileRenderContext} from './context'
 import {renderNoteSubmitButtons} from './shared'
 
@@ -14,7 +15,6 @@ export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
   }
 
   const {data, model, ui} = context
-  const inlineError = model.inlineError()
 
   if (data.canEditWebsite && data.isEditingEntry) {
     return html`
@@ -25,21 +25,10 @@ export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
             <span>${i18n('website')}</span>
           </div>
         </div>
-        <cv-field ?invalid=${Boolean(inlineError)}>
-          <span slot="label">${i18n('website:title')}</span>
-          <cv-input
-            class="inline-field-input"
-            dir="ltr"
-            name="inline-website"
-            data-inline-field="website"
-            .value=${model.inlineWebsite()}
-            @cv-input=${ui.handleInlineEditInput}
-            @keydown=${ui.handleInlineEditorKeyDown}
-            size="small"
-            ?data-has-error=${!!inlineError}
-            ?invalid=${Boolean(inlineError)}
-          ></cv-input>
-        </cv-field>
+        <pm-entry-website-editor
+          .model=${model.websiteEditor}
+          @keydown=${ui.handleInlineEditorKeyDown}
+        ></pm-entry-website-editor>
       </section>
     `
   }
@@ -66,6 +55,14 @@ export function renderWebsiteSection(context: PMEntryMobileRenderContext) {
                 <div class="website-row">
                   <div class="website-content">
                     <span class="website-name" dir="ltr">${url.value}</span>
+                    <div class="website-meta">
+                      ${url.isPrimary
+                        ? html`<span class="website-primary-marker">${i18n('website:primary_marker')}</span>`
+                        : nothing}
+                      ${url.match !== 'base_domain'
+                        ? html`<cv-badge size="small" variant="neutral">${getUrlMatchLabel(url.match)}</cv-badge>`
+                        : nothing}
+                    </div>
                   </div>
                   <div class="website-actions">
                     ${url.openable

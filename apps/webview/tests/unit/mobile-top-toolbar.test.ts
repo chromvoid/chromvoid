@@ -18,9 +18,9 @@ function getOverflowTrigger(toolbar: MobileTopToolbar) {
   return getOverflowMenu(toolbar)?.shadowRoot?.querySelector('[part="trigger"]') as HTMLButtonElement | null
 }
 
-function getOverflowPortalItem(value: string) {
-  return document.body.querySelector(
-    `[data-cv-menu-button-portal] cv-menu-item[value="${value}"]`,
+function getOverflowItem(toolbar: MobileTopToolbar, value: string) {
+  return getOverflowMenu(toolbar)?.querySelector(
+    `cv-menu-item[value="${value}"]`,
   ) as HTMLElementTagNameMap['cv-menu-item'] | null
 }
 
@@ -48,6 +48,9 @@ describe('MobileTopToolbar', () => {
     let leadingButton = toolbar.shadowRoot?.querySelector('[data-action="mobile-leading"]') as HTMLButtonElement | null
     let leadingIcon = leadingButton?.querySelector('cv-icon')
     expect(leadingButton).toBeTruthy()
+    expect(leadingButton?.tagName).toBe('BUTTON')
+    expect(leadingButton?.type).toBe('button')
+    expect(leadingButton?.id).toBe('app.navigation.menu')
     expect(leadingButton?.getAttribute('aria-label')).toBe('Open menu')
     expect(leadingIcon?.getAttribute('name')).toBe('list')
 
@@ -79,6 +82,8 @@ describe('MobileTopToolbar', () => {
 
     const leading = toolbar.shadowRoot?.querySelector('[data-action="mobile-leading"]') as HTMLButtonElement | null
     expect(leading).toBeTruthy()
+    expect(leading?.tagName).toBe('BUTTON')
+    expect(leading?.id).toBe('')
     expect(Boolean(leading?.disabled)).toBe(true)
     leading?.click()
     expect(onLeading).toHaveBeenCalledTimes(0)
@@ -164,6 +169,29 @@ describe('MobileTopToolbar', () => {
 
     expect(toolbar.shadowRoot?.querySelectorAll('.action-btn[data-action]').length).toBe(5)
     expect(toolbar.shadowRoot?.querySelector('[aria-label="More actions"]')).toBeNull()
+  })
+
+  it('renders the create-entry action as one native accessible button and dispatches it', async () => {
+    ensureDefined()
+    const toolbar = document.createElement('mobile-top-toolbar') as MobileTopToolbar
+    toolbar.actions = [{id: 'pm-create-entry', icon: 'plus-lg', label: 'Create entry'}]
+    const onAction = vi.fn()
+    toolbar.addEventListener('mobile-toolbar-action', onAction as EventListener)
+
+    document.body.appendChild(toolbar)
+    await toolbar.updateComplete
+
+    const buttons = toolbar.shadowRoot?.querySelectorAll('#passwords\\.create-entry')
+    const button = buttons?.item(0)
+    expect(buttons).toHaveLength(1)
+    expect(button).toBeInstanceOf(HTMLButtonElement)
+    expect((button as HTMLButtonElement | null)?.type).toBe('button')
+    expect(button?.getAttribute('aria-label')).toBe('Create entry')
+    expect(button?.closest('cv-guidance-anchor')?.getAttribute('anchor-id')).toBe('passwords.create-entry')
+
+    ;(button as HTMLButtonElement | null)?.click()
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect((onAction.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({actionId: 'pm-create-entry'})
   })
 
   it('renders the overflow button before visible actions', async () => {
@@ -305,7 +333,7 @@ describe('MobileTopToolbar', () => {
     expect(menu?.open).toBe(true)
     expect(document.activeElement).toBe(focusedInput)
 
-    const pasteItem = getOverflowPortalItem('paste')
+    const pasteItem = getOverflowItem(toolbar, 'paste')
     expect(pasteItem).not.toBeNull()
     pasteItem!.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     await menu?.updateComplete
@@ -369,10 +397,10 @@ describe('MobileTopToolbar', () => {
 
     expect(onAction).toHaveBeenCalledTimes(0)
 
-    const portalRenameItem = getOverflowPortalItem('rename')
-    expect(portalRenameItem).not.toBeNull()
+    const renderedRenameItem = getOverflowItem(toolbar, 'rename')
+    expect(renderedRenameItem).toBe(renameItem)
 
-    portalRenameItem!.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    renderedRenameItem!.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     await menu?.updateComplete
 
     expect(onAction).toHaveBeenCalledTimes(1)

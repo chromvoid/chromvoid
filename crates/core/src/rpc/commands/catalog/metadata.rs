@@ -45,10 +45,6 @@ fn record_source_revision_delta(
     let Some(rel_path) = shard_relative_path(&shard_id, &normalized) else {
         return;
     };
-    if rel_path == "/" {
-        return;
-    }
-
     let mut fields = crate::catalog::PartialNode::default();
     fields.modtime = Some(modtime);
     fields.source_revision = Some(source_revision);

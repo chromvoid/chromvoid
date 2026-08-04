@@ -44,8 +44,6 @@ mod secret_store;
 pub(crate) mod settings;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 mod user_defaults;
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-pub(crate) use user_defaults::APP_GROUP_ID;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 static TASK_LIFECYCLE: OnceLock<Weak<TaskLifecycleRuntime>> = OnceLock::new();
@@ -292,7 +290,8 @@ pub fn on_vault_locked(_app_handle: &tauri::AppHandle) {}
 pub fn on_passmanager_mutation(app_handle: &tauri::AppHandle, command: &str) {
     if matches!(
         command,
-        "passmanager:entry:save"
+        "passmanager:entry:create"
+            | "passmanager:entry:save"
             | "passmanager:entry:delete"
             | "passmanager:entry:move"
             | "passmanager:entry:rename"

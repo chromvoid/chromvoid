@@ -70,22 +70,16 @@ fn delete_secret(_secret_ref: &str) -> Result<(), String> {
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 fn resolved_keychain_access_group() -> Result<String, String> {
-    use objc2_core_foundation::{CFArray, CFString};
-    use objc2_security::SecTask;
+    use objc2_foundation::{NSBundle, NSString};
 
-    let task = unsafe { SecTask::from_self(None) }
-        .ok_or_else(|| "credential secret keychain entitlement lookup failed".to_string())?;
-    let entitlement = CFString::from_str("keychain-access-groups");
-    let value = unsafe { task.value_for_entitlement(&entitlement, std::ptr::null_mut()) }
-        .ok_or_else(|| {
-            "credential secret keychain access group entitlement is missing".to_string()
-        })?;
-    let groups = value.downcast::<CFArray>().map_err(|_| {
-        "credential secret keychain access group entitlement has unexpected shape".to_string()
-    })?;
-    let groups = unsafe { groups.cast_unchecked::<CFString>() };
-    let group_names = groups.iter().map(|group| group.to_string());
-    matching_keychain_access_group(group_names)
+    let key = NSString::from_str("ChromVoidSharedKeychainAccessGroup");
+    let value = NSBundle::mainBundle()
+        .objectForInfoDictionaryKey(&key)
+        .ok_or_else(|| "credential secret keychain access group is not configured".to_string())?;
+    let group = value
+        .downcast::<NSString>()
+        .map_err(|_| "credential secret keychain access group has unexpected shape".to_string())?;
+    matching_keychain_access_group([group.to_string()])
         .ok_or_else(|| "credential secret keychain shared access group is missing".to_string())
 }
 

@@ -90,7 +90,12 @@ impl MobileUsbSessionStarter for FakeSessionStarter {
         })
     }
 
-    fn stop_active_session(&self) -> Result<(), MobileUsbError> {
+    async fn disconnect_user(&self) -> Result<(), MobileUsbError> {
+        self.stops.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn disconnect_terminal(&self) -> Result<(), MobileUsbError> {
         self.stops.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }

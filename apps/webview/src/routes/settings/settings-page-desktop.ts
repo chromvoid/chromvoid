@@ -121,6 +121,18 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
         white-space: nowrap;
       }
 
+      @media (min-width: 900px) {
+        .settings-index-link {
+          min-inline-size: 0;
+          white-space: normal;
+        }
+
+        .settings-index-link > span {
+          min-inline-size: 0;
+          overflow-wrap: anywhere;
+        }
+      }
+
       .settings-index-link:hover {
         color: var(--cv-color-text);
         background: var(--cv-color-hover);
@@ -850,7 +862,7 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
         id: 'settings-license',
         icon: 'badge-check',
         label: i18n('settings:license-title'),
-        visible: true,
+        visible: this.model.supportsExternalPro(),
       },
       {
         id: 'settings-session-security',
@@ -867,7 +879,7 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
       {
         id: 'settings-credential-provider',
         icon: 'key-round',
-        label: i18n('settings:provider-title'),
+        label: i18n('settings:provider-nav-title'),
         visible: this.model.showsCredentialProviderSection(),
       },
     ]
@@ -1506,7 +1518,8 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
           ${this.renderSectionIndex()}
           <div class="settings-content">
             ${this.renderApplicationSection(settings)} ${this.renderPasswordsSection()}
-            ${this.renderPasswordImportDialog()} ${this.renderLicenseSection()}
+            ${this.renderPasswordImportDialog()}
+            ${this.model.supportsExternalPro() ? this.renderLicenseSection() : nothing}
             ${this.renderSessionSecuritySection(settings)} ${this.renderSshAgentSection()}
             ${this.renderAutofillSection()}
           </div>

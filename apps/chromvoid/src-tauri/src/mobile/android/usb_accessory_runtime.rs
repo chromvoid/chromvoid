@@ -492,6 +492,12 @@ async fn run_host_start(
                         log_session_id(session_id)
                     ));
                 }
+                AndroidMobileUsbHostFailure::PairingCancelled => {
+                    android_usb_log_info(format!(
+                        "event=host_starter_pairing_cancelled session_id={}",
+                        log_session_id(session_id)
+                    ));
+                }
                 AndroidMobileUsbHostFailure::TransportClosed => {
                     android_usb_log_info(format!(
                         "event=host_starter_transport_closed session_id={}",

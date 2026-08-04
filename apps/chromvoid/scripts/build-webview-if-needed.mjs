@@ -16,11 +16,13 @@ const distRoot = path.join(webviewRoot, 'dist')
 const stampPath = path.join(distRoot, '.chromvoid-build-cache.json')
 const argv = new Set(process.argv.slice(2))
 const forceBuild = argv.has('--force') || process.env.CHROMVOID_FORCE_WEBVIEW_BUILD === '1'
+const webviewConfigEnvNames = ['CHROMVOID_SSH_KEYS_ENABLED']
 
 const inputRoots = [
   path.join(repoRoot, 'package.json'),
   path.join(repoRoot, 'bun.lock'),
   path.join(repoRoot, 'bun.lockb'),
+  path.join(repoRoot, '.env'),
   path.join(webviewRoot, 'index.html'),
   path.join(webviewRoot, 'package.json'),
   path.join(webviewRoot, 'tsconfig.json'),
@@ -109,7 +111,7 @@ async function collectFiles(root) {
   const entries = await fs.readdir(root, {withFileTypes: true})
   const files = []
   for (const entry of entries) {
-    if (entry.isDirectory() && ignoredDirectoryNames.has(entry.name)) {
+    if (ignoredDirectoryNames.has(entry.name) && (entry.isDirectory() || entry.isSymbolicLink())) {
       continue
     }
     const child = path.join(root, entry.name)
@@ -130,6 +132,13 @@ async function calculateDigest() {
     hash.update(relative)
     hash.update('\0')
     hash.update(content)
+    hash.update('\0')
+  }
+
+  for (const name of webviewConfigEnvNames) {
+    hash.update(name)
+    hash.update('\0')
+    hash.update(process.env[name] ?? '')
     hash.update('\0')
   }
 

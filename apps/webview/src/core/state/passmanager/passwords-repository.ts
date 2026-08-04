@@ -2,6 +2,7 @@ import type {
   Algorithm,
   OTPType,
   PassManagerEntryType,
+  PassManagerCreateEntryPayload,
   PassManagerRootV3,
   PassManagerRootV3Entry,
   PassManagerRootV3FolderMeta,
@@ -98,6 +99,7 @@ const INTEGRITY_OTP_CHECK_LIMIT = 50
 const INTEGRITY_ALERT_SAMPLE_LIMIT = 8
 const INTEGRITY_RECONCILE_SAMPLE_LIMIT = 20
 const MISSING_SECRET_ERROR_RE = /(secret_not_found|NODE_NOT_FOUND|not\s*found)/i
+let groupDeleteOperationCounter = 0
 
 const DEFAULT_URL_MATCH: UrlMatch = 'base_domain'
 
@@ -1088,10 +1090,6 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
   ): Promise<boolean> {
     try {
       const groupPath = normalizeGroupPath(data.groupPath)
-      if (groupPath) {
-        await this.transport.ensureGroup(groupPath)
-      }
-
       const entryType = normalizeEntryType(data.entryType)
       if (entryType === 'payment_card') {
         await this.transport.saveEntry({
@@ -1126,6 +1124,40 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
       return true
     } catch (e) {
       this.setError(ADAPTER_ERROR.SAVE_ROOT_PARSE, 'Failed to write meta.json', e)
+      return false
+    }
+  }
+
+  async createEntry(data: PassManagerCreateEntryPayload): Promise<boolean> {
+    try {
+      const groupPath = normalizeGroupPath(data.meta.groupPath) ?? ''
+      if (data.entryType === 'payment_card') {
+        await this.transport.createEntry({
+          entryType: 'payment_card',
+          meta: {
+            ...data.meta,
+            groupPath,
+            tags: data.meta.tags !== undefined ? normalizeCredentialTags(data.meta.tags) : undefined,
+          },
+          secrets: data.secrets,
+        })
+      } else {
+        await this.transport.createEntry({
+          entryType: 'login',
+          meta: {
+            ...data.meta,
+            entryType: 'login',
+            groupPath,
+            tags: data.meta.tags !== undefined ? normalizeCredentialTags(data.meta.tags) : undefined,
+          },
+          secrets: data.secrets,
+        })
+      }
+
+      this.schedulePostPassmanagerWriteRefresh()
+      return true
+    } catch (e) {
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Failed to create PassManager entry', e)
       return false
     }
   }
@@ -1351,6 +1383,37 @@ export class CatalogPasswordsRepository implements PassmanagerBackend {
     } catch (e) {
       this.setError(ADAPTER_ERROR.READ_ROOT, 'Failed to delete entry', e)
       return false
+    }
+  }
+
+  async removeGroup(path: string): Promise<void> {
+    const startedAt = Date.now()
+    groupDeleteOperationCounter += 1
+    const operationId = `group-delete-${groupDeleteOperationCounter}`
+    try {
+      await this.transport.deleteGroup(path)
+      this.catalog.queueRefresh(150)
+      this.logger.info('[PassManager][removeGroup] complete', {
+        operation: 'group-delete',
+        operationId,
+        durationMs: Date.now() - startedAt,
+        result: 'success',
+      })
+    } catch (error) {
+      this.setError(ADAPTER_ERROR.SAVE_ROOT_WRITE, 'Failed to delete group', error)
+      const errorCode =
+        error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : 'UNKNOWN'
+      this.logger.warn('[PassManager][removeGroup] failed', {
+        operation: 'group-delete',
+        operationId,
+        durationMs: Date.now() - startedAt,
+        result: 'error',
+        errorCode,
+        errorName: error instanceof Error ? error.name : typeof error,
+      })
+      throw error instanceof Error ? error : new Error(String(error))
     }
   }
 

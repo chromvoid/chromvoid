@@ -65,17 +65,23 @@ describe('PMWorkspaceHeader', () => {
     expect(shadow?.querySelector('.workspace-meta')?.textContent).toContain('2026-03-28 10:00')
   })
 
-  it('defaults to regular density and accepts compact density explicitly', async () => {
+  it('defaults to regular density and accepts compact and workbench densities explicitly', async () => {
     const regular = createHeader()
     const compact = createHeader()
+    const workbench = createHeader()
     compact.density = 'compact'
+    workbench.density = 'workbench'
 
-    document.body.append(regular, compact)
+    document.body.append(regular, compact, workbench)
     await settle(regular)
     await settle(compact)
+    await settle(workbench)
 
     expect(regular.shadowRoot?.querySelector('.workspace-header')?.getAttribute('data-density')).toBe('regular')
     expect(compact.shadowRoot?.querySelector('.workspace-header')?.getAttribute('data-density')).toBe('compact')
+    expect(workbench.shadowRoot?.querySelector('.workspace-header')?.getAttribute('data-density')).toBe(
+      'workbench',
+    )
   })
 
   it('falls back to regular density for unsupported density values', async () => {

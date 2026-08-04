@@ -9,9 +9,10 @@ import {
 } from '@project/passmanager/select'
 import {sortStorage} from '@project/passmanager/sort-storage'
 import {dialogService} from 'root/shared/services/dialog-service'
-import {toast} from 'root/shared/services/toast-manager'
+import {toast, type ToastHandle} from 'root/shared/services/toast-manager'
 import {PMEntryModel} from '../components/card/entry/entry.model'
 import {PMGroupModel} from '../components/group/group/group.model'
+import {pmGroupEditModel} from '../components/group/group/group-edit.model'
 import {pmSshKeysViewModel} from '../components/ssh-keys-view/ssh-keys-view.model'
 import {
   groupBy,
@@ -44,6 +45,7 @@ export type PMMobileToolbarContext = {
   metaLabel?: string
   canGoBack: boolean
   backDisabled: boolean
+  hideTabBar: boolean
   maxVisible: number
   overflowFromIndex?: number
 }
@@ -82,6 +84,7 @@ export type PMMobileCommandContext = {
 }
 
 class PMMobileChromeModel {
+  private bulkDeletePending = false
   readonly sortGroupSheetOpen = atom(false, 'pm_mobile_sort_group_sheet_open')
 
   private readonly entryActionsModel = new PMEntryModel()
@@ -96,6 +99,7 @@ class PMMobileChromeModel {
         metaLabel: this.getSelectionMetaLabel(meta),
         canGoBack: true,
         backDisabled: false,
+        hideTabBar: false,
         maxVisible: 4,
       }
     }
@@ -107,6 +111,7 @@ class PMMobileChromeModel {
         subtitle: this.getRootSubtitle(),
         canGoBack: false,
         backDisabled: false,
+        hideTabBar: false,
         maxVisible: 3,
       }
     }
@@ -127,7 +132,8 @@ class PMMobileChromeModel {
       title: this.getContextTitle(showElement),
       ...(subtitle ? {subtitle} : {}),
       canGoBack,
-      backDisabled: false,
+      backDisabled: isGroupEditActive && Boolean(pmGroupEditModel.submit.pending()),
+      hideTabBar: isGroupEditActive,
       maxVisible: entryReadView ? 3 : isEntryView ? 4 : hasActiveFilters ? 4 : 3,
       ...(entryReadView ? {overflowFromIndex: 2} : {}),
     }
@@ -216,7 +222,7 @@ class PMMobileChromeModel {
     }
 
     if (this.isGroupEditActive()) {
-      this.groupActionsModel.exitEditMode()
+      void pmGroupEditModel.requestClose()
       return true
     }
 
@@ -410,7 +416,7 @@ class PMMobileChromeModel {
   }
 
   private isGroupEditActive(): boolean {
-    return this.groupActionsModel.isEditMode()
+    return pmGroupEditModel.active()
   }
 
   private getCurrentShowElement(): PMShowElement {
@@ -555,20 +561,7 @@ class PMMobileChromeModel {
     )
     if (!confirmed) return
 
-    const pendingItems = [...entries, ...groups]
-    pmDeleteMotionModel.markPending(pendingItems)
-    try {
-      for (const entry of entries) {
-        await wrap(Promise.resolve(entry.remove({silent: true})))
-      }
-      await this.deleteGroups(groups)
-    } catch {
-      pmDeleteMotionModel.clearPending(pendingItems.map((item) => item.id))
-      toast.error(i18n('notify:remove:error'))
-      return
-    }
-
-    pmMobileSelectionModel.exit()
+    await this.runDeleteBatch([...entries, ...groups], 0, entries.length + groups.length)
   }
 
   private resolveSelectedItems(): {entries: Entry[]; groups: Group[]} {
@@ -615,58 +608,85 @@ class PMMobileChromeModel {
     return parent instanceof Group ? selectedGroupNames.has(parent.name) || this.hasSelectedGroupAncestor(parent, selectedGroupNames) : false
   }
 
-  private async deleteGroups(groups: Group[]): Promise<void> {
-    if (groups.length === 0) return
-
-    const root = getPassmanagerRoot()
-    if (!root) return
-
-    const rootEntries =
-      typeof (root as {entriesList?: unknown}).entriesList === 'function'
-        ? (root as {entriesList: () => Array<Entry | Group>}).entriesList()
-        : typeof (root as {entries?: unknown}).entries === 'function'
-          ? ((root as {entries: () => Array<Entry | Group>}).entries() ?? [])
-          : []
-    const groupsToRemove = new Set<Group>()
-    const nestedEntries: Entry[] = []
-
-    for (const selectedGroup of groups) {
-      for (const item of rootEntries) {
-        if (!(item instanceof Group)) continue
-        if (item.name !== selectedGroup.name && !item.name.startsWith(`${selectedGroup.name}/`)) continue
-
-        groupsToRemove.add(item)
-        nestedEntries.push(...item.entries())
-      }
+  private async runDeleteBatch(
+    items: Array<Entry | Group>,
+    alreadyDeleted: number,
+    total: number,
+    feedback?: ToastHandle,
+  ): Promise<void> {
+    if (this.bulkDeletePending || items.length === 0) return
+    this.bulkDeletePending = true
+    pmDeleteMotionModel.markPending(items)
+    const pendingMessage = `${i18n('button:remove')}… (${alreadyDeleted}/${total})`
+    const operationToast =
+      feedback ??
+      toast.loading(pendingMessage, undefined, {
+        key: 'passmanager.selection.delete',
+      })
+    if (feedback) {
+      operationToast.update({
+        key: 'passmanager.selection.delete',
+        message: pendingMessage,
+        variant: 'loading',
+      })
     }
 
-    await wrap(Promise.all(nestedEntries.flatMap((entry) => entry.cleanOTPs())))
-
-    const previousShowElement = root.showElement?.() as PMRootShowElement
-    const entriesSignal =
-      'entries' in root && root.entries && typeof root.entries.set === 'function' ? root.entries : null
-    const nextEntries = rootEntries.filter((item) => !(item instanceof Group && groupsToRemove.has(item)))
-
-    if (entriesSignal) {
-      entriesSignal.set(nextEntries)
-    }
-    root.updatedTs?.set?.(Date.now())
+    const failures: Array<Entry | Group> = []
     try {
-      if (typeof root.save === 'function') {
-        await wrap(root.save())
+      for (const item of items) {
+        try {
+          if (item instanceof Entry) {
+            await wrap(item.remove({silent: true, notifyResult: false}))
+          } else {
+            await wrap(item.remove({silent: true}))
+          }
+        } catch {
+          failures.push(item)
+        }
       }
-    } catch (error) {
-      if (entriesSignal) {
-        entriesSignal.set(rootEntries)
-      }
-      if (previousShowElement !== undefined) {
-        root.showElement?.set?.(previousShowElement)
-      }
-      throw error
+    } finally {
+      this.bulkDeletePending = false
     }
-    root.showElement?.set?.(root)
-  }
 
+    const deleted = alreadyDeleted + items.length - failures.length
+    if (failures.length === 0) {
+      const message = `${i18n('notify:remove:success')} (${deleted}/${total})`
+      operationToast.update({
+        key: 'passmanager.selection.delete',
+        message,
+        variant: 'success',
+      })
+      pmMobileSelectionModel.exit()
+      return
+    }
+
+    pmDeleteMotionModel.clearPending(failures.map((item) => item.id))
+    pmMobileSelectionModel.selectedEntryIds.set(
+      failures.filter((item): item is Entry => item instanceof Entry).map((item) => item.id),
+    )
+    pmMobileSelectionModel.selectedGroupIds.set(
+      failures.filter((item): item is Group => item instanceof Group).map((item) => item.id),
+    )
+
+    const retry = () => {
+      void this.runDeleteBatch(failures, deleted, total, operationToast)
+    }
+    const options = {
+      key: 'passmanager.selection.delete',
+      message: `${i18n('notify:remove:error')} (${deleted}/${total})`,
+      variant: 'error' as const,
+      persistent: true,
+      closable: true,
+      actions: [
+        {
+          label: i18n('button:retry'),
+          dismissOnClick: false,
+          onClick: retry,
+        },
+      ],
+    }
+    operationToast.update(options)
+  }
 }
 
 export const pmMobileChromeModel = new PMMobileChromeModel()

@@ -3,15 +3,12 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {CVInput} from '@chromvoid/uikit'
 import {atom} from '@reatom/core'
 import {guidanceCompletionBridge} from '../../src/core/guidance'
+import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {dialogService} from '../../src/shared/services/dialog'
 import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
 import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
 import {RpcError} from '../../src/routes/welcome/welcome-rpc'
-import {
-  resetRuntimeCapabilities,
-  setRuntimeCapabilities,
-} from '../../src/core/runtime/runtime-capabilities'
 import type * as WelcomeRpcModule from '../../src/routes/welcome/welcome-rpc'
 import type * as RemoteModelModule from '../../src/routes/remote/remote.model'
 import type * as RuntimeModule from '../../src/core/runtime/runtime'
@@ -84,6 +81,7 @@ describe('welcome create-master submit', () => {
   }
 
   beforeEach(() => {
+    resetRuntimeCapabilities()
     setRuntimeCapabilities({platform: 'macos', desktop: true, mobile: false})
     CVInput.define()
     WelcomeSetupSection.define()
@@ -174,7 +172,7 @@ describe('welcome create-master submit', () => {
     const form = section.shadowRoot?.querySelector('form')
     expect(form).toBeInstanceOf(HTMLFormElement)
 
-    const submitButton = form?.querySelector('cv-button')
+    const submitButton = form?.querySelector('#welcome\\.create-storage')
     expect(submitButton?.getAttribute('type')).toBe('submit')
 
     const inputs = form?.querySelectorAll('cv-input')
@@ -200,6 +198,10 @@ describe('welcome create-master submit', () => {
 
     expect(submitEvent.defaultPrevented).toBe(true)
     expect(submitSpy).toHaveBeenCalledTimes(1)
+
+    submitSpy.mockClear()
+    ;(submitButton as HTMLButtonElement).click()
+    expect(submitSpy).toHaveBeenCalledTimes(1)
   })
 
   it('keeps mobile creation available and focuses the first invalid field after submit', async () => {
@@ -208,7 +210,7 @@ describe('welcome create-master submit', () => {
     await section.updateComplete
 
     const form = section.shadowRoot?.querySelector<HTMLFormElement>('form.master-password-form')
-    const submit = form?.querySelector<HTMLElement>('cv-button[type="submit"]')
+    const submit = form?.querySelector<HTMLElement>('#welcome\\.create-storage')
     expect(form).toBeInstanceOf(HTMLFormElement)
     expect(submit?.hasAttribute('disabled')).toBe(false)
 
@@ -273,6 +275,18 @@ describe('welcome create-master submit', () => {
     expect(model.shared.busy()).toBe(false)
   })
 
+  it('skips desktop mode commands when creating local storage on mobile', async () => {
+    setRuntimeCapabilities({platform: 'ios', desktop: false, mobile: true})
+
+    await model.submitMasterSetup()
+
+    expect(remoteModelMocks.getModeStatus).not.toHaveBeenCalled()
+    expect(remoteModelMocks.switchMode).not.toHaveBeenCalled()
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('master:setup', {
+      master_password: 'correct horse battery staple',
+    })
+  })
+
   it('switches back to local mode before creating local storage from a remote adapter', async () => {
     remoteModelMocks.getModeStatus.mockResolvedValueOnce({
       mode: {
@@ -313,49 +327,34 @@ describe('welcome create-master submit', () => {
     })
   })
 
-  it('unlocks the vault through the password sheet and commits opened state after the RPC resolves', async () => {
+  it('unlocks the vault from the inline form without normalizing the password', async () => {
     const passwordDialog = vi.spyOn(dialogService, 'showInputDialog')
     prepareLockedVault()
 
-    model.onUnlock()
-    expect(model.unlockSheetOpen()).toBe(true)
     expect(passwordDialog).not.toHaveBeenCalled()
-
-    model.unlockPassword.set('vault-password')
+    model.unlockPassword.set('  vault-password  ')
     await model.submitUnlock()
 
     expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('vault:unlock', {
-      password: 'vault-password',
+      password: '  vault-password  ',
     })
     expect(stateUpdate).toHaveBeenCalledWith({StorageOpened: true})
     expect(pushNotification).not.toHaveBeenCalled()
-    expect(model.unlockSheetOpen()).toBe(false)
+    expect(model.unlockPassword()).toBe('')
     expect(model.setupInProgress()).toBe(false)
     expect(model.shared.busy()).toBe(false)
   })
 
-  it('keeps unlock available and guides an empty submit to the password field', async () => {
+  it('uses the empty string as a valid passwordless-vault identity', async () => {
     prepareLockedVault()
-    await vi.waitFor(() => {
-      expect(section.shadowRoot?.querySelector('form.unlock-inline-form')).not.toBeNull()
+    model.shared.setError('Previous technical error')
+    await model.submitUnlock()
+
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledWith('vault:unlock', {
+      password: '',
     })
-
-    const form = section.shadowRoot?.querySelector<HTMLFormElement>('form.unlock-inline-form')
-    const submit = form?.querySelector('cv-button[type="submit"]') as HTMLElement | null
-    expect(submit?.hasAttribute('disabled')).toBe(false)
-
-    form?.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}))
-    await vi.waitFor(() => {
-      expect(model.unlockValidationError()).toBe('Master Password is required')
-    })
-    await section.updateComplete
-
-    const input = form?.querySelector('cv-input#welcome-unlock-password-desktop') as CVInput | null
-    const nativeInput = input?.shadowRoot?.querySelector('input')
-    expect(input?.hasAttribute('invalid')).toBe(true)
-    expect(form?.querySelector('[role="alert"]')?.textContent).toContain('Master Password is required')
-    expect(input?.shadowRoot?.activeElement).toBe(nativeInput)
-    expect(welcomeRpcMocks.tauriRpc).not.toHaveBeenCalled()
+    expect(stateUpdate).toHaveBeenCalledWith({StorageOpened: true})
+    expect(model.shared.errorText()).toBeNull()
   })
 
   it('exposes unlock pending state until the vault RPC settles', async () => {
@@ -377,9 +376,12 @@ describe('welcome create-master submit', () => {
       })
       expect(model.unlockInProgress()).toBe(true)
     })
-    expect(model.unlockSheetOpen()).toBe(false)
+    expect(model.unlockPassword()).toBe('vault-password')
     expect(model.shared.busy()).toBe(true)
     expect(model.icon.state()).toBe('active')
+
+    await model.submitUnlock()
+    expect(welcomeRpcMocks.tauriRpc).toHaveBeenCalledTimes(1)
 
     resolveUnlock?.()
     await unlockPromise
@@ -387,6 +389,22 @@ describe('welcome create-master submit', () => {
     expect(model.unlockInProgress()).toBe(false)
     expect(model.shared.busy()).toBe(false)
     expect(model.icon.state()).toBe('active')
+  })
+
+  it('preserves the masked password and separates technical errors from field validation', async () => {
+    prepareLockedVault()
+    model.unlockPassword.set('vault-password')
+    welcomeRpcMocks.tauriRpc.mockRejectedValueOnce(
+      new RpcError('keystore unavailable', 'KEYSTORE_UNAVAILABLE'),
+    )
+
+    await model.submitUnlock()
+
+    expect(model.unlockPassword()).toBe('vault-password')
+    expect(model.shared.errorText()).not.toBe('')
+    expect(model.unlockInProgress()).toBe(false)
+    expect(model.icon.state()).toBe('idle')
+    expect(stateUpdate).not.toHaveBeenCalledWith({StorageOpened: true})
   })
 
   it('renders desktop unlock as an inline password form', async () => {
@@ -428,9 +446,9 @@ describe('welcome create-master submit', () => {
     expect(input).not.toBeNull()
 
     const unlockInput = input as HTMLElement
-    const submitButton = unlockForm.querySelector('cv-button[type="submit"]')
-    expect(submitButton).not.toBeNull()
-    expect((submitButton as HTMLElement).textContent).toContain('Unlock Vault')
+    const submitButton = unlockForm.querySelector<HTMLButtonElement>('#welcome\\.unlock-submit')
+    expect(submitButton).toBeInstanceOf(HTMLButtonElement)
+    expect(submitButton?.textContent).toContain('Unlock Vault')
 
     const submitSpy = vi.spyOn(model, 'submitUnlock').mockResolvedValue()
     unlockInput.dispatchEvent(
@@ -446,6 +464,49 @@ describe('welcome create-master submit', () => {
     expect(submitEvent.defaultPrevented).toBe(true)
     expect(model.unlockPassword()).toBe('vault-password')
     expect(submitSpy).toHaveBeenCalledTimes(1)
+
+    submitSpy.mockClear()
+    submitButton?.click()
+    await vi.waitFor(() => {
+      expect(submitSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('dismisses the mobile keyboard when unlock is submitted with Enter or the button', async () => {
+    prepareLockedVault()
+    section.layout = 'mobile'
+    await section.updateComplete
+
+    const unlockForm = section.shadowRoot?.querySelector<HTMLFormElement>('form.unlock-inline-form')
+    const unlockInput = unlockForm?.querySelector<CVInput>('#welcome-unlock-password')
+    const nativeInput = unlockInput?.shadowRoot?.querySelector<HTMLInputElement>('input')
+    const submitButton = unlockForm?.querySelector<HTMLButtonElement>('#welcome\\.unlock-submit')
+    expect(unlockForm).toBeInstanceOf(HTMLFormElement)
+    expect(nativeInput).toBeInstanceOf(HTMLInputElement)
+    expect(submitButton).toBeInstanceOf(HTMLButtonElement)
+
+    const submitSpy = vi.spyOn(model, 'submitUnlock').mockResolvedValue()
+
+    nativeInput?.focus()
+    expect(unlockInput?.shadowRoot?.activeElement).toBe(nativeInput)
+    nativeInput?.dispatchEvent(
+      new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}),
+    )
+
+    await vi.waitFor(() => {
+      expect(submitSpy).toHaveBeenCalledTimes(1)
+    })
+    expect(unlockInput?.shadowRoot?.activeElement).toBeNull()
+
+    submitSpy.mockClear()
+    nativeInput?.focus()
+    expect(unlockInput?.shadowRoot?.activeElement).toBe(nativeInput)
+    submitButton?.click()
+
+    await vi.waitFor(() => {
+      expect(submitSpy).toHaveBeenCalledTimes(1)
+    })
+    expect(unlockInput?.shadowRoot?.activeElement).toBeNull()
   })
 
   it('diagnoses and applies confirmed catalog repair during unlock', async () => {
@@ -533,6 +594,7 @@ describe('welcome create-master submit', () => {
       expect.anything(),
     )
     expect(stateUpdate).not.toHaveBeenCalledWith({StorageOpened: true})
+    expect(model.unlockPassword()).toBe('vault-password')
     expect(model.unlockInProgress()).toBe(false)
     expect(model.icon.state()).toBe('idle')
   })
@@ -553,6 +615,7 @@ describe('welcome create-master submit', () => {
     await model.submitUnlock()
 
     expect(model.shared.errorText()).toBe('Vault catalog repair state changed. Try unlocking again.')
+    expect(model.unlockPassword()).toBe('vault-password')
     expect(stateUpdate).not.toHaveBeenCalledWith({StorageOpened: true})
     expect(model.unlockInProgress()).toBe(false)
     expect(model.icon.state()).toBe('idle')

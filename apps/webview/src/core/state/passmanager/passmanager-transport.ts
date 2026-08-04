@@ -1,8 +1,11 @@
+import type {PassmanagerGroupSummary} from '@chromvoid/scheme'
+
 import type {CatalogDeps} from './types'
 import type {
   Algorithm,
   Encoding,
   OTPType,
+  PassManagerCreateEntryPayload,
   PassManagerEntryType,
   PaymentCardMeta,
   PassManagerSshKey,
@@ -18,6 +21,25 @@ function normalizeGroupDescription(value: string | null | undefined): string | n
   if (typeof value !== 'string') return null
   const normalized = value.trim()
   return normalized ? normalized : null
+}
+
+function normalizeGroupSummary(value: unknown): PassmanagerGroupSummary | undefined {
+  if (typeof value === 'string') {
+    const path = value.trim()
+    return path ? {path, entry_count: 0} : undefined
+  }
+  if (!value || typeof value !== 'object') return undefined
+
+  const record = value as Record<string, unknown>
+  const path = typeof record['path'] === 'string' ? record['path'].trim() : ''
+  if (!path) return undefined
+
+  const rawEntryCount = record['entry_count']
+  const entryCount =
+    typeof rawEntryCount === 'number' && Number.isFinite(rawEntryCount)
+      ? Math.max(0, Math.floor(rawEntryCount))
+      : 0
+  return {path, entry_count: entryCount}
 }
 
 type SaveEntryOtpMeta = {
@@ -58,6 +80,38 @@ export class PassmanagerTransport {
     return this.catalog.transport
   }
 
+  async createEntry(params: PassManagerCreateEntryPayload): Promise<{entryId: string}> {
+    const meta = params.meta
+    const payload = this.toEntryPayload({
+      entryId: meta.id,
+      entryType: params.entryType,
+      createdTs: meta.createdTs,
+      updatedTs: meta.updatedTs,
+      title: meta.title,
+      urls: params.entryType === 'payment_card' ? undefined : meta.urls,
+      username: params.entryType === 'payment_card' ? undefined : meta.username,
+      otps: params.entryType === 'payment_card' ? undefined : meta.otps,
+      paymentCard: params.entryType === 'payment_card' ? meta.paymentCard : undefined,
+      groupPath: meta.groupPath,
+      iconRef: meta.iconRef,
+      tags: meta.tags,
+    })
+    payload['secrets'] =
+      params.entryType === 'payment_card'
+        ? {
+            card_pan: params.secrets.cardPan,
+            card_cvv: params.secrets.cardCvv,
+            note: params.secrets.note,
+          }
+        : {
+            password: params.secrets.password,
+            note: params.secrets.note,
+          }
+
+    const res = await this.domainCall<{entry_id: string}>('passmanager:entry:create', payload)
+    return {entryId: res.entry_id}
+  }
+
   async saveEntry(params: {
     entryId?: string
     title: string
@@ -72,6 +126,25 @@ export class PassmanagerTransport {
     iconRef?: string
     tags?: string[]
   }): Promise<{entryId: string}> {
+    const payload = this.toEntryPayload(params)
+    const res = await this.domainCall<{entry_id: string}>('passmanager:entry:save', payload)
+    return {entryId: res.entry_id}
+  }
+
+  private toEntryPayload(params: {
+    entryId?: string
+    title: string
+    entryType?: PassManagerEntryType
+    createdTs?: number
+    updatedTs?: number
+    urls?: Array<string | UrlRule>
+    username?: string
+    otps?: SaveEntryOtpMeta[]
+    paymentCard?: PaymentCardMeta
+    groupPath?: string
+    iconRef?: string
+    tags?: string[]
+  }): Record<string, unknown> {
     const payload: Record<string, unknown> = {
       entry_id: params.entryId,
       title: params.title,
@@ -96,8 +169,7 @@ export class PassmanagerTransport {
     if (params.tags !== undefined) {
       payload['tags'] = params.tags
     }
-    const res = await this.domainCall<{entry_id: string}>('passmanager:entry:save', payload)
-    return {entryId: res.entry_id}
+    return payload
   }
 
   async readEntry(entryId: string): Promise<{entry: object}> {
@@ -191,8 +263,14 @@ export class PassmanagerTransport {
     await this.domainCall('passmanager:group:ensure', {path})
   }
 
-  async listGroups(): Promise<{groups: object[]}> {
-    return this.domainCall('passmanager:group:list', {})
+  async listGroups(): Promise<{groups: PassmanagerGroupSummary[]}> {
+    const result = await this.domainCall<{groups?: unknown}>('passmanager:group:list', {})
+    const groups = Array.isArray(result?.groups)
+      ? result.groups
+          .map((item) => normalizeGroupSummary(item))
+          .filter((item): item is PassmanagerGroupSummary => Boolean(item))
+      : []
+    return {groups}
   }
 
   async deleteGroup(path: string): Promise<void> {

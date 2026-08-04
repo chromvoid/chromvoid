@@ -3,7 +3,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    id("com.android.built-in-kotlin") version "9.2.1"
     id("rust")
 }
 
@@ -39,7 +39,6 @@ val releaseTasksRequested = gradle.startParameter.taskNames.any {
 }
 val ownedAndroidAppDir = rootProject.projectDir.resolve("../../android-owned/app")
 val androidNamespace = "com.chromvoid.app"
-val debugApplicationIdSuffix = ".dev"
 
 fun requireReleaseKeystoreProperty(name: String): String {
     val value = releaseKeystoreProperties.getProperty(name)?.trim().orEmpty()
@@ -98,7 +97,6 @@ android {
     }
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = debugApplicationIdSuffix
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
@@ -112,6 +110,7 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
+            isShrinkResources = true
             ndk {
                 debugSymbolLevel = "FULL"
             }
@@ -129,9 +128,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         buildConfig = true
     }
@@ -140,23 +136,33 @@ android {
     }
     sourceSets {
         getByName("debug") {
-            res.srcDirs(ownedAndroidAppDir.resolve("src/debug/res"))
+            kotlin.directories += "src/debug/java"
+            res.directories += ownedAndroidAppDir.resolve("src/debug/res").path
         }
         getByName("main") {
-            java.srcDirs("src/main/java", ownedAndroidAppDir.resolve("src/main/java"))
-            res.srcDirs("src/main/res", ownedAndroidAppDir.resolve("src/main/res"))
+            kotlin.directories += "src/main/java"
+            kotlin.directories += ownedAndroidAppDir.resolve("src/main/java").path
+            res.directories += ownedAndroidAppDir.resolve("src/main/res").path
         }
         getByName("test") {
-            java.srcDirs("src/test/java", ownedAndroidAppDir.resolve("src/test/java"))
+            kotlin.directories += "src/test/java"
+            kotlin.directories += ownedAndroidAppDir.resolve("src/test/java").path
         }
         getByName("androidTest") {
-            java.srcDirs("src/androidTest/java", ownedAndroidAppDir.resolve("src/androidTest/java"))
+            kotlin.directories += "src/androidTest/java"
+            kotlin.directories += ownedAndroidAppDir.resolve("src/androidTest/java").path
         }
     }
 }
 
 rust {
     rootDirRel = "../../../"
+}
+
+// AGP 9.2.1 built-in Kotlin misclassifies external android-owned sources during
+// incremental recompilation, breaking cross-file internal visibility.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    incremental = false
 }
 
 dependencies {
@@ -413,4 +419,4 @@ tasks.named("preBuild").configure {
     dependsOn("verifyAndroidNativeQualityGates")
 }
 
-apply(from = "tauri.build.gradle.kts")
+apply(from = "tauri.build.gradle")

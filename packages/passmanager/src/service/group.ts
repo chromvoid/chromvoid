@@ -7,7 +7,7 @@ import {normalizeGroupDescription} from './group-description'
 import {normalizeTimestampMs} from '../utils'
 import {confirmPassManagerAction} from './dialog'
 import {Entry} from './entry'
-import {notify} from './notify'
+import type {MutationPresentation} from './mutation-presentation'
 import type {IGroup, ManagerRoot} from './root'
 import {
   createEntryFilterMatcher,
@@ -15,7 +15,20 @@ import {
   getEffectiveSelectedCredentialTagFilters,
   quickFilters,
 } from './select'
-import type {IEntry, IGroupExternal, OTPOptions, TGroupActions} from './types'
+import type {IEntry, IGroupExternal, OTPOptions, PaymentCardCreationSecrets, TGroupActions} from './types'
+
+export type GroupSaveChangesInput = {
+  name: string
+  description: string
+  iconRef: string | undefined
+}
+
+export type GroupSaveChangesResult =
+  | {status: 'saved'}
+  | {status: 'unchanged'}
+  | {status: 'name-conflict'}
+  | {status: 'invalid-name'}
+  | {status: 'save-failed'}
 
 export class Group implements TGroupActions {
   static root: ManagerRoot
@@ -120,19 +133,16 @@ export class Group implements TGroupActions {
     return this.rawData().iconRef
   }
 
-  searched = computed(
-    () => {
-      const fv = filterValue()
-      const activeFilters = quickFilters()
-      const selectedTags = getEffectiveSelectedCredentialTagFilters(
-        this.root?.allEntries,
-        this.root?.credentialTags() ?? [],
-      )
-      const matches = createEntryFilterMatcher(fv, activeFilters, Date.now(), selectedTags)
-      return this.entries().filter(matches)
-    },
-    'searched',
-  )
+  searched = computed(() => {
+    const fv = filterValue()
+    const activeFilters = quickFilters()
+    const selectedTags = getEffectiveSelectedCredentialTagFilters(
+      this.root?.allEntries,
+      this.root?.credentialTags() ?? [],
+    )
+    const matches = createEntryFilterMatcher(fv, activeFilters, Date.now(), selectedTags)
+    return this.entries().filter(matches)
+  }, 'searched')
 
   get updatedFormatted() {
     return new Date(this.rawData().updatedTs).toLocaleString()
@@ -192,6 +202,96 @@ export class Group implements TGroupActions {
     return true
   }
 
+  async saveChanges({
+    name,
+    description,
+    iconRef,
+  }: GroupSaveChangesInput): Promise<GroupSaveChangesResult> {
+    const nextPath = String(name ?? '').trim()
+    if (
+      !nextPath ||
+      nextPath.includes('\\') ||
+      nextPath.split('/').some((segment) => segment.trim().length === 0)
+    ) {
+      return {status: 'invalid-name'}
+    }
+
+    const currentData = peek(this.rawData)
+    const nextDescription = normalizeGroupDescription(description)
+    const pathChanged = nextPath !== currentData.name
+    const metadataChanged =
+      nextDescription !== currentData.description || iconRef !== currentData.iconRef
+    if (!pathChanged && !metadataChanged) {
+      return {status: 'unchanged'}
+    }
+
+    const root = this.root
+    const sourcePath = currentData.name
+    const movedGroups = root
+      .entriesList()
+      .filter((item): item is Group => item instanceof Group)
+      .filter((group) => group.name === sourcePath || group.name.startsWith(`${sourcePath}/`))
+    if (!movedGroups.includes(this)) {
+      return {status: 'invalid-name'}
+    }
+
+    const movedGroupIds = new Set(movedGroups.map((group) => group.id))
+    const nextPathByGroupId = new Map<string, string>()
+    if (pathChanged) {
+      const occupiedPaths = new Set(
+        root
+          .entriesList()
+          .filter((item): item is Group => item instanceof Group && !movedGroupIds.has(item.id))
+          .map((group) => group.name.trim().toLowerCase()),
+      )
+      const movedPaths = new Set<string>()
+      for (const group of movedGroups) {
+        const movedPath = `${nextPath}${group.name.slice(sourcePath.length)}`
+        const comparisonPath = movedPath.trim().toLowerCase()
+        if (occupiedPaths.has(comparisonPath) || movedPaths.has(comparisonPath)) {
+          return {status: 'name-conflict'}
+        }
+        movedPaths.add(comparisonPath)
+        nextPathByGroupId.set(group.id, movedPath)
+      }
+    }
+
+    const snapshots = new Map(movedGroups.map((group) => [group, peek(group.rawData)]))
+    const rootUpdatedTs = root.updatedTs()
+    const updatedTs = Date.now()
+
+    if (pathChanged) {
+      for (const group of movedGroups) {
+        const movedPath = nextPathByGroupId.get(group.id)
+        if (!movedPath) continue
+        group.rawData.set({...peek(group.rawData), name: movedPath, updatedTs})
+      }
+    }
+    this.rawData.set({
+      ...peek(this.rawData),
+      description: nextDescription,
+      iconRef,
+      updatedTs,
+    })
+    root.updatedTs.set(updatedTs)
+
+    let saved = false
+    try {
+      saved = (await wrap(root.save())) === true
+    } catch {
+      saved = false
+    }
+    if (saved) {
+      return {status: 'saved'}
+    }
+
+    for (const [group, snapshot] of snapshots) {
+      group.rawData.set(snapshot)
+    }
+    root.updatedTs.set(rootUpdatedTs)
+    return {status: 'save-failed'}
+  }
+
   updateData(data: Partial<IGroup> = {}) {
     this.rawData.set({
       ...this.rawData(),
@@ -202,8 +302,14 @@ export class Group implements TGroupActions {
     })
   }
 
-  createEntry(data: Partial<IEntry>, password: string, note: string, otp: OTPOptions) {
-    return Entry.create(this, data, password, note, otp)
+  createEntry(
+    data: Partial<IEntry>,
+    password: string,
+    note: string,
+    otp: OTPOptions | undefined,
+    paymentCardSecrets?: PaymentCardCreationSecrets,
+  ) {
+    return Entry.create(this, data, password, note, otp, paymentCardSecrets)
   }
 
   excludeEntry(entry: Entry) {
@@ -216,48 +322,52 @@ export class Group implements TGroupActions {
     this.entries.set([entry, ...this.entriesList()])
   }
 
-  async remove(silent = false) {
-    // Collect subgroups whose path starts with this.name + '/'
-    const rootEntries = Group.root.entriesList()
-    const parentSeparator = this.name.lastIndexOf('/')
-    const parentPath = parentSeparator >= 0 ? this.name.slice(0, parentSeparator) : ''
-    const parent = parentPath
-      ? rootEntries.find(
-          (item): item is Group => item instanceof Group && item.name === parentPath,
-        ) ?? Group.root
-      : Group.root
-    const subgroups = rootEntries.filter(
-      (item) => item instanceof Group && item.name.startsWith(this.name + '/'),
-    ) as Group[]
+  confirmRemoval(): Promise<boolean> {
+    return confirmPassManagerAction({
+      title: i18n('remove:dialog:title'),
+      message: i18n('remove:dialog:text'),
+      variant: 'danger',
+      confirmVariant: 'danger',
+    })
+  }
 
+  async remove({
+    silent = false,
+    presentation = 'auto',
+  }: {
+    silent?: boolean
+    presentation?: MutationPresentation
+  } = {}) {
     if (!silent) {
-      const confirmed = await wrap(confirmPassManagerAction({
-        title: i18n('remove:dialog:title'),
-        message: i18n('remove:dialog:text'),
-        variant: 'danger',
-        confirmVariant: 'danger',
-      }))
-      if (!confirmed) return
+      const confirmed = await wrap(this.confirmRemoval())
+      if (!confirmed) return false
     }
 
-    // Collect all entries from this group + subgroups
-    const allEntries = [...this.entries(), ...subgroups.flatMap((g) => g.entries())]
+    const groupPath = this.name
+    const parentSeparator = groupPath.lastIndexOf('/')
+    const parentPath = parentSeparator >= 0 ? groupPath.slice(0, parentSeparator) : ''
+    const wasCurrentGroup = Group.root.showElement() === this
 
-    // Clean OTP secrets (stored separately, not deleted with directories)
-    await wrap(Promise.all(allEntries.flatMap((entry) => peek(entry.otps).map((otp) => otp.clean()))))
+    await wrap(Group.root.managerSaver.removeGroup(groupPath))
 
-    // Remove this group + all subgroups from root.entries
-    const toRemove = new Set<Group>([this, ...subgroups])
-    Group.root.entries.set(rootEntries.filter((i) => !toRemove.has(i as Group)))
+    const currentEntries = Group.root.entriesList()
+    Group.root.entries.set(
+      currentEntries.filter(
+        (item) =>
+          !(item instanceof Group && (item.name === groupPath || item.name.startsWith(`${groupPath}/`))),
+      ),
+    )
     Group.root.updatedTs.set(Date.now())
-
-    // save() → saveRoot() → removeObsoleteEntries() deletes orphaned directories
-    await wrap(Group.root.save())
-    Group.root.showElement.set(parent)
-
-    try {
-      notify.success(i18n('notify:remove:success'))
-    } catch {}
+    if (presentation === 'auto' && wasCurrentGroup && Group.root.showElement() === this) {
+      const parent = parentPath
+        ? (Group.root
+            .entriesList()
+            .find((item): item is Group => item instanceof Group && item.name === parentPath) ??
+          Group.root)
+        : Group.root
+      Group.root.showElement.set(parent)
+    }
+    return true
   }
 
   async export(): Promise<IGroupExternal> {

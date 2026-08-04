@@ -104,26 +104,65 @@ impl From<serde_json::Error> for IosStagingError {
 pub fn app_group_container_path() -> Result<PathBuf, IosStagingError> {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
-        use crate::credential_provider_bridge::APP_GROUP_ID;
-        use objc2_foundation::{NSFileManager, NSString};
+        use dispatch2::DispatchQueue;
+        use objc2_foundation::MainThreadMarker;
+        use std::sync::Mutex;
 
-        let group_identifier = NSString::from_str(APP_GROUP_ID);
-        let manager = NSFileManager::defaultManager();
-        let Some(container_url) =
-            manager.containerURLForSecurityApplicationGroupIdentifier(&group_identifier)
-        else {
-            return Err(IosStagingError::AppGroupUnavailable);
+        let called_on_main_thread = MainThreadMarker::new().is_some();
+        let result = if called_on_main_thread {
+            resolve_apple_app_group_container_path()
+        } else {
+            // iOS can return nil for this Foundation lookup from a Tokio blocking
+            // worker even though the same entitlement succeeds on the main queue.
+            // Resolve only the container URL on main; all staging I/O remains on
+            // the caller's worker thread.
+            let slot = Mutex::new(None);
+            DispatchQueue::main().exec_sync(|| {
+                if let Ok(mut slot) = slot.lock() {
+                    *slot = Some(resolve_apple_app_group_container_path());
+                }
+            });
+            slot.into_inner()
+                .ok()
+                .flatten()
+                .unwrap_or(Err(IosStagingError::AppGroupUnavailable))
         };
-        let Some(path) = container_url.path() else {
-            return Err(IosStagingError::AppGroupUnavailable);
-        };
-        return Ok(PathBuf::from(path.to_string()));
+
+        tracing::debug!(
+            operation = "app_group_container_lookup",
+            result = if result.is_ok() {
+                "available"
+            } else {
+                "unavailable"
+            },
+            called_on_main_thread,
+            "ios_staging"
+        );
+        return result;
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
         Err(IosStagingError::AppGroupUnavailable)
     }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn resolve_apple_app_group_container_path() -> Result<PathBuf, IosStagingError> {
+    use crate::apple_shared_container::APP_GROUP_ID;
+    use objc2_foundation::{NSFileManager, NSString};
+
+    let group_identifier = NSString::from_str(APP_GROUP_ID);
+    let manager = NSFileManager::defaultManager();
+    let Some(container_url) =
+        manager.containerURLForSecurityApplicationGroupIdentifier(&group_identifier)
+    else {
+        return Err(IosStagingError::AppGroupUnavailable);
+    };
+    let Some(path) = container_url.path() else {
+        return Err(IosStagingError::AppGroupUnavailable);
+    };
+    Ok(PathBuf::from(path.to_string()))
 }
 
 pub fn staging_root(container_root: &Path) -> PathBuf {

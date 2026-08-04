@@ -44,6 +44,7 @@ function setupContext(layout: LayoutMode, sidebarOpen = true) {
 
 describe('NavigationRail mobile drawer auto-close', () => {
   afterEach(() => {
+    window.__CHROMVOID_SSH_KEYS_ENABLED__ = true
     navigationModel.disconnect()
     navigationRailModel.expanded.set(false)
     moduleAccessModel.reset()
@@ -79,7 +80,7 @@ describe('NavigationRail mobile drawer auto-close', () => {
   }
 
   function buttonLabels(root: ParentNode | null): string[] {
-    return Array.from(root?.querySelectorAll<HTMLElement>('cv-button') ?? []).map(
+    return Array.from(root?.querySelectorAll<HTMLElement>('cv-button, button.item') ?? []).map(
       (button) => button.textContent?.replace(/\s+/g, ' ').trim() ?? '',
     )
   }
@@ -253,6 +254,22 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(sshButton?.querySelector('cv-icon')?.getAttribute('name')).toBe('terminal')
   })
 
+  it('hides SSH keys and normalizes its route when the build flag is disabled', async () => {
+    window.__CHROMVOID_SSH_KEYS_ENABLED__ = false
+    const {sidebar} = setupContext('mobile', true)
+
+    navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
+    const rail = await createRenderedRail()
+    const labels = buttonLabels(rail.shadowRoot)
+
+    expect(labels.some((label) => label.includes('SSH keys'))).toBe(false)
+    expect(navigationModel.snapshot().passwords).toEqual({kind: 'root'})
+
+    navigationRailModel.openSshKeys()
+    expect(navigationModel.snapshot().passwords).toEqual({kind: 'root'})
+    expect(sidebar()).toBe(true)
+  })
+
   it('keeps SSH keys out of the desktop navigation rail', async () => {
     setupContext('desktop', true)
     navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
@@ -412,6 +429,39 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(redirected).toBe(true)
     expect(navigationModel.currentSurface()).toBe('remote')
     expect(navigationModel.remotePanel()).toBe('hosts')
+  })
+
+  it('hides every Pro surface and redirects direct Pro navigation to Files on iOS', async () => {
+    setupContext('mobile', true)
+    moduleAccessModel.rawStates.set([
+      {feature_key: 'remote', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+      {feature_key: 'browser-extension', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+      {feature_key: 'mounted-vault', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+      {feature_key: 'crypto-wallet', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+    ])
+    setRuntimeCapabilities({
+      platform: 'ios',
+      mobile: true,
+      supports_network_remote: true,
+      supports_external_pro: false,
+    })
+
+    const actions = await createRenderedActions()
+    const labels = buttonLabels(actions.shadowRoot)
+    const appModel = new ChromVoidAppModel()
+
+    expect(labels.some((label) => label.includes('Remote'))).toBe(false)
+    expect(labels.some((label) => label.includes('Storage'))).toBe(false)
+    expect(labels.some((label) => label.includes('Extensions'))).toBe(false)
+    expect(labels.some((label) => label.includes('Wallet'))).toBe(false)
+
+    navigationModel.navigateToSurface('remote', 'replace')
+    const redirected = (
+      appModel as unknown as {normalizeUnsupportedSurface: () => boolean}
+    ).normalizeUnsupportedSurface()
+
+    expect(redirected).toBe(true)
+    expect(navigationModel.currentSurface()).toBe('files')
   })
 
   it('keeps the brand collapse toggle available on desktop', async () => {

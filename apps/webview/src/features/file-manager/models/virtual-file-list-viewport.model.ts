@@ -23,7 +23,7 @@ export class VirtualFileListViewportModel {
   readonly virtualScrollTop = atom(0, 'file.virtualList.virtualScrollTop')
   readonly viewportHeight = atom(400, 'file.virtualList.viewportHeight')
   readonly gridColumns = atom(1, 'file.virtualList.gridColumns')
-  readonly gridRowHeight = atom(216, 'file.virtualList.gridRowHeight')
+  readonly gridRowHeight = atom(220, 'file.virtualList.gridRowHeight')
   readonly dragOverIndex = atom(-1, 'file.virtualList.dragOverIndex')
 
   setVirtualScrollTop(value: number): void {

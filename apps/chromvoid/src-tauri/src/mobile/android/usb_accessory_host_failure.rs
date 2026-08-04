@@ -2,6 +2,8 @@
 pub(crate) enum AndroidMobileUsbHostStopReason {
     Shutdown,
     VaultLocked,
+    ClientDisconnected,
+    PairingCancelled,
     PeerClosed,
     AccessoryDetached,
     ExplicitDisconnect,
@@ -19,6 +21,8 @@ impl AndroidMobileUsbHostStopReason {
         match self {
             Self::Shutdown => "shutdown",
             Self::VaultLocked => "vault_locked",
+            Self::ClientDisconnected => "client_disconnected",
+            Self::PairingCancelled => "pairing_cancelled",
             Self::PeerClosed => "peer_closed",
             Self::AccessoryDetached => "accessory_detached",
             Self::ExplicitDisconnect => "explicit_disconnect",
@@ -49,6 +53,12 @@ impl AndroidMobileUsbHostStopReason {
             Self::VaultLocked => {
                 crate::network::mobile_acceptor::DirectTransportStopReason::VaultLocked
             }
+            Self::ClientDisconnected => {
+                crate::network::mobile_acceptor::DirectTransportStopReason::ClientDisconnected
+            }
+            Self::PairingCancelled => {
+                crate::network::mobile_acceptor::DirectTransportStopReason::PairingCancelled
+            }
             Self::AccessoryDetached => {
                 crate::network::mobile_acceptor::DirectTransportStopReason::AccessoryDetached
             }
@@ -75,6 +85,7 @@ impl AndroidMobileUsbHostStopReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AndroidMobileUsbHostFailure {
     PairingComplete,
+    PairingCancelled,
     TransportClosed,
     DataPlaneError(String),
     Error(String),
@@ -94,6 +105,9 @@ impl AndroidMobileUsbHostFailure {
             crate::network::mobile_acceptor::DirectTransportAcceptFailure::PairingComplete {
                 ..
             } => Self::PairingComplete,
+            crate::network::mobile_acceptor::DirectTransportAcceptFailure::PairingCancelled {
+                ..
+            } => Self::PairingCancelled,
             crate::network::mobile_acceptor::DirectTransportAcceptFailure::DataPlaneError {
                 message,
             } => Self::DataPlaneError(message),
@@ -109,6 +123,7 @@ impl AndroidMobileUsbHostFailure {
     pub(crate) fn stop_reason(&self) -> AndroidMobileUsbHostStopReason {
         match self {
             Self::PairingComplete => AndroidMobileUsbHostStopReason::PairingComplete,
+            Self::PairingCancelled => AndroidMobileUsbHostStopReason::PairingCancelled,
             Self::TransportClosed => AndroidMobileUsbHostStopReason::TransportClosed,
             Self::DataPlaneError(_) => AndroidMobileUsbHostStopReason::DataPlaneError,
             Self::Error(_) => AndroidMobileUsbHostStopReason::Error,
@@ -120,6 +135,7 @@ impl std::fmt::Display for AndroidMobileUsbHostFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PairingComplete => write!(f, "pairing complete"),
+            Self::PairingCancelled => write!(f, "pairing cancelled"),
             Self::TransportClosed => write!(f, "transport closed"),
             Self::DataPlaneError(error) | Self::Error(error) => write!(f, "{error}"),
         }

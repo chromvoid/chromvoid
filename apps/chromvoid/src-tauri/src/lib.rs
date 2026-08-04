@@ -32,6 +32,7 @@ mod volume_webdav;
 mod volume_windows;
 
 mod app_state;
+mod apple_shared_container;
 mod audio_artwork;
 mod auto_lock;
 mod catalog_blocking_io;
@@ -54,6 +55,7 @@ mod media_source;
 pub mod media_stream;
 #[cfg(desktop)]
 mod mode_transition_coordinator;
+#[cfg(any(desktop, target_os = "ios"))]
 mod otp_import_handoff;
 mod paired_store_crypto;
 mod pro;
@@ -67,7 +69,6 @@ mod setup;
 mod shutdown;
 #[cfg(desktop)]
 mod ssh_agent;
-#[cfg(desktop)]
 mod ssh_keygen;
 mod state_ext;
 mod task_lifecycle;
@@ -193,8 +194,9 @@ use commands::network_cmds::{
     network_rollback_profile_endpoint, network_transport_metrics,
 };
 use commands::network_cmds::{
-    get_local_device_identity, handle_ios_wake, ios_host_status, mobile_host_publish_presence,
-    mobile_host_start, mobile_host_status, mobile_host_stop, network_get_bootstrap_profile,
+    get_local_device_identity, handle_ios_wake, ios_host_status, mobile_host_list_paired_computers,
+    mobile_host_publish_presence, mobile_host_revoke_paired_computer, mobile_host_start,
+    mobile_host_status, mobile_host_stop, network_get_bootstrap_profile,
     network_list_server_profiles, publish_ios_presence, start_ios_host_mode, stop_ios_host_mode,
 };
 use commands::network_cmds::{mobile_acceptor_start, mobile_acceptor_status, mobile_acceptor_stop};
@@ -453,6 +455,8 @@ pub fn run() {
         mobile_host_stop,
         mobile_host_status,
         mobile_host_publish_presence,
+        mobile_host_list_paired_computers,
+        mobile_host_revoke_paired_computer,
         desktop_pair_ios,
         desktop_pair_mobile_host,
         desktop_connect_ios,
@@ -591,12 +595,15 @@ pub fn run() {
         mobile_host_stop,
         mobile_host_status,
         mobile_host_publish_presence,
+        mobile_host_list_paired_computers,
+        mobile_host_revoke_paired_computer,
         mobile_usb_host_pending_pairing_approval,
         mobile_usb_host_approve_pairing,
         mobile_usb_host_reject_pairing,
         mobile_usb_host_pending_session_approval,
         mobile_usb_host_approve_session,
-        mobile_usb_host_reject_session
+        mobile_usb_host_reject_session,
+        ssh_keygen::ssh_keygen
     ]);
 
     let app = match builder.build(tauri::generate_context!()) {

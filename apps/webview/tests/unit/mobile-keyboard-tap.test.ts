@@ -97,7 +97,7 @@ describe('mobile keyboard visibility payload', () => {
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
   })
 
-  it('applies android native custom events to keyboard inset state', () => {
+  it('applies android overlay custom events with a viewport lift', () => {
     const cleanup = setupAndroidKeyboardInsetsEventListener(document.documentElement)
 
     window.dispatchEvent(
@@ -107,7 +107,8 @@ describe('mobile keyboard visibility payload', () => {
           bottomInset: 188.2,
           safeAreaTopInset: 27.7,
           safeAreaBottomInset: 19.2,
-          phase: 'progress',
+          phase: 'settled',
+          viewportMode: 'overlay',
         },
       }),
     )
@@ -360,6 +361,35 @@ describe('mobile keyboard tap workaround', () => {
     action.setAttribute('role', 'button')
     field.append(action)
     document.body.append(input, field)
+    input.focus()
+    document.documentElement.setAttribute('data-mobile-keyboard-expanded', '')
+
+    vi.useFakeTimers()
+    const blurSpy = vi.spyOn(input, 'blur')
+    const clickSpy = vi.spyOn(action, 'click')
+    action.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 12}))
+    action.dispatchEvent(createTouchPointerEvent('pointerup', {clientX: 12, clientY: 12}))
+    await vi.advanceTimersByTimeAsync(111)
+
+    expect(blurSpy).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
+    expect(clickSpy).toHaveBeenCalled()
+  })
+
+  it('keeps the focused input for actions that preserve the mobile keyboard', async () => {
+    tauriInvoke.mockResolvedValue(undefined)
+    tauriListen.mockResolvedValue(() => {})
+    const isMobile = atom(true)
+
+    setupMobileKeyboardTapWorkaround({isMobile} as any)
+    await flushDynamicImport()
+
+    const input = document.createElement('input')
+    const toolbar = document.createElement('div')
+    const action = document.createElement('button')
+    toolbar.setAttribute('data-mobile-keyboard-preserve', '')
+    toolbar.append(action)
+    document.body.append(input, toolbar)
     input.focus()
     document.documentElement.setAttribute('data-mobile-keyboard-expanded', '')
 

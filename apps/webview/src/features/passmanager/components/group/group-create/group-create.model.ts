@@ -10,9 +10,7 @@ import {
   type GroupIconPresetName,
   type GroupIconPresetSelection,
 } from './group-icon-presets'
-
-export const GROUP_CREATE_NAME_MAX_LENGTH = 40
-export const GROUP_CREATE_DESCRIPTION_MAX_LENGTH = 120
+import {GROUP_DESCRIPTION_MAX_LENGTH, GROUP_NAME_MAX_LENGTH} from '../group-form.constants'
 
 type PMGroupCreateModelOptions = {
   defaultPreset?: GroupIconPresetSelection
@@ -40,9 +38,9 @@ export class PMGroupCreateModel {
     return icon && color ? {icon, color} : undefined
   })
   readonly nameError = computed(() => this.getNameValidationError())
-  readonly nameCounterLabel = computed(() => `${this.nameLength()}/${GROUP_CREATE_NAME_MAX_LENGTH}`)
+  readonly nameCounterLabel = computed(() => `${this.nameLength()}/${GROUP_NAME_MAX_LENGTH}`)
   readonly descriptionCounterLabel = computed(
-    () => `${this.descriptionLength()}/${GROUP_CREATE_DESCRIPTION_MAX_LENGTH}`,
+    () => `${this.descriptionLength()}/${GROUP_DESCRIPTION_MAX_LENGTH}`,
   )
   readonly canSubmit = computed(
     () => this.trimmedName().length > 0 && !this.nameError() && !this.isReadOnly() && !this.isSubmitting(),
@@ -54,12 +52,12 @@ export class PMGroupCreateModel {
   }
 
   setName(name: string): void {
-    this.name.set(name.slice(0, GROUP_CREATE_NAME_MAX_LENGTH))
+    this.name.set(name.slice(0, GROUP_NAME_MAX_LENGTH))
     this.submitError.set('')
   }
 
   setDescription(description: string): void {
-    this.description.set(description.slice(0, GROUP_CREATE_DESCRIPTION_MAX_LENGTH))
+    this.description.set(description.slice(0, GROUP_DESCRIPTION_MAX_LENGTH))
   }
 
   setIconRef(iconRef: string | undefined): void {
@@ -116,14 +114,20 @@ export class PMGroupCreateModel {
       const iconRef = presetSelection
         ? await groupPresetIconService.upload(presetSelection)
         : peek(this.iconRef)
-      await Promise.resolve(
-        passmanager.createGroup({
-          name: fullName,
-          description: peek(this.description),
-          iconRef,
-          entries: [],
-        }),
+      const group = await Promise.resolve(
+        passmanager.createGroup(
+          {
+            name: fullName,
+            description: peek(this.description),
+            iconRef,
+            entries: [],
+          },
+          {presentation: 'defer'},
+        ),
       )
+      if (group && getPassmanagerRoot() === passmanager) {
+        passmanagerNavigationController.presentCreatedGroup(group)
+      }
       return true
     } catch {
       this.submitError.set(i18n('group:create:error' as never))

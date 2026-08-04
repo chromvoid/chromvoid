@@ -26,13 +26,9 @@ export async function captureSnapshot(driver, root, label) {
 
   let contexts = []
   try {
-    contexts = await driver.getContexts({returnDetailedContexts: true, filterByCurrentAndroidApp: true})
+    contexts = await driver.getContexts()
   } catch {
-    try {
-      contexts = await driver.getContexts()
-    } catch {
-      contexts = []
-    }
+    contexts = []
   }
 
   await writeFile(join(contextsDir, `${label}.json`), `${JSON.stringify(contexts, null, 2)}\n`, 'utf8')

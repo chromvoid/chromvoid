@@ -1,33 +1,51 @@
 #!/bin/bash
-# Linker wrapper that calls the real linker, then signs the output binary
-# with "ChromVoid Dev" certificate so macOS Keychain doesn't prompt on every recompile.
-#
-# Activated via env var in package.json "dev:signed" script:
-#   CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=$(pwd)/scripts/codesign-linker.sh
+# Rust linker wrapper for the main macOS development executable. It signs the
+# final `chromvoid` binary with a stable identifier so Keychain ACLs survive a
+# rebuild, and fails closed if signing or designated-requirement verification
+# regresses.
+
+set -euo pipefail
 
 IDENTITY="${CODESIGN_IDENTITY:-ChromVoid Dev}"
+IDENTIFIER="com.chromvoid.app.dev"
+REAL_CC="${CHROMVOID_CODESIGN_CC:-cc}"
+REAL_CODESIGN="${CHROMVOID_CODESIGN_TOOL:-codesign}"
 
-# Call the real linker with all arguments
-cc "$@"
-EXIT_CODE=$?
+"$REAL_CC" "$@"
 
-if [ $EXIT_CODE -ne 0 ]; then
-    exit $EXIT_CODE
-fi
-
-# Find the output file (-o <path>)
 OUTPUT=""
-while [ $# -gt 0 ]; do
-    if [ "$1" = "-o" ]; then
-        OUTPUT="$2"
-        break
-    fi
-    shift
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ] && [ "$#" -ge 2 ]; then
+    OUTPUT="$2"
+    break
+  fi
+  shift
 done
 
-# Only sign the chromvoid binary, not build-scripts or proc-macros
-if [ -n "$OUTPUT" ] && echo "$OUTPUT" | grep -q "/chromvoid" && [ -f "$OUTPUT" ]; then
-    codesign -fs "$IDENTITY" "$OUTPUT" 2>/dev/null
+if [ -z "$OUTPUT" ] || [ ! -f "$OUTPUT" ] || [ "$(basename "$OUTPUT")" != "chromvoid" ]; then
+  exit 0
 fi
 
-exit 0
+"$REAL_CODESIGN" \
+  --force \
+  --sign "$IDENTITY" \
+  --identifier "$IDENTIFIER" \
+  --timestamp=none \
+  "$OUTPUT"
+"$REAL_CODESIGN" --verify --strict --verbose=2 "$OUTPUT"
+
+DETAILS="$($REAL_CODESIGN -dv --verbose=4 "$OUTPUT" 2>&1)"
+REQUIREMENT="$($REAL_CODESIGN -d -r- "$OUTPUT" 2>&1)"
+
+if ! grep -Fq "Identifier=$IDENTIFIER" <<<"$DETAILS"; then
+  echo "codesign linker: unexpected identifier for $OUTPUT" >&2
+  exit 1
+fi
+if grep -Fqi "Signature=adhoc" <<<"$DETAILS"; then
+  echo "codesign linker: ad-hoc signature is forbidden" >&2
+  exit 1
+fi
+if [ -z "$REQUIREMENT" ] || grep -Eqi '(^|[^[:alnum:]_])cdhash([^[:alnum:]_]|$)' <<<"$REQUIREMENT"; then
+  echo "codesign linker: designated requirement must be stable and must not use cdhash" >&2
+  exit 1
+fi

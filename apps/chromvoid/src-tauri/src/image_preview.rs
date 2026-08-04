@@ -32,13 +32,6 @@ const WEBP_PREVIEW_QUALITY: f32 = 86.0;
     target_os = "windows"
 ))]
 const JPEG_PREVIEW_QUALITY: u8 = 82;
-#[cfg(any(
-    test,
-    target_os = "ios",
-    target_os = "macos",
-    target_os = "linux",
-    target_os = "windows"
-))]
 pub(crate) const JPEG_PREVIEW_MIME: &str = "image/jpeg";
 pub(crate) const PNG_PREVIEW_MIME: &str = "image/png";
 pub(crate) const WEBP_PREVIEW_MIME: &str = "image/webp";

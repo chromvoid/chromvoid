@@ -2,7 +2,7 @@ import {action, atom, computed, isAbort, withAbort, withAsync, wrap} from '@reat
 import {parseOtpAuthUri, type Entry, type OtpAuthUriMetadata} from '@project/passmanager/core'
 import {i18n as passmanagerI18n} from '@project/passmanager/i18n'
 import type {UrlRule} from '@project/passmanager/types'
-import {formatLink, isLink, transformUrls} from '@project/passmanager/urls'
+import {getPrimaryUrlRule} from '@project/passmanager/urls'
 import {isError, isSuccess, type RpcResult} from '@chromvoid/scheme'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
@@ -14,7 +14,9 @@ import {tauriInvoke, tauriListen} from 'root/core/transport/tauri/ipc'
 import {getAppContext} from 'root/shared/services/app-context'
 import {subscribeToSignalChanges} from 'root/shared/services/subscribed-signal'
 import {getPassmanagerRoot, passmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
+import {passmanagerNavigationController} from 'root/features/passmanager/passmanager-navigation.controller'
 import {PMEntryOtpCreateModel} from '../card/entry-otp-create/entry-otp-create.model'
+import {PMEntryWebsiteEditorModel} from '../card/entry-website-editor'
 
 export type PendingOtpImportMetadata = {
   pending_id: string
@@ -78,7 +80,7 @@ function normalizeForMatch(value: string): string {
 }
 
 function entryWebsite(entry: Entry): string {
-  return entry.urls.find((rule) => isLink(rule.value))?.value ?? ''
+  return getPrimaryUrlRule(entry.urls)?.value ?? ''
 }
 
 export class OtpImportReviewModel {
@@ -90,15 +92,15 @@ export class OtpImportReviewModel {
   readonly selectedEntryId = atom('', 'otpImport.selectedEntryId')
   readonly newTitle = atom('', 'otpImport.newTitle')
   readonly newUsername = atom('', 'otpImport.newUsername')
-  readonly newWebsite = atom('', 'otpImport.newWebsite')
+  readonly websiteEditor = new PMEntryWebsiteEditorModel()
   readonly duplicateResolution = atom<OtpImportDuplicateResolution>(null, 'otpImport.duplicateResolution')
   readonly targetError = atom('', 'otpImport.targetError')
   readonly titleError = atom('', 'otpImport.titleError')
-  readonly websiteError = atom('', 'otpImport.websiteError')
   readonly labelError = atom('', 'otpImport.labelError')
   readonly duplicateError = atom('', 'otpImport.duplicateError')
   readonly submitError = atom('', 'otpImport.submitError')
   readonly focusRequest = atom<OtpImportFocusRequest | null>(null, 'otpImport.focusRequest')
+  readonly isCommitting = atom(false, 'otpImport.isCommitting')
   private takeInFlight = false
   private connected = false
   private expiryTimer = 0
@@ -180,7 +182,10 @@ export class OtpImportReviewModel {
 
     const otp = this.otpDraft.getFormData()
     let savedEntry: Entry
+    let commitStarted = false
     try {
+      this.isCommitting.set(true)
+      commitStarted = true
       if (target.mode === 'existing') {
         savedEntry = target.entry
         const duplicate = this.duplicateOtp()
@@ -197,18 +202,12 @@ export class OtpImportReviewModel {
           }
         }
       } else {
-        const urls: UrlRule[] = this.newWebsite().trim()
-          ? transformUrls(this.newWebsite()).map((value) => ({
-              value: formatLink(value),
-              match: 'base_domain' as const,
-            }))
-          : []
         savedEntry = root.createEntry(
           {
             entryType: 'login',
             title: this.newTitle().trim(),
             username: this.newUsername().trim(),
-            urls,
+            urls: target.urls,
           },
           '',
           '',
@@ -217,15 +216,27 @@ export class OtpImportReviewModel {
         await wrap(savedEntry.flushPendingPersistence())
       }
 
-      root.setShowElement(savedEntry)
-      navigationModel.navigateToSurface('passwords')
-      await this.finish()
+      if (getPassmanagerRoot() === root) {
+        if (target.mode === 'new') {
+          passmanagerNavigationController.presentCreatedEntry(savedEntry)
+        } else {
+          root.setShowElement(savedEntry)
+        }
+      }
+      await wrap(this.finish())
+      this.isCommitting.set(false)
+      commitStarted = false
+      if (getPassmanagerRoot() === root) {
+        navigationModel.navigateToSurface('passwords')
+      }
       return true
     } catch (error) {
-      if (isAbort(error)) return false
+      if (isAbort(error) && !commitStarted) return false
       this.submitError.set(errorMessage(error) || passmanagerI18n('error:save'))
       this.requestFocus('alert')
       return false
+    } finally {
+      if (commitStarted) this.isCommitting.set(false)
     }
   }, 'otpImport.submit').extend(withAbort('first-in-win'), withAsync({status: true}))
 
@@ -265,6 +276,7 @@ export class OtpImportReviewModel {
     this.connected = false
     for (const unlisten of this.unlisteners) unlisten()
     this.unlisteners = []
+    if (this.isCommitting()) return
     void this.clearNativePending()
     this.reset()
   }
@@ -282,6 +294,7 @@ export class OtpImportReviewModel {
 
   receivePending(metadata: PendingOtpImportMetadata): void {
     if (!metadata.pending_id || !Number.isFinite(metadata.expires_at_ms)) return
+    if (this.isCommitting()) return
     this.submitAction.abort('OTP import replaced')
     this.clearSensitiveDraft()
     this.pending.set(metadata)
@@ -311,11 +324,6 @@ export class OtpImportReviewModel {
     this.newUsername.set(value)
   }
 
-  setNewWebsite(value: string): void {
-    this.newWebsite.set(value)
-    if (!value.trim() || this.validWebsite(value)) this.websiteError.set('')
-  }
-
   setOtpLabel(value: string): void {
     this.otpDraft.setLabel(value)
     this.labelError.set('')
@@ -333,9 +341,10 @@ export class OtpImportReviewModel {
     return this.submitAction()
   }
 
-  async cancel(): Promise<void> {
+  async cancel(): Promise<boolean> {
+    if (this.isCommitting()) return false
     await this.clearNativePending()
-    this.reset()
+    return this.reset()
   }
 
   private async maybeTake(): Promise<void> {
@@ -385,7 +394,7 @@ export class OtpImportReviewModel {
     void this.maybeTake()
   }
 
-  private validateTarget(): {mode: 'existing'; entry: Entry} | {mode: 'new'} | null {
+  private validateTarget(): {mode: 'existing'; entry: Entry} | {mode: 'new'; urls: UrlRule[]} | null {
     const mode = this.targetMode()
     if (!mode) {
       this.targetError.set(appI18n('otp-import:error-target'))
@@ -424,21 +433,16 @@ export class OtpImportReviewModel {
       this.requestFocus('title')
       return null
     }
-    if (this.newWebsite().trim() && !this.validWebsite(this.newWebsite())) {
-      this.websiteError.set(passmanagerI18n('error:valid_website_required'))
+    const websiteResult = this.websiteEditor.buildRules()
+    if (!websiteResult.ok) {
       this.requestFocus('website')
       return null
     }
-    return {mode}
+    return {mode, urls: websiteResult.rules}
   }
 
   private selectedEntry(): Entry | undefined {
     return getPassmanagerRoot()?.getEntry(this.selectedEntryId())
-  }
-
-  private validWebsite(value: string): boolean {
-    const urls = transformUrls(value)
-    return urls.length > 0 && urls.every((url) => isLink(url))
   }
 
   private requestFocus(field: OtpImportFocusField): void {
@@ -448,7 +452,6 @@ export class OtpImportReviewModel {
   private clearFormErrors(): void {
     this.targetError.set('')
     this.titleError.set('')
-    this.websiteError.set('')
     this.labelError.set('')
     this.duplicateError.set('')
     this.submitError.set('')
@@ -475,7 +478,7 @@ export class OtpImportReviewModel {
 
   private async finish(): Promise<void> {
     await this.clearNativePending()
-    this.reset(false)
+    this.resetState()
   }
 
   private clearSensitiveDraft(): void {
@@ -483,9 +486,15 @@ export class OtpImportReviewModel {
     this.parseMetadata.set(null)
   }
 
-  private reset(abortSubmit = true): void {
+  private reset(): boolean {
+    if (this.isCommitting()) return false
+    this.submitAction.abort('OTP import reset')
+    this.resetState()
+    return true
+  }
+
+  private resetState(): void {
     window.clearTimeout(this.expiryTimer)
-    if (abortSubmit) this.submitAction.abort('OTP import reset')
     this.clearSensitiveDraft()
     this.pending.set(null)
     this.phase.set('idle')
@@ -493,7 +502,7 @@ export class OtpImportReviewModel {
     this.selectedEntryId.set('')
     this.newTitle.set('')
     this.newUsername.set('')
-    this.newWebsite.set('')
+    this.websiteEditor.reset()
     this.duplicateResolution.set(null)
     this.focusRequest.set(null)
     this.clearFormErrors()

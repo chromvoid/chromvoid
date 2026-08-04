@@ -2,7 +2,8 @@ use objc2::AnyThread;
 use serde_json::Value;
 use tracing::error;
 
-pub const APP_GROUP_ID: &str = "group.com.chromvoid.app.shared.lhwc37d5kt";
+use crate::apple_shared_container::APP_GROUP_ID;
+
 pub const REQUEST_KEY: &str = "credential_provider.request";
 pub const RESPONSE_KEY: &str = "credential_provider.response";
 

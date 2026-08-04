@@ -11,7 +11,10 @@ import {dialogService} from 'root/shared/services/dialog'
 import {toast} from 'root/shared/services/toast-manager'
 
 import type {WelcomeSharedModel} from './welcome-shared.model'
-import {openWelcomeMasterRekeyDialog, type WelcomeMasterRekeyDialogResult} from './welcome-master-rekey-dialog'
+import {
+  openWelcomeMasterRekeyDialog,
+  type WelcomeMasterRekeyDialogResult,
+} from './welcome-master-rekey-dialog'
 
 type RpcOk<T> = {ok: true; result: T}
 type RpcErr = {ok: false; error: string; code?: string | null}
@@ -52,16 +55,6 @@ type MasterRekeyResult = {
 
 type DeviceUtilitiesSheetScreen = 'list' | 'backup' | 'restore' | 'master-password' | 'system' | 'erase'
 
-export type WelcomeDesktopUtilityStatusItem = {
-  label: string
-  value: string
-  state?: 'connected' | 'idle'
-}
-
-type WelcomeToolsModelOptions = {
-  desktopStatusItems?: () => WelcomeDesktopUtilityStatusItem[]
-}
-
 type DeviceUtilitiesFormState = {
   masterPassword: string
   currentPassword: string
@@ -100,7 +93,6 @@ export class WelcomeToolsModel {
   readonly supportsStorageRootSelection!: ReturnType<typeof computed<boolean>>
   readonly supportsMobileBackupRestore!: ReturnType<typeof computed<boolean>>
   readonly supportsAndroidSafBackupRestore!: ReturnType<typeof computed<boolean>>
-  readonly desktopStatusItems!: ReturnType<typeof computed<WelcomeDesktopUtilityStatusItem[]>>
   readonly backupProgress = atom<BackupProgressEvent | null>(null)
   readonly restoreProgress = atom<RestoreProgressEvent | null>(null)
   readonly masterRekeyInProgress = atom(false)
@@ -122,7 +114,7 @@ export class WelcomeToolsModel {
   private backupProgressUnlisten: UnlistenFn | null = null
   private restoreProgressUnlisten: UnlistenFn | null = null
 
-  constructor(shared: WelcomeSharedModel, options: WelcomeToolsModelOptions = {}) {
+  constructor(shared: WelcomeSharedModel) {
     this.shared = shared
     this.backupInProgress = computed<boolean>(() => this.shared.busy() && this.backupState().inProgress)
     this.backupCancelling = computed<boolean>(() => this.backupState().cancelling)
@@ -152,9 +144,6 @@ export class WelcomeToolsModel {
       () => isTauriRuntime() && getRuntimeCapabilities().supports_mobile_backup_restore,
     )
     this.supportsAndroidSafBackupRestore = this.supportsMobileBackupRestore
-    this.desktopStatusItems = computed<WelcomeDesktopUtilityStatusItem[]>(
-      () => options.desktopStatusItems?.() ?? [],
-    )
     this.deviceUtilitiesSubmitDisabled = computed<boolean>(() => {
       if (this.shared.busy() || this.masterRekeyInProgress()) return true
 
@@ -296,22 +285,24 @@ export class WelcomeToolsModel {
 
     const targetDir = this.supportsMobileBackupRestore()
       ? undefined
-      : await wrap(open(
-          {
+      : await wrap(
+          open({
             directory: true,
             multiple: false,
             title: i18n('welcome:backup-destination'),
             defaultPath: this.storePath() || undefined,
-          },
-        ))
+          }),
+        )
     if (!this.supportsMobileBackupRestore() && !targetDir) return
 
-    const pwd = await wrap(dialogService.showInputDialog({
-      title: i18n('backup:title'),
-      label: i18n('welcome:master-password'),
-      type: 'password',
-      required: true,
-    }))
+    const pwd = await wrap(
+      dialogService.showInputDialog({
+        title: i18n('backup:title'),
+        label: i18n('welcome:master-password'),
+        type: 'password',
+        required: true,
+      }),
+    )
     if (!pwd) return
 
     await this.createBackup(pwd, typeof targetDir === 'string' ? targetDir : undefined)
@@ -329,12 +320,14 @@ export class WelcomeToolsModel {
 
     const targetDir = this.supportsMobileBackupRestore()
       ? undefined
-      : await wrap(open({
-          directory: true,
-          multiple: false,
-          title: i18n('welcome:backup-destination'),
-          defaultPath: this.storePath() || undefined,
-        }))
+      : await wrap(
+          open({
+            directory: true,
+            multiple: false,
+            title: i18n('welcome:backup-destination'),
+            defaultPath: this.storePath() || undefined,
+          }),
+        )
     if (!this.supportsMobileBackupRestore() && !targetDir) return
 
     const ok = await this.createBackup(masterPassword, typeof targetDir === 'string' ? targetDir : undefined)
@@ -363,10 +356,15 @@ export class WelcomeToolsModel {
       }
 
       guidanceModel.emitDomainEvent('backup.created')
-      getAppContext().store.pushNotification('success', i18n('welcome:backup-created', {path: res.result.backup_dir}))
+      getAppContext().store.pushNotification(
+        'success',
+        i18n('welcome:backup-created', {path: res.result.backup_dir}),
+      )
       return true
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
+      toast.error(error instanceof Error ? error.message : String(error), undefined, {
+        key: 'welcome.backup.create',
+      })
       this.patchDeviceUtilitiesForm({error: error instanceof Error ? error.message : String(error)})
       return false
     } finally {
@@ -390,11 +388,15 @@ export class WelcomeToolsModel {
       )
       if (!isOk(res)) {
         this.backupState.set({...this.backupState(), cancelling: false})
-        toast.error(res.error || i18n('remote-storage:cancel-export-request-failed'))
+        toast.error(res.error || i18n('remote-storage:cancel-export-request-failed'), undefined, {
+          key: 'welcome.backup.cancel',
+        })
       }
     } catch (error) {
       this.backupState.set({...this.backupState(), cancelling: false})
-      toast.error(error instanceof Error ? error.message : String(error))
+      toast.error(error instanceof Error ? error.message : String(error), undefined, {
+        key: 'welcome.backup.cancel',
+      })
     }
   }
 
@@ -468,18 +470,24 @@ export class WelcomeToolsModel {
 
       if (!isOk(res)) {
         if (res.code === 'CANCELLED') {
-          toast.info(i18n('welcome:restore-cancelled'))
+          toast.info(i18n('welcome:restore-cancelled'), undefined, {
+            key: 'welcome.restore.result',
+          })
           return false
         } else {
           throw new Error(res.error)
         }
       } else {
         guidanceModel.emitDomainEvent('restore.started')
-        toast.success(i18n('onboard:restore:success'))
+        toast.success(i18n('onboard:restore:success'), undefined, {
+          key: 'welcome.restore.result',
+        })
         return true
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
+      toast.error(error instanceof Error ? error.message : String(error), undefined, {
+        key: 'welcome.restore.result',
+      })
       this.patchDeviceUtilitiesForm({error: error instanceof Error ? error.message : String(error)})
       return false
     } finally {
@@ -498,13 +506,15 @@ export class WelcomeToolsModel {
         )
         if (!isOk(res)) {
           if (res.code !== 'CANCELLED') {
-            toast.error(res.error)
+            toast.error(res.error, undefined, {key: 'welcome.restore.select'})
           }
           return undefined
         }
         return res.result.backup_path
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : String(error))
+        toast.error(error instanceof Error ? error.message : String(error), undefined, {
+          key: 'welcome.restore.select',
+        })
         return undefined
       }
     }
@@ -533,11 +543,15 @@ export class WelcomeToolsModel {
       )
       if (!isOk(res)) {
         this.restoreState.set({...this.restoreState(), cancelling: false})
-        toast.error(res.error || i18n('welcome:restore-cancel-request-failed'))
+        toast.error(res.error || i18n('welcome:restore-cancel-request-failed'), undefined, {
+          key: 'welcome.restore.cancel',
+        })
       }
     } catch (error) {
       this.restoreState.set({...this.restoreState(), cancelling: false})
-      toast.error(error instanceof Error ? error.message : String(error))
+      toast.error(error instanceof Error ? error.message : String(error), undefined, {
+        key: 'welcome.restore.cancel',
+      })
     }
   }
 
@@ -599,10 +613,14 @@ export class WelcomeToolsModel {
         }),
       )
       if (!isOk(res)) throw new Error(res.error)
-      toast.success(i18n('welcome:device-erased'))
+      toast.success(i18n('welcome:device-erased'), undefined, {
+        key: 'welcome.erase.result',
+      })
       return true
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error))
+      toast.error(error instanceof Error ? error.message : String(error), undefined, {
+        key: 'welcome.erase.result',
+      })
       this.patchDeviceUtilitiesForm({error: error instanceof Error ? error.message : String(error)})
       return false
     } finally {

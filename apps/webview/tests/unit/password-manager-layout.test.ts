@@ -6,10 +6,16 @@ import type {LayoutMode} from '../../src/app/layout/layout-mode'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
 import {atom} from '@reatom/core'
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
+import {i18n as appI18n} from '../../src/i18n'
 import {filterValue, selectedCredentialTagFilters} from '@project/passmanager/select'
 import {
+  PM_SIDEBAR_MAX_WIDTH,
+  PM_SIDEBAR_MIN_WIDTH,
+  PM_SIDEBAR_WIDTH_STEP,
+  PasswordManagerLayoutModel,
   PasswordManagerDesktopLayout,
   PasswordManagerMobileLayout,
+  passwordManagerDesktopLayoutModel,
 } from '../../src/features/passmanager/components/password-manager-layout'
 import {PMGroupMobile} from '../../src/features/passmanager/components/group/group'
 import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
@@ -75,6 +81,7 @@ describe('password-manager layout selection', () => {
     selectedCredentialTagFilters.set([])
     sortField.set('name')
     groupBy.set('none')
+    localStorage.removeItem('pm-sidebar-width')
     pmCredentialTagsModel.closeSheet()
     clearAppContext()
     pmModel.disposeSession()
@@ -333,11 +340,18 @@ describe('password-manager layout selection', () => {
       expect(bottomSheet).not.toBeNull()
       expect(bottomSheet!.open).toBe(true)
       expect(bottomSheet!.initialFocusId).toBe('pm-tag-done')
+      const picker = sheetShadowRoot!.querySelector(
+        'pm-mobile-tag-picker',
+      ) as (HTMLElement & {updateComplete: Promise<unknown>}) | null
+      expect(picker).not.toBeNull()
 
       pmCredentialTagsModel.openCreateTag()
       await settle(sheet!)
+      await settle(picker!)
       expect(bottomSheet!.initialFocusId).toBe('')
-      let swatches = Array.from(sheetShadowRoot!.querySelectorAll<HTMLButtonElement>('.color-swatch'))
+      const pickerShadowRoot = picker!.shadowRoot
+      expect(pickerShadowRoot).not.toBeNull()
+      let swatches = Array.from(pickerShadowRoot!.querySelectorAll<HTMLButtonElement>('.color-swatch'))
       expect(swatches).toHaveLength(7)
       expect(swatches.map((button) => button.dataset['colorId'])).toEqual([
         'violet',
@@ -352,21 +366,24 @@ describe('password-manager layout selection', () => {
       expect(swatches[0]?.getAttribute('aria-pressed')).toBe('true')
       swatches[3]?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
       expect(pmCredentialTagsModel.tagDraftColorId()).toBe('pink')
-      await settle(sheet!)
-      swatches = Array.from(sheetShadowRoot!.querySelectorAll<HTMLButtonElement>('.color-swatch'))
+      await settle(picker!)
+      swatches = Array.from(pickerShadowRoot!.querySelectorAll<HTMLButtonElement>('.color-swatch'))
       expect(swatches[3]?.getAttribute('aria-pressed')).toBe('true')
 
       pmCredentialTagsModel.openRenameTag('work')
       await settle(sheet!)
+      await settle(picker!)
       expect(bottomSheet!.initialFocusId).toBe('')
 
       pmCredentialTagsModel.openDeleteTag('work')
       await settle(sheet!)
+      await settle(picker!)
       expect(bottomSheet!.initialFocusId).toBe('pm-tag-delete-cancel')
     })
 
     it('renders mobile Credentials header controls without the legacy sort trigger', async () => {
       const fixture = createRootFixture(['Work'])
+      fixture.root.credentialTagMeta.set({work: {colorId: 'orange'}})
       fixture.root.showElement.set(fixture.root as never)
       setPassmanagerRoot(fixture.root)
       PasswordManagerMobileLayout.define()
@@ -423,6 +440,11 @@ describe('password-manager layout selection', () => {
           chip.getAttribute('value'),
         ),
       ).toEqual([pmCredentialTagsModel.allFilterChipValue(), 'work'])
+      expect(
+        Array.from(header!.shadowRoot?.querySelectorAll('cv-chip.workspace-filter-chip') ?? []).map((chip) =>
+          chip.getAttribute('data-tag-color-id'),
+        ),
+      ).toEqual([null, 'orange'])
       expect(countActionElements).toHaveLength(0)
       expect(summary?.getAttribute('aria-label')).toContain('1 group')
       expect(summary?.getAttribute('aria-label')).toContain('1 entry')
@@ -511,6 +533,67 @@ describe('password-manager layout selection', () => {
   })
 
   describe('desktop sidebar scroll edge', () => {
+    it('normalizes a legacy saved width once and separates resize preview from commit', () => {
+      localStorage.setItem('pm-sidebar-width', '500')
+      const setItem = vi.spyOn(globalThis.localStorage, 'setItem')
+      const model = new PasswordManagerLayoutModel()
+
+      model.initializeSidebarWidth()
+
+      expect(model.sidebarWidth()).toBe(PM_SIDEBAR_MAX_WIDTH)
+      expect(setItem).toHaveBeenCalledTimes(1)
+      expect(setItem).toHaveBeenLastCalledWith('pm-sidebar-width', String(PM_SIDEBAR_MAX_WIDTH))
+
+      model.initializeSidebarWidth()
+      expect(setItem).toHaveBeenCalledTimes(1)
+
+      model.previewSidebarWidth(PM_SIDEBAR_MIN_WIDTH + PM_SIDEBAR_WIDTH_STEP)
+      expect(model.sidebarWidth()).toBe(PM_SIDEBAR_MIN_WIDTH + PM_SIDEBAR_WIDTH_STEP)
+      expect(localStorage.getItem('pm-sidebar-width')).toBe(String(PM_SIDEBAR_MAX_WIDTH))
+      expect(setItem).toHaveBeenCalledTimes(1)
+
+      model.commitSidebarWidth(PM_SIDEBAR_MIN_WIDTH)
+      expect(model.sidebarWidth()).toBe(PM_SIDEBAR_MIN_WIDTH)
+      expect(localStorage.getItem('pm-sidebar-width')).toBe(String(PM_SIDEBAR_MIN_WIDTH))
+      expect(setItem).toHaveBeenCalledTimes(2)
+    })
+
+    it('renders a pixel splitter with a labeled Groups sidebar and a single create action', async () => {
+      const root = new ManagerRoot({} as any)
+      root.entries.set([])
+      root.showElement.set(root)
+      setPassmanagerRoot(root)
+      PasswordManagerDesktopLayout.define()
+      const createGroup = vi
+        .spyOn(passwordManagerDesktopLayoutModel, 'createTopLevelGroup')
+        .mockImplementation(() => {})
+
+      const element = document.createElement(
+        'password-manager-desktop-layout',
+      ) as PasswordManagerDesktopLayout
+      document.body.appendChild(element)
+      await settle(element)
+
+      const splitter = element.shadowRoot?.querySelector('cv-window-splitter')
+      const sidebar = splitter?.querySelector('aside[slot="primary"].sidebar')
+      const heading = sidebar?.querySelector('.sidebar-title')
+      const createButton = sidebar?.querySelector('cv-button.sidebar-create-group') as HTMLElement | null
+
+      expect(splitter?.getAttribute('position-unit')).toBe('px')
+      expect(splitter?.getAttribute('aria-label')).toBe('Resize groups sidebar')
+      expect((splitter as unknown as {min?: number})?.min).toBe(PM_SIDEBAR_MIN_WIDTH)
+      expect((splitter as unknown as {max?: number})?.max).toBe(PM_SIDEBAR_MAX_WIDTH)
+      expect((splitter as unknown as {step?: number})?.step).toBe(PM_SIDEBAR_WIDTH_STEP)
+      expect(sidebar).not.toBeNull()
+      expect(heading?.textContent?.trim()).toBe('Groups')
+      expect(createButton?.getAttribute('aria-label')).toBe('Create group')
+      expect(createButton?.getAttribute('title')).toBe('Create group')
+      expect(sidebar?.querySelectorAll('cv-button.sidebar-create-group')).toHaveLength(1)
+
+      createButton?.click()
+      expect(createGroup).toHaveBeenCalledTimes(1)
+    })
+
     it('toggles the group tree bottom edge when the sidebar tree reaches the end', async () => {
       mockGroupTreeMetrics({clientHeight: 320, scrollHeight: 960})
       const root = new ManagerRoot({} as any)
@@ -583,6 +666,11 @@ describe('password-manager layout selection', () => {
       await element.updateComplete
 
       expect(element.shadowRoot?.querySelectorAll('.pm-content')).toHaveLength(1)
+      const roots = element.shadowRoot?.querySelectorAll('#app\\.passwords\\.root')
+      const rootGroup = roots?.item(0)
+      expect(roots).toHaveLength(1)
+      expect(rootGroup?.getAttribute('role')).toBe('group')
+      expect(rootGroup?.getAttribute('aria-label')).toBe(appI18n('password-manager'))
     })
 
   })

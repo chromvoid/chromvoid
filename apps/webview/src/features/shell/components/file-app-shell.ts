@@ -38,6 +38,7 @@ export class FileAppShell extends ReatomLitElement {
       dualPane: {type: Boolean, reflect: true, attribute: 'data-dual-pane'},
       edgeBackDisabled: {type: Boolean, reflect: true, attribute: 'data-edge-back-disabled'},
       contentScrollMode: {type: String, attribute: 'content-scroll-mode'},
+      hideMobileTabBar: {type: Boolean, attribute: 'hide-mobile-tab-bar'},
     }
   }
 
@@ -47,6 +48,7 @@ export class FileAppShell extends ReatomLitElement {
   declare dualPane: boolean
   declare edgeBackDisabled: boolean
   declare contentScrollMode: MobileShellContentScrollMode
+  declare hideMobileTabBar: boolean
 
   static styles = [
     css`
@@ -71,6 +73,7 @@ export class FileAppShell extends ReatomLitElement {
     this.dualPane = false
     this.edgeBackDisabled = false
     this.contentScrollMode = 'shell'
+    this.hideMobileTabBar = false
   }
 
   protected render() {
@@ -86,6 +89,7 @@ export class FileAppShell extends ReatomLitElement {
           .dualPane=${this.dualPane}
           .edgeBackDisabled=${this.edgeBackDisabled}
           .contentScrollMode=${this.contentScrollMode}
+          .hideTabBar=${this.hideMobileTabBar}
         >
           <slot name="mobile-topbar" slot="mobile-topbar"></slot>
           <slot></slot>

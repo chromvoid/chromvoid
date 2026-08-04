@@ -34,7 +34,7 @@ export class PMGroupCreateDesktop extends PMGroupCreateBase {
     const contextItems = this.model.getContextItems()
 
     return html`
-      <form @submit=${this.onSubmit}>
+      <form novalidate @submit=${this.onSubmit}>
         <section class="panel">
           <pm-workspace-header
             .hasContextBand=${contextItems.length > 0}

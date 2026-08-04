@@ -157,6 +157,46 @@ describe('PMEntryCreateMobile navigation guard', () => {
     expect(transientBack?.()).toBe(false)
   })
 
+  it('consumes Back from advanced OTP settings through each parent before closing the sheet', async () => {
+    const component = document.createElement('pm-entry-create-mobile') as PMEntryCreateMobile
+    document.body.append(component)
+    await settle(component)
+    const model = (
+      component as PMEntryCreateMobile & {
+        model: {
+          detailsSheetOpen(): boolean
+          detailsSheetView(): 'hub' | 'otp'
+          otp: {
+            view(): 'main' | 'advanced'
+            actions: {openAdvanced(): void}
+          }
+          openDetailsSheet(): void
+          openDetailsEditor(detail: 'otp'): void
+        }
+      }
+    ).model
+
+    model.openDetailsSheet()
+    model.openDetailsEditor('otp')
+    model.otp.actions.openAdvanced()
+    expect(model.detailsSheetOpen()).toBe(true)
+    expect(model.detailsSheetView()).toBe('otp')
+    expect(model.otp.view()).toBe('advanced')
+
+    expect(transientBack?.()).toBe(true)
+    expect(model.detailsSheetOpen()).toBe(true)
+    expect(model.detailsSheetView()).toBe('otp')
+    expect(model.otp.view()).toBe('main')
+
+    expect(transientBack?.()).toBe(true)
+    expect(model.detailsSheetOpen()).toBe(true)
+    expect(model.detailsSheetView()).toBe('hub')
+
+    expect(transientBack?.()).toBe(true)
+    expect(model.detailsSheetOpen()).toBe(false)
+    expect(transientBack?.()).toBe(false)
+  })
+
   it('unregisters both navigation hooks on unmount', async () => {
     const component = document.createElement('pm-entry-create-mobile') as PMEntryCreateMobile
     document.body.append(component)

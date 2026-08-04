@@ -51,6 +51,7 @@ describe('guidance runtime contracts', () => {
       'supports_volume',
       'supports_gateway',
       'supports_network_remote',
+      'supports_external_pro',
       'supports_mobile_usb_remote',
       'supports_biometric',
       'supports_autofill',

@@ -801,9 +801,9 @@ class PMEntryMoveModel {
 
   private showToast(message: string, variant: ToastVariant, actions: ToastAction[] = []): void {
     toast.show({
+      key: 'passmanager.move.result',
       message,
       variant,
-      duration: 8000,
       persistent: false,
       closable: true,
       actions,

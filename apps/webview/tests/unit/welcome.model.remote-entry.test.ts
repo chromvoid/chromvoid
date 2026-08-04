@@ -37,6 +37,7 @@ describe('WelcomeSetupModel remote entry', () => {
 
     tauriInvoke.mockImplementation(async (command: string) => {
       if (command === 'network_list_paired_peers') return []
+      if (command === 'mobile_usb_detect') return []
       if (command === 'mode_status') {
         return {
           mode: 'local',
@@ -58,6 +59,7 @@ describe('WelcomeSetupModel remote entry', () => {
     setRuntimeCapabilities({
       desktop: true,
       supports_network_remote: true,
+      supports_mobile_usb_remote: true,
     })
 
     const stateData = {
@@ -81,11 +83,22 @@ describe('WelcomeSetupModel remote entry', () => {
 
     const mod = await import('../../src/routes/welcome/welcome.model')
     const model = new mod.WelcomeSetupModel()
-    model.onSelectRemoteMode()
+    model.connect()
     await Promise.resolve()
+
+    expect(tauriInvoke).not.toHaveBeenCalledWith('mobile_usb_detect')
+
+    model.onSelectRemoteMode()
+    await vi.waitFor(() => expect(tauriInvoke).toHaveBeenCalledWith('mobile_usb_detect'))
+    model.remote.activateDesktopInventory()
 
     expect(model.effectiveStep()).toBe('remote-connect')
     expect(pushNotification).not.toHaveBeenCalled()
+    expect(tauriInvoke.mock.calls.filter(([command]) => command === 'mobile_usb_detect')).toHaveLength(1)
+
+    model.onBackToModeSelect()
+    expect(model.remote.usb.detectedDevices()).toEqual([])
+    model.disconnect()
   })
 
   it('keeps the old mobile behavior', async () => {

@@ -384,7 +384,7 @@ describe('PMGroup mobile row state', () => {
     )
 
     expect(deleteSpy).toHaveBeenCalledTimes(1)
-    expect(deleteSpy).toHaveBeenCalledWith(entry)
+    expect(deleteSpy).toHaveBeenCalledWith(entry, parent, undefined)
     expect(openItemSpy).not.toHaveBeenCalled()
   })
 
@@ -418,7 +418,7 @@ describe('PMGroup mobile row state', () => {
     const targetRowAfter = getEntryHost(element, entry.id)?.shadowRoot?.querySelector('.list-item') as HTMLElement | null
 
     expect(deleteSpy).toHaveBeenCalledTimes(1)
-    expect(deleteSpy).toHaveBeenCalledWith(entry)
+    expect(deleteSpy).toHaveBeenCalledWith(entry, parent, first.id)
     expect(openItemSpy).not.toHaveBeenCalled()
     expect(firstRowAfter?.classList.contains('active-row')).toBe(true)
     expect(targetRowAfter?.classList.contains('active-row')).toBe(false)

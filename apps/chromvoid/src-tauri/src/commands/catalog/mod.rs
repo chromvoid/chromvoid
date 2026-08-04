@@ -20,7 +20,9 @@ pub(crate) use download::purge_catalog_preview_cache;
 pub(crate) use download::purge_catalog_preview_cache_for_app;
 pub(crate) use download::release_catalog_preview_file;
 pub(crate) use download::{
-    handle_prepared_preview_protocol_request, PreparedPreviewRuntimeState, PREPARED_PREVIEW_SCHEME,
+    handle_prepared_preview_protocol_request, HostDerivativeEnsureRequest,
+    HostDerivativeEnsureServices, ImageDerivativeCancellation, PreparedPreviewRuntimeState,
+    PREPARED_PREVIEW_SCHEME,
 };
 #[cfg(desktop)]
 pub(crate) use file_ops::file_stat;

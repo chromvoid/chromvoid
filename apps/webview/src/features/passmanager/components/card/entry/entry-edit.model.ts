@@ -6,7 +6,6 @@ import {formatPasswordStrengthLabel} from '@project/passmanager/i18n/format'
 import {estimatePasswordStrength, generatePasswordWithOptions} from '@project/passmanager/password-utils'
 import {normalizeCredentialTags} from '@project/passmanager/tags'
 import type {UrlRule} from '@project/passmanager/types'
-import {transformUrls, URLValidator} from '@project/passmanager/urls'
 import {pmEntryEditorModel, type PMEntryEditorSurface} from '../../../models/pm-entry-editor.model'
 import {pmCredentialTagsModel} from '../../../models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from '../../../models/pm-root.adapter'
@@ -15,6 +14,7 @@ import {
   parsePaymentCardExpYearInput,
 } from '../payment-card-expiry'
 import {PMEntryOtpCreateModel} from '../entry-otp-create/entry-otp-create.model'
+import {PMEntryWebsiteEditorModel} from '../entry-website-editor'
 import type {PMEntryRenderData} from './entry.model'
 import {PMEntryModel} from './entry.model'
 
@@ -99,7 +99,6 @@ export class PMEntryEditModel extends PMEntryModel {
   private static readonly ENTRY_EDIT_TAP_MAX_MS = 260
   private static readonly ENTRY_EDIT_TAP_MOVE_GUARD = 12
 
-  private readonly urlValidator = new URLValidator({defaultMatch: 'base_domain'})
   private requestedSurface: PMEntryEditorSurface | null = null
   private requestedSurfaceEntryId: string | null = null
   private tagEditParentSurface: {
@@ -110,7 +109,6 @@ export class PMEntryEditModel extends PMEntryModel {
   private entryEditDraftEntryId: string | undefined
   private entryEditTitleBaseline = ''
   private entryEditUsernameBaseline = ''
-  private entryEditWebsiteBaseline = ''
   private entryEditIconRefBaseline: string | undefined
   private entryEditPasswordBaseline: string | undefined
   private entryEditNoteBaseline: string | undefined
@@ -151,7 +149,7 @@ export class PMEntryEditModel extends PMEntryModel {
   readonly inlinePasswordGenUppercase = atom(true, 'passmanager.entryMobile.inlinePasswordGenUppercase')
   readonly inlinePasswordGenDigits = atom(true, 'passmanager.entryMobile.inlinePasswordGenDigits')
   readonly inlinePasswordGenSymbols = atom(false, 'passmanager.entryMobile.inlinePasswordGenSymbols')
-  readonly inlineWebsite = atom('', 'passmanager.entryMobile.inlineWebsite')
+  readonly websiteEditor = new PMEntryWebsiteEditorModel({onChange: () => this.publishEntryEditDirty()})
   readonly inlineIconRef = atom<string | undefined>(undefined, 'passmanager.entryMobile.inlineIconRef')
   readonly inlineError = atom('', 'passmanager.entryMobile.inlineError')
   readonly inlineSaving = atom(false, 'passmanager.entryMobile.inlineSaving')
@@ -735,7 +733,6 @@ export class PMEntryEditModel extends PMEntryModel {
         return
       }
       case 'website':
-        this.inlineWebsite.set(entry.urls.map((item) => item.value).join(', '))
         this.publishEntryEditDirty()
         return
     }
@@ -996,7 +993,7 @@ export class PMEntryEditModel extends PMEntryModel {
     this.inlineTitle.set('')
     this.inlineUsername.set('')
     this.inlinePassword.set('')
-    this.inlineWebsite.set('')
+    this.websiteEditor.reset()
     this.noteDraft.set('')
     this.resetPaymentCardDraftState()
     this.tagDraft.set([])
@@ -1026,7 +1023,7 @@ export class PMEntryEditModel extends PMEntryModel {
         this.updateInlinePasswordStrength(value)
         break
       case 'website':
-        this.inlineWebsite.set(value)
+        this.websiteEditor.setFirstValue(value)
         break
     }
 
@@ -1174,7 +1171,7 @@ export class PMEntryEditModel extends PMEntryModel {
             this.inlineSaving.set(false)
             return false
           }
-          const nextUrls = this.resolveNextUrls(entry)
+          const nextUrls = this.resolveNextUrls()
           if (!nextUrls) {
             this.inlineSaving.set(false)
             return false
@@ -1190,7 +1187,7 @@ export class PMEntryEditModel extends PMEntryModel {
               undefined,
             ),
           )
-          this.entryEditWebsiteBaseline = this.inlineWebsite()
+          this.websiteEditor.reset(nextUrls)
           break
         }
       }
@@ -1216,7 +1213,7 @@ export class PMEntryEditModel extends PMEntryModel {
       return false
     }
 
-    const nextUrls = this.resolveNextUrls(entry)
+    const nextUrls = this.resolveNextUrls()
     if (!nextUrls) {
       return false
     }
@@ -1254,7 +1251,7 @@ export class PMEntryEditModel extends PMEntryModel {
       })
       this.entryEditTitleBaseline = this.inlineTitle()
       this.entryEditUsernameBaseline = this.inlineUsername()
-      this.entryEditWebsiteBaseline = this.inlineWebsite()
+      this.websiteEditor.reset(nextUrls)
       this.entryEditIconRefBaseline = this.inlineIconRef()
       if (nextPassword !== undefined) {
         this.entryEditPasswordBaseline = nextPassword
@@ -1290,8 +1287,7 @@ export class PMEntryEditModel extends PMEntryModel {
     this.inlinePassword.set(passwordDraft)
     this.updateInlinePasswordStrength(this.inlinePassword())
     this.inlinePasswordGeneratorOpen.set(false)
-    this.entryEditWebsiteBaseline = entry.urls.map((item) => item.value).join(', ')
-    this.inlineWebsite.set(this.entryEditWebsiteBaseline)
+    this.websiteEditor.reset(entry.urls)
     this.entryEditIconRefBaseline = entry.iconRef
     this.inlineIconRef.set(entry.iconRef)
     this.entryEditOtpLabelBaselines = Object.fromEntries(entry.otps().map((otp) => [otp.id, otp.label ?? '']))
@@ -1317,7 +1313,6 @@ export class PMEntryEditModel extends PMEntryModel {
   private resetEntryEditSecretTracking(): void {
     this.entryEditTitleBaseline = ''
     this.entryEditUsernameBaseline = ''
-    this.entryEditWebsiteBaseline = ''
     this.entryEditIconRefBaseline = undefined
     this.entryEditPasswordBaseline = undefined
     this.entryEditNoteBaseline = undefined
@@ -1350,7 +1345,7 @@ export class PMEntryEditModel extends PMEntryModel {
     return (
       this.inlineTitle() !== this.entryEditTitleBaseline ||
       this.inlineUsername() !== this.entryEditUsernameBaseline ||
-      this.normalizeUrlsText(this.inlineWebsite()) !== this.normalizeUrlsText(this.entryEditWebsiteBaseline) ||
+      this.websiteEditor.dirty() ||
       (this.inlineIconRef() ?? '') !== (this.entryEditIconRefBaseline ?? '') ||
       this.entryEditPasswordDirty ||
       this.entryEditNoteDirty ||
@@ -1436,30 +1431,9 @@ export class PMEntryEditModel extends PMEntryModel {
     return pmEntryEditorModel.activeSurface() === surface
   }
 
-  private resolveNextUrls(entry: Entry): UrlRule[] | null {
-    const inlineWebsite = this.inlineWebsite()
-    const normalizedCurrent = this.normalizeUrlsText(entry.urls.map((item) => item.value).join(', '))
-    const normalizedNext = this.normalizeUrlsText(inlineWebsite)
-
-    if (normalizedCurrent === normalizedNext) {
-      return [...entry.data().urls]
-    }
-
-    const result = this.urlValidator.validate(transformUrls(inlineWebsite))
-    const invalid = result.errors[0]?.value
-    if (invalid) {
-      this.inlineError.set(i18n('error:invalid_url_rule', {invalid}))
-      return null
-    }
-
-    return result.rules
-  }
-
-  private normalizeUrlsText(value: string): string {
-    return transformUrls(value)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .join(',')
+  private resolveNextUrls(): UrlRule[] | null {
+    const result = this.websiteEditor.buildRules({allowUnchangedLegacy: true})
+    return result.ok ? result.rules : null
   }
 
   private updateInlinePasswordStrength(value: string): void {

@@ -1,4 +1,5 @@
 import {expect, test} from 'vitest'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 
 import {waitForAuthenticated} from './utils'
 
@@ -33,8 +34,12 @@ test('S10: Uploading a file via input', async () => {
 
   const fileName = `sample-${Date.now()}.txt`
 
-  await page.evaluate(() => {
-    const ctx = (window as any).getAppContext?.()
+  await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const ctx = getAppContext()
     const store = ctx?.store
     if (!store?.startUploadFiles || !store?.setCurrentPath) {
       throw new Error('upload store contract is unavailable')

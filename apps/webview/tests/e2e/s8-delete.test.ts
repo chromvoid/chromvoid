@@ -1,7 +1,8 @@
 import type {Page} from 'playwright'
 import {expect, test} from 'vitest'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 
-import {createUniqueName, openFilesRoot} from './utils'
+import {createUniqueName, openFilesRoot, waitForCatalogItem} from './utils'
 
 declare global {
   var __E2E_PAGE__: Page | undefined
@@ -12,41 +13,30 @@ test('S8: delete folder', async () => {
   await openFilesRoot(page)
   const folderName = createUniqueName('test-sync-folder')
 
-  const result = await page.evaluate(async (name) => {
-    const ctx = (window as any).getAppContext?.()
+  const created = await page.evaluate(async (name) => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const ctx = getAppContext()
     if (!ctx?.catalog?.api?.createDir) {
       throw new Error('catalog.api.createDir is unavailable')
     }
-    if (!ctx?.catalog?.api?.delete) {
+    return ctx.catalog.api.createDir(name)
+  }, folderName)
+  expect(created.nodeId).toEqual(expect.any(Number))
+  await waitForCatalogItem(page, folderName, {path: '/'})
+
+  await page.evaluate(async (nodeId) => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const ctx = getAppContext()
+    if (!ctx.catalog.api.delete) {
       throw new Error('catalog.api.delete is unavailable')
     }
-
-    const created = await ctx.catalog.api.createDir(name)
-    const childrenAfterCreate = ctx.catalog.catalog.getChildren('/')
-    const createdVisible = Array.isArray(childrenAfterCreate)
-      ? childrenAfterCreate.some((node: {name?: string}) => node?.name === name)
-      : false
-
-    if (!created?.nodeId) {
-      return {nodeId: null, createdVisible, deletedVisible: false}
-    }
-
-    await ctx.catalog.api.delete(created.nodeId)
-    const childrenAfterDelete = ctx.catalog.catalog.getChildren('/')
-    const deletedVisible = Array.isArray(childrenAfterDelete)
-      ? !childrenAfterDelete.some((node: {name?: string}) => node?.name === name)
-      : false
-
-    return {
-      nodeId: created.nodeId,
-      createdVisible,
-      deletedVisible,
-    }
-  }, folderName)
-
-  expect(result).toEqual({
-    nodeId: expect.any(Number),
-    createdVisible: true,
-    deletedVisible: true,
-  })
+    await ctx.catalog.api.delete(nodeId)
+  }, created.nodeId)
+  await waitForCatalogItem(page, folderName, {exists: false, path: '/'})
 })

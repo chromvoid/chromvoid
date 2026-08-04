@@ -70,8 +70,7 @@ impl MobileUsbController {
         let devices = candidates
             .into_iter()
             .filter_map(|candidate| {
-                let paired_match =
-                    match_detected_device(&candidate, &records, self.secrets.as_ref());
+                let paired_match = match_detected_device(&candidate, &records);
                 // Unmatched non-accessory devices are generic USB noise (hubs,
                 // keyboards); only accessory-mode devices and paired matches are
                 // meaningful to surface.
@@ -97,19 +96,18 @@ impl MobileUsbController {
 fn match_detected_device(
     candidate: &MobileUsbDetectCandidate,
     records: &[MobileUsbPairedHostRecord],
-    secrets: &dyn MobileUsbSecretStore,
 ) -> Option<MobileUsbDetectedPairedMatch> {
-    // Accessory-mode devices expose the same hint a scan would produce, so the
-    // exact scan classification applies directly.
+    // Passive inventory is intentionally record-only. Loading the private key
+    // here can block page entry behind an operating-system credential prompt.
+    // Explicit scan/list/connect operations remain responsible for proving
+    // that the referenced secret exists.
     if candidate.accessory_mode {
-        match classify_scan_result(&candidate.scan, records, secrets) {
-            MobileUsbScanClassification::Paired { host_id } => {
-                return detected_match_for_host(records, &host_id, true);
-            }
-            MobileUsbScanClassification::BrokenLocalState { host_id } => {
-                return detected_match_for_host(records, &host_id, false);
-            }
-            MobileUsbScanClassification::Unpaired | MobileUsbScanClassification::Ambiguous => {}
+        let matches = records
+            .iter()
+            .filter(|record| record.matches_scan_result(&candidate.scan))
+            .collect::<Vec<_>>();
+        if let [record] = matches.as_slice() {
+            return Some(detected_match_for_record(record));
         }
     }
 
@@ -119,32 +117,21 @@ fn match_detected_device(
         .filter(|record| record.matches_detect_serial(&candidate.scan))
         .collect();
     match matches.as_slice() {
-        [record] => {
-            let connectable = record.is_connectable_pairing()
-                && secrets.load_client_key(&record.client_key_ref).is_ok();
-            Some(MobileUsbDetectedPairedMatch {
-                host_id: record.host_id.clone(),
-                label: record.label.clone(),
-                connectable,
-            })
-        }
+        [record] => Some(detected_match_for_record(record)),
         _ => None,
     }
 }
 
-fn detected_match_for_host(
-    records: &[MobileUsbPairedHostRecord],
-    host_id: &HostId,
-    connectable: bool,
-) -> Option<MobileUsbDetectedPairedMatch> {
-    records
-        .iter()
-        .find(|record| record.host_id == *host_id)
-        .map(|record| MobileUsbDetectedPairedMatch {
-            host_id: record.host_id.clone(),
-            label: record.label.clone(),
-            connectable,
-        })
+fn detected_match_for_record(record: &MobileUsbPairedHostRecord) -> MobileUsbDetectedPairedMatch {
+    MobileUsbDetectedPairedMatch {
+        host_id: record.host_id.clone(),
+        label: record.label.clone(),
+        pairing_state: if record.is_connectable_pairing() {
+            MobileUsbDetectedPairingState::Confirmed
+        } else {
+            MobileUsbDetectedPairingState::Incomplete
+        },
+    }
 }
 
 pub(super) fn active_host_id_from_status_result(

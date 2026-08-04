@@ -46,6 +46,14 @@ pub struct PassmanagerSecurityAuditGetResult {
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct PassmanagerSecurityAuditSetResult {}
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct PassmanagerGroupSummary {
+    pub path: String,
+    pub entry_count: usize,
+}
+
 /// Response for each command (discriminated union)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
@@ -361,6 +369,9 @@ pub enum RpcCommandResult {
     #[serde(rename = "passkeys:delete")]
     PasskeysDelete(VaultPasskeyDeleteResponse),
 
+    #[serde(rename = "passmanager:entry:create")]
+    PassmanagerEntryCreate { entry_id: String },
+
     #[serde(rename = "passmanager:entry:save")]
     PassmanagerEntrySave { entry_id: String },
 
@@ -416,7 +427,9 @@ pub enum RpcCommandResult {
     PassmanagerGroupSetMeta {},
 
     #[serde(rename = "passmanager:group:list")]
-    PassmanagerGroupList { groups: Value },
+    PassmanagerGroupList {
+        groups: Vec<PassmanagerGroupSummary>,
+    },
 
     #[serde(rename = "passmanager:group:delete")]
     PassmanagerGroupDelete {},

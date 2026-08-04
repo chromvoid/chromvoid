@@ -527,11 +527,6 @@ export const pmGroupCreateMobileStyles = css`
     --cv-button-color: var(--cv-color-on-primary);
   }
 
-  :host-context(html[data-mobile-keyboard-expanded]) .submit-bar,
-  :host-context(html[data-visual-viewport-shrunken]) .submit-bar {
-    margin-block-end: calc(var(--app-runtime-visual-viewport-inset-block-end, 0px) + var(--cv-space-1));
-  }
-
   @supports (-webkit-touch-callout: none) {
     cv-input::part(input),
     cv-textarea::part(textarea) {

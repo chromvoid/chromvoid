@@ -248,16 +248,17 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     expect(ok).toBe(true)
 
     const ensureCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:group:ensure')
-    expect(ensureCalls.length).toBeGreaterThanOrEqual(1)
+    expect(ensureCalls).toHaveLength(0)
 
     const saveCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:entry:save')
-    expect(saveCalls.length).toBeGreaterThanOrEqual(1)
+    expect(saveCalls).toHaveLength(1)
     const lastSavePayload = saveCalls[saveCalls.length - 1]?.[1] as Record<string, unknown>
+    expect(lastSavePayload['group_path']).toBe('Common')
     expect(lastSavePayload['icon_ref']).toBe(iconRef)
   })
 
   it('saveEntryMeta sends login metadata with OTP through one domain entry:save command', async () => {
-    const urls = [{match: 'domain' as const, value: 'https://example.com'}]
+    const urls = [{match: 'base_domain' as const, value: 'https://example.com'}]
     const otps = [
       {
         id: 'otp-1',
@@ -766,7 +767,7 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     expect(ok2).toBe(true)
   })
 
-  it('concurrent saveEntryMeta with same groupPath calls ensureGroup', async () => {
+  it('concurrent saveEntryMeta relies on each atomic entry save to ensure its group', async () => {
     const payload = {
       id: 'entry-3',
       title: 'Dedup entry',
@@ -782,7 +783,9 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
     expect(ok2).toBe(true)
 
     const ensureCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:group:ensure')
-    expect(ensureCalls.length).toBeGreaterThanOrEqual(1)
+    expect(ensureCalls).toHaveLength(0)
+    const saveCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:entry:save')
+    expect(saveCalls).toHaveLength(2)
   })
 
   it('readRoot calls domain root:export and returns normalized result', async () => {
@@ -794,5 +797,67 @@ describe('CatalogPasswordsRepository SAVE_KEY v2', () => {
 
     const exportCalls = ctx.sendCatalog.mock.calls.filter((call) => call[0] === 'passmanager:root:export')
     expect(exportCalls).toHaveLength(1)
+  })
+
+  it('normalizes legacy string group summaries from older hosts', async () => {
+    ctx = createRepo({
+      sendCatalogOverride: async (cmd: string) => {
+        if (cmd === 'passmanager:root:export') {
+          return {ok: true, result: {root: {version: 4, entries: [], folders: []}}}
+        }
+        if (cmd === 'passmanager:group:list') {
+          return {ok: true, result: {groups: ['/Legacy', '/Legacy/Nested']}}
+        }
+        return {ok: true, result: undefined}
+      },
+    })
+
+    const result = await ctx.repo.readRoot<{folders: string[]}>()
+
+    expect(result?.folders).toEqual(['Legacy', 'Legacy/Nested'])
+  })
+
+  it('reads canonical group summary objects', async () => {
+    ctx = createRepo({
+      sendCatalogOverride: async (cmd: string) => {
+        if (cmd === 'passmanager:root:export') {
+          return {ok: true, result: {root: {version: 4, entries: [], folders: []}}}
+        }
+        if (cmd === 'passmanager:group:list') {
+          return {
+            ok: true,
+            result: {groups: [{path: '/Canonical', entry_count: 2}]},
+          }
+        }
+        return {ok: true, result: undefined}
+      },
+    })
+
+    const result = await ctx.repo.readRoot<{folders: string[]}>()
+
+    expect(result?.folders).toEqual(['Canonical'])
+  })
+
+  it('deletes a group through the point mutation and queues one catalog refresh', async () => {
+    await expect(ctx.repo.removeGroup('Work/Archive')).resolves.toBeUndefined()
+
+    expect(ctx.sendCatalog).toHaveBeenCalledWith('passmanager:group:delete', {
+      path: 'Work/Archive',
+    })
+    expect(ctx.catalog.queueRefresh).toHaveBeenCalledWith(150)
+  })
+
+  it('rethrows group delete transport errors without queueing a refresh', async () => {
+    ctx = createRepo({
+      sendCatalogOverride: async (cmd: string) =>
+        cmd === 'passmanager:group:delete'
+          ? {ok: false, error: 'offline'}
+          : {ok: true, result: undefined},
+    })
+
+    await expect(ctx.repo.removeGroup('Work')).rejects.toThrow('offline')
+
+    expect(ctx.catalog.queueRefresh).not.toHaveBeenCalled()
+    expect(ctx.catalog.lastError.set).toHaveBeenCalled()
   })
 })

@@ -117,3 +117,9 @@ fn core_capabilities_include_fuse_audit_contracts() {
     assert!(features.contains(&CORE_FEATURE_CATALOG_PATCH_V1.to_string()));
     assert!(features.contains(&CORE_FEATURE_CATALOG_LIST_SOURCE_REVISION_V1.to_string()));
 }
+
+#[test]
+fn core_capabilities_include_remote_image_derivative_ensure() {
+    assert!(core_capability_features()
+        .contains(&CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1.to_string()));
+}

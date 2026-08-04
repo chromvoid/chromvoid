@@ -1,4 +1,4 @@
-import {atom, computed, wrap} from '@reatom/core'
+import {action, atom, computed, withAbort, withAsync, wrap} from '@reatom/core'
 
 import type {SurfaceId} from 'root/app/navigation/navigation.types'
 import {
@@ -7,6 +7,11 @@ import {
 } from 'root/core/runtime/runtime-capabilities'
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
+
+import {
+  activeCoreAccessContextKey,
+  type ActiveCoreAccessContext,
+} from './active-core-access-context'
 
 export const PRO_FEATURE_KEYS = [
   'remote',
@@ -43,6 +48,24 @@ export type ModuleAccessState = {
   feature_key: ProFeatureKey
   status: ModuleAccessStatus
   denial_code?: string | null
+}
+
+export type ModuleAccessSurfaceGate =
+  | {kind: 'checking'}
+  | {kind: 'open'}
+  | {kind: 'blocked'; access: ModuleAccessState}
+
+export type ActiveCoreAccessReadiness = 'pending' | 'ready'
+
+type ActiveCoreAccessLifecycle = 'pending' | 'resolving' | 'resolved'
+
+type ActiveCoreResolutionRequest = {
+  context: ActiveCoreAccessContext
+  revision: number
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
 }
 
 export type LicenseSeatDevice = {
@@ -101,12 +124,83 @@ const DEFAULT_STATES: ModuleAccessState[] = [
 
 class ModuleAccessModel {
   readonly rawStates = atom<ModuleAccessState[]>(DEFAULT_STATES)
-  readonly loading = atom(false)
   readonly error = atom<string | null>(null)
   readonly entitlement = atom<EntitlementSnapshot | null>(null)
   readonly licenseSeatStatus = atom<LicenseSeatStatus | null>(null)
   readonly licenseSeatLoading = atom(false)
   readonly licenseSeatError = atom<string | null>(null)
+  readonly supportsExternalPro = computed(
+    () => runtimeCapabilitiesAtom().supports_external_pro,
+    'moduleAccess.supportsExternalPro',
+  )
+  readonly activeCoreContext = atom<ActiveCoreAccessContext>(
+    {sourceCore: 'local'},
+    'moduleAccess.activeCoreContext',
+  )
+  readonly activeCoreReadiness = atom<ActiveCoreAccessReadiness>(
+    'pending',
+    'moduleAccess.activeCoreReadiness',
+  )
+  readonly activeCoreLifecycle = atom<ActiveCoreAccessLifecycle>(
+    'pending',
+    'moduleAccess.activeCoreLifecycle',
+  )
+
+  private readonly operationLoading = atom(false, 'moduleAccess.operationLoading')
+  private contextRevision = 0
+  private activeResolution: Promise<void> | null = null
+
+  private readonly resolveActiveCoreAccess = action(
+    async (request: ActiveCoreResolutionRequest): Promise<void> => {
+      try {
+        const [access, entitlement] = await wrap(
+          Promise.all([
+            tauriInvoke<RpcResult<ModuleAccessState[]>>('module_access_snapshot'),
+            tauriInvoke<RpcResult<EntitlementSnapshot>>('license_status'),
+          ]),
+        )
+        if (!this.isCurrentResolution(request)) return
+
+        let errorMessage: string | null = null
+        if (access.ok) {
+          this.rawStates.set(access.result)
+        } else {
+          this.rawStates.set(DEFAULT_STATES)
+          errorMessage = access.error
+        }
+
+        if (entitlement.ok && entitlement.result.source_core === request.context.sourceCore) {
+          this.entitlement.set(entitlement.result)
+          if (!entitlement.result.licensed) {
+            this.licenseSeatStatus.set(null)
+            this.licenseSeatError.set(null)
+          }
+        } else {
+          this.entitlement.set(null)
+          if (entitlement.ok) {
+            this.rawStates.set(DEFAULT_STATES)
+            errorMessage = `License source mismatch: expected ${request.context.sourceCore}`
+          } else {
+            errorMessage ??= entitlement.error
+          }
+        }
+        this.error.set(errorMessage)
+      } catch (error) {
+        if (isAbortError(error) || !this.isCurrentResolution(request)) return
+        this.rawStates.set(DEFAULT_STATES)
+        this.entitlement.set(null)
+        this.error.set(error instanceof Error ? error.message : String(error))
+      } finally {
+        if (this.isCurrentResolution(request)) this.activeCoreLifecycle.set('resolved')
+      }
+    },
+    'moduleAccess.resolveActiveCoreAccess',
+  ).extend(withAsync(), withAbort('last-in-win'))
+
+  readonly loading = computed(
+    () => this.operationLoading() || this.resolveActiveCoreAccess.pending() > 0,
+    'moduleAccess.loading',
+  )
 
   readonly states = computed(() => {
     const capabilities = runtimeCapabilitiesAtom()
@@ -128,6 +222,14 @@ class ModuleAccessModel {
   surfaceAccess(surface: SurfaceId): ModuleAccessState | null {
     const feature = this.surfaceFeature(surface)
     return feature ? this.featureAccess(feature) : null
+  }
+
+  surfaceGate(surface: SurfaceId): ModuleAccessSurfaceGate {
+    const access = this.surfaceAccess(surface)
+    if (!access) return {kind: 'open'}
+    if (access.status === 'unsupported') return {kind: 'blocked', access}
+    if (this.activeCoreLifecycle() !== 'resolved') return {kind: 'checking'}
+    return access.status === 'enabled' ? {kind: 'open'} : {kind: 'blocked', access}
   }
 
   featureAccess(feature: ProFeatureKey): ModuleAccessState {
@@ -153,13 +255,19 @@ class ModuleAccessModel {
   }
 
   reset(): void {
+    this.resolveActiveCoreAccess.abort('module access reset')
+    this.contextRevision += 1
+    this.activeResolution = null
     this.rawStates.set(DEFAULT_STATES)
-    this.loading.set(false)
+    this.operationLoading.set(false)
     this.error.set(null)
     this.entitlement.set(null)
     this.licenseSeatStatus.set(null)
     this.licenseSeatLoading.set(false)
     this.licenseSeatError.set(null)
+    this.activeCoreContext.set({sourceCore: 'local'})
+    this.activeCoreReadiness.set('pending')
+    this.activeCoreLifecycle.set('pending')
   }
 
   clearError(): void {
@@ -167,51 +275,104 @@ class ModuleAccessModel {
     this.licenseSeatError.set(null)
   }
 
+  setActiveCoreContext(
+    context: ActiveCoreAccessContext,
+    readiness: ActiveCoreAccessReadiness,
+  ): void {
+    const nextKey = activeCoreAccessContextKey(context)
+    const currentKey = activeCoreAccessContextKey(this.activeCoreContext())
+    const contextChanged = nextKey !== currentKey
+    const becamePending = readiness === 'pending' && this.activeCoreReadiness() !== 'pending'
+
+    this.activeCoreContext.set(context)
+    this.activeCoreReadiness.set(readiness)
+    if (!contextChanged && !becamePending) return
+
+    this.invalidateActiveCoreAccess()
+  }
+
+  async ensureActiveCoreAccess(): Promise<void> {
+    if (this.activeCoreReadiness() !== 'ready') return
+    if (this.activeCoreLifecycle() === 'resolved') return
+    if (this.activeResolution) {
+      await this.activeResolution
+      return
+    }
+    await this.startActiveCoreResolution()
+  }
+
   async refresh(): Promise<void> {
+    if (this.activeCoreReadiness() !== 'ready') return
+    this.resolveActiveCoreAccess.abort('module access refresh superseded')
+    this.contextRevision += 1
+    this.activeResolution = null
+    await this.startActiveCoreResolution()
+  }
+
+  private async startActiveCoreResolution(): Promise<void> {
+    if (!this.supportsExternalPro()) {
+      this.rawStates.set(DEFAULT_STATES)
+      this.entitlement.set(null)
+      this.licenseSeatStatus.set(null)
+      this.error.set(null)
+      this.activeCoreLifecycle.set('resolved')
+      return
+    }
     if (!isTauriRuntime()) {
       this.rawStates.set(getNonTauriModuleAccessFallbackStates())
       this.entitlement.set(null)
       this.licenseSeatStatus.set(null)
       this.licenseSeatError.set(null)
       this.error.set(null)
+      this.activeCoreLifecycle.set('resolved')
       return
     }
 
-    this.loading.set(true)
-    try {
-      const [access, entitlement] = await wrap(
-        Promise.all([
-          tauriInvoke<RpcResult<ModuleAccessState[]>>('module_access_snapshot'),
-          tauriInvoke<RpcResult<EntitlementSnapshot>>('license_status'),
-        ]),
-      )
-      let errorMessage: string | null = null
-      if (access.ok) {
-        this.rawStates.set(access.result)
-      } else {
-        errorMessage = access.error
-      }
-      if (entitlement.ok) {
-        this.entitlement.set(entitlement.result)
-        if (!entitlement.result.licensed) {
-          this.licenseSeatStatus.set(null)
-          this.licenseSeatError.set(null)
-        }
-      } else {
-        errorMessage ??= entitlement.error
-      }
-      this.error.set(errorMessage)
-    } catch (error) {
-      this.error.set(error instanceof Error ? error.message : String(error))
-    } finally {
-      this.loading.set(false)
+    const context = this.activeCoreContext()
+    const request = {
+      context,
+      revision: this.contextRevision,
     }
+    this.activeCoreLifecycle.set('resolving')
+    const pending = this.resolveActiveCoreAccess(request).catch((error: unknown) => {
+      if (isAbortError(error)) return
+      throw error
+    })
+    const tracked = pending.finally(() => {
+      if (this.activeResolution === tracked) {
+        this.activeResolution = null
+      }
+    })
+    this.activeResolution = tracked
+    await tracked
+  }
+
+  private invalidateActiveCoreAccess(): void {
+    this.resolveActiveCoreAccess.abort('active Core changed')
+    this.contextRevision += 1
+    this.activeResolution = null
+    this.rawStates.set(DEFAULT_STATES)
+    this.entitlement.set(null)
+    this.licenseSeatStatus.set(null)
+    this.licenseSeatError.set(null)
+    this.error.set(null)
+    this.activeCoreLifecycle.set('pending')
+  }
+
+  private isCurrentResolution(request: ActiveCoreResolutionRequest): boolean {
+    return (
+      request.revision === this.contextRevision &&
+      activeCoreAccessContextKey(request.context) ===
+        activeCoreAccessContextKey(this.activeCoreContext()) &&
+      this.activeCoreReadiness() === 'ready'
+    )
   }
 
   async activateWithActivationCode(activationCode: string): Promise<boolean> {
+    if (!this.supportsExternalPro()) return false
     if (!isTauriRuntime()) return false
     this.error.set(null)
-    this.loading.set(true)
+    this.operationLoading.set(true)
     try {
       const response = await wrap(
         tauriInvoke<RpcResult<EntitlementSnapshot>>('license_activation_code_activate', {
@@ -230,15 +391,16 @@ class ModuleAccessModel {
       this.error.set(error instanceof Error ? error.message : String(error))
       return false
     } finally {
-      this.loading.set(false)
+      this.operationLoading.set(false)
     }
   }
 
   async createLicenseCabinetHandoff(): Promise<LicenseCabinetHandoffResult | null> {
+    if (!this.supportsExternalPro()) return null
     if (!isTauriRuntime()) return null
     this.error.set(null)
     this.licenseSeatError.set(null)
-    this.loading.set(true)
+    this.operationLoading.set(true)
     try {
       const response = await wrap(
         tauriInvoke<RpcResult<LicenseCabinetHandoffResult>>('license_account_cabinet_handoff'),
@@ -252,11 +414,16 @@ class ModuleAccessModel {
       this.error.set(error instanceof Error ? error.message : String(error))
       return null
     } finally {
-      this.loading.set(false)
+      this.operationLoading.set(false)
     }
   }
 
   async refreshLicenseSeatStatus(): Promise<boolean> {
+    if (!this.supportsExternalPro()) {
+      this.licenseSeatStatus.set(null)
+      this.licenseSeatError.set(null)
+      return false
+    }
     if (!isTauriRuntime()) return false
     if (!this.entitlement()?.licensed) {
       this.licenseSeatStatus.set(null)
@@ -287,6 +454,7 @@ class ModuleAccessModel {
   }
 
   async releaseCurrentSeat(): Promise<boolean> {
+    if (!this.supportsExternalPro()) return false
     if (!isTauriRuntime()) return false
     this.licenseSeatLoading.set(true)
     this.licenseSeatError.set(null)
@@ -333,6 +501,14 @@ function applyRuntimeSupport(
   state: ModuleAccessState,
   capabilities: RuntimeCapabilities,
 ): ModuleAccessState {
+  if (!capabilities.supports_external_pro) {
+    return {
+      ...state,
+      status: 'unsupported',
+      denial_code: 'FEATURE_UNAVAILABLE_IN_DISTRIBUTION',
+    }
+  }
+
   if (isFeatureSupportedByRuntime(state.feature_key, capabilities)) {
     return state
   }

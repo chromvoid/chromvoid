@@ -251,6 +251,69 @@ describe('PMSearch', () => {
     expect(input?.value).toBe('committed')
   })
 
+  it('reconciles a focused draft when content filters are cleared externally', async () => {
+    ensureDefined()
+    installPassmanagerRoot()
+    filterValue.set('committed')
+
+    const element = document.createElement('pm-search') as PMSearch
+    document.body.appendChild(element)
+    await settle(element)
+
+    const input = element.shadowRoot?.querySelector('cv-input') as
+      | (HTMLElement & {
+          value?: string
+        })
+      | null
+    input?.dispatchEvent(new FocusEvent('focus'))
+    input?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: 'draft'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await settle(element)
+
+    filterValue.set('')
+    await settle(element)
+
+    expect(input?.value).toBe('')
+  })
+
+  it('restores external filter reconciliation after reconnecting the same search element', async () => {
+    ensureDefined()
+    installPassmanagerRoot()
+    filterValue.set('committed')
+
+    const element = document.createElement('pm-search') as PMSearch
+    document.body.appendChild(element)
+    await settle(element)
+    element.remove()
+    document.body.appendChild(element)
+    await settle(element)
+
+    const input = element.shadowRoot?.querySelector('cv-input') as
+      | (HTMLElement & {
+          value?: string
+        })
+      | null
+    input?.dispatchEvent(new FocusEvent('focus'))
+    input?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: 'draft'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await settle(element)
+
+    filterValue.set('')
+    await settle(element)
+
+    expect(input?.value).toBe('')
+  })
+
   it('submits the model draft without querying the input element', async () => {
     ensureDefined()
     installPassmanagerRoot()
@@ -454,5 +517,4 @@ describe('PMSearch', () => {
 
     expect(selectedCredentialTagFilters()).toEqual([])
   })
-
 })

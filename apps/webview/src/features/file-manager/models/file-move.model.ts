@@ -708,9 +708,9 @@ export class FileMoveModel {
 
   private showToast(message: string, variant: ToastVariant, actions: ToastAction[] = []): void {
     toast.show({
+      key: 'files.move.result',
       message,
       variant,
-      duration: 8000,
       persistent: false,
       closable: true,
       actions,

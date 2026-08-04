@@ -1,9 +1,9 @@
 import {action, atom, wrap, type Atom} from '@reatom/core'
 
-import {Entry} from '@project/passmanager/core'
+import {Entry, type Group, type ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {DEFAULT_CLIPBOARD_WIPE_MS, copyWithAutoWipe} from '@project/passmanager/password-utils'
-import {formatLink} from '@project/passmanager/urls'
+import {formatLink, getPrimaryUrlRule, isOpenableUrlRule} from '@project/passmanager/urls'
 import {defaultLogger} from 'root/core/logger'
 import {getAppContext} from 'root/shared/services/app-context'
 import {openExternalBrowserUrl} from 'root/shared/services/external-browser'
@@ -12,12 +12,13 @@ import type {PMWorkspaceContextItem} from '../pm-workspace-header'
 import {pmEntryEditorModel} from '../../../models/pm-entry-editor.model'
 import {pmDeleteMotionModel} from '../../../models/pm-delete-motion.model'
 import {pmEntryMoveModel} from '../../../models/pm-entry-move-model'
+import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
 import {
   getPassmanagerRoot,
   getPassmanagerShowElement,
   isPassmanagerReadOnlyOrMissing,
 } from '../../../models/pm-root.adapter'
-import type {PaymentCardBrand} from '@project/passmanager/types'
+import type {PaymentCardBrand, UrlMatch} from '@project/passmanager/types'
 import {openPassmanagerMoveDialog} from '../../../service/passmanager-move-dialog'
 import {
   PMEntrySessionModel,
@@ -28,8 +29,23 @@ import {
 
 export type PMEntryActionUrl = {
   value: string
+  match: UrlMatch
+  isPrimary: boolean
   openable: boolean
   href: string
+}
+
+const URL_MATCH_LABELS = {
+  base_domain: 'website:match:base_domain',
+  host: 'website:match:host',
+  starts_with: 'website:match:starts_with',
+  exact: 'website:match:exact',
+  regex: 'website:match:regex',
+  never: 'website:match:never',
+} as const
+
+export function getUrlMatchLabel(match: UrlMatch): string {
+  return i18n(URL_MATCH_LABELS[match])
 }
 
 export type PMEntryHeaderBadge = {
@@ -138,24 +154,63 @@ export class PMEntryModel implements PMEntrySessionController {
     pmEntryEditorModel.openSurface(current.id, current.entryType === 'payment_card' ? 'payment-card' : 'entry')
   }
 
-  deleteEntryCard(entry: Entry): void {
-    pmDeleteMotionModel.markPending([entry])
-    void this.finishEntryDelete(entry)
+  deleteEntryCard(
+    entry: Entry,
+    presentationParent?: Group | ManagerRoot,
+    presentationNeighbourId?: string,
+  ): void {
+    void this.finishEntryDelete(entry, presentationParent, presentationNeighbourId)
   }
 
-  private async finishEntryDelete(entry: Entry): Promise<void> {
+  private async finishEntryDelete(
+    entry: Entry,
+    presentationParent?: Group | ManagerRoot,
+    presentationNeighbourId?: string,
+  ): Promise<void> {
+    const root = entry.parent.root
+    const parent = presentationParent ?? entry.parent
+    const wasCurrentEntry = root.showElement() === entry
+    const neighbourId = presentationNeighbourId ?? this.getDeletionNeighbourId(entry)
     try {
-      await wrap(entry.remove())
+      const confirmed = await wrap(entry.confirmRemoval())
+      if (!confirmed) return
+
+      pmDeleteMotionModel.markPending([entry])
+      await wrap(
+        entry.remove({
+          silent: true,
+          presentation: wasCurrentEntry ? 'defer' : 'auto',
+        }),
+      )
+      if (
+        (wasCurrentEntry && root.showElement() === entry) ||
+        (presentationParent && root.showElement() === presentationParent)
+      ) {
+        passmanagerNavigationController.presentAfterDelete({
+          deletedId: entry.id,
+          parent,
+          neighbourId,
+        })
+      }
     } catch (error) {
       this.logger.warn('[PassManager][Entry] delete failed', {
         errorName: error instanceof Error ? error.name : typeof error,
       })
     }
 
-    const root = getPassmanagerRoot()
-    if (root?.getCardByID?.(entry.id) === entry) {
+    const currentRoot = getPassmanagerRoot()
+    if (currentRoot?.getCardByID?.(entry.id) === entry) {
       pmDeleteMotionModel.clearPending([entry.id])
     }
+  }
+
+  private getDeletionNeighbourId(entry: Entry): string | undefined {
+    const siblings = entry.parent.entriesList()
+    const index = siblings.findIndex((item) => item.id === entry.id)
+    if (index < 0) return undefined
+
+    const survivors = siblings.filter((item) => item.id !== entry.id)
+    return survivors[Math.min(index, survivors.length - 1)]?.id
   }
 
   isDesktopToolbarAction(value: string | undefined): value is PMEntryDesktopToolbarAction {
@@ -367,10 +422,10 @@ export class PMEntryModel implements PMEntrySessionController {
     }, 'passmanager.entry.openUrl'),
 
     openFirstUrl: action((entry: Entry) => {
-      const first = entry.urls.find((rule) => rule.match !== 'never' && rule.match !== 'regex')?.value
-      if (!first) return
+      const primary = getPrimaryUrlRule(entry.urls)
+      if (!primary) return
 
-      this.actions.openUrl(formatLink(first))
+      this.actions.openUrl(formatLink(primary.value))
     }, 'passmanager.entry.openFirstUrl'),
 
     onKeyDown: action((entry: Entry, event: KeyboardEvent) => {
@@ -421,17 +476,18 @@ export class PMEntryModel implements PMEntrySessionController {
   protected buildEntryData(card: Entry): PMEntryRenderData {
     const entryTitleText = card.title || i18n('no_title')
     const groupSegments = card.groupPath?.split('/').filter(Boolean) ?? []
-    const visibleUrls = card.urls
-      .filter((rule) => rule.match !== 'never')
-      .map((rule) => {
-        const value = rule.value
-        const openable = rule.match !== 'regex'
-        return {
-          value,
-          openable,
-          href: openable ? formatLink(value) : '',
-        }
-      })
+    const primaryUrlRule = getPrimaryUrlRule(card.urls)
+    const visibleUrls = card.urls.map((rule) => {
+      const value = rule.value
+      const openable = isOpenableUrlRule(rule)
+      return {
+        value,
+        match: rule.match,
+        isPrimary: rule === primaryUrlRule,
+        openable,
+        href: openable ? formatLink(value) : '',
+      }
+    })
     const headerBadges: PMEntryHeaderBadge[] = [
       {
         variant: 'success',

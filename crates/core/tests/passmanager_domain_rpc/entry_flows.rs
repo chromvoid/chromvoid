@@ -19,6 +19,182 @@ fn test_passmanager_domain_allows_root_list_while_generic_denies() {
 }
 
 #[test]
+fn test_passmanager_entry_create_commits_meta_secrets_and_group_together() {
+    let (mut router, tmp, keystore) = create_test_router_with_keystore();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let created = router.handle(&RpcRequest::new(
+        "passmanager:entry:create",
+        serde_json::json!({
+            "entry_id": "atomic-entry-1",
+            "title": "Atomic Entry",
+            "entry_type": "login",
+            "group_path": "/Team/Production",
+            "username": "alice",
+            "urls": ["https://example.com"],
+            "secrets": {
+                "password": "correct horse battery staple",
+                "note": "private note"
+            }
+        }),
+    ));
+    assert_rpc_ok(&created);
+    assert_eq!(
+        created
+            .result()
+            .and_then(|result| result.get("entry_id"))
+            .and_then(|value| value.as_str()),
+        Some("atomic-entry-1")
+    );
+
+    drop(router);
+    let storage = chromvoid_core::storage::Storage::new(tmp.path()).expect("storage");
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore);
+    assert_rpc_ok(&unlock_vault(&mut reopened, "pw"));
+
+    let entry = reopened.handle(&RpcRequest::new(
+        "passmanager:entry:read",
+        serde_json::json!({"entry_id": "atomic-entry-1"}),
+    ));
+    assert_rpc_ok(&entry);
+    assert_eq!(
+        entry
+            .result()
+            .and_then(|result| result.get("entry"))
+            .and_then(|entry| entry.get("groupPath"))
+            .and_then(|value| value.as_str()),
+        Some("/Team/Production")
+    );
+
+    for (secret_type, expected) in [
+        ("password", "correct horse battery staple"),
+        ("note", "private note"),
+    ] {
+        let secret = reopened.handle(&RpcRequest::new(
+            "passmanager:secret:read",
+            serde_json::json!({
+                "entry_id": "atomic-entry-1",
+                "secret_type": secret_type
+            }),
+        ));
+        assert_rpc_ok(&secret);
+        assert_eq!(
+            secret
+                .result()
+                .and_then(|result| result.get("value"))
+                .and_then(|value| value.as_str()),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn test_passmanager_entry_create_validation_failure_leaves_no_partial_card() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let failed = router.handle(&RpcRequest::new(
+        "passmanager:entry:create",
+        serde_json::json!({
+            "entry_id": "invalid-card-1",
+            "title": "Invalid Card",
+            "entry_type": "payment_card",
+            "group_path": "/Cards/Rejected",
+            "payment_card": {
+                "cardholder_name": "Alice",
+                "exp_month": 12,
+                "exp_year": 2032,
+                "brand": "visa"
+            },
+            "secrets": {
+                "card_pan": "4111 1111 1111 1111",
+                "card_cvv": "1"
+            }
+        }),
+    ));
+    assert_rpc_error(&failed, "EMPTY_PAYLOAD");
+
+    let entries = router.handle(&RpcRequest::new(
+        "passmanager:entry:list",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&entries);
+    assert!(get_entries(&entries).is_empty());
+
+    let groups = router.handle(&RpcRequest::new(
+        "passmanager:group:list",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&groups);
+    assert!(!get_groups(&groups).contains(&"/Cards/Rejected".to_string()));
+}
+
+#[test]
+fn test_passmanager_entry_create_normalizes_card_secrets_and_derives_last4() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    let created = router.handle(&RpcRequest::new(
+        "passmanager:entry:create",
+        serde_json::json!({
+            "entry_id": "atomic-card-1",
+            "title": "Atomic Card",
+            "entry_type": "payment_card",
+            "payment_card": {
+                "cardholder_name": "Alice",
+                "exp_month": 12,
+                "exp_year": 2032,
+                "brand": "visa",
+                "last4": "9999"
+            },
+            "secrets": {
+                "card_pan": "4111 1111 1111 1111",
+                "card_cvv": "123",
+                "note": "Billing card"
+            }
+        }),
+    ));
+    assert_rpc_ok(&created);
+
+    let entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:read",
+        serde_json::json!({"entry_id": "atomic-card-1"}),
+    ));
+    assert_rpc_ok(&entry);
+    assert_eq!(
+        entry
+            .result()
+            .and_then(|result| result.get("entry"))
+            .and_then(|entry| entry.get("payment_card"))
+            .and_then(|card| card.get("last4"))
+            .and_then(|value| value.as_str()),
+        Some("1111")
+    );
+
+    for (secret_type, expected) in [
+        ("card_pan", "4111111111111111"),
+        ("card_cvv", "123"),
+        ("note", "Billing card"),
+    ] {
+        let secret = router.handle(&RpcRequest::new(
+            "passmanager:secret:read",
+            serde_json::json!({
+                "entry_id": "atomic-card-1",
+                "secret_type": secret_type
+            }),
+        ));
+        assert_rpc_ok(&secret);
+        assert_eq!(
+            secret
+                .result()
+                .and_then(|result| result.get("value"))
+                .and_then(|value| value.as_str()),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
 fn test_passmanager_create_update_move_delete_flow() {
     let (mut router, _tmp) = create_test_router();
     assert_rpc_ok(&unlock_vault(&mut router, "pw"));
@@ -436,6 +612,25 @@ fn test_passmanager_delete_and_group_ensure_survive_fresh_router_without_explici
         }),
     ));
     assert_rpc_ok(&saved_entry);
+    let groups_before_delete = router.handle(&RpcRequest::new(
+        "passmanager:group:list",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&groups_before_delete);
+    assert!(
+        groups_before_delete
+            .result()
+            .and_then(|result| result.get("groups"))
+            .and_then(|groups| groups.as_array())
+            .and_then(|groups| {
+                groups.iter().find(|group| {
+                    group.get("path").and_then(|value| value.as_str()) == Some("/persisted/group")
+                })
+            })
+            .and_then(|group| group.get("entry_count"))
+            .and_then(|value| value.as_u64())
+            == Some(1)
+    );
     assert_rpc_ok(&router.handle(&RpcRequest::new(
         "passmanager:entry:delete",
         serde_json::json!({"entry_id": "delete-persist-entry"}),
@@ -459,6 +654,58 @@ fn test_passmanager_delete_and_group_ensure_survive_fresh_router_without_explici
     assert!(get_entries(&entries).iter().all(|entry| {
         entry.get("id").and_then(|value| value.as_str()) != Some("delete-persist-entry")
     }));
+}
+
+#[test]
+fn test_passmanager_group_delete_removes_nested_entries_after_reopen() {
+    let (mut router, tmp, keystore) = create_test_router_with_keystore();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "passmanager:group:ensure",
+        serde_json::json!({"path": "/delete-parent/child"}),
+    )));
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({
+            "id": "nested-delete-entry",
+            "title": "Nested Delete",
+            "group_path": "/delete-parent/child"
+        }),
+    )));
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "passmanager:group:delete",
+        serde_json::json!({"path": "/delete-parent"}),
+    )));
+
+    let deleted_entry = router.handle(&RpcRequest::new(
+        "passmanager:entry:read",
+        serde_json::json!({"entry_id": "nested-delete-entry"}),
+    ));
+    assert_rpc_error(&deleted_entry, "NODE_NOT_FOUND");
+    assert!(get_groups(&router.handle(&RpcRequest::new(
+        "passmanager:group:list",
+        serde_json::json!({}),
+    )))
+    .iter()
+    .all(|path| !path.starts_with("/delete-parent")));
+
+    drop(router);
+    let storage = chromvoid_core::storage::Storage::new(tmp.path()).expect("storage");
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore);
+    assert_rpc_ok(&unlock_vault(&mut reopened, "pw"));
+
+    assert!(get_groups(&reopened.handle(&RpcRequest::new(
+        "passmanager:group:list",
+        serde_json::json!({}),
+    )))
+    .iter()
+    .all(|path| !path.starts_with("/delete-parent")));
+    let reopened_entry = reopened.handle(&RpcRequest::new(
+        "passmanager:entry:read",
+        serde_json::json!({"entry_id": "nested-delete-entry"}),
+    ));
+    assert_rpc_error(&reopened_entry, "NODE_NOT_FOUND");
 }
 
 #[test]

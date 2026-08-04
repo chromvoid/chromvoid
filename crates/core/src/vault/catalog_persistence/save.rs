@@ -567,15 +567,9 @@ fn max_catalog_node_id(node: &crate::catalog::CatalogNode) -> u64 {
 }
 
 fn shard_snapshot_needs_rewrite(existing: &Shard, current: &Shard) -> bool {
-    if existing.root.node_id != current.root.node_id {
-        return true;
-    }
-
-    if existing.root.is_file() || current.root.is_file() {
-        return existing.root != current.root;
-    }
-
-    existing.root.node_type != current.root.node_type || existing.root.name != current.root.name
+    existing.root.node_id != current.root.node_id
+        || existing.root.node_type != current.root.node_type
+        || existing.root.name != current.root.name
 }
 
 fn catalog_nodes_replay_equivalent(

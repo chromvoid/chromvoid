@@ -3,7 +3,13 @@ import {afterAll, afterEach, beforeAll, describe, expect, it, vi} from 'vitest'
 import {setRuntimeCapabilities, resetRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {invalidateFileBlobCache} from '../../src/features/media/components/file-loader'
-import {canShareFiles, shareFile, shareFiles} from '../../src/shared/services/share'
+import {
+  canShareFiles,
+  canShareText,
+  shareFile,
+  shareFiles,
+  shareText,
+} from '../../src/shared/services/share'
 
 const originalCreateObjectURL = URL.createObjectURL
 const originalNavigatorShare = navigator.share
@@ -309,5 +315,49 @@ describe('shareFile', () => {
 
     expect(share).not.toHaveBeenCalled()
     expect(tauriInvoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('shareText', () => {
+  it('shares a text payload when Web Share is available', async () => {
+    const share = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      writable: true,
+      value: share,
+    })
+
+    expect(canShareText()).toBe(true)
+    await expect(
+      shareText({
+        title: 'ChromVoid invitation',
+        text: 'chromvoid://pair-mobile?session_id=pair-1',
+      }),
+    ).resolves.toBe('shared')
+    expect(share).toHaveBeenCalledWith({
+      title: 'ChromVoid invitation',
+      text: 'chromvoid://pair-mobile?session_id=pair-1',
+    })
+  })
+
+  it('returns cancelled when the system share sheet is dismissed', async () => {
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockRejectedValue(new DOMException('cancelled', 'AbortError')),
+    })
+
+    await expect(shareText({text: 'invitation'})).resolves.toBe('cancelled')
+  })
+
+  it('reports unsupported text sharing without invoking a fallback', async () => {
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    })
+
+    expect(canShareText()).toBe(false)
+    await expect(shareText({text: 'invitation'})).rejects.toThrow('Text sharing is unavailable')
   })
 })

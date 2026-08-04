@@ -4,6 +4,8 @@ pnpm-lock.yaml
 yarn.lock
 .parcel-cache
 .env
+.env.orig
+.env.*backup*
 .playwright-cli
 .DS_Store
 .vscode

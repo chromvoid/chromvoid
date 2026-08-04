@@ -3,7 +3,6 @@ use crate::app_state::AppState;
 use crate::network;
 use crate::state_ext::lock_or_string_err;
 
-#[cfg(any(desktop, test))]
 pub(crate) fn legacy_paired_peers_path(
     state: &tauri::State<'_, AppState>,
 ) -> Result<std::path::PathBuf, String> {

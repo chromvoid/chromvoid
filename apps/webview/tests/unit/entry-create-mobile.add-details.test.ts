@@ -1,5 +1,6 @@
 import {CVInput, CVRadio, CVRadioGroup, CVTextarea} from '@chromvoid/uikit'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {i18n as passmanagerI18n} from '@project/passmanager/i18n'
 
 import {PMEntryCreateMobile} from '../../src/features/passmanager/components/card/entry-create/entry-create-mobile'
 import type {PMEntryCreateDetailsSheet} from '../../src/features/passmanager/components/card/entry-create/entry-create-details-sheet'
@@ -8,7 +9,9 @@ import {
   configurePMEntryOtpDraftPreviewPort,
   PMEntryOTPCreate,
 } from '../../src/features/passmanager/components/card/entry-otp-create'
+import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
+import {dialogService} from '../../src/shared/services/dialog-service'
 
 const settle = async (component: PMEntryCreateMobile) => {
   await component.updateComplete
@@ -27,6 +30,10 @@ function installRoot(overrides: Record<string, unknown> = {}) {
   const root = {
     id: 'root',
     name: 'Vault',
+    allEntries: [],
+    credentialTags: vi.fn(() => []),
+    credentialTagMeta: vi.fn(() => ({})),
+    saveCredentialTagCatalog: vi.fn(async () => true),
     entriesList: vi.fn(() => []),
     getEntry: vi.fn(() => undefined),
     getGroup: vi.fn(() => undefined),
@@ -45,6 +52,10 @@ function getModel(component: PMEntryCreateMobile): PMEntryCreateModel {
 
 function getSheet(component: PMEntryCreateMobile): PMEntryCreateDetailsSheet {
   return component.shadowRoot!.querySelector('pm-entry-create-details-sheet') as PMEntryCreateDetailsSheet
+}
+
+function getBottomSheet(sheet: PMEntryCreateDetailsSheet): HTMLElement & {showHandle: boolean} {
+  return sheet.shadowRoot!.querySelector('cv-bottom-sheet') as HTMLElement & {showHandle: boolean}
 }
 
 async function createComponent(): Promise<PMEntryCreateMobile> {
@@ -80,6 +91,7 @@ describe('PMEntryCreateMobile Details hub', () => {
 
   afterEach(() => {
     document.body.innerHTML = ''
+    pmCredentialTagsModel.closeSheet()
     setPassmanagerRoot(undefined)
     vi.restoreAllMocks()
   })
@@ -87,10 +99,29 @@ describe('PMEntryCreateMobile Details hub', () => {
   it('renders one compact summary without optional editors in the main form', async () => {
     const component = await createComponent()
 
-    const names = Array.from(component.shadowRoot?.querySelectorAll('.form-surface cv-input') ?? []).map(
-      (input) => input.getAttribute('name'),
-    )
-    expect(names).toEqual(['title', 'username', 'password', 'urls'])
+    const inputs = Array.from(component.shadowRoot?.querySelectorAll('.form-surface cv-input') ?? [])
+    const names = inputs.map((input) => input.getAttribute('name'))
+    expect(names).toEqual(['title', 'username', 'password'])
+    expect(component.shadowRoot?.querySelector('pm-entry-website-editor')).not.toBeNull()
+    expect(inputs.slice(0, 3).map((input) => input.getAttribute('control-id'))).toEqual([
+      'passwords.create.title',
+      'passwords.create.username',
+      'passwords.create.password',
+    ])
+    expect(
+      inputs.slice(0, 3).map((input) => input.shadowRoot?.querySelector<HTMLInputElement>('input')?.id),
+    ).toEqual(['passwords.create.title', 'passwords.create.username', 'passwords.create.password'])
+    expect(inputs.slice(0, 3).map((input) => input.getAttribute('aria-label'))).toEqual([
+      passmanagerI18n('title'),
+      passmanagerI18n('username'),
+      passmanagerI18n('password'),
+    ])
+    expect(
+      inputs
+        .slice(0, 3)
+        .map((input) => input.shadowRoot?.querySelector<HTMLInputElement>('input')?.getAttribute('aria-label')),
+    ).toEqual([passmanagerI18n('title'), passmanagerI18n('username'), passmanagerI18n('password')])
+    expect(component.shadowRoot?.querySelectorAll('[control-id^="passwords.create."]')).toHaveLength(3)
     expect(component.shadowRoot?.querySelector('.location-row')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('[data-details-hub-trigger]')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('[data-detail-editor]')).toBeNull()
@@ -111,8 +142,12 @@ describe('PMEntryCreateMobile Details hub', () => {
 
     expect(rows.map((row) => row.getAttribute('data-detail'))).toEqual(['icon', 'tags', 'otp', 'note'])
     expect(sheet.shadowRoot?.querySelector('cv-checkbox')).toBeNull()
+    expect(sheet.shadowRoot?.querySelector('[data-details-primary-action]')?.textContent?.trim()).toBe(
+      passmanagerI18n('button:done'),
+    )
     expect((sheet as unknown as {model: unknown}).model).toBe(getModel(component))
     expect(getModel(component).detailsSheetOpen()).toBe(true)
+    expect(getBottomSheet(sheet).showHandle).toBe(false)
   })
 
   it('opens one editor inside the sheet and returns to the hub without growing the main form', async () => {
@@ -139,6 +174,122 @@ describe('PMEntryCreateMobile Details hub', () => {
     expect(sheet.shadowRoot?.querySelector('[data-details-hub]')).not.toBeNull()
   })
 
+  it('commits shared tag picker selection only after Apply tags', async () => {
+    installRoot({
+      credentialTags: vi.fn(() => ['Work', 'Rotate']),
+    })
+    const component = await createComponent()
+    const model = getModel(component)
+    model.setTags(['Work'])
+    model.openDetailsSheet()
+    model.openDetailsEditor('tags')
+    await settle(component)
+
+    const sheet = getSheet(component)
+    await settleSheet(sheet)
+    const picker = sheet.shadowRoot?.querySelector('pm-mobile-tag-picker') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete: Promise<unknown>})
+      | null
+    if (picker) await picker.updateComplete
+
+    expect(picker).not.toBeNull()
+    expect(picker?.shadowRoot?.querySelector('.new-tag-button')).not.toBeNull()
+    expect(picker?.shadowRoot?.querySelector('.edit-toggle')).not.toBeNull()
+    expect(picker?.shadowRoot?.querySelectorAll('.tag-chip-wrap')).toHaveLength(2)
+    expect(picker?.shadowRoot?.querySelector('cv-bottom-sheet')).toBeNull()
+    expect(sheet.shadowRoot?.querySelectorAll('cv-bottom-sheet')).toHaveLength(1)
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
+    expect(getBottomSheet(sheet).showHandle).toBe(true)
+    expect(sheet.shadowRoot?.querySelector('[data-details-primary-action]')?.textContent?.trim()).toBe(
+      passmanagerI18n('entry:create:detail-tags-apply'),
+    )
+
+    pmCredentialTagsModel.activateTagChip('rotate')
+    expect(model.tags()).toEqual(['Work'])
+
+    sheet.shadowRoot?.querySelector<HTMLElement>('[data-details-primary-action]')?.click()
+    await vi.waitFor(() => expect(model.detailsSheetView()).toBe('hub'))
+    await settleSheet(sheet)
+
+    expect(model.tags()).toEqual(['Work', 'Rotate'])
+    expect(model.configuredOptionalDetails()).toContain('tags')
+    expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('filter')
+  })
+
+  it('cancels unconfirmed tag selection through the embedded Back action', async () => {
+    installRoot({
+      credentialTags: vi.fn(() => ['Work', 'Rotate']),
+    })
+    const component = await createComponent()
+    const model = getModel(component)
+    model.setTags(['Work'])
+    model.openDetailsSheet()
+    model.openDetailsEditor('tags')
+    await settle(component)
+
+    const sheet = getSheet(component)
+    await settleSheet(sheet)
+    pmCredentialTagsModel.activateTagChip('rotate')
+
+    sheet.shadowRoot?.querySelector<HTMLButtonElement>('[data-detail-back]')?.click()
+    await settleSheet(sheet)
+
+    expect(model.tags()).toEqual(['Work'])
+    expect(model.detailsSheetView()).toBe('hub')
+    expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('filter')
+    expect(pmCredentialTagsModel.entrySelectionTagKeys()).toEqual([])
+  })
+
+  it('removes configured tags and cancels the embedded selection after confirmation', async () => {
+    installRoot({
+      credentialTags: vi.fn(() => ['Work', 'Rotate']),
+    })
+    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    const component = await createComponent()
+    const model = getModel(component)
+    model.setTags(['Work'])
+    model.openDetailsSheet()
+    model.openDetailsEditor('tags')
+    await settle(component)
+
+    const sheet = getSheet(component)
+    await settleSheet(sheet)
+    pmCredentialTagsModel.activateTagChip('rotate')
+
+    sheet.shadowRoot?.querySelector<HTMLElement>('[data-details-remove-action]')?.click()
+    await vi.waitFor(() => expect(model.detailsSheetView()).toBe('hub'))
+    await settleSheet(sheet)
+
+    expect(model.tags()).toEqual([])
+    expect(model.configuredOptionalDetails()).not.toContain('tags')
+    expect(pmCredentialTagsModel.sheetSelectionScope()).toBe('filter')
+    expect(pmCredentialTagsModel.entrySelectionTagKeys()).toEqual([])
+  })
+
+  it('disables the shared tag picker controls for a read-only vault', async () => {
+    installRoot({
+      credentialTags: vi.fn(() => ['Work']),
+      isReadOnly: vi.fn(() => true),
+    })
+    const component = await createComponent()
+    const model = getModel(component)
+    model.openDetailsSheet()
+    model.openDetailsEditor('tags')
+    await settle(component)
+
+    const sheet = getSheet(component)
+    await settleSheet(sheet)
+    const picker = sheet.shadowRoot?.querySelector('pm-mobile-tag-picker') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete: Promise<unknown>})
+      | null
+    if (picker) await picker.updateComplete
+
+    expect((picker?.shadowRoot?.querySelector('.new-tag-button') as HTMLButtonElement | null)?.disabled).toBe(
+      true,
+    )
+    expect((picker?.shadowRoot?.querySelector('.edit-toggle') as HTMLButtonElement | null)?.disabled).toBe(true)
+  })
+
   it('renders the icon library inline without opening another dialog or sheet', async () => {
     const component = await createComponent()
     const model = getModel(component)
@@ -157,6 +308,33 @@ describe('PMEntryCreateMobile Details hub', () => {
     expect(picker?.shadowRoot?.querySelector('.dialog-actions')).not.toBeNull()
     expect(picker?.shadowRoot?.querySelector('cv-dialog')).toBeNull()
     expect(picker?.shadowRoot?.querySelector('cv-bottom-sheet')).toBeNull()
+    expect(sheet.shadowRoot?.querySelector('.sheet-actions')).toBeNull()
+  })
+
+  it('shows only Remove for a configured icon and clears it through that action', async () => {
+    vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValue(true)
+    const component = await createComponent()
+    const model = getModel(component)
+    model.setIconRef('sha256:icon')
+    model.openDetailsSheet()
+    model.openDetailsEditor('icon')
+    await settle(component)
+
+    const sheet = getSheet(component)
+    await settleSheet(sheet)
+
+    expect(sheet.shadowRoot?.querySelector('[data-details-primary-action]')).toBeNull()
+    expect(sheet.shadowRoot?.querySelectorAll('.sheet-actions cv-button')).toHaveLength(1)
+    expect(sheet.shadowRoot?.querySelector('[data-details-remove-action]')?.textContent?.trim()).toBe(
+      passmanagerI18n('button:remove'),
+    )
+
+    sheet.shadowRoot?.querySelector<HTMLElement>('[data-details-remove-action]')?.click()
+    await vi.waitFor(() => expect(model.detailsSheetView()).toBe('hub'))
+    await settleSheet(sheet)
+
+    expect(model.iconRef()).toBeUndefined()
+    expect(model.configuredOptionalDetails()).not.toContain('icon')
   })
 
   it('persists note draft through the hub and keeps one compact main summary row', async () => {
@@ -168,6 +346,8 @@ describe('PMEntryCreateMobile Details hub', () => {
 
     const sheet = getSheet(component)
     await settleSheet(sheet)
+    expect(sheet.shadowRoot?.querySelector('.sheet-actions')).toBeNull()
+
     const note = sheet.shadowRoot?.querySelector('cv-textarea[name="note"]')
     note?.dispatchEvent(
       new CustomEvent('cv-input', {
@@ -178,7 +358,13 @@ describe('PMEntryCreateMobile Details hub', () => {
     )
     await settleSheet(sheet)
 
-    sheet.shadowRoot?.querySelector<HTMLElement>('.sheet-actions cv-button:last-child')?.click()
+    expect(sheet.shadowRoot?.querySelector('[data-details-primary-action]')).toBeNull()
+    expect(sheet.shadowRoot?.querySelectorAll('.sheet-actions cv-button')).toHaveLength(1)
+    expect(sheet.shadowRoot?.querySelector('[data-details-remove-action]')?.textContent?.trim()).toBe(
+      passmanagerI18n('button:remove'),
+    )
+
+    sheet.shadowRoot?.querySelector<HTMLElement>('[data-detail-back]')?.click()
     await settle(component)
     await settleSheet(sheet)
 
@@ -190,7 +376,7 @@ describe('PMEntryCreateMobile Details hub', () => {
     expect(component.shadowRoot?.querySelector('cv-textarea[name="note"]')).toBeNull()
   })
 
-  it('configures OTP only after valid Done and keeps the editor inside the hub sheet', async () => {
+  it('configures OTP only after Save OTP and keeps the editor inside the hub sheet', async () => {
     const component = await createComponent()
     const model = getModel(component)
     model.openDetailsSheet()
@@ -202,14 +388,71 @@ describe('PMEntryCreateMobile Details hub', () => {
     await settleSheet(sheet)
     expect(sheet.shadowRoot?.querySelector('[data-detail-editor="otp"] pm-entry-otp-create')).not.toBeNull()
     expect(sheet.shadowRoot?.querySelector('pm-entry-otp-create-sheet')).toBeNull()
+    expect(sheet.shadowRoot?.querySelector('[data-details-primary-action]')?.textContent?.trim()).toBe(
+      passmanagerI18n('otp:save'),
+    )
+    expect(getBottomSheet(sheet).showHandle).toBe(false)
 
-    sheet.shadowRoot?.querySelector<HTMLElement>('.sheet-actions cv-button:last-child')?.click()
+    sheet.shadowRoot?.querySelector<HTMLElement>('[data-details-primary-action]')?.click()
     await vi.waitFor(() => expect(model.useOtp()).toBe(true))
     await settleSheet(sheet)
 
     expect(model.detailsSheetView()).toBe('hub')
     expect(model.configuredOptionalDetails()).toEqual(['otp'])
     expect(component.shadowRoot?.querySelector('[data-detail-section="otp"]')).toBeNull()
+  })
+
+  it('keeps a configured OTP editor open with one Back action across advanced navigation', async () => {
+    const component = await createComponent()
+    const model = getModel(component)
+    model.otp.setSecret('JBSWY3DPEHPK3PXP')
+    model.setUseOtp(true)
+    model.openDetailsSheet()
+    model.openDetailsEditor('otp')
+    model.otp.actions.openAdvanced()
+    await settle(component)
+
+    const sheet = getSheet(component)
+    await settleSheet(sheet)
+    const otpEditor = sheet.shadowRoot?.querySelector('pm-entry-otp-create') as PMEntryOTPCreate | null
+    const bottomSheet = sheet.shadowRoot?.querySelector('cv-bottom-sheet')
+    await otpEditor?.updateComplete
+
+    const getBackActionCount = () =>
+      Number(Boolean(sheet.shadowRoot?.querySelector('[data-detail-back]'))) +
+      Number(Boolean(otpEditor?.shadowRoot?.querySelector('.otp-advanced-back')))
+
+    expect(model.detailsSheetView()).toBe('otp')
+    expect(model.otp.view()).toBe('advanced')
+    expect(sheet.shadowRoot?.querySelector('[data-detail-back]')).toBeNull()
+    expect(otpEditor?.shadowRoot?.querySelector('.otp-advanced-back')).not.toBeNull()
+    expect(getBackActionCount()).toBe(1)
+    expect(sheet.shadowRoot?.querySelector('.sheet-actions')).toBeNull()
+    expect(bottomSheet?.getAttribute('detents')).toBe('')
+    expect(bottomSheet?.closeOnOutsideFocus).toBe(false)
+    expect(getBottomSheet(sheet).showHandle).toBe(false)
+
+    otpEditor?.shadowRoot?.querySelector<HTMLButtonElement>('.otp-advanced-back')?.click()
+    await otpEditor?.updateComplete
+    await settleSheet(sheet)
+
+    expect(model.detailsSheetView()).toBe('otp')
+    expect(model.otp.view()).toBe('main')
+    expect(sheet.shadowRoot?.querySelector('[data-detail-back]')).not.toBeNull()
+    expect(otpEditor?.shadowRoot?.querySelector('.otp-advanced-back')).toBeNull()
+    expect(getBackActionCount()).toBe(1)
+    expect(sheet.shadowRoot?.querySelector('.sheet-actions')).not.toBeNull()
+    expect(sheet.shadowRoot?.querySelector('[data-details-primary-action]')?.textContent?.trim()).toBe(
+      passmanagerI18n('otp:save'),
+    )
+    expect(bottomSheet?.getAttribute('detents')).toBe('middle expanded')
+    expect(getBottomSheet(sheet).showHandle).toBe(false)
+    expect(model.detailsSheetOpen()).toBe(true)
+
+    sheet.shadowRoot?.querySelector<HTMLButtonElement>('[data-detail-back]')?.click()
+    await settleSheet(sheet)
+
+    expect(model.detailsSheetView()).toBe('hub')
   })
 
   it('keeps the OTP editor open when Back is consumed during native QR scanning', async () => {

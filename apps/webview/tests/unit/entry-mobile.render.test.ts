@@ -10,7 +10,7 @@ import {CVCopyButton} from '@chromvoid/uikit/components/cv-copy-button'
 import {CVCombobox} from '@chromvoid/uikit/components/cv-combobox'
 import {atom} from '@reatom/core'
 import {Entry, ManagerRoot} from '@project/passmanager'
-import {setPasswordManagerLang} from '@project/passmanager/i18n'
+import {i18n as passmanagerI18n, setPasswordManagerLang} from '@project/passmanager/i18n'
 import {setupMobileKeyboardFocusScroll} from '../../src/app/bootstrap/mobile-keyboard-focus-scroll'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {PMEntryMobile} from '../../src/features/passmanager/components/card/entry/entry-mobile'
@@ -276,10 +276,16 @@ function createDOMRect(rect: Partial<DOMRect>): DOMRect {
   } as DOMRect
 }
 
-const getCvInput = (component: PMEntryMobile, name: string) =>
-  component.shadowRoot?.querySelector(`cv-input[name="${name}"]`) as
-    | (HTMLElement & {shadowRoot?: ShadowRoot})
-    | null
+const getCvInput = (component: PMEntryMobile, name: string) => {
+  const direct = component.shadowRoot?.querySelector(`cv-input[name="${name}"]`)
+  if (direct || name !== 'inline-website') {
+    return direct as (HTMLElement & {shadowRoot?: ShadowRoot}) | null
+  }
+
+  return (component.shadowRoot
+    ?.querySelector('pm-entry-website-editor')
+    ?.shadowRoot?.querySelector('cv-input') ?? null) as (HTMLElement & {shadowRoot?: ShadowRoot}) | null
+}
 
 const getNativeInput = (component: PMEntryMobile, name: string) =>
   getCvInput(component, name)?.shadowRoot?.querySelector('input') as HTMLInputElement | null
@@ -378,7 +384,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('hides website count badge when only one visible url exists', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -395,8 +401,10 @@ describe('PMEntryMobile', () => {
 
   it('shows website count badge when multiple visible urls exist', async () => {
     const entry = createEntry([
-      {match: 'domain', value: 'https://1ccloud.ru'},
       {match: 'regex', value: '^internal$'},
+      {match: 'never', value: 'https://blocked.example'},
+      {match: 'host', value: 'https://1ccloud.ru'},
+      {match: 'base_domain', value: 'https://secondary.example'},
     ])
     window.passmanager = {
       isReadOnly: () => false,
@@ -411,7 +419,7 @@ describe('PMEntryMobile', () => {
     const badgeTexts = badges.map((badge) => badge.textContent?.trim() ?? '')
 
     expect(badges).toHaveLength(2)
-    expect(badgeTexts).toContain('2')
+    expect(badgeTexts).toContain('4')
   })
 
   it('renders payment card summary with hidden CVV until the reveal toggle is pressed', async () => {
@@ -474,7 +482,7 @@ describe('PMEntryMobile', () => {
   it('renders the avatar beside the title and keeps badges in a separate header rail', async () => {
     const entry = createEntry(
       [
-        {match: 'domain', value: 'https://1ccloud.ru'},
+        {match: 'base_domain', value: 'https://1ccloud.ru'},
         {match: 'regex', value: '^internal$'},
       ],
       {
@@ -537,7 +545,7 @@ describe('PMEntryMobile', () => {
     const flush = deferred<void>()
     const password = deferred<string | undefined>()
     const note = deferred<string | undefined>()
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       flushPendingPersistence: () => flush.promise,
       password: () => password.promise,
       note: () => note.promise,
@@ -557,6 +565,7 @@ describe('PMEntryMobile', () => {
       | undefined
     expect(passwordField?.querySelector('.secret-skeleton')).not.toBeNull()
     expect(passwordField?.querySelector('.password-input')).toBeNull()
+    expect(passwordField?.querySelector('[control-id="passwords.entry.password"]')).toBeNull()
 
     flush.resolve()
     password.resolve('secret')
@@ -569,8 +578,19 @@ describe('PMEntryMobile', () => {
     const passwordInput = updatedPasswordField?.querySelector('.password-input') as HTMLElement & {
       value?: string
     }
+    const nativePasswordInput = passwordInput?.shadowRoot?.querySelector<HTMLInputElement>('input')
+    const nativePasswordToggle =
+      passwordInput?.shadowRoot?.querySelector<HTMLElement>('[part="password-toggle"]')
     expect(passwordInput?.value).toBe('secret')
     expect(passwordInput?.getAttribute('dir')).toBe('ltr')
+    expect(passwordInput?.getAttribute('control-id')).toBe('passwords.entry.password')
+    expect(passwordInput?.getAttribute('aria-label')).toBe(passmanagerI18n('password'))
+    expect(nativePasswordInput?.id).toBe('passwords.entry.password')
+    expect(nativePasswordInput?.getAttribute('aria-label')).toBe(passmanagerI18n('password'))
+    expect(nativePasswordInput?.type).toBe('password')
+    expect(nativePasswordInput?.readOnly).toBe(true)
+    expect(nativePasswordToggle?.getAttribute('role')).toBe('button')
+    expect(updatedPasswordField?.querySelectorAll('[control-id="passwords.entry.password"]')).toHaveLength(1)
     expect(component.shadowRoot?.querySelector('.field-value[dir="ltr"]')?.textContent).toContain(
       'andry_diego@mail.ru',
     )
@@ -586,7 +606,7 @@ describe('PMEntryMobile', () => {
       }
       return 'mobile-loaded-secret'
     })
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {password})
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {password})
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -622,7 +642,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('renders generator controls and settings inside mobile inline password edit', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       password: async () => 'secret',
       note: async () => '',
     })
@@ -659,13 +679,13 @@ describe('PMEntryMobile', () => {
     const staleFlush = deferred<void>()
     const stalePassword = deferred<string | undefined>()
     const staleNote = deferred<string | undefined>()
-    const firstEntry = createEntry([{match: 'domain', value: 'https://one.invalid'}], {
+    const firstEntry = createEntry([{match: 'base_domain', value: 'https://one.invalid'}], {
       id: 'entry-mobile-stale-1',
       flushPendingPersistence: () => staleFlush.promise,
       password: () => stalePassword.promise,
       note: () => staleNote.promise,
     })
-    const secondEntry = createEntry([{match: 'domain', value: 'https://two.invalid'}], {
+    const secondEntry = createEntry([{match: 'base_domain', value: 'https://two.invalid'}], {
       id: 'entry-mobile-stale-2',
       password: async () => 'second-secret',
       note: async () => '',
@@ -705,8 +725,10 @@ describe('PMEntryMobile', () => {
 
   it('renders compact website rows and hides mutation affordances in read-only mode', async () => {
     const entry = createEntry([
-      {match: 'domain', value: 'https://1ccloud.ru'},
       {match: 'regex', value: '^internal$'},
+      {match: 'never', value: 'https://blocked.example'},
+      {match: 'host', value: 'https://1ccloud.ru'},
+      {match: 'base_domain', value: 'https://secondary.example'},
     ])
     window.passmanager = {
       isReadOnly: () => true,
@@ -718,18 +740,23 @@ describe('PMEntryMobile', () => {
     await settle(component)
 
     expect(component.shadowRoot?.querySelector('.action-rail')).toBeNull()
-    expect(component.shadowRoot?.querySelector('.website-row')).not.toBeNull()
+    expect(component.shadowRoot?.querySelectorAll('.website-row')).toHaveLength(4)
     expect(component.shadowRoot?.querySelector('.website-actions')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.website-open')?.textContent).toContain('Open site')
-    expect(component.shadowRoot?.querySelector('.website-name[dir="ltr"]')?.textContent).toBe(
-      'https://1ccloud.ru',
-    )
+    expect(component.shadowRoot?.querySelectorAll('.website-open')).toHaveLength(2)
+    expect(component.shadowRoot?.querySelector('.website-name[dir="ltr"]')?.textContent).toBe('^internal$')
+    expect(component.shadowRoot?.querySelector('.website-primary-marker')?.textContent).toBe('Primary')
+    expect(
+      Array.from(component.shadowRoot?.querySelectorAll('.website-list cv-badge') ?? []).map((badge) =>
+        badge.textContent?.trim(),
+      ),
+    ).toEqual(['Regular expression', 'Never', 'Host'])
     expect(component.shadowRoot?.querySelector('.inline-action')).toBeNull()
     expect(component.shadowRoot?.querySelector('.section-action')).toBeNull()
   })
 
   it('opens mobile website links and quick action through the external browser command', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
 
     window.passmanager = {
@@ -761,7 +788,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('renders the main mobile regions in action-first order', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -807,7 +834,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('renders quick actions after the hero and routes them through entry actions', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const invoke = installClipboardInvokeSpy()
     const windowOpen = vi.spyOn(window, 'open').mockImplementation(() => null)
     window.passmanager = {
@@ -820,6 +847,7 @@ describe('PMEntryMobile', () => {
     await settle(component)
 
     const quickActions = component.shadowRoot?.querySelector('.quick-actions') as HTMLElement | null
+    const username = component.shadowRoot?.getElementById('passwords.entry.username')
     const buttons = Array.from(quickActions?.querySelectorAll<HTMLButtonElement>('.quick-action') ?? [])
 
     const entryViewAddActions = quickActions?.previousElementSibling as HTMLElement | null
@@ -832,6 +860,8 @@ describe('PMEntryMobile', () => {
       'Copy password',
       'Open website',
     ])
+    expect(username?.textContent?.trim()).toBe('andry_diego@mail.ru')
+    expect(username?.getAttribute('aria-label')).toBe('andry_diego@mail.ru')
 
     buttons[0]?.click()
     buttons[1]?.click()
@@ -853,7 +883,7 @@ describe('PMEntryMobile', () => {
 
   it('renders localized Russian quick action labels', async () => {
     setPasswordManagerLang('ru')
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -875,7 +905,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('switches entry fields into full edit mode with one bottom save/cancel group', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -891,7 +921,7 @@ describe('PMEntryMobile', () => {
     expect(component.shadowRoot?.querySelector('.inline-action[data-inline-field="password"]')).toBeNull()
     expect(component.shadowRoot?.querySelector('cv-input[name="inline-password"]')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('cv-input[name="inline-username"]')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-input[name="inline-website"]')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('pm-entry-website-editor')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.entry-edit-cancel-action')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.inline-edit-save')).toBeNull()
@@ -899,7 +929,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('does not autofocus the title when full edit mode starts from the edit button', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -922,7 +952,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('opens the shared mobile tag sheet and saves its entry selection', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {tags: ['Work']})
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {tags: ['Work']})
     const root = new ManagerRoot({} as any)
     root.setCredentialTagCatalog(['Work', 'Rotate'], {
       work: {colorId: 'orange'},
@@ -974,7 +1004,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('cancels the mobile tag selection without changing the entry', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {tags: []})
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {tags: []})
     const root = new ManagerRoot({} as any)
     root.credentialTags.set(['Rotate'])
     root.entries.set([entry])
@@ -1053,7 +1083,7 @@ describe('PMEntryMobile', () => {
       },
     },
   ])('saves %s from full-entry edit controls', async ({inputName, nextValue, assertUpdate}) => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const update = vi.fn(async () => {})
     ;(entry as Entry & {update: typeof update}).update = update
 
@@ -1086,7 +1116,7 @@ describe('PMEntryMobile', () => {
 
   it('shows loading state on the full-entry save action while save is pending', async () => {
     const savePending = deferred<void>()
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const update = vi.fn(() => savePending.promise)
     ;(entry as Entry & {update: typeof update}).update = update
 
@@ -1120,7 +1150,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('saves OTP label edits from full-entry edit controls', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       otps: [
         {
           id: 'otp-1',
@@ -1169,7 +1199,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('keeps full-entry edit open when an OTP label is too long', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       otps: [
         {
           id: 'otp-1',
@@ -1223,7 +1253,7 @@ describe('PMEntryMobile', () => {
     const flush = deferred<void>()
     const password = deferred<string | undefined>()
     const note = deferred<string | undefined>()
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       flushPendingPersistence: () => flush.promise,
       password: () => password.promise,
       note: () => note.promise,
@@ -1298,7 +1328,7 @@ describe('PMEntryMobile', () => {
       nextValue: 'https://escape.example',
     },
   ])('renders %s as an input without field edit buttons in full edit mode', async ({inputName}) => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
 
     window.passmanager = {
       isReadOnly: () => false,
@@ -1331,7 +1361,7 @@ describe('PMEntryMobile', () => {
       nextValue: 'https://escape.example',
     },
   ])('cancels full-entry edit from %s on Escape', async ({inputName, nextValue}) => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const update = vi.fn(async () => {})
     ;(entry as Entry & {update: typeof update}).update = update
 
@@ -1367,7 +1397,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('keeps avatar editing hidden in read mode and available in edit mode', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -1407,7 +1437,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('hides title and avatar edit affordances in read mode', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     window.passmanager = {
@@ -1448,7 +1478,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('keeps read-mode note copy action while hiding note edit', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     window.passmanager = {
@@ -1471,7 +1501,7 @@ describe('PMEntryMobile', () => {
       configurable: true,
       value: {invoke},
     })
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     window.passmanager = {
@@ -1519,7 +1549,7 @@ describe('PMEntryMobile', () => {
 
   it('keeps read-mode note loading action while hiding note edit', async () => {
     const note = deferred<string | undefined>()
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: () => note.promise,
     })
     window.passmanager = {
@@ -1540,7 +1570,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('opens full edit mode and focuses note from an empty note tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => '',
     })
     const scrollSpy = installScrollIntoViewSpy()
@@ -1615,7 +1645,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('scrolls a user-focused mobile edit field into the visible keyboard viewport', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const viewport = installVisualViewportMock()
     const cleanupKeyboardFocusScroll = setupMobileKeyboardFocusScroll({isMobile: atom(true)} as any)
 
@@ -1669,7 +1699,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('opens full edit mode and focuses note on read-mode note double tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     const scrollSpy = installScrollIntoViewSpy()
@@ -1709,7 +1739,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('does not open full edit mode from a read-mode note single click', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     window.passmanager = {
@@ -1732,7 +1762,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('opens full edit mode and focuses note after a touch double tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     window.passmanager = {
@@ -1774,7 +1804,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('does not open full edit mode from a read-mode note single touch tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     window.passmanager = {
@@ -1798,7 +1828,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('keeps read-only note clicks in read mode', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     window.passmanager = {
@@ -1821,7 +1851,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('renders one read-mode edit entry action and activates the shared editor model', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
       showElement: Object.assign(() => entry, {subscribe: () => () => {}}),
@@ -1882,7 +1912,7 @@ describe('PMEntryMobile', () => {
   ] as const)(
     'opens full edit mode and focuses %s from credential double tap',
     async ({field, inputName}) => {
-      const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+      const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
       window.passmanager = {
         isReadOnly: () => false,
       } as unknown as typeof window.passmanager
@@ -1911,7 +1941,7 @@ describe('PMEntryMobile', () => {
   )
 
   it('opens full edit mode and focuses title from title double tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -1938,7 +1968,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('does not scroll an already focused visible full-entry field on a repeated focus request', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const scrollSpy = installScrollIntoViewSpy()
 
     try {
@@ -1980,7 +2010,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('opens full edit mode and focuses title after a touch double tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -2021,7 +2051,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('does not open title edit mode from a single touch tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -2045,7 +2075,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('opens full edit mode and focuses username after a touch double tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -2086,7 +2116,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('does not open credential edit mode from a single touch tap', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
@@ -2110,7 +2140,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('does not expose credential edit double-tap targets in read-only or payment-card views', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => true,
     } as unknown as typeof window.passmanager
@@ -2147,7 +2177,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('hides edit entry action in read-only mode', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     window.passmanager = {
       isReadOnly: () => true,
     } as unknown as typeof window.passmanager
@@ -2163,7 +2193,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('saves header title edits through the full-entry save action', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const update = vi.fn(async () => {})
     ;(entry as Entry & {update: typeof update}).update = update
 
@@ -2203,7 +2233,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('saves avatar edits through the full-entry save action', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     const update = vi.fn(async () => {})
     ;(entry as Entry & {update: typeof update}).update = update
 
@@ -2250,7 +2280,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('shows note input inside full-entry edit without note-level save/cancel', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     window.passmanager = {
@@ -2273,7 +2303,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('saves note from the full-entry save action', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     const update = vi.fn(async () => {})
@@ -2311,7 +2341,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('keeps note multiline editing on Shift+Enter', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     const update = vi.fn(async () => {})
@@ -2350,7 +2380,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('cancels the note snippet on Escape', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
     const update = vi.fn(async () => {})
@@ -2388,7 +2418,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('keeps note textarea in the full-entry edit surface', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       note: async () => 'Personal note',
     })
 
@@ -2407,7 +2437,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('shows otp create snippet on the entry page without opening pm-entry-edit-mobile', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       otps: [
         {
           id: 'otp-1',
@@ -2446,7 +2476,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('does not render OTP quick view action in the mobile OTP section', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       otps: [
         {
           id: 'otp-quick-view',
@@ -2472,7 +2502,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('shows the OTP add action and a compact non-interactive SSH indicator', async () => {
-    const entryWithSecrets = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entryWithSecrets = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       id: 'entry-mobile-with-secrets',
       otps: [
         {
@@ -2491,7 +2521,7 @@ describe('PMEntryMobile', () => {
         },
       ],
     })
-    const entryWithoutSecrets = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entryWithoutSecrets = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       id: 'entry-mobile-without-secrets',
     })
 
@@ -2622,7 +2652,7 @@ describe('PMEntryMobile', () => {
       isReadOnly: () => false,
     } as unknown as typeof window.passmanager
 
-    const otpEntry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const otpEntry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       id: 'entry-mobile-add-otp-from-view',
     })
 
@@ -2647,7 +2677,7 @@ describe('PMEntryMobile', () => {
 
   it('saves otp snippet from the entry page', async () => {
     const addOTP = vi.fn(async () => {})
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     ;(entry as Entry & {addOTP: typeof addOTP}).addOTP = addOTP
     setRuntimeCapabilities({
       platform: 'android',
@@ -2712,7 +2742,7 @@ describe('PMEntryMobile', () => {
 
   it('accepts otp secret entered through the embedded form inputs before save', async () => {
     const addOTP = vi.fn(async () => {})
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     ;(entry as Entry & {addOTP: typeof addOTP}).addOTP = addOTP
 
     window.passmanager = {
@@ -2760,7 +2790,7 @@ describe('PMEntryMobile', () => {
 
   it('cancels the otp sheet when it closes', async () => {
     const addOTP = vi.fn(async () => {})
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}])
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     ;(entry as Entry & {addOTP: typeof addOTP}).addOTP = addOTP
 
     window.passmanager = {
@@ -2794,7 +2824,7 @@ describe('PMEntryMobile', () => {
   })
 
   it('shows a compact related SSH indicator without a navigation action', async () => {
-    const entry = createEntry([{match: 'domain', value: 'https://1ccloud.ru'}], {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}], {
       sshKeys: [
         {
           id: 'ssh-1',

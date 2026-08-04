@@ -8,11 +8,7 @@ import type {
   MobileUsbPendingAction,
   MobileUsbScanClassificationKind,
 } from './remote-usb-flow.model'
-import {
-  renderBackLink,
-  renderRemoteFlowFrame,
-  type RemoteHostsFlowRenderContext,
-} from './remote-hosts-flow.render.shared'
+import {renderBackLink, type RemoteHostsFlowRenderContext} from './remote-hosts-flow.render.shared'
 
 export function renderUsbMobilePanel(ctx: RemoteHostsFlowRenderContext): TemplateResult {
   const usb = ctx.model.usb
@@ -20,7 +16,7 @@ export function renderUsbMobilePanel(ctx: RemoteHostsFlowRenderContext): Templat
   const scanResults = usb.scannedHostViews()
   const pairedHosts = usb.pairedHostViews()
   const flowState = usb.flowState()
-  const actionBusy = usb.actionBusy()
+  const actionBusy = ctx.model.connectionOperationBusy()
   const pendingAction = usb.pendingAction()
   const errorCode = usb.activeErrorCode()
   const recoveryAction = usb.recoveryAction()
@@ -370,10 +366,7 @@ export function renderUsbMobilePanel(ctx: RemoteHostsFlowRenderContext): Templat
     </div>
   `
 
-  return html`
-    ${renderBackLink(ctx.ui.pairBackLink)}
-    ${ctx.ui.welcomeFrame ? renderRemoteFlowFrame(ctx, 'usb', content) : content}
-  `
+  return html` ${renderBackLink(ctx.ui.pairBackLink)} ${content} `
 }
 
 function renderUsbDetectedDevicesPanel(ctx: RemoteHostsFlowRenderContext): TemplateResult | typeof nothing {
@@ -381,7 +374,7 @@ function renderUsbDetectedDevicesPanel(ctx: RemoteHostsFlowRenderContext): Templ
   const detected = usb.detectedDeviceViews()
   if (!detected.length) return nothing
 
-  const actionBusy = usb.actionBusy()
+  const actionBusy = ctx.model.connectionOperationBusy()
   const pendingAction = usb.pendingAction()
 
   return html`
@@ -407,7 +400,7 @@ function renderUsbDetectedDevicesPanel(ctx: RemoteHostsFlowRenderContext): Templ
                 </div>
                 <div class="remote-peer-meta">
                   ${pairedHostId
-                    ? device.connectable
+                    ? device.pairingState === 'confirmed'
                       ? i18n('remote:usb-mobile-detected-paired-as', {
                           label: device.pairedLabel ?? pairedHostId,
                         })
@@ -416,7 +409,7 @@ function renderUsbDetectedDevicesPanel(ctx: RemoteHostsFlowRenderContext): Templ
                 </div>
               </div>
               <div class="remote-peer-actions">
-                ${device.connectable && pairedHostId
+                ${device.pairingState === 'confirmed' && pairedHostId
                   ? html`
                       <cv-button
                         variant="primary"

@@ -1,1 +1,7 @@
-export {PMSummaryRail, pmSummaryRailStyles, type PMSummaryRailItem, type PMSummaryRailTone} from './summary-rail'
+export {
+  PMSummaryRail,
+  pmSummaryRailStyles,
+  type PMSummaryRailDensity,
+  type PMSummaryRailItem,
+  type PMSummaryRailTone,
+} from './summary-rail'

@@ -15,10 +15,8 @@ import {Group} from './group'
 import {OTP} from './otp'
 import type {Icon} from './icon'
 import {notify} from './notify'
-import {
-  parseCredentialSecurityAuditArtifact,
-  type CredentialSecurityAuditArtifactV1,
-} from './security-audit'
+import type {MutationPresentation} from './mutation-presentation'
+import {parseCredentialSecurityAuditArtifact, type CredentialSecurityAuditArtifactV1} from './security-audit'
 import {
   createEntryFilterMatcher,
   filterValue,
@@ -49,6 +47,7 @@ import type {
   PassManagerRootV3Entry,
   PassManagerRootV4,
   PassManagerSshKey,
+  PaymentCardCreationSecrets,
   PaymentCardMeta,
   OTPOptions,
   TGroupActions,
@@ -181,9 +180,10 @@ async function normalizeRootSshKeys(
     for (const value of raw.sshKeys) {
       if (!value || typeof value !== 'object') continue
       const rawId = typeof (value as {id?: unknown}).id === 'string' ? (value as {id: string}).id.trim() : ''
-      const id = isValidSshKeyId(rawId) && !usedIds.has(rawId)
-        ? rawId
-        : `migrated-${(await sha256(`${entry.id}:${rawId}`)).slice(0, 32)}`
+      const id =
+        isValidSshKeyId(rawId) && !usedIds.has(rawId)
+          ? rawId
+          : `migrated-${(await sha256(`${entry.id}:${rawId}`)).slice(0, 32)}`
       const key = normalizeSshKey(value, entry.id, id)
       if (!key || usedIds.has(key.id)) {
         throw new Error('Invalid legacy SSH key metadata')
@@ -195,17 +195,14 @@ async function normalizeRootSshKeys(
   return keys
 }
 
-export const ALGORITHMS: Array<Algorithm> = [
-  'SHA1',
-  'SHA256',
-  'SHA512',
-]
+export const ALGORITHMS: Array<Algorithm> = ['SHA1', 'SHA256', 'SHA512']
 
 export const ENCODINGS: Array<Encoding> = ['base16', 'base32', 'base64', 'utf-8']
 
 export const ROOT_ID = 'root'
 
 export {Group}
+export type {GroupSaveChangesInput, GroupSaveChangesResult} from './group'
 export interface IGroup {
   id: string
   createdTs: number
@@ -238,10 +235,7 @@ function downloadJSONBrowser(jsonStr: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-async function downloadJSON(
-  jsonData: unknown,
-  filename = 'passmanager-export.json',
-): Promise<boolean> {
+async function downloadJSON(jsonData: unknown, filename = 'passmanager-export.json'): Promise<boolean> {
   const jsonStr = JSON.stringify(jsonData, null, 2)
 
   const tauriInternals = (globalThis as unknown as {__TAURI_INTERNALS__?: {invoke?: unknown}})
@@ -295,7 +289,15 @@ export class ManagerRoot implements TGroupActions {
   isReadOnly = atom(false)
   isEditMode = atom(false)
   showElement = atom<
-    ManagerRoot | Group | Entry | 'createGroup' | 'createEntry' | 'importDialog' | 'otpView' | 'sshView' | 'envRuntimeView'
+    | ManagerRoot
+    | Group
+    | Entry
+    | 'createGroup'
+    | 'createEntry'
+    | 'importDialog'
+    | 'otpView'
+    | 'sshView'
+    | 'envRuntimeView'
   >(this)
   updatedTs = atom(Date.now())
   createdTs = atom(Date.now())
@@ -335,6 +337,15 @@ export class ManagerRoot implements TGroupActions {
     if (this._pendingEntryUpdates > 0) {
       this._pendingEntryUpdates--
     }
+    this.flushDeferredLoad()
+  }
+
+  private flushDeferredLoad(): void {
+    if (!this._loadRequestedDuringSave || this._saving || this._pendingEntryUpdates > 0) {
+      return
+    }
+    this._loadRequestedDuringSave = false
+    void this.load()
   }
 
   get isShowRoot() {
@@ -345,65 +356,68 @@ export class ManagerRoot implements TGroupActions {
     return this.entries() ?? []
   }
 
-  sorted = computed(
-    () => {
-      return (
-        this.entriesList()?.sort((a, b) => {
-          if (a instanceof Entry && b instanceof Entry) {
-            return a.title.localeCompare(b.title)
-          }
-          if (a instanceof Entry) {
-            return 1
-          }
-          if (b instanceof Entry) {
-            return -1
-          }
-          if (a instanceof Group && b instanceof Group) {
-            const Asearched = peek(a.entries)
-            const Bsearched = peek(b.entries)
+  sorted = computed(() => {
+    return (
+      this.entriesList()?.sort((a, b) => {
+        if (a instanceof Entry && b instanceof Entry) {
+          return a.title.localeCompare(b.title)
+        }
+        if (a instanceof Entry) {
+          return 1
+        }
+        if (b instanceof Entry) {
+          return -1
+        }
+        if (a instanceof Group && b instanceof Group) {
+          const Asearched = peek(a.entries)
+          const Bsearched = peek(b.entries)
 
-            if (Asearched.length === 0 && Bsearched.length === 0) {
-              return a.name.localeCompare(b.name)
-            }
-            if (Asearched.length === 0) {
-              return 1
-            }
-            if (Bsearched.length === 0) {
-              return -1
-            }
-
+          if (Asearched.length === 0 && Bsearched.length === 0) {
             return a.name.localeCompare(b.name)
           }
-          return 0
-        }) ?? []
-      )
-    },
-    'sorted',
-  )
+          if (Asearched.length === 0) {
+            return 1
+          }
+          if (Bsearched.length === 0) {
+            return -1
+          }
 
-  searched = computed(
-    () => {
-      const fv = filterValue()
-      const qf = quickFilters()
-      const selectedTags = getEffectiveSelectedCredentialTagFilters(this.allEntries, this.credentialTags())
-      const matches = createEntryFilterMatcher(fv, qf, Date.now(), selectedTags)
+          return a.name.localeCompare(b.name)
+        }
+        return 0
+      }) ?? []
+    )
+  }, 'sorted')
 
-      return this.sorted().filter((item) => {
-        if (item instanceof Entry) {
-          return matches(item)
-        }
-        const searched = item.searched()
-        if (fv || qf.length || selectedTags.length) {
-          return searched.length
-        }
-        return true
-      })
-    },
-    'searched',
-  )
+  searched = computed(() => {
+    const fv = filterValue()
+    const qf = quickFilters()
+    const selectedTags = getEffectiveSelectedCredentialTagFilters(this.allEntries, this.credentialTags())
+    const matches = createEntryFilterMatcher(fv, qf, Date.now(), selectedTags)
+
+    return this.sorted().filter((item) => {
+      if (item instanceof Entry) {
+        return matches(item)
+      }
+      const searched = item.searched()
+      if (fv || qf.length || selectedTags.length) {
+        return searched.length
+      }
+      return true
+    })
+  }, 'searched')
 
   setShowElement(
-    item: ManagerRoot | Group | Entry | 'createGroup' | 'createEntry' | 'importDialog' | 'otpView' | 'sshView' | 'envRuntimeView',
+    item:
+      | ManagerRoot
+      | Group
+      | Entry
+      | 'createGroup'
+      | 'createEntry'
+      | 'importDialog'
+      | 'otpView'
+      | 'sshView'
+      | 'envRuntimeView',
     target?: Group,
   ) {
     this.createTarget = target
@@ -567,7 +581,10 @@ export class ManagerRoot implements TGroupActions {
     })
   }
 
-  createGroup(data: Pick<IGroup, 'name' | 'description' | 'icon' | 'iconRef'> & {entries: Entry[]}) {
+  async createGroup(
+    data: Pick<IGroup, 'name' | 'description' | 'icon' | 'iconRef'> & {entries: Entry[]},
+    {presentation = 'auto'}: {presentation?: MutationPresentation} = {},
+  ): Promise<Group | undefined> {
     const isUniq = this.isUniqName(data.name)
     if (!isUniq) {
       void showPassManagerAlert({
@@ -584,16 +601,43 @@ export class ManagerRoot implements TGroupActions {
       icon: undefined,
       iconRef: data.iconRef,
     })
-    this.entries.set([group, ...(this.entriesList() ?? [])])
+    const previousEntries = this.entriesList() ?? []
+    const previousShowElement = this.showElement()
+    this.entries.set([group, ...previousEntries])
     this.updatedTs.set(Date.now())
-    this.save()
+    const saved = await wrap(this.save())
+    if (saved !== true) {
+      this.entries.set(previousEntries)
+      if (this.showElement() === group) this.showElement.set(previousShowElement)
+      throw new Error('Failed to create group')
+    }
+    if (presentation === 'auto') {
+      if (this.showElement() === previousShowElement) this.showElement.set(group)
+      this.notifyCreatedGroup()
+    }
+    return group
+  }
+
+  presentCreatedGroup(group: Group): void {
     this.showElement.set(group)
+    this.notifyCreatedGroup()
+  }
+
+  private notifyCreatedGroup(): void {
     try {
-      notify.success(i18n('notify:createGroup:success'))
+      notify.success(i18n('notify:createGroup:success'), undefined, {
+        key: 'passmanager.group.create',
+      })
     } catch {}
   }
 
-  createEntry(data: Partial<IEntry>, password: string, note: string, otps: OTPOptions | undefined) {
+  createEntry(
+    data: Partial<IEntry>,
+    password: string,
+    note: string,
+    otps: OTPOptions | undefined,
+    paymentCardSecrets?: PaymentCardCreationSecrets,
+  ) {
     this.updatedTs.set(Date.now())
     logger.debug('[PassManager] createEntry', {
       data: {
@@ -608,17 +652,18 @@ export class ManagerRoot implements TGroupActions {
       hasOtp: Boolean(otps),
     })
 
-    const entry = Entry.create(this.createTarget ?? this, data, password, note, otps)
-
-    void this.save()
-    void entry.flushPendingPersistence()
-
-    this.showElement.set(entry)
-    try {
-      notify.success(i18n('notify:createEntry:success'))
-    } catch {}
+    const entry = Entry.create(this.createTarget ?? this, data, password, note, otps, paymentCardSecrets)
     this.createTarget = undefined
     return entry
+  }
+
+  presentCreatedEntry(entry: Entry): void {
+    this.showElement.set(entry)
+    try {
+      notify.success(i18n('notify:createEntry:success'), undefined, {
+        key: 'passmanager.entry.create',
+      })
+    } catch {}
   }
 
   addEntry(entry: Entry) {
@@ -652,35 +697,38 @@ export class ManagerRoot implements TGroupActions {
     return Boolean(await this.save())
   }
 
-  async save() {
+  save(): Promise<unknown> {
     if (this._savePromise) {
       // Another save is already running. Mark pending so it re-saves
       // with the latest model state when the current one finishes.
       this._savePending = true
       return this._savePromise
     }
-    return this._executeSave()
+
+    let resolveCycle!: (value: unknown) => void
+    let rejectCycle!: (reason?: unknown) => void
+    const cycle = new Promise<unknown>((resolve, reject) => {
+      resolveCycle = resolve
+      rejectCycle = reject
+    })
+    this._savePromise = cycle
+    void this._executeSaveCycle().then(resolveCycle, rejectCycle)
+    return cycle
   }
 
-  private async _executeSave(): Promise<unknown> {
+  private async _executeSaveCycle(): Promise<unknown> {
     this._saving = true
-    this._savePending = false
+    let result: unknown
     try {
-      this._savePromise = this.apiSave(SAVE_KEY)
-      return await this._savePromise
+      do {
+        this._savePending = false
+        result = await this.apiSave(SAVE_KEY)
+      } while (this._savePending)
+      return result
     } finally {
       this._savePromise = null
-      if (this._savePending) {
-        // A save was requested during this one. Re-run with latest model
-        // state. Keep _saving = true so load() stays blocked between saves.
-        void this._executeSave()
-      } else {
-        this._saving = false
-        if (this._loadRequestedDuringSave) {
-          this._loadRequestedDuringSave = false
-          void this.load()
-        }
-      }
+      this._saving = false
+      this.flushDeferredLoad()
     }
   }
 
@@ -846,7 +894,9 @@ export class ManagerRoot implements TGroupActions {
       let parsed: PassManagerRootV2 | PassManagerRootV3 | PassManagerRootV4 | undefined = undefined
       let credentialSecurityAudit: CredentialSecurityAuditArtifactV1 | undefined
       if (typeof data === 'string') {
-        parsed = JSON.parse(data || '{"version":4,"folders":[],"entries":[],"sshKeys":[],"createdTs":0,"updatedTs":0}')
+        parsed = JSON.parse(
+          data || '{"version":4,"folders":[],"entries":[],"sshKeys":[],"createdTs":0,"updatedTs":0}',
+        )
       } else if (typeof data === 'object' && data) {
         parsed = data as PassManagerRootV2 | PassManagerRootV3 | PassManagerRootV4
         credentialSecurityAudit = parseCredentialSecurityAuditArtifact(
@@ -988,7 +1038,7 @@ export class ManagerRoot implements TGroupActions {
         const entryCreatedTs = normalizeTimestampMs(
           typeof rawCreatedTs === 'number' || typeof rawCreatedTs === 'string'
             ? rawCreatedTs
-            : prev?.createdTs ?? entryUpdatedTs,
+            : (prev?.createdTs ?? entryUpdatedTs),
         )
         const entryTags = normalizeCredentialTags(rawItem['tags'])
         entryCatalogTags.push(...entryTags)
@@ -1107,7 +1157,9 @@ export class ManagerRoot implements TGroupActions {
       dataReceived = true
       console.error(e)
       try {
-        notify.error(i18n('notify:load:error'))
+        notify.error(i18n('notify:load:error'), undefined, {
+          key: 'passmanager.vault.load',
+        })
       } catch {}
     } finally {
       if (isInitialLoad && dataReceived) {
@@ -1140,9 +1192,14 @@ export class ManagerRoot implements TGroupActions {
     }
     this._allowEmptyOverwrite = true
     this.clean()
-    this.save()
+    const saved = await wrap(this.save())
+    if (saved !== true) {
+      throw new Error('Failed to clear PassManager vault')
+    }
     try {
-      notify.success(i18n('notify:clean:success'))
+      notify.success(i18n('notify:clean:success'), undefined, {
+        key: 'passmanager.vault.clean',
+      })
     } catch {}
     return true
   }
@@ -1174,11 +1231,16 @@ export class ManagerRoot implements TGroupActions {
           return Group.import(item)
         })
         this.entries.set(result)
-        this.save()
+        const saved = await wrap(this.save())
+        if (saved !== true) {
+          throw new Error('Failed to import PassManager backup')
+        }
       }
 
       try {
-        notify.success(i18n('notify:import:success'))
+        notify.success(i18n('notify:import:success'), undefined, {
+          key: 'passmanager.vault.import',
+        })
       } catch {}
     } catch (e) {
       await showPassManagerAlert({
@@ -1187,7 +1249,9 @@ export class ManagerRoot implements TGroupActions {
         variant: 'danger',
       })
       try {
-        notify.error(i18n('notify:import:error'))
+        notify.error(i18n('notify:import:error'), undefined, {
+          key: 'passmanager.vault.import',
+        })
       } catch {}
     }
   }
@@ -1223,14 +1287,18 @@ export class ManagerRoot implements TGroupActions {
       createdTs: this.createdTs(),
       updatedTs: this.updatedTs(),
       folders: Array.from(folders).sort(),
-      foldersMeta: Array.from(foldersMeta.values()).sort((left, right) => left.path.localeCompare(right.path)),
+      foldersMeta: Array.from(foldersMeta.values()).sort((left, right) =>
+        left.path.localeCompare(right.path),
+      ),
       entries,
     }
 
     const saved = await downloadJSON(data)
     if (!saved) return
     try {
-      notify.success(i18n('notify:export:success'))
+      notify.success(i18n('notify:export:success'), undefined, {
+        key: 'passmanager.vault.export',
+      })
     } catch {}
   }
 

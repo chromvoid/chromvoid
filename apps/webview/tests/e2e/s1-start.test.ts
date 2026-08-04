@@ -1,5 +1,6 @@
 import {expect, test} from 'vitest'
 import type {Page} from 'playwright'
+import {waitForAuthenticated} from './utils'
 
 declare global {
   var __E2E_PAGE__: Page | undefined
@@ -11,12 +12,7 @@ test('S1: Start → file-manager', async () => {
 
   // waiting for a basic render
   await page.waitForSelector('chromvoid-app')
-
-  // With an active backend, we immediately go to dashboard.
-  await page.waitForFunction(() => {
-    const router = (window as any).router
-    return !!router && typeof router.route === 'function' && router.route() === 'dashboard'
-  })
+  await waitForAuthenticated(page)
 
   // Check the main elements
   expect(await page.$('status-bar')).toBeNull()

@@ -92,12 +92,6 @@ export const notesQuickViewHeaderControlsModel: WorkspaceDashboardHeaderControls
   },
 }
 
-export const notesQuickViewMobileHeaderControlsModel: WorkspaceDashboardHeaderControlsModel = {
-  search: notesQuickViewHeaderControlsModel.search,
-  filters: notesQuickViewHeaderControlsModel.filters,
-  summary: notesQuickViewHeaderControlsModel.summary,
-}
-
 export function defineNotesQuickViewUikitControls(): void {
   CVButton.define()
   WorkspaceDashboardHeader.define()

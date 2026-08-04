@@ -1,10 +1,16 @@
 import {describe, expect, it} from 'vitest'
 
-import {type Entry, ManagerRoot, type OTPOptions, type PassManagerRootV2} from '@project/passmanager'
+import {
+  type Entry,
+  ManagerRoot,
+  type OTPOptions,
+  type PassManagerCreateEntryPayload,
+  type PassManagerRootV2,
+} from '@project/passmanager'
 
 class MemorySaver {
   private rootValue: string | undefined
-  private meta = new Map<string, unknown>()
+  protected readonly meta = new Map<string, PassManagerCreateEntryPayload['meta']>()
 
   async save(_key: string, value: File): Promise<boolean> {
     const anyValue = value as unknown as {text?: () => Promise<string>}
@@ -14,7 +20,14 @@ class MemorySaver {
   }
 
   async read<T = unknown>(_key: string): Promise<T | undefined> {
-    return this.rootValue as unknown as T | undefined
+    const pointCreatedRoot = JSON.stringify({
+      version: 2,
+      createdTs: Date.now(),
+      updatedTs: Date.now(),
+      folders: [],
+      entries: Array.from(this.meta.values()),
+    })
+    return (this.rootValue ?? pointCreatedRoot) as T | undefined
   }
 
   async remove(_key: string): Promise<boolean> {
@@ -33,6 +46,11 @@ class MemorySaver {
     return true
   }
   async saveOTP(_id: string, _secret: string): Promise<boolean> {
+    return true
+  }
+
+  async createEntry(data: PassManagerCreateEntryPayload): Promise<boolean> {
+    this.meta.set(data.meta.id, data.meta)
     return true
   }
 
@@ -80,12 +98,12 @@ function createTestOtp(): OTPOptions {
 }
 
 class OtpMetaFailSaver extends MemorySaver {
-  saveEntryMetaCalls = 0
+  createEntryCalls = 0
   saveOtpCalls = 0
 
-  async saveEntryMeta(data: {id: string}): Promise<boolean> {
+  async createEntry(data: PassManagerCreateEntryPayload): Promise<boolean> {
     void data
-    this.saveEntryMetaCalls += 1
+    this.createEntryCalls += 1
     return false
   }
 
@@ -126,6 +144,19 @@ class FullRoundTripSaver extends MemorySaver {
   private notes = new Map<string, string>()
   private otpSecrets = new Map<string, string>()
 
+  async createEntry(data: PassManagerCreateEntryPayload): Promise<boolean> {
+    await super.createEntry(data)
+    if (data.entryType === 'login') {
+      if (data.secrets.password !== undefined) {
+        this.passwords.set(data.meta.id, data.secrets.password)
+      }
+      if (data.secrets.note !== undefined) {
+        this.notes.set(data.meta.id, data.secrets.note)
+      }
+    }
+    return true
+  }
+
   async saveEntryPassword(entryId: string, password: string | null): Promise<boolean> {
     if (password === null) {
       this.passwords.delete(entryId)
@@ -163,14 +194,13 @@ class FullRoundTripSaver extends MemorySaver {
 }
 
 describe('PassManager persistence regression', () => {
-  it('root.createEntry triggers root save (SAVE_KEY) so entry survives reload', async () => {
+  it('entry persistence flush makes point-created metadata available for reload', async () => {
     const saver = new MemorySaver() as any
     const pm1 = new ManagerRoot(saver)
     pm1.entries.set([])
 
     const entry = pm1.createEntry({title: 'Example', username: 'u', urls: []}, 'p', 'n', undefined)
     await entry.flushPendingPersistence()
-    await pm1.save()
 
     const pm2 = new ManagerRoot(saver)
     pm2.entries.set([])
@@ -305,13 +335,12 @@ describe('PassManager persistence regression', () => {
     expect(await reloaded.note()).toBe('note-meta')
   })
 
-
-  it('skips secret writes when saveEntryMeta fails', async () => {
+  it('does not issue legacy secret writes when atomic create fails', async () => {
     class MetaFailSaver extends MemorySaver {
       passwordCalls = 0
       noteCalls = 0
 
-      async saveEntryMeta(): Promise<boolean> {
+      async createEntry(): Promise<boolean> {
         return false
       }
 
@@ -331,21 +360,22 @@ describe('PassManager persistence regression', () => {
     pm.entries.set([])
 
     const entry = pm.createEntry({title: 'Blocked', username: 'u', urls: []}, 'secret', 'note', undefined)
-    await entry.flushPendingPersistence()
+    await expect(entry.flushPendingPersistence()).rejects.toThrow('createEntry failed')
 
     expect((saver as MetaFailSaver).passwordCalls).toBe(0)
     expect((saver as MetaFailSaver).noteCalls).toBe(0)
   })
 
-  it('does not expose OTP or write secret when OTP meta save fails', async () => {
+  it('does not expose OTP and compensates its sidecar when entry create fails', async () => {
     const saver = new OtpMetaFailSaver() as any
     const pm = new ManagerRoot(saver)
     pm.entries.set([])
 
     const entry = pm.createEntry({title: 'OtpMetaFail', username: 'u', urls: []}, 'p', 'n', createTestOtp())
-    await entry.flushPendingPersistence()
+    await expect(entry.flushPendingPersistence()).rejects.toThrow('createEntry failed')
 
-    expect((saver as OtpMetaFailSaver).saveOtpCalls).toBe(0)
+    expect((saver as OtpMetaFailSaver).saveOtpCalls).toBe(1)
+    expect((saver as OtpMetaFailSaver).createEntryCalls).toBe(1)
     expect(entry.otps().length).toBe(0)
   })
 
@@ -371,6 +401,19 @@ class TrackingSecretsSaver extends MemorySaver {
   notes = new Map<string, string>()
   passwordSaveCalls = 0
   noteSaveCalls = 0
+
+  async createEntry(data: PassManagerCreateEntryPayload): Promise<boolean> {
+    await super.createEntry(data)
+    if (data.entryType === 'login') {
+      if (data.secrets.password !== undefined) {
+        this.passwords.set(data.meta.id, data.secrets.password)
+      }
+      if (data.secrets.note !== undefined) {
+        this.notes.set(data.meta.id, data.secrets.note)
+      }
+    }
+    return true
+  }
 
   async saveEntryPassword(entryId: string, password: string | null): Promise<boolean> {
     if (password === null) {

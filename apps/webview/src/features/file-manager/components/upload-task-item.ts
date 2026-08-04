@@ -174,6 +174,12 @@ export class UploadTaskItem extends ReatomLitElement {
         flex-wrap: wrap;
       }
 
+      .task-error {
+        margin: 0;
+        color: var(--cv-color-danger);
+        line-height: 1.4;
+      }
+
       .task-meta-actions {
         display: flex;
         gap: 8px;
@@ -328,7 +334,7 @@ export class UploadTaskItem extends ReatomLitElement {
         ></cv-progress>
 
         <div class="task-details">
-          ${isIndeterminate
+          ${isIndeterminate || total <= 0
             ? nothing
             : html`
                 <div class="task-size-row">
@@ -338,6 +344,9 @@ export class UploadTaskItem extends ReatomLitElement {
                   <div class="task-progress-value"><bdi dir="ltr">${Math.round(displayedProgress)}%</bdi></div>
                 </div>
               `}
+          ${status === 'error' && t.errorMessage()
+            ? html`<p class="task-error" aria-live="polite">${t.errorMessage()}</p>`
+            : nothing}
           <div class="task-meta">
             <div class="task-meta-info">
               ${t.kind === 'transfer' && t.speed()

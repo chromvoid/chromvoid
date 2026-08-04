@@ -44,6 +44,7 @@ import {entryMobileStyles, paymentCardFaceMobileStyles} from './styles'
 import {PMEntryOTPCreate, PMEntryOTPCreateSheet} from '../entry-otp-create'
 import {pmEntryTagsStyles} from '../entry-tags/entry-tags.styles'
 import {PMEntryOTPItem} from '../pm-entry-otp-item'
+import {PMEntryWebsiteEditor} from '../entry-website-editor'
 
 export class PMEntryMobile extends PMEntryBase {
   protected override readonly model = new PMEntryEditModel()
@@ -58,6 +59,7 @@ export class PMEntryMobile extends PMEntryBase {
       customElements.define('pm-entry-mobile', this)
       CVInput.define()
       CVTextarea.define()
+      PMEntryWebsiteEditor.define()
       PMEntryOTPCreate.define()
       PMEntryOTPCreateSheet.define()
       PMEntryOTPItem.define()
@@ -317,7 +319,9 @@ export class PMEntryMobile extends PMEntryBase {
 
   private handleSaveInlineEdit() {
     if (!(this.entry instanceof Entry)) return
-    void this.model.saveInlineEdit(this.entry)
+    void this.model.saveInlineEdit(this.entry).then((saved) => {
+      if (!saved) this.focusFirstInvalidWebsite()
+    })
   }
 
   private handleCancelEntryEdit() {
@@ -327,7 +331,13 @@ export class PMEntryMobile extends PMEntryBase {
 
   private handleSaveEntryEdit() {
     if (!(this.entry instanceof Entry)) return
-    void this.model.saveEntryEdit(this.entry)
+    void this.model.saveEntryEdit(this.entry).then((saved) => {
+      if (!saved) this.focusFirstInvalidWebsite()
+    })
+  }
+
+  private focusFirstInvalidWebsite(): void {
+    this.shadowRoot?.querySelector<PMEntryWebsiteEditor>('pm-entry-website-editor')?.focusFirstInvalid()
   }
 
   private handleAddMissingOtpInEntryView() {

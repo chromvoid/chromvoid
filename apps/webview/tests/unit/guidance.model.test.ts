@@ -17,6 +17,7 @@ const BASE_CAPABILITIES: RuntimeCapabilities = {
   supports_volume: false,
   supports_gateway: false,
   supports_network_remote: true,
+  supports_external_pro: true,
   supports_biometric: false,
   supports_autofill: false,
   supports_media_stream_protocol: false,

@@ -30,14 +30,34 @@ function createMockSaver(overrides: Partial<ManagerSaver> = {}): ManagerSaver {
     saveEntrySshPublicKey: vi.fn(async () => true),
     removeEntrySshPrivateKey: vi.fn(async () => true),
     removeEntrySshPublicKey: vi.fn(async () => true),
+    createEntry: vi.fn(async () => true),
     saveEntryMeta: vi.fn(async () => true),
     moveEntryToGroup: vi.fn(async () => true),
     removeEntry: vi.fn(async () => true),
+    removeGroup: vi.fn(async () => undefined),
     ...overrides,
   }
 }
 
 describe('group description', () => {
+  it('keeps automatic group presentation by default and supports deferred presentation', async () => {
+    const root = new ManagerRoot(createMockSaver())
+
+    const automatic = await root.createGroup({name: 'automatic', entries: []})
+    expect(root.showElement()).toBe(automatic)
+
+    root.showElement.set(root)
+    const deferred = await root.createGroup(
+      {name: 'deferred', entries: []},
+      {presentation: 'defer'},
+    )
+    expect(root.showElement()).toBe(root)
+
+    if (!deferred) throw new Error('expected deferred group')
+    root.presentCreatedGroup(deferred)
+    expect(root.showElement()).toBe(deferred)
+  })
+
   it('save/load roundtrip preserves normalized group description', async () => {
     let savedText = ''
     const saver = createMockSaver({

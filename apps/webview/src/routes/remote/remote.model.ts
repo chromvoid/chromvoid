@@ -240,7 +240,7 @@ export interface MobileUsbScannedHost {
 export interface MobileUsbDetectedPairedMatch {
   host_id: string
   label: string
-  connectable: boolean
+  pairing_state: 'confirmed' | 'incomplete'
 }
 
 /** Passive inventory entry from `mobile_usb_detect`: descriptors only, no AOA side effects. */

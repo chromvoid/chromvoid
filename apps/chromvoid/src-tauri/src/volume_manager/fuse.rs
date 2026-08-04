@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -137,7 +137,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{FuseDriverStatus, detect_macos_fuse_driver_at};
+    use super::{detect_macos_fuse_driver_at, FuseDriverStatus};
 
     #[test]
     fn macfuse_detection_requires_executable_mount_helper() {

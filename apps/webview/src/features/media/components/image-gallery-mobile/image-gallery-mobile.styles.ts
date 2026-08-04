@@ -614,11 +614,8 @@ export const imageGalleryMobileTrackStyles = [
     }
 
     .image-shell {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      max-inline-size: 100%;
-      max-block-size: 100%;
+      inline-size: 100%;
+      block-size: 100%;
     }
 
     .image-shell.active {
@@ -634,9 +631,11 @@ export const imageGalleryMobileTrackStyles = [
     }
 
     .gallery-image {
-      max-inline-size: 100%;
-      max-block-size: 100%;
+      display: block;
+      inline-size: 100%;
+      block-size: 100%;
       object-fit: contain;
+      object-position: center;
       user-select: none;
       -webkit-user-drag: none;
       pointer-events: none;
@@ -724,10 +723,16 @@ export const imageGalleryMobileThumbnailStripStyles = css`
     transform: translateY(-2px) scale(1.04);
   }
 
-  .thumb-button img {
+  .thumb-button::part(label) {
     inline-size: 100%;
     block-size: 100%;
-    object-fit: cover;
+  }
+
+  .thumb-button img {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: contain;
     pointer-events: none;
     transition: opacity var(--cv-duration-fast, 120ms) var(--cv-easing-standard, cubic-bezier(0.2, 0, 0, 1));
   }

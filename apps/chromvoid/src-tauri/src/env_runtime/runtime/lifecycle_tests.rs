@@ -441,7 +441,7 @@ mod unix_process_groups {
         command
             .arg("-c")
             .arg(script)
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
@@ -491,7 +491,9 @@ mod unix_process_groups {
     #[tokio::test]
     async fn graceful_group_stop_uses_term_and_leaves_no_descendant() {
         let _process_guard = PROCESS_GROUP_TEST_LOCK.lock().await;
-        let script = "trap 'wait \"$child\" 2>/dev/null || true; exit 0' TERM; (trap 'exit 0' TERM; while :; do :; done) & child=$!; printf '%s\\n' \"$child\"; wait \"$child\"";
+        // Preserve the pipe before starting the asynchronous list: POSIX shells
+        // otherwise redirect a background command's stdin from /dev/null.
+        let script = "trap 'wait \"$child\" 2>/dev/null || true; exit 0' TERM; exec 3<&0; /bin/sh -c 'trap \"exit 0\" TERM; printf \"%s\\n\" \"$$\"; read _ <&3' & child=$!; wait \"$child\"";
         let (mut child, process_group, descendant_id) = spawn_group(script).await;
         let mut guard = ProcessGroupGuard::new(process_group);
         let (events, mut receiver) = mpsc::channel(8);
@@ -504,7 +506,10 @@ mod unix_process_groups {
         .expect("graceful stop timeout")
         .expect("graceful exit status");
 
-        assert!(status.success() || status.signal() == Some(libc::SIGTERM));
+        assert!(
+            status.success() || status.signal() == Some(libc::SIGTERM),
+            "unexpected graceful exit status: {status:?}"
+        );
         assert_eq!(forwarded_signals(&mut receiver), vec![libc::SIGTERM]);
         assert_group_and_descendant_gone(process_group, descendant_id).await;
         guard.disarm();

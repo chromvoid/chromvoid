@@ -13,6 +13,10 @@ internal object AndroidKeyboardInsetsPhase {
     const val SETTLED = "settled"
 }
 
+internal object AndroidKeyboardViewportMode {
+    const val OVERLAY = "overlay"
+}
+
 internal data class AndroidKeyboardInsetsPayload(
     val visible: Boolean,
     val bottomInset: Int,
@@ -28,6 +32,7 @@ internal data class AndroidKeyboardInsetsPayload(
             .put("safeAreaBottomInset", safeAreaBottomInset.coerceAtLeast(0))
             .put("phase", phase)
             .put("source", "android-native")
+            .put("viewportMode", AndroidKeyboardViewportMode.OVERLAY)
 }
 
 internal fun androidInsetPxToCssPx(

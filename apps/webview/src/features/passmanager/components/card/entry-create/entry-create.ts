@@ -5,6 +5,7 @@ import {i18n} from '@project/passmanager/i18n'
 import {getPassmanagerRoot, isPassmanagerReadOnlyOrMissing} from 'root/features/passmanager/models/pm-root.adapter'
 import {PMIconPicker} from '../../pm-icon-picker'
 import {pmEntryTagsStyles} from '../entry-tags/entry-tags.styles'
+import {PMEntryWebsiteEditor} from '../entry-website-editor'
 import {PMEntryCreateBase} from './entry-create-base'
 import {pmEntryCardStyles, pmEntryGenerateStyles} from './styles'
 
@@ -425,6 +426,7 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
       customElements.define('pm-entry-create-desktop', this)
     }
     PMIconPicker.define()
+    PMEntryWebsiteEditor.define()
   }
 
   static styles = [pmEntryCardStyles, pmEntryGenerateStyles, pmEntryTagsStyles, pmEntryCreateBaseStyles, pmEntryCreateDesktopStyles]
@@ -599,7 +601,6 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
   private renderTitleSection(): TemplateResult {
     const entryType = this.model.entryType()
     const titleError = this.model.titleError()
-    const websiteError = this.model.websiteError()
 
     return html`
       <div class="section section-desktop-details">
@@ -640,23 +641,7 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
           ${entryType === 'login'
             ? html`
                 <div class="field-cell">
-                  <cv-field ?invalid=${Boolean(websiteError)}>
-                    <span slot="label">${i18n('website:title')}</span>
-                    <cv-input
-                      id="urls"
-                      type="text"
-                      size="small"
-                      name="urls"
-                      autocomplete="url"
-                      placeholder=${i18n('website:placeholder')}
-                      .value=${this.model.website()}
-                      @cv-input=${this.onUrlsInput}
-                      ?invalid=${Boolean(websiteError)}
-                    >
-                      <cv-icon slot="prefix" class="field-icon" name="globe"></cv-icon>
-                    </cv-input>
-                    ${websiteError ? html`<span slot="error" class="field-error">${websiteError}</span>` : nothing}
-                  </cv-field>
+                  <pm-entry-website-editor .model=${this.model.websiteEditor}></pm-entry-website-editor>
                 </div>
               `
             : nothing}
@@ -840,7 +825,7 @@ export class PMEntryCreateDesktop extends PMEntryCreateBase {
 
     return html`
       <cv-guidance-anchor anchor-id="passwords.create-entry" surface="passwords" owner="passmanager">
-        <form @submit=${this.onSubmit}>${this.renderFormBody()}</form>
+        <form novalidate @submit=${this.onSubmit}>${this.renderFormBody()}</form>
       </cv-guidance-anchor>
     `
   }

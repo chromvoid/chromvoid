@@ -104,6 +104,17 @@ export type CatalogFileReplaceResult = {
   mediaInspectedRevision?: number | null
 }
 
+export type CatalogUploadResult = {
+  nodeId: number
+  created?: boolean
+  size?: number
+  mimeType?: string | null
+  modtime?: number
+  sourceRevision?: number | null
+  mediaInfo?: FileMediaInfo | null
+  mediaInspectedRevision?: number | null
+}
+
 export type CatalogClientProtocol = {
   list(path: string, includeHidden?: boolean): Promise<{currentPath: string; items: unknown[]}>
   createDir(name: string, parentPath?: string): Promise<{nodeId: number}>
@@ -117,7 +128,7 @@ export type CatalogClientProtocol = {
       chunkSize?: number
       onProgress?: (c: number, t: number, p: number) => void
     },
-  ): Promise<{nodeId: number}>
+  ): Promise<CatalogUploadResult>
   download(nodeId: number): Promise<AsyncIterable<Uint8Array>>
   sourceMetadata(nodeId: number): Promise<CatalogSourceMetadata>
   inspectMediaInfo(nodeId: number): Promise<CatalogMediaInspectResult>
@@ -992,6 +1003,68 @@ export class CatalogService {
     }, delayMs)
   }
 
+  private reconcileCommittedFileWrite(
+    result: CatalogFileReplaceResult | CatalogUploadResult,
+    createdTarget?: {parentPath?: string; name: string},
+  ): void {
+    const {nodeId, size, modtime, sourceRevision} = result
+    if (
+      typeof size !== 'number' ||
+      !Number.isFinite(size) ||
+      typeof modtime !== 'number' ||
+      !Number.isFinite(modtime) ||
+      typeof sourceRevision !== 'number' ||
+      !Number.isFinite(sourceRevision)
+    ) {
+      this.queueRefresh(0)
+      return
+    }
+
+    const timestamp = modtime
+    const version = sourceRevision
+    const hasMediaInfo = Object.prototype.hasOwnProperty.call(result, 'mediaInfo')
+    const metadata = {
+      size,
+      modtime: timestamp,
+      sourceRevision: version,
+      ...(typeof result.mimeType === 'string' ? {mime: result.mimeType} : {}),
+      ...(typeof result.mediaInspectedRevision === 'number'
+        ? {mediaInspectedRevision: result.mediaInspectedRevision}
+        : {}),
+      ...(hasMediaInfo ? {mediaInfo: result.mediaInfo ?? null} : {}),
+    }
+
+    if ('created' in result && result.created && createdTarget && !this.mirror.getNode(nodeId)) {
+      this.mirror.applyEvent({
+        type: CatalogEventType.NODE_CREATED,
+        nodeId,
+        timestamp,
+        version,
+        metadata: {
+          ...metadata,
+          name: createdTarget.name,
+          parentPath: normalizePath(createdTarget.parentPath ?? '/'),
+          type: 1,
+          mimeType: result.mimeType ?? undefined,
+        },
+      })
+      return
+    }
+
+    if (!this.mirror.getNode(nodeId)) {
+      this.queueRefresh(0)
+      return
+    }
+
+    this.mirror.applyEvent({
+      type: CatalogEventType.NODE_UPDATED,
+      nodeId,
+      timestamp,
+      version,
+      metadata,
+    })
+  }
+
   private ensureClient(): void {
     if (this.client) return
 
@@ -1107,12 +1180,17 @@ export class CatalogService {
         }
         const blob = new Blob(chunks, {type: meta?.type ?? 'application/octet-stream'})
         const file = new File([blob], meta?.name ?? 'upload.bin', {type: blob.type})
-        return ws.uploadFile(target, file, {
+        const result = await ws.uploadFile(target, file, {
           name: meta?.name,
           type: meta?.type,
           chunkSize: meta?.chunkSize,
           onProgress: meta?.onProgress,
         })
+        this.reconcileCommittedFileWrite(
+          result,
+          typeof target === 'number' ? undefined : target,
+        )
+        return result
       },
       download: async (nodeId: number) => {
         return ws.downloadFile(nodeId)
@@ -1146,7 +1224,9 @@ export class CatalogService {
       },
       replaceFile: async (nodeId, bytes, options) => {
         if (ws.replaceFile) {
-          return ws.replaceFile(nodeId, bytes, options)
+          const result = await ws.replaceFile(nodeId, bytes, options)
+          this.reconcileCommittedFileWrite(result)
+          return result
         }
         return unsupportedReplaceFile()
       },

@@ -2,6 +2,7 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 import {css} from 'lit'
 
+import {i18n} from 'root/i18n'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 import {MobileSurfaceLayout} from 'root/shared/ui/mobile-surface-layout'
 import {mobileSurfaceLayoutFlexFillStyles} from 'root/shared/ui/mobile-surface-layout.styles'
@@ -94,7 +95,12 @@ export class FileManagerMobileLayout extends ReatomLitElement {
 
   protected render() {
     return html`
-      <div class="dashboard-wrapper">
+      <div
+        id="app.files.root"
+        class="dashboard-wrapper"
+        role="group"
+        aria-label=${i18n('navigation:files-description')}
+      >
         <mobile-surface-layout variant="flush" scroll="external">
           <div class="catalog">
             <div class="catalog-content">

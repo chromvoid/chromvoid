@@ -8,8 +8,13 @@ import {dialogService} from 'root/shared/services/dialog-service'
 import {pmActiveRowModel} from './models/pm-active-row.model'
 import {pmEntryEditorModel} from './models/pm-entry-editor.model'
 import {pmListViewportModel} from './models/pm-list-viewport.model'
-import {pmMotionModel, type PassmanagerMotionDirection} from './models/pm-motion.model'
+import {
+  pmMotionModel,
+  type PassmanagerMotionDirection,
+  type PassmanagerMotionReason,
+} from './models/pm-motion.model'
 import {getPassmanagerRoot, getPassmanagerShowElement, type PMRootShowElement} from './models/pm-root.adapter'
+import {pmNavigationMotion} from './passmanager-navigation-motion'
 import {subscribeToSignalChanges} from './service/subscribed-signal'
 
 type PMNavigationFrame = {
@@ -18,15 +23,6 @@ type PMNavigationFrame = {
 }
 
 type RouteListener = () => void
-
-function getParentGroupPath(path: string): string | undefined {
-  const index = path.lastIndexOf('/')
-  if (index < 0) {
-    return undefined
-  }
-
-  return path.slice(0, index) || undefined
-}
 
 function describeShowElement(showElement: unknown): string {
   if (showElement instanceof Entry) return `entry:${showElement.id}`
@@ -182,8 +178,8 @@ class PassmanagerNavigationController {
 
     switch (route.kind) {
       case 'root':
-        direction = this.getApplyRouteDirection(current, root)
-        target = this.targetForRoot(root)
+        direction = pmNavigationMotion.directionForRoute(current, root, getPassmanagerRoot())
+        target = pmNavigationMotion.targetForRoot(root)
         applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
@@ -194,8 +190,8 @@ class PassmanagerNavigationController {
       case 'group': {
         const group = this.findGroupByPath(route.groupPath)
         if (!group) return false
-        direction = this.getApplyRouteDirection(current, group)
-        target = this.targetForGroup(group)
+        direction = pmNavigationMotion.directionForRoute(current, group, getPassmanagerRoot())
+        target = pmNavigationMotion.targetForGroup(group)
         applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
@@ -208,7 +204,7 @@ class PassmanagerNavigationController {
         const entry = this.findEntryById(route.entryId)
         if (!entry) return false
         direction = current === entry ? 'none' : 'replace'
-        target = this.targetForEntry(entry)
+        target = pmNavigationMotion.targetForEntry(entry)
         applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
@@ -221,7 +217,7 @@ class PassmanagerNavigationController {
         const group = route.targetGroupPath ? this.findGroupByPath(route.targetGroupPath) : undefined
         direction =
           current === 'createEntry' && route.targetGroupPath === previousTargetGroupPath ? 'none' : 'open'
-        target = this.targetForCreateEntry(group)
+        target = pmNavigationMotion.targetForCreateEntry(group)
         applyRoute = () => {
           this.createEntryTargetGroupPath = route.targetGroupPath
           this.createGroupTargetGroupPath = undefined
@@ -235,7 +231,7 @@ class PassmanagerNavigationController {
         const group = route.targetGroupPath ? this.findGroupByPath(route.targetGroupPath) : undefined
         direction =
           current === 'createGroup' && route.targetGroupPath === previousTargetGroupPath ? 'none' : 'open'
-        target = this.targetForCreateGroup(group)
+        target = pmNavigationMotion.targetForCreateGroup(group)
         applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = route.targetGroupPath
@@ -246,7 +242,7 @@ class PassmanagerNavigationController {
       }
       case 'import':
         direction = current === 'importDialog' ? 'none' : 'open'
-        target = this.targetForImport()
+        target = pmNavigationMotion.targetForImport()
         applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
@@ -255,7 +251,7 @@ class PassmanagerNavigationController {
         break
       case 'otp-view':
         direction = current === 'otpView' ? 'none' : 'open'
-        target = this.targetForOtpView()
+        target = pmNavigationMotion.targetForOtpView()
         applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
@@ -264,7 +260,7 @@ class PassmanagerNavigationController {
         break
       case 'ssh-view':
         direction = current === 'sshView' ? 'none' : 'open'
-        target = this.targetForSshView()
+        target = pmNavigationMotion.targetForSshView()
         applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
@@ -273,7 +269,7 @@ class PassmanagerNavigationController {
         break
       case 'env-runtime-view':
         direction = current === 'envRuntimeView' ? 'none' : 'open'
-        target = this.targetForEnvRuntimeView()
+        target = pmNavigationMotion.targetForEnvRuntimeView()
         applyRoute = () => {
           this.createEntryTargetGroupPath = undefined
           this.createGroupTargetGroupPath = undefined
@@ -314,7 +310,7 @@ class PassmanagerNavigationController {
       (current instanceof Group && item instanceof Group && current.id === item.id) ||
       (current instanceof Entry && item instanceof Entry && current.id === item.id)
     ) {
-      this.runMotion('none', this.targetForItem(current), () => {})
+      this.runMotion('none', pmNavigationMotion.targetForItem(current), () => {})
       return
     }
 
@@ -336,11 +332,11 @@ class PassmanagerNavigationController {
       (current instanceof Group && item instanceof Group && current.id === item.id) ||
       (current instanceof Entry && item instanceof Entry && current.id === item.id)
     ) {
-      this.runMotion('none', this.targetForItem(current), () => {})
+      this.runMotion('none', pmNavigationMotion.targetForItem(current), () => {})
       return
     }
 
-    this.runMotion('forward', this.targetForItem(item), () => {
+    this.runMotion('forward', pmNavigationMotion.targetForItem(item), () => {
       pmEntryEditorModel.reset()
 
       if (current instanceof ManagerRoot || current instanceof Group) {
@@ -358,6 +354,74 @@ class PassmanagerNavigationController {
 
   consumeRestoreSelection(containerId: string): string | undefined {
     return pmActiveRowModel.getActive(containerId) ?? undefined
+  }
+
+  presentCreatedEntry(entry: Entry): void {
+    const root = getPassmanagerRoot()
+    if (!root || root.getEntry(entry.id) !== entry) return
+
+    this.runMotion(
+      'replace',
+      pmNavigationMotion.targetForEntry(entry),
+      () => {
+        this.createEntryTargetGroupPath = undefined
+        root.presentCreatedEntry(entry)
+      },
+      'create-success',
+    )
+  }
+
+  presentCreatedGroup(group: Group): void {
+    const root = getPassmanagerRoot()
+    if (!root || root.getGroup(group.id) !== group) return
+
+    this.runMotion(
+      'replace',
+      pmNavigationMotion.targetForGroup(group),
+      () => {
+        this.createGroupTargetGroupPath = undefined
+        root.presentCreatedGroup(group)
+      },
+      'create-success',
+    )
+  }
+
+  presentAfterDelete({
+    deletedId,
+    parent,
+    neighbourId,
+  }: {
+    deletedId: string
+    parent: Group | ManagerRoot
+    neighbourId?: string
+  }): void {
+    const root = getPassmanagerRoot()
+    if (!root || parent.root !== root) return
+
+    const updateSelection = () => {
+      for (let index = this.navigationStack.length - 1; index >= 0; index -= 1) {
+        if (this.navigationStack[index]?.selectedItemId === deletedId) {
+          this.navigationStack.splice(index, 1)
+        }
+      }
+      if (neighbourId) pmActiveRowModel.setActive(parent.id, neighbourId)
+      else pmActiveRowModel.clearContainer(parent.id)
+    }
+
+    if (root.showElement() === parent) {
+      this.runMotion('none', pmNavigationMotion.targetForContainer(parent), updateSelection)
+      return
+    }
+
+    this.runMotion(
+      'back',
+      pmNavigationMotion.targetForContainer(parent),
+      () => {
+        updateSelection()
+        root.showElement.set(parent)
+      },
+      'delete-success',
+    )
   }
 
   goBackFromCurrent(): boolean {
@@ -397,7 +461,7 @@ class PassmanagerNavigationController {
       current === 'sshView' ||
       current === 'envRuntimeView'
     ) {
-      this.runMotion('back', this.targetForRoot(root), () => {
+      this.runMotion('back', pmNavigationMotion.targetForRoot(root), () => {
         this.createEntryTargetGroupPath = undefined
         this.createGroupTargetGroupPath = undefined
         root.showElement.set(root)
@@ -423,7 +487,7 @@ class PassmanagerNavigationController {
     }
 
     if (stackMatch) {
-      this.runMotion('back', this.targetForContainer(stackMatch.target), () => {
+      this.runMotion('back', pmNavigationMotion.targetForContainer(stackMatch.target), () => {
         this.navigationStack.splice(stackMatch.index)
         pmActiveRowModel.setActive(stackMatch.frame.containerId, stackMatch.frame.selectedItemId)
         root.showElement.set(stackMatch.target)
@@ -433,7 +497,7 @@ class PassmanagerNavigationController {
 
     if (current instanceof Entry) {
       const parent = current.parent
-      this.runMotion('back', this.targetForContainer(parent), () => {
+      this.runMotion('back', pmNavigationMotion.targetForContainer(parent), () => {
         this.navigationStack.length = 0
         pmActiveRowModel.setActive(parent.id, current.id)
         root.showElement.set(parent)
@@ -441,8 +505,8 @@ class PassmanagerNavigationController {
       return true
     }
 
-    const parent = this.resolveParentContainer(current)
-    this.runMotion('back', this.targetForContainer(parent), () => {
+    const parent = pmNavigationMotion.parentFor(current)
+    this.runMotion('back', pmNavigationMotion.targetForContainer(parent), () => {
       this.navigationStack.length = 0
       pmActiveRowModel.setActive(parent.id, current.id)
       root.showElement.set(parent)
@@ -472,7 +536,7 @@ class PassmanagerNavigationController {
           ? current
           : undefined
 
-    this.runMotion('open', this.targetForCreateEntry(currentGroup), () => {
+    this.runMotion('open', pmNavigationMotion.targetForCreateEntry(currentGroup), () => {
       pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = currentGroup?.name
 
@@ -484,7 +548,7 @@ class PassmanagerNavigationController {
     })
   }
 
-  openCreateGroup(targetGroupPath?: string): void {
+  openCreateGroup(targetGroupPath?: string | null): void {
     const root = getPassmanagerRoot()
     if (!root || root.isReadOnly()) {
       return
@@ -497,16 +561,18 @@ class PassmanagerNavigationController {
     this.openCreateGroupNow(root, targetGroupPath)
   }
 
-  private openCreateGroupNow(root: ManagerRoot, targetGroupPath?: string): void {
+  private openCreateGroupNow(root: ManagerRoot, targetGroupPath?: string | null): void {
     const current = root.showElement()
     const currentGroup =
-      targetGroupPath != null
+      targetGroupPath === null
+        ? undefined
+        : targetGroupPath !== undefined
         ? this.findGroupByPath(targetGroupPath)
         : current instanceof Group
           ? current
           : undefined
 
-    this.runMotion('open', this.targetForCreateGroup(currentGroup), () => {
+    this.runMotion('open', pmNavigationMotion.targetForCreateGroup(currentGroup), () => {
       pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = undefined
       this.createGroupTargetGroupPath = currentGroup?.name
@@ -532,7 +598,7 @@ class PassmanagerNavigationController {
   }
 
   private openImportNow(root: ManagerRoot): void {
-    this.runMotion('open', this.targetForImport(), () => {
+    this.runMotion('open', pmNavigationMotion.targetForImport(), () => {
       pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = undefined
       this.createGroupTargetGroupPath = undefined
@@ -546,7 +612,7 @@ class PassmanagerNavigationController {
       return
     }
 
-    this.runMotion('close', this.targetForRoot(root), () => {
+    this.runMotion('close', pmNavigationMotion.targetForRoot(root), () => {
       pmEntryEditorModel.reset()
       this.createEntryTargetGroupPath = undefined
       this.createGroupTargetGroupPath = undefined
@@ -641,87 +707,25 @@ class PassmanagerNavigationController {
     }
   }
 
-  private runMotion(direction: PassmanagerMotionDirection, target: string, commit: () => void): void {
+  private runMotion(
+    direction: PassmanagerMotionDirection,
+    target: string,
+    commit: () => void,
+    reason: PassmanagerMotionReason = 'navigation',
+  ): void {
     pmMotionModel.run(
       direction === 'none'
         ? {kind: 'none', direction: 'none', target: null}
-        : {kind: 'surface-change', direction, target},
+        : {
+            kind: 'surface-change',
+            direction,
+            target,
+            reason,
+            sourceSurface: pmNavigationMotion.surfaceFor(getPassmanagerShowElement()),
+            targetSurface: pmNavigationMotion.surfaceForTarget(target),
+          },
       () => this.withSuppressedNotify(commit),
     )
-  }
-
-  private targetForRoot(root: ManagerRoot): string {
-    return `root:${root.id}`
-  }
-
-  private targetForGroup(group: Group): string {
-    return `group:${group.id}`
-  }
-
-  private targetForEntry(entry: Entry): string {
-    return `entry:${entry.id}`
-  }
-
-  private targetForItem(item: Entry | Group): string {
-    return item instanceof Entry ? this.targetForEntry(item) : this.targetForGroup(item)
-  }
-
-  private targetForContainer(container: Group | ManagerRoot): string {
-    return container instanceof Group ? this.targetForGroup(container) : this.targetForRoot(container)
-  }
-
-  private targetForCreateEntry(targetGroup: Group | undefined): string {
-    return `create-entry:${targetGroup?.id ?? 'root'}`
-  }
-
-  private targetForCreateGroup(targetGroup: Group | undefined): string {
-    return `create-group:${targetGroup?.id ?? 'root'}`
-  }
-
-  private targetForImport(): string {
-    return 'import'
-  }
-
-  private targetForOtpView(): string {
-    return 'otp-view'
-  }
-
-  private targetForSshView(): string {
-    return 'ssh-view'
-  }
-
-  private targetForEnvRuntimeView(): string {
-    return 'env-runtime-view'
-  }
-
-  private getApplyRouteDirection(
-    current: PMRootShowElement,
-    next: Group | ManagerRoot,
-  ): PassmanagerMotionDirection {
-    if (current === next) {
-      return 'none'
-    }
-
-    if (current instanceof Entry) {
-      const parent = current.parent instanceof Group ? current.parent : getPassmanagerRoot()
-      return parent === next ? 'back' : 'replace'
-    }
-
-    if (current instanceof Group) {
-      return this.resolveParentContainer(current) === next ? 'back' : 'replace'
-    }
-
-    return 'replace'
-  }
-
-  private resolveParentContainer(group: Group): Group | ManagerRoot {
-    const currentPath = group.name
-    const parentPath = getParentGroupPath(currentPath)
-    if (!parentPath) {
-      return group.root
-    }
-
-    return this.findGroupByPath(parentPath) ?? group.root
   }
 
   private maybePreserveActiveSelection(
@@ -737,7 +741,7 @@ class PassmanagerNavigationController {
     }
 
     if (current instanceof Group) {
-      const parent = this.resolveParentContainer(current)
+      const parent = pmNavigationMotion.parentFor(current)
       if (parent === nextContainer) {
         pmActiveRowModel.setActive(nextContainer.id, current.id)
       }

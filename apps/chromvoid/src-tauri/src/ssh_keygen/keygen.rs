@@ -258,7 +258,7 @@ pub async fn ssh_keygen(
     comment: Option<String>,
     source_entry_id: Option<String>,
 ) -> Result<SshKeygenResult, String> {
-    crate::commands::ssh_agent_cmds::ensure_main_window_caller(window.label(), "ssh_keygen")?;
+    crate::commands::ensure_main_window_caller(window.label(), "ssh_keygen")?;
 
     let name = name
         .map(|value| value.trim().to_string())

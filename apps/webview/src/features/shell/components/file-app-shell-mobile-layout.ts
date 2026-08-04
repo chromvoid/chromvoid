@@ -48,6 +48,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
       dualPane: {type: Boolean, reflect: true, attribute: 'data-dual-pane'},
       edgeBackDisabled: {type: Boolean, reflect: true, attribute: 'data-edge-back-disabled'},
       contentScrollMode: {type: String, reflect: true, attribute: 'content-scroll-mode'},
+      hideTabBar: {type: Boolean, reflect: true, attribute: 'hide-tab-bar'},
     }
   }
 
@@ -57,6 +58,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
   declare dualPane: boolean
   declare edgeBackDisabled: boolean
   declare contentScrollMode: MobileShellContentScrollMode
+  declare hideTabBar: boolean
 
   private swipeGesture?: SwipeGesture
   private edgeSwipeBack?: EdgeSwipeBack
@@ -340,6 +342,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
     this.dualPane = false
     this.edgeBackDisabled = false
     this.contentScrollMode = 'shell'
+    this.hideTabBar = false
   }
 
   private onOverlayDetailsClick = () => {
@@ -419,7 +422,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
       !mediaPlaybackModel.fullPlayerOpen() &&
       !cvAnyBottomSheetOpen() &&
       !mobileKeyboardOccluding()
-    const hideTabBar = false
+    const hideTabBar = this.hideTabBar
 
     return html`
       <cv-drawer

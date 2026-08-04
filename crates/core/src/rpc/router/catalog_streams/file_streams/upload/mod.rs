@@ -161,9 +161,21 @@ fn handle_upload_result(
                 true,
                 None,
             );
+            let committed_node = require_session(router)?
+                .catalog()
+                .find_by_id(node_id)
+                .ok_or_else(|| UploadCommandError::node_not_found("Node not found after upload"))?;
             return Ok(UploadResponse {
                 node_id,
                 uploaded_bytes,
+                completed: true,
+                created: transaction.is_new,
+                size: Some(committed_node.size),
+                mime_type: committed_node.mime_type.clone(),
+                modtime: Some(committed_node.modtime),
+                source_revision: Some(committed_node.source_revision()),
+                media_info: committed_node.media_info.clone(),
+                media_inspected_revision: Some(committed_node.media_inspected_revision),
             });
         }
 
@@ -181,6 +193,14 @@ fn handle_upload_result(
         return Ok(UploadResponse {
             node_id: transaction.node_id,
             uploaded_bytes: transaction.uploaded_bytes,
+            completed: false,
+            created: transaction.is_new,
+            size: None,
+            mime_type: None,
+            modtime: None,
+            source_revision: None,
+            media_info: None,
+            media_inspected_revision: None,
         });
     })();
 

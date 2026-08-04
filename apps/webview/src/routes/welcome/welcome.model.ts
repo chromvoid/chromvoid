@@ -5,15 +5,7 @@ import {WelcomeToolsModel} from './welcome-tools.model'
 export class WelcomeModel {
   readonly shared = new WelcomeSharedModel()
   readonly setup = new WelcomeSetupModel({shared: this.shared})
-  readonly tools = new WelcomeToolsModel(this.shared, {
-    desktopStatusItems: () => {
-      if (!this.isRemoteSetupStep(this.setup.effectiveStep())) {
-        return []
-      }
-
-      return this.setup.remote.welcomeFlowSummaryItems()
-    },
-  })
+  readonly tools = new WelcomeToolsModel(this.shared)
   readonly busy = this.shared.busy
   readonly errorText = this.shared.errorText
   readonly shakeError = this.shared.shakeError
@@ -25,10 +17,6 @@ export class WelcomeModel {
   disconnect(): void {
     this.tools.disconnect()
     this.setup.disconnect()
-  }
-
-  private isRemoteSetupStep(step: WelcomeSetupStep): boolean {
-    return step === 'remote-connect' || step === 'remote-pair' || step === 'remote-wait'
   }
 }
 

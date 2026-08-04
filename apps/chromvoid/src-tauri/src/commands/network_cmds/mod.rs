@@ -1,6 +1,7 @@
 mod helpers;
 mod ios;
 mod mobile_host;
+mod mobile_host_trust;
 mod pairing;
 #[cfg(any(desktop, test))]
 mod peers;
@@ -22,6 +23,9 @@ pub(crate) use ios::{
 pub(crate) use mobile_host::desktop_pair_mobile_host;
 pub(crate) use mobile_host::{
     mobile_host_publish_presence, mobile_host_start, mobile_host_status, mobile_host_stop,
+};
+pub(crate) use mobile_host_trust::{
+    mobile_host_list_paired_computers, mobile_host_revoke_paired_computer,
 };
 pub(crate) use pairing::{mobile_acceptor_start, mobile_acceptor_status, mobile_acceptor_stop};
 #[cfg(desktop)]

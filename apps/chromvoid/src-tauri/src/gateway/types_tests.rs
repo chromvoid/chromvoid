@@ -8,6 +8,12 @@ fn env_runtime_commands_are_agent_route_only() {
 }
 
 #[test]
+fn derivative_ensure_is_private_to_authenticated_device_peers() {
+    assert!(is_private_peer_core_command("catalog:derivative:ensure"));
+    assert!(!is_private_peer_core_command("catalog:derivative:read"));
+}
+
+#[test]
 fn classify_sensitive_commands() {
     assert_eq!(
         classify_command("catalog:secret:read"),

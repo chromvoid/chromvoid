@@ -288,6 +288,22 @@ pub struct UploadResponse {
     pub node_id: u64,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub uploaded_bytes: u64,
+    pub completed: bool,
+    pub created: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional, type = "number"))]
+    pub size: Option<u64>,
+    pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional, type = "number"))]
+    pub modtime: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional, type = "number"))]
+    pub source_revision: Option<u64>,
+    pub media_info: Option<CatalogMediaInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional, type = "number"))]
+    pub media_inspected_revision: Option<u64>,
 }
 
 /// Existing file replacement response.

@@ -232,10 +232,54 @@ async fn mobile_usb_controller_disconnect_stops_active_data_plane() {
         .connect("host-1".to_string())
         .await
         .expect("connect");
-    let status = controller.disconnect().expect("disconnect");
+    let status = controller.disconnect_user().await.expect("disconnect");
 
     assert_eq!(status.session_state, MobileUsbSessionState::Disconnected);
     assert_eq!(starter.stop_count(), 1);
+}
+
+#[tokio::test]
+async fn mobile_usb_controller_repeats_ten_connect_disconnect_cycles_without_forgetting_pairing() {
+    let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
+    let store = Arc::new(InMemoryMobileUsbPairingStore::default());
+    let secrets = Arc::new(InMemoryMobileUsbSecretStore::default());
+    let client_keys = noise_keypair();
+    let key_ref = secrets
+        .save_client_key(&"host-1".to_string(), &client_keys.private)
+        .expect("save client key");
+    store
+        .commit_pairing(record("host-1", &key_ref, bridge.host_public_key()))
+        .expect("paired record");
+    let starter = Arc::new(FakeSessionStarter::default());
+    let controller =
+        MobileUsbController::new(bridge.clone(), store.clone(), secrets, starter.clone());
+
+    for cycle in 1..=10 {
+        let connected = controller
+            .connect("host-1".to_string())
+            .await
+            .unwrap_or_else(|error| panic!("connect cycle {cycle}: {error}"));
+        assert_eq!(
+            connected.session_state,
+            MobileUsbSessionState::TransportReadyHostLocked
+        );
+        let disconnected = controller
+            .disconnect_user()
+            .await
+            .unwrap_or_else(|error| panic!("disconnect cycle {cycle}: {error}"));
+        assert_eq!(
+            disconnected.session_state,
+            MobileUsbSessionState::Disconnected
+        );
+    }
+
+    assert_eq!(bridge.connect_open_count(), 10);
+    assert_eq!(starter.start_count(), 10);
+    assert_eq!(starter.stop_count(), 10);
+    assert!(store
+        .get(&"host-1".to_string())
+        .expect("record lookup")
+        .is_some());
 }
 
 #[tokio::test]
@@ -265,7 +309,7 @@ async fn mobile_usb_controller_disconnect_during_connect_cancels_stale_session_s
     };
     starter.wait_start_session_entered().await;
 
-    let disconnected = controller.disconnect().expect("disconnect wins");
+    let disconnected = controller.disconnect_user().await.expect("disconnect wins");
     assert_eq!(
         disconnected.session_state,
         MobileUsbSessionState::Disconnected

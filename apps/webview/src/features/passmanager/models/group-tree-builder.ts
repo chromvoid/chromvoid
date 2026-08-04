@@ -1,6 +1,8 @@
 import type {GroupTreeNode} from './group-tree'
 
 export type GroupTreeGroupInput = {
+  /** Stable backing group id. */
+  id: string
   /** Full group path, e.g. 'Work/Jira' */
   path: string
   /** Entries directly in this group */
@@ -16,6 +18,7 @@ function createNode(input: GroupTreeGroupInput, expandedPaths: Set<string>): Mut
   const parts = input.path.split('/').filter(Boolean)
   const name = parts.length > 0 ? parts[parts.length - 1]! : input.path
   return {
+    id: input.id,
     path: input.path,
     name,
     children: [],
@@ -58,7 +61,7 @@ export function buildGroupTreeNodes(
     if (existing) return existing
 
     // Placeholder node (no direct entries); can be replaced/updated later.
-    const created = createNode({path, entryCount: 0}, expandedPaths)
+    const created = createNode({id: `path:${path}`, path, entryCount: 0}, expandedPaths)
     byPath.set(path, created)
 
     const parts = path.split('/').filter(Boolean)
@@ -78,6 +81,7 @@ export function buildGroupTreeNodes(
   for (const g of groups) {
     if (!g?.path) continue
     const node = getOrCreate(g.path)
+    node.id = g.id
     node.entryCount = g.entryCount
     node.nodeId = g.nodeId
     node.iconRef = g.iconRef

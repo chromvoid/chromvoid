@@ -177,16 +177,16 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Permissions required by the ChromVoid desktop UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activation-code-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-host-path-pick-upload-files`\n- `allow-host-path-pick-download-target`\n- `allow-host-path-pick-text-file-target`\n- `allow-catalog-upload-path`\n- `allow-catalog-download`\n- `allow-catalog-download-range`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-prepare-media-source`\n- `allow-release-media-source`\n- `allow-prepare-media-stream`\n- `allow-release-media-stream`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-passmanager-download`\n- `allow-catalog-download-path`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-write-text-file`\n- `allow-file-stat`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-gateway-get-config`\n- `allow-gateway-set-enabled`\n- `allow-gateway-set-access-duration`\n- `allow-gateway-list-paired`\n- `allow-gateway-list-paired-agents`\n- `allow-gateway-revoke-extension`\n- `allow-gateway-revoke-agent`\n- `allow-gateway-start-pairing`\n- `allow-gateway-start-agent-pairing`\n- `allow-gateway-cancel-pairing`\n- `allow-volume-mount`\n- `allow-volume-unmount`\n- `allow-volume-get-status`\n- `allow-volume-get-backends`\n- `allow-runtime-capabilities`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-password-strength-estimate`\n- `allow-get-local-device-identity`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-audio-warmup`\n- `allow-native-audio-session-command`\n- `allow-mobile-biometric-auth`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-network-connection-state`\n- `allow-network-list-paired-peers`\n- `allow-network-remove-paired-peer`\n- `allow-network-transport-metrics`\n- `allow-network-generate-room-id`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-network-import-server-profile`\n- `allow-network-export-server-profile`\n- `allow-network-record-profile-endpoint-failure`\n- `allow-network-rollback-profile-endpoint`\n- `allow-network-pair-start`\n- `allow-network-pair-confirm`\n- `allow-network-pair-cancel`\n- `allow-sync-initial`\n- `allow-sync-delta-apply`\n- `allow-sync-reconnect`\n- `allow-sync-write`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-usb-scan`\n- `allow-mobile-usb-detect`\n- `allow-mobile-usb-pair`\n- `allow-mobile-usb-confirm-pairing`\n- `allow-mobile-usb-connect`\n- `allow-mobile-usb-disconnect`\n- `allow-mobile-usb-status`\n- `allow-mobile-usb-list-paired`\n- `allow-mobile-usb-remove-paired`\n- `allow-mobile-usb-host-pending-pairing-approval`\n- `allow-mobile-usb-host-approve-pairing`\n- `allow-mobile-usb-host-reject-pairing`\n- `allow-mobile-usb-host-pending-session-approval`\n- `allow-mobile-usb-host-approve-session`\n- `allow-mobile-usb-host-reject-session`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-desktop-pair-mobile-host`\n- `allow-desktop-pair-ios`\n- `allow-desktop-connect-ios`\n- `allow-ssh-keygen`\n- `allow-ssh-agent-start`\n- `allow-ssh-agent-stop`\n- `allow-ssh-agent-status`\n- `allow-ssh-agent-sign-approval-resolve`\n- `allow-env-runtime-desktop-snapshot`\n- `allow-env-runtime-preset-save`\n- `allow-env-runtime-preset-delete`\n- `allow-env-runtime-profile-delete`\n- `allow-env-runtime-proposal-resolve`\n- `allow-env-runtime-run-approval-resolve`\n- `allow-env-runtime-run-stop`\n- `allow-env-runtime-cli-install-status`\n- `allow-env-runtime-cli-install`",
+          "description": "Permissions required by the ChromVoid desktop UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activation-code-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-macos-otp-import-pending`\n- `allow-macos-otp-import-take`\n- `allow-macos-otp-import-clear`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-host-path-pick-upload-files`\n- `allow-host-path-pick-download-target`\n- `allow-host-path-pick-text-file-target`\n- `allow-catalog-upload-path`\n- `allow-catalog-download`\n- `allow-catalog-download-range`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-prepare-media-source`\n- `allow-release-media-source`\n- `allow-prepare-media-stream`\n- `allow-release-media-stream`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-passmanager-download`\n- `allow-catalog-download-path`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-write-text-file`\n- `allow-file-stat`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-gateway-get-config`\n- `allow-gateway-set-enabled`\n- `allow-gateway-set-access-duration`\n- `allow-gateway-list-paired`\n- `allow-gateway-list-paired-agents`\n- `allow-gateway-revoke-extension`\n- `allow-gateway-revoke-agent`\n- `allow-gateway-start-pairing`\n- `allow-gateway-start-agent-pairing`\n- `allow-gateway-cancel-pairing`\n- `allow-volume-mount`\n- `allow-volume-unmount`\n- `allow-volume-get-status`\n- `allow-volume-get-backends`\n- `allow-runtime-capabilities`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-password-strength-estimate`\n- `allow-get-local-device-identity`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-audio-warmup`\n- `allow-native-audio-session-command`\n- `allow-mobile-biometric-auth`\n- `allow-credential-provider-status`\n- `allow-open-credential-provider-settings`\n- `allow-credential-provider-passkeys-list`\n- `allow-credential-provider-passkey-delete`\n- `allow-android-password-save-finish`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-network-connection-state`\n- `allow-network-list-paired-peers`\n- `allow-network-remove-paired-peer`\n- `allow-network-transport-metrics`\n- `allow-network-generate-room-id`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-network-import-server-profile`\n- `allow-network-export-server-profile`\n- `allow-network-record-profile-endpoint-failure`\n- `allow-network-rollback-profile-endpoint`\n- `allow-network-pair-start`\n- `allow-network-pair-confirm`\n- `allow-network-pair-cancel`\n- `allow-sync-initial`\n- `allow-sync-delta-apply`\n- `allow-sync-reconnect`\n- `allow-sync-write`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-usb-scan`\n- `allow-mobile-usb-detect`\n- `allow-mobile-usb-pair`\n- `allow-mobile-usb-confirm-pairing`\n- `allow-mobile-usb-connect`\n- `allow-mobile-usb-disconnect`\n- `allow-mobile-usb-status`\n- `allow-mobile-usb-list-paired`\n- `allow-mobile-usb-remove-paired`\n- `allow-mobile-usb-host-pending-pairing-approval`\n- `allow-mobile-usb-host-approve-pairing`\n- `allow-mobile-usb-host-reject-pairing`\n- `allow-mobile-usb-host-pending-session-approval`\n- `allow-mobile-usb-host-approve-session`\n- `allow-mobile-usb-host-reject-session`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-desktop-pair-mobile-host`\n- `allow-desktop-pair-ios`\n- `allow-desktop-connect-ios`\n- `allow-ssh-keygen`\n- `allow-ssh-agent-start`\n- `allow-ssh-agent-stop`\n- `allow-ssh-agent-status`\n- `allow-ssh-agent-sign-approval-resolve`\n- `allow-env-runtime-desktop-snapshot`\n- `allow-env-runtime-preset-save`\n- `allow-env-runtime-preset-delete`\n- `allow-env-runtime-profile-delete`\n- `allow-env-runtime-proposal-resolve`\n- `allow-env-runtime-run-approval-resolve`\n- `allow-env-runtime-run-stop`\n- `allow-env-runtime-cli-install-status`\n- `allow-env-runtime-cli-install`",
           "type": "string",
           "const": "desktop",
-          "markdownDescription": "Permissions required by the ChromVoid desktop UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activation-code-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-host-path-pick-upload-files`\n- `allow-host-path-pick-download-target`\n- `allow-host-path-pick-text-file-target`\n- `allow-catalog-upload-path`\n- `allow-catalog-download`\n- `allow-catalog-download-range`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-prepare-media-source`\n- `allow-release-media-source`\n- `allow-prepare-media-stream`\n- `allow-release-media-stream`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-passmanager-download`\n- `allow-catalog-download-path`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-write-text-file`\n- `allow-file-stat`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-gateway-get-config`\n- `allow-gateway-set-enabled`\n- `allow-gateway-set-access-duration`\n- `allow-gateway-list-paired`\n- `allow-gateway-list-paired-agents`\n- `allow-gateway-revoke-extension`\n- `allow-gateway-revoke-agent`\n- `allow-gateway-start-pairing`\n- `allow-gateway-start-agent-pairing`\n- `allow-gateway-cancel-pairing`\n- `allow-volume-mount`\n- `allow-volume-unmount`\n- `allow-volume-get-status`\n- `allow-volume-get-backends`\n- `allow-runtime-capabilities`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-password-strength-estimate`\n- `allow-get-local-device-identity`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-audio-warmup`\n- `allow-native-audio-session-command`\n- `allow-mobile-biometric-auth`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-network-connection-state`\n- `allow-network-list-paired-peers`\n- `allow-network-remove-paired-peer`\n- `allow-network-transport-metrics`\n- `allow-network-generate-room-id`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-network-import-server-profile`\n- `allow-network-export-server-profile`\n- `allow-network-record-profile-endpoint-failure`\n- `allow-network-rollback-profile-endpoint`\n- `allow-network-pair-start`\n- `allow-network-pair-confirm`\n- `allow-network-pair-cancel`\n- `allow-sync-initial`\n- `allow-sync-delta-apply`\n- `allow-sync-reconnect`\n- `allow-sync-write`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-usb-scan`\n- `allow-mobile-usb-detect`\n- `allow-mobile-usb-pair`\n- `allow-mobile-usb-confirm-pairing`\n- `allow-mobile-usb-connect`\n- `allow-mobile-usb-disconnect`\n- `allow-mobile-usb-status`\n- `allow-mobile-usb-list-paired`\n- `allow-mobile-usb-remove-paired`\n- `allow-mobile-usb-host-pending-pairing-approval`\n- `allow-mobile-usb-host-approve-pairing`\n- `allow-mobile-usb-host-reject-pairing`\n- `allow-mobile-usb-host-pending-session-approval`\n- `allow-mobile-usb-host-approve-session`\n- `allow-mobile-usb-host-reject-session`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-desktop-pair-mobile-host`\n- `allow-desktop-pair-ios`\n- `allow-desktop-connect-ios`\n- `allow-ssh-keygen`\n- `allow-ssh-agent-start`\n- `allow-ssh-agent-stop`\n- `allow-ssh-agent-status`\n- `allow-ssh-agent-sign-approval-resolve`\n- `allow-env-runtime-desktop-snapshot`\n- `allow-env-runtime-preset-save`\n- `allow-env-runtime-preset-delete`\n- `allow-env-runtime-profile-delete`\n- `allow-env-runtime-proposal-resolve`\n- `allow-env-runtime-run-approval-resolve`\n- `allow-env-runtime-run-stop`\n- `allow-env-runtime-cli-install-status`\n- `allow-env-runtime-cli-install`"
+          "markdownDescription": "Permissions required by the ChromVoid desktop UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activation-code-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-macos-otp-import-pending`\n- `allow-macos-otp-import-take`\n- `allow-macos-otp-import-clear`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-host-path-pick-upload-files`\n- `allow-host-path-pick-download-target`\n- `allow-host-path-pick-text-file-target`\n- `allow-catalog-upload-path`\n- `allow-catalog-download`\n- `allow-catalog-download-range`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-prepare-media-source`\n- `allow-release-media-source`\n- `allow-prepare-media-stream`\n- `allow-release-media-stream`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-passmanager-download`\n- `allow-catalog-download-path`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-passmanager-upload-chunk`\n- `allow-write-text-file`\n- `allow-file-stat`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-gateway-get-config`\n- `allow-gateway-set-enabled`\n- `allow-gateway-set-access-duration`\n- `allow-gateway-list-paired`\n- `allow-gateway-list-paired-agents`\n- `allow-gateway-revoke-extension`\n- `allow-gateway-revoke-agent`\n- `allow-gateway-start-pairing`\n- `allow-gateway-start-agent-pairing`\n- `allow-gateway-cancel-pairing`\n- `allow-volume-mount`\n- `allow-volume-unmount`\n- `allow-volume-get-status`\n- `allow-volume-get-backends`\n- `allow-runtime-capabilities`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-password-strength-estimate`\n- `allow-get-local-device-identity`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-audio-warmup`\n- `allow-native-audio-session-command`\n- `allow-mobile-biometric-auth`\n- `allow-credential-provider-status`\n- `allow-open-credential-provider-settings`\n- `allow-credential-provider-passkeys-list`\n- `allow-credential-provider-passkey-delete`\n- `allow-android-password-save-finish`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-network-connection-state`\n- `allow-network-list-paired-peers`\n- `allow-network-remove-paired-peer`\n- `allow-network-transport-metrics`\n- `allow-network-generate-room-id`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-network-import-server-profile`\n- `allow-network-export-server-profile`\n- `allow-network-record-profile-endpoint-failure`\n- `allow-network-rollback-profile-endpoint`\n- `allow-network-pair-start`\n- `allow-network-pair-confirm`\n- `allow-network-pair-cancel`\n- `allow-sync-initial`\n- `allow-sync-delta-apply`\n- `allow-sync-reconnect`\n- `allow-sync-write`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-usb-scan`\n- `allow-mobile-usb-detect`\n- `allow-mobile-usb-pair`\n- `allow-mobile-usb-confirm-pairing`\n- `allow-mobile-usb-connect`\n- `allow-mobile-usb-disconnect`\n- `allow-mobile-usb-status`\n- `allow-mobile-usb-list-paired`\n- `allow-mobile-usb-remove-paired`\n- `allow-mobile-usb-host-pending-pairing-approval`\n- `allow-mobile-usb-host-approve-pairing`\n- `allow-mobile-usb-host-reject-pairing`\n- `allow-mobile-usb-host-pending-session-approval`\n- `allow-mobile-usb-host-approve-session`\n- `allow-mobile-usb-host-reject-session`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-desktop-pair-mobile-host`\n- `allow-desktop-pair-ios`\n- `allow-desktop-connect-ios`\n- `allow-ssh-keygen`\n- `allow-ssh-agent-start`\n- `allow-ssh-agent-stop`\n- `allow-ssh-agent-status`\n- `allow-ssh-agent-sign-approval-resolve`\n- `allow-env-runtime-desktop-snapshot`\n- `allow-env-runtime-preset-save`\n- `allow-env-runtime-preset-delete`\n- `allow-env-runtime-profile-delete`\n- `allow-env-runtime-proposal-resolve`\n- `allow-env-runtime-run-approval-resolve`\n- `allow-env-runtime-run-stop`\n- `allow-env-runtime-cli-install-status`\n- `allow-env-runtime-cli-install`"
         },
         {
-          "description": "Permissions required by the ChromVoid mobile UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activation-code-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-catalog-upload-native-files`\n- `allow-catalog-cancel-native-upload`\n- `allow-catalog-upload-shared-files`\n- `allow-catalog-cancel-shared-files`\n- `allow-catalog-list-shared-files`\n- `allow-catalog-upload-android-shared-files`\n- `allow-catalog-cancel-android-shared-files`\n- `allow-native-otp-qr-scan-start`\n- `allow-native-otp-qr-scan-cancel`\n- `allow-android-otp-qr-scan-start`\n- `allow-android-otp-qr-scan-cancel`\n- `allow-passmanager-upload-chunk`\n- `allow-catalog-download`\n- `allow-catalog-download-range`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-prepare-media-source`\n- `allow-release-media-source`\n- `allow-prepare-media-stream`\n- `allow-release-media-stream`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-catalog-share-files`\n- `allow-passmanager-download`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-password-strength-estimate`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-runtime-capabilities`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-audio-warmup`\n- `allow-mobile-biometric-auth`\n- `allow-credential-provider-status`\n- `allow-open-credential-provider-settings`\n- `allow-credential-provider-passkeys-list`\n- `allow-credential-provider-passkey-delete`\n- `allow-android-autofill-provider-status`\n- `allow-android-open-autofill-provider-settings`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-write-text-file`\n- `allow-configure-native-edge-back`\n- `allow-get-local-device-identity`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-mobile-host-start`\n- `allow-mobile-host-stop`\n- `allow-mobile-host-status`\n- `allow-mobile-host-publish-presence`\n- `allow-mobile-usb-host-pending-pairing-approval`\n- `allow-mobile-usb-host-approve-pairing`\n- `allow-mobile-usb-host-reject-pairing`\n- `allow-mobile-usb-host-pending-session-approval`\n- `allow-mobile-usb-host-approve-session`\n- `allow-mobile-usb-host-reject-session`",
+          "description": "Permissions required by the ChromVoid mobile UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activation-code-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-catalog-upload-native-files`\n- `allow-catalog-cancel-native-upload`\n- `allow-catalog-upload-shared-files`\n- `allow-catalog-cancel-shared-files`\n- `allow-catalog-list-shared-files`\n- `allow-catalog-upload-android-shared-files`\n- `allow-catalog-cancel-android-shared-files`\n- `allow-native-otp-qr-scan-start`\n- `allow-native-otp-qr-scan-cancel`\n- `allow-android-otp-qr-scan-start`\n- `allow-android-otp-qr-scan-cancel`\n- `allow-passmanager-upload-chunk`\n- `allow-catalog-download`\n- `allow-catalog-download-range`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-prepare-media-source`\n- `allow-release-media-source`\n- `allow-prepare-media-stream`\n- `allow-release-media-stream`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-catalog-share-files`\n- `allow-passmanager-download`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-password-strength-estimate`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-runtime-capabilities`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-audio-warmup`\n- `allow-mobile-biometric-auth`\n- `allow-credential-provider-status`\n- `allow-open-credential-provider-settings`\n- `allow-credential-provider-passkeys-list`\n- `allow-credential-provider-passkey-delete`\n- `allow-android-autofill-provider-status`\n- `allow-android-open-autofill-provider-settings`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-write-text-file`\n- `allow-configure-native-edge-back`\n- `allow-get-local-device-identity`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-ssh-keygen`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-mobile-host-start`\n- `allow-mobile-host-stop`\n- `allow-mobile-host-status`\n- `allow-mobile-host-publish-presence`\n- `allow-mobile-host-list-paired-computers`\n- `allow-mobile-host-revoke-paired-computer`\n- `allow-mobile-usb-host-pending-pairing-approval`\n- `allow-mobile-usb-host-approve-pairing`\n- `allow-mobile-usb-host-reject-pairing`\n- `allow-mobile-usb-host-pending-session-approval`\n- `allow-mobile-usb-host-approve-session`\n- `allow-mobile-usb-host-reject-session`",
           "type": "string",
           "const": "mobile",
-          "markdownDescription": "Permissions required by the ChromVoid mobile UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activation-code-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-catalog-upload-native-files`\n- `allow-catalog-cancel-native-upload`\n- `allow-catalog-upload-shared-files`\n- `allow-catalog-cancel-shared-files`\n- `allow-catalog-list-shared-files`\n- `allow-catalog-upload-android-shared-files`\n- `allow-catalog-cancel-android-shared-files`\n- `allow-native-otp-qr-scan-start`\n- `allow-native-otp-qr-scan-cancel`\n- `allow-android-otp-qr-scan-start`\n- `allow-android-otp-qr-scan-cancel`\n- `allow-passmanager-upload-chunk`\n- `allow-catalog-download`\n- `allow-catalog-download-range`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-prepare-media-source`\n- `allow-release-media-source`\n- `allow-prepare-media-stream`\n- `allow-release-media-stream`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-catalog-share-files`\n- `allow-passmanager-download`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-password-strength-estimate`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-runtime-capabilities`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-audio-warmup`\n- `allow-mobile-biometric-auth`\n- `allow-credential-provider-status`\n- `allow-open-credential-provider-settings`\n- `allow-credential-provider-passkeys-list`\n- `allow-credential-provider-passkey-delete`\n- `allow-android-autofill-provider-status`\n- `allow-android-open-autofill-provider-settings`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-write-text-file`\n- `allow-configure-native-edge-back`\n- `allow-get-local-device-identity`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-mobile-host-start`\n- `allow-mobile-host-stop`\n- `allow-mobile-host-status`\n- `allow-mobile-host-publish-presence`\n- `allow-mobile-usb-host-pending-pairing-approval`\n- `allow-mobile-usb-host-approve-pairing`\n- `allow-mobile-usb-host-reject-pairing`\n- `allow-mobile-usb-host-pending-session-approval`\n- `allow-mobile-usb-host-approve-session`\n- `allow-mobile-usb-host-reject-session`"
+          "markdownDescription": "Permissions required by the ChromVoid mobile UI.\n#### This permission set includes:\n\n- `dialog:allow-open`\n- `allow-rpc-dispatch`\n- `allow-license-activation-code-activate`\n- `allow-license-account-cabinet-handoff`\n- `allow-license-status`\n- `allow-license-seat-status`\n- `allow-license-current-seat-deactivate`\n- `allow-module-access-snapshot`\n- `allow-module-access-resolve`\n- `allow-catalog-upload-chunk`\n- `allow-catalog-file-replace`\n- `allow-catalog-upload-native-files`\n- `allow-catalog-cancel-native-upload`\n- `allow-catalog-upload-shared-files`\n- `allow-catalog-cancel-shared-files`\n- `allow-catalog-list-shared-files`\n- `allow-catalog-upload-android-shared-files`\n- `allow-catalog-cancel-android-shared-files`\n- `allow-native-otp-qr-scan-start`\n- `allow-native-otp-qr-scan-cancel`\n- `allow-android-otp-qr-scan-start`\n- `allow-android-otp-qr-scan-cancel`\n- `allow-passmanager-upload-chunk`\n- `allow-catalog-download`\n- `allow-catalog-download-range`\n- `allow-prepare-catalog-preview-file`\n- `allow-release-catalog-preview-file`\n- `allow-prepare-media-source`\n- `allow-release-media-source`\n- `allow-prepare-media-stream`\n- `allow-release-media-stream`\n- `allow-purge-catalog-preview-cache`\n- `allow-catalog-preview-image`\n- `allow-catalog-thumbnail-image`\n- `allow-catalog-image-metadata`\n- `allow-catalog-save-image-to-gallery`\n- `allow-catalog-share-files`\n- `allow-passmanager-download`\n- `allow-catalog-open-external`\n- `allow-open-url-external`\n- `allow-catalog-secret-read`\n- `allow-passmanager-secret-read`\n- `allow-catalog-secret-write-chunk`\n- `allow-passmanager-secret-write-chunk`\n- `allow-get-current-mode`\n- `allow-frontend-splash-ready`\n- `allow-init-local-storage`\n- `allow-master-setup`\n- `allow-master-rekey`\n- `allow-password-strength-estimate`\n- `allow-storage-set-root`\n- `allow-backup-local-create`\n- `allow-backup-local-cancel`\n- `allow-vault-rekey`\n- `allow-vault-rekey-cancel`\n- `allow-restore-local-from-folder`\n- `allow-restore-local-select-source`\n- `allow-restore-local-cancel`\n- `allow-erase-device`\n- `allow-get-session-settings`\n- `allow-set-session-settings`\n- `allow-touch-activity`\n- `allow-unlock-debug-log`\n- `allow-runtime-capabilities`\n- `allow-mobile-notify-background`\n- `allow-mobile-notify-foreground`\n- `allow-android-media-session-update`\n- `allow-android-media-session-stop`\n- `allow-android-audio-session-command`\n- `allow-android-audio-warmup`\n- `allow-mobile-biometric-auth`\n- `allow-credential-provider-status`\n- `allow-open-credential-provider-settings`\n- `allow-credential-provider-passkeys-list`\n- `allow-credential-provider-passkey-delete`\n- `allow-android-autofill-provider-status`\n- `allow-android-open-autofill-provider-settings`\n- `allow-android-password-save-finish`\n- `allow-android-passkeys-list`\n- `allow-android-passkey-delete`\n- `allow-android-quick-lock-tile-status`\n- `allow-android-request-quick-lock-tile`\n- `allow-write-text-file`\n- `allow-configure-native-edge-back`\n- `allow-get-local-device-identity`\n- `allow-network-list-server-profiles`\n- `allow-network-get-bootstrap-profile`\n- `allow-mode-get`\n- `allow-mode-switch`\n- `allow-mode-status`\n- `allow-ssh-keygen`\n- `allow-mobile-acceptor-start`\n- `allow-mobile-acceptor-stop`\n- `allow-mobile-acceptor-status`\n- `allow-start-ios-host-mode`\n- `allow-stop-ios-host-mode`\n- `allow-ios-host-status`\n- `allow-publish-ios-presence`\n- `allow-handle-ios-wake`\n- `allow-mobile-host-start`\n- `allow-mobile-host-stop`\n- `allow-mobile-host-status`\n- `allow-mobile-host-publish-presence`\n- `allow-mobile-host-list-paired-computers`\n- `allow-mobile-host-revoke-paired-computer`\n- `allow-mobile-usb-host-pending-pairing-approval`\n- `allow-mobile-usb-host-approve-pairing`\n- `allow-mobile-usb-host-reject-pairing`\n- `allow-mobile-usb-host-pending-session-approval`\n- `allow-mobile-usb-host-approve-session`\n- `allow-mobile-usb-host-reject-session`"
         },
         {
           "description": "Enables the android_audio_session_command command without any pre-configured scope.",
@@ -717,6 +717,24 @@
           "markdownDescription": "Enables the license_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the macos_otp_import_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-macos-otp-import-clear",
+          "markdownDescription": "Enables the macos_otp_import_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the macos_otp_import_pending command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-macos-otp-import-pending",
+          "markdownDescription": "Enables the macos_otp_import_pending command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the macos_otp_import_take command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-macos-otp-import-take",
+          "markdownDescription": "Enables the macos_otp_import_take command without any pre-configured scope."
+        },
+        {
           "description": "Enables the master_rekey command without any pre-configured scope.",
           "type": "string",
           "const": "allow-master-rekey",
@@ -753,10 +771,22 @@
           "markdownDescription": "Enables the mobile_biometric_auth command without any pre-configured scope."
         },
         {
+          "description": "Enables the mobile_host_list_paired_computers command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-host-list-paired-computers",
+          "markdownDescription": "Enables the mobile_host_list_paired_computers command without any pre-configured scope."
+        },
+        {
           "description": "Enables the mobile_host_publish_presence command without any pre-configured scope.",
           "type": "string",
           "const": "allow-mobile-host-publish-presence",
           "markdownDescription": "Enables the mobile_host_publish_presence command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the mobile_host_revoke_paired_computer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-mobile-host-revoke-paired-computer",
+          "markdownDescription": "Enables the mobile_host_revoke_paired_computer command without any pre-configured scope."
         },
         {
           "description": "Enables the mobile_host_start command without any pre-configured scope.",
@@ -1791,6 +1821,24 @@
           "markdownDescription": "Denies the license_status command without any pre-configured scope."
         },
         {
+          "description": "Denies the macos_otp_import_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-macos-otp-import-clear",
+          "markdownDescription": "Denies the macos_otp_import_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the macos_otp_import_pending command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-macos-otp-import-pending",
+          "markdownDescription": "Denies the macos_otp_import_pending command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the macos_otp_import_take command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-macos-otp-import-take",
+          "markdownDescription": "Denies the macos_otp_import_take command without any pre-configured scope."
+        },
+        {
           "description": "Denies the master_rekey command without any pre-configured scope.",
           "type": "string",
           "const": "deny-master-rekey",
@@ -1827,10 +1875,22 @@
           "markdownDescription": "Denies the mobile_biometric_auth command without any pre-configured scope."
         },
         {
+          "description": "Denies the mobile_host_list_paired_computers command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-host-list-paired-computers",
+          "markdownDescription": "Denies the mobile_host_list_paired_computers command without any pre-configured scope."
+        },
+        {
           "description": "Denies the mobile_host_publish_presence command without any pre-configured scope.",
           "type": "string",
           "const": "deny-mobile-host-publish-presence",
           "markdownDescription": "Denies the mobile_host_publish_presence command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the mobile_host_revoke_paired_computer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-mobile-host-revoke-paired-computer",
+          "markdownDescription": "Denies the mobile_host_revoke_paired_computer command without any pre-configured scope."
         },
         {
           "description": "Denies the mobile_host_start command without any pre-configured scope.",
@@ -2421,10 +2481,10 @@
           "markdownDescription": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`"
         },
         {
-          "description": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-version`\n- `allow-name`\n- `allow-tauri-version`\n- `allow-identifier`\n- `allow-bundle-type`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-version`\n- `allow-name`\n- `allow-tauri-version`\n- `allow-identifier`\n- `allow-bundle-type`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-supports-multiple-windows`",
           "type": "string",
           "const": "core:app:default",
-          "markdownDescription": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-version`\n- `allow-name`\n- `allow-tauri-version`\n- `allow-identifier`\n- `allow-bundle-type`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-version`\n- `allow-name`\n- `allow-tauri-version`\n- `allow-identifier`\n- `allow-bundle-type`\n- `allow-register-listener`\n- `allow-remove-listener`\n- `allow-supports-multiple-windows`"
         },
         {
           "description": "Enables the app_hide command without any pre-configured scope.",
@@ -2497,6 +2557,12 @@
           "type": "string",
           "const": "core:app:allow-set-dock-visibility",
           "markdownDescription": "Enables the set_dock_visibility command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the supports_multiple_windows command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:app:allow-supports-multiple-windows",
+          "markdownDescription": "Enables the supports_multiple_windows command without any pre-configured scope."
         },
         {
           "description": "Enables the tauri_version command without any pre-configured scope.",
@@ -2581,6 +2647,12 @@
           "type": "string",
           "const": "core:app:deny-set-dock-visibility",
           "markdownDescription": "Denies the set_dock_visibility command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the supports_multiple_windows command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:app:deny-supports-multiple-windows",
+          "markdownDescription": "Denies the supports_multiple_windows command without any pre-configured scope."
         },
         {
           "description": "Denies the tauri_version command without any pre-configured scope.",
@@ -3105,10 +3177,10 @@
           "markdownDescription": "Denies the close command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin, which enables all commands.\n#### This default permission set includes:\n\n- `allow-new`\n- `allow-get-by-id`\n- `allow-remove-by-id`\n- `allow-set-icon`\n- `allow-set-menu`\n- `allow-set-tooltip`\n- `allow-set-title`\n- `allow-set-visible`\n- `allow-set-temp-dir-path`\n- `allow-set-icon-as-template`\n- `allow-set-show-menu-on-left-click`",
+          "description": "Default permissions for the plugin, which enables all commands.\n#### This default permission set includes:\n\n- `allow-new`\n- `allow-get-by-id`\n- `allow-remove-by-id`\n- `allow-set-icon`\n- `allow-set-menu`\n- `allow-set-tooltip`\n- `allow-set-title`\n- `allow-set-visible`\n- `allow-set-temp-dir-path`\n- `allow-set-icon-as-template`\n- `allow-set-icon-with-as-template`\n- `allow-set-show-menu-on-left-click`",
           "type": "string",
           "const": "core:tray:default",
-          "markdownDescription": "Default permissions for the plugin, which enables all commands.\n#### This default permission set includes:\n\n- `allow-new`\n- `allow-get-by-id`\n- `allow-remove-by-id`\n- `allow-set-icon`\n- `allow-set-menu`\n- `allow-set-tooltip`\n- `allow-set-title`\n- `allow-set-visible`\n- `allow-set-temp-dir-path`\n- `allow-set-icon-as-template`\n- `allow-set-show-menu-on-left-click`"
+          "markdownDescription": "Default permissions for the plugin, which enables all commands.\n#### This default permission set includes:\n\n- `allow-new`\n- `allow-get-by-id`\n- `allow-remove-by-id`\n- `allow-set-icon`\n- `allow-set-menu`\n- `allow-set-tooltip`\n- `allow-set-title`\n- `allow-set-visible`\n- `allow-set-temp-dir-path`\n- `allow-set-icon-as-template`\n- `allow-set-icon-with-as-template`\n- `allow-set-show-menu-on-left-click`"
         },
         {
           "description": "Enables the get_by_id command without any pre-configured scope.",
@@ -3139,6 +3211,12 @@
           "type": "string",
           "const": "core:tray:allow-set-icon-as-template",
           "markdownDescription": "Enables the set_icon_as_template command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_icon_with_as_template command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:tray:allow-set-icon-with-as-template",
+          "markdownDescription": "Enables the set_icon_with_as_template command without any pre-configured scope."
         },
         {
           "description": "Enables the set_menu command without any pre-configured scope.",
@@ -3205,6 +3283,12 @@
           "type": "string",
           "const": "core:tray:deny-set-icon-as-template",
           "markdownDescription": "Denies the set_icon_as_template command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_icon_with_as_template command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:tray:deny-set-icon-with-as-template",
+          "markdownDescription": "Denies the set_icon_with_as_template command without any pre-configured scope."
         },
         {
           "description": "Denies the set_menu command without any pre-configured scope.",
@@ -3465,10 +3549,16 @@
           "markdownDescription": "Denies the webview_size command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-get-all-windows`\n- `allow-scale-factor`\n- `allow-inner-position`\n- `allow-outer-position`\n- `allow-inner-size`\n- `allow-outer-size`\n- `allow-is-fullscreen`\n- `allow-is-minimized`\n- `allow-is-maximized`\n- `allow-is-focused`\n- `allow-is-decorated`\n- `allow-is-resizable`\n- `allow-is-maximizable`\n- `allow-is-minimizable`\n- `allow-is-closable`\n- `allow-is-visible`\n- `allow-is-enabled`\n- `allow-title`\n- `allow-current-monitor`\n- `allow-primary-monitor`\n- `allow-monitor-from-point`\n- `allow-available-monitors`\n- `allow-cursor-position`\n- `allow-theme`\n- `allow-is-always-on-top`\n- `allow-internal-toggle-maximize`",
+          "description": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-get-all-windows`\n- `allow-scale-factor`\n- `allow-inner-position`\n- `allow-outer-position`\n- `allow-inner-size`\n- `allow-outer-size`\n- `allow-is-fullscreen`\n- `allow-is-minimized`\n- `allow-is-maximized`\n- `allow-is-focused`\n- `allow-is-decorated`\n- `allow-is-resizable`\n- `allow-is-maximizable`\n- `allow-is-minimizable`\n- `allow-is-closable`\n- `allow-is-visible`\n- `allow-is-enabled`\n- `allow-title`\n- `allow-current-monitor`\n- `allow-primary-monitor`\n- `allow-monitor-from-point`\n- `allow-available-monitors`\n- `allow-cursor-position`\n- `allow-theme`\n- `allow-is-always-on-top`\n- `allow-activity-name`\n- `allow-scene-identifier`\n- `allow-internal-toggle-maximize`",
           "type": "string",
           "const": "core:window:default",
-          "markdownDescription": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-get-all-windows`\n- `allow-scale-factor`\n- `allow-inner-position`\n- `allow-outer-position`\n- `allow-inner-size`\n- `allow-outer-size`\n- `allow-is-fullscreen`\n- `allow-is-minimized`\n- `allow-is-maximized`\n- `allow-is-focused`\n- `allow-is-decorated`\n- `allow-is-resizable`\n- `allow-is-maximizable`\n- `allow-is-minimizable`\n- `allow-is-closable`\n- `allow-is-visible`\n- `allow-is-enabled`\n- `allow-title`\n- `allow-current-monitor`\n- `allow-primary-monitor`\n- `allow-monitor-from-point`\n- `allow-available-monitors`\n- `allow-cursor-position`\n- `allow-theme`\n- `allow-is-always-on-top`\n- `allow-internal-toggle-maximize`"
+          "markdownDescription": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-get-all-windows`\n- `allow-scale-factor`\n- `allow-inner-position`\n- `allow-outer-position`\n- `allow-inner-size`\n- `allow-outer-size`\n- `allow-is-fullscreen`\n- `allow-is-minimized`\n- `allow-is-maximized`\n- `allow-is-focused`\n- `allow-is-decorated`\n- `allow-is-resizable`\n- `allow-is-maximizable`\n- `allow-is-minimizable`\n- `allow-is-closable`\n- `allow-is-visible`\n- `allow-is-enabled`\n- `allow-title`\n- `allow-current-monitor`\n- `allow-primary-monitor`\n- `allow-monitor-from-point`\n- `allow-available-monitors`\n- `allow-cursor-position`\n- `allow-theme`\n- `allow-is-always-on-top`\n- `allow-activity-name`\n- `allow-scene-identifier`\n- `allow-internal-toggle-maximize`"
+        },
+        {
+          "description": "Enables the activity_name command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:window:allow-activity-name",
+          "markdownDescription": "Enables the activity_name command without any pre-configured scope."
         },
         {
           "description": "Enables the available_monitors command without any pre-configured scope.",
@@ -3661,6 +3751,12 @@
           "type": "string",
           "const": "core:window:allow-scale-factor",
           "markdownDescription": "Enables the scale_factor command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the scene_identifier command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:window:allow-scene-identifier",
+          "markdownDescription": "Enables the scene_identifier command without any pre-configured scope."
         },
         {
           "description": "Enables the set_always_on_bottom command without any pre-configured scope.",
@@ -3927,6 +4023,12 @@
           "markdownDescription": "Enables the unminimize command without any pre-configured scope."
         },
         {
+          "description": "Denies the activity_name command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:window:deny-activity-name",
+          "markdownDescription": "Denies the activity_name command without any pre-configured scope."
+        },
+        {
           "description": "Denies the available_monitors command without any pre-configured scope.",
           "type": "string",
           "const": "core:window:deny-available-monitors",
@@ -4117,6 +4219,12 @@
           "type": "string",
           "const": "core:window:deny-scale-factor",
           "markdownDescription": "Denies the scale_factor command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the scene_identifier command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:window:deny-scene-identifier",
+          "markdownDescription": "Denies the scene_identifier command without any pre-configured scope."
         },
         {
           "description": "Denies the set_always_on_bottom command without any pre-configured scope.",
@@ -4383,22 +4491,22 @@
           "markdownDescription": "Denies the unminimize command without any pre-configured scope."
         },
         {
-          "description": "This permission set configures the types of dialogs\navailable from the dialog plugin.\n\n#### Granted Permissions\n\nAll dialog types are enabled.\n\n\n\n#### This default permission set includes:\n\n- `allow-ask`\n- `allow-confirm`\n- `allow-message`\n- `allow-save`\n- `allow-open`",
+          "description": "This permission set configures the types of dialogs\navailable from the dialog plugin.\n\n#### Granted Permissions\n\nAll dialog types are enabled.\n\n\n\n#### This default permission set includes:\n\n- `allow-message`\n- `allow-save`\n- `allow-open`",
           "type": "string",
           "const": "dialog:default",
-          "markdownDescription": "This permission set configures the types of dialogs\navailable from the dialog plugin.\n\n#### Granted Permissions\n\nAll dialog types are enabled.\n\n\n\n#### This default permission set includes:\n\n- `allow-ask`\n- `allow-confirm`\n- `allow-message`\n- `allow-save`\n- `allow-open`"
+          "markdownDescription": "This permission set configures the types of dialogs\navailable from the dialog plugin.\n\n#### Granted Permissions\n\nAll dialog types are enabled.\n\n\n\n#### This default permission set includes:\n\n- `allow-message`\n- `allow-save`\n- `allow-open`"
         },
         {
-          "description": "Enables the ask command without any pre-configured scope.",
+          "description": "Enables the ask command without any pre-configured scope. (**DEPRECATED**: This is now an alias to `allow-message` and will be removed in v3)",
           "type": "string",
           "const": "dialog:allow-ask",
-          "markdownDescription": "Enables the ask command without any pre-configured scope."
+          "markdownDescription": "Enables the ask command without any pre-configured scope. (**DEPRECATED**: This is now an alias to `allow-message` and will be removed in v3)"
         },
         {
-          "description": "Enables the confirm command without any pre-configured scope.",
+          "description": "Enables the confirm command without any pre-configured scope. (**DEPRECATED**: This is now an alias to `allow-message` and will be removed in v3)",
           "type": "string",
           "const": "dialog:allow-confirm",
-          "markdownDescription": "Enables the confirm command without any pre-configured scope."
+          "markdownDescription": "Enables the confirm command without any pre-configured scope. (**DEPRECATED**: This is now an alias to `allow-message` and will be removed in v3)"
         },
         {
           "description": "Enables the message command without any pre-configured scope.",
@@ -4419,16 +4527,16 @@
           "markdownDescription": "Enables the save command without any pre-configured scope."
         },
         {
-          "description": "Denies the ask command without any pre-configured scope.",
+          "description": "Denies the ask command without any pre-configured scope. (**DEPRECATED**: This is now an alias to `deny-message` and will be removed in v3)",
           "type": "string",
           "const": "dialog:deny-ask",
-          "markdownDescription": "Denies the ask command without any pre-configured scope."
+          "markdownDescription": "Denies the ask command without any pre-configured scope. (**DEPRECATED**: This is now an alias to `deny-message` and will be removed in v3)"
         },
         {
-          "description": "Denies the confirm command without any pre-configured scope.",
+          "description": "Denies the confirm command without any pre-configured scope. (**DEPRECATED**: This is now an alias to `deny-message` and will be removed in v3)",
           "type": "string",
           "const": "dialog:deny-confirm",
-          "markdownDescription": "Denies the confirm command without any pre-configured scope."
+          "markdownDescription": "Denies the confirm command without any pre-configured scope. (**DEPRECATED**: This is now an alias to `deny-message` and will be removed in v3)"
         },
         {
           "description": "Denies the message command without any pre-configured scope.",

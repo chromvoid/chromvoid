@@ -209,13 +209,12 @@ describe('PMEntryEditModel external editor surface sync', () => {
   })
 
   it('saves full entry edits on success', async () => {
+    allowEntryEditing()
     const entry = createEntry({id: 'entry-save'})
     const updateEntry = vi.spyOn(entry, 'update').mockResolvedValue(true)
     const model = new PMEntryEditModel()
 
-    model.inlineTitle.set(entry.title ?? '')
-    model.inlineUsername.set(entry.username ?? '')
-    model.inlineWebsite.set('')
+    model.beginEntryEdit(entry)
     model.setInlineDraft('title', 'Updated title')
 
     await expect(model.saveEntryEdit(entry)).resolves.toBe(true)
@@ -228,13 +227,12 @@ describe('PMEntryEditModel external editor surface sync', () => {
   })
 
   it('keeps entry edit state and exposes an error when saving fails', async () => {
+    allowEntryEditing()
     const entry = createEntry({id: 'entry-save-fail'})
     vi.spyOn(entry, 'update').mockRejectedValue(new Error('save failed'))
     const model = new PMEntryEditModel()
 
-    model.inlineTitle.set(entry.title ?? '')
-    model.inlineUsername.set(entry.username ?? '')
-    model.inlineWebsite.set('')
+    model.beginEntryEdit(entry)
     model.setInlineDraft('title', 'Updated title')
 
     await expect(model.saveEntryEdit(entry)).resolves.toBe(false)

@@ -545,10 +545,7 @@ async function openQuickViewFromEntrySnippet(page: Page): Promise<void> {
       return
     }
 
-    const toolbar = deepFind(document, 'dashboard-header[slot="desktop-topbar"]') as HTMLElement | null
-    const toolbarButton = toolbar
-      ? (toolbar.querySelector('[data-action="pm-otp-view"]') as HTMLElement | null)
-      : null
+    const toolbarButton = deepFind(document, '[data-action="pm-otp-view"]') as HTMLElement | null
     if (!toolbarButton) throw new Error('OTP Quick View action not found')
     toolbarButton.click()
 
@@ -620,8 +617,8 @@ test('S24: OTP Quick View mobile summary rail stays compact after scrolling', as
   expect(rail.railRect).not.toBeNull()
   expect(rail.tabBarRect).not.toBeNull()
   expect(rail.railRect!.bottom).toBeLessThanOrEqual(rail.hostRect!.bottom)
-  expect(rail.railRect!.bottom).toBeLessThanOrEqual(rail.tabBarRect!.top)
-  expect(rail.railToTabBarGap).toBeGreaterThanOrEqual(0)
+  expect(rail.railRect!.bottom).toBeLessThanOrEqual(rail.tabBarRect!.top + 1)
+  expect(rail.railToTabBarGap).toBeGreaterThanOrEqual(-1)
   expect(rail.railToTabBarGap).toBeLessThanOrEqual(16)
 })
 

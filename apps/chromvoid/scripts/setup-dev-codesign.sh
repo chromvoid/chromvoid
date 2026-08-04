@@ -5,7 +5,7 @@
 # Run once on a fresh machine:
 #   bash scripts/setup-dev-codesign.sh
 #
-# After setup, use `bun run dev:signed` instead of `bun run dev`.
+# After setup, the standard `bun run dev` command signs automatically.
 
 set -euo pipefail
 
@@ -16,11 +16,9 @@ trap 'rm -rf "$TMPDIR_CERT"' EXIT
 # ── 1. Check if the identity already exists ──────────────────────────
 
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
-    echo "✓ Code-signing identity \"$IDENTITY\" already exists — nothing to do."
-    exit 0
-fi
-
-echo "Setting up \"$IDENTITY\" code-signing certificate …"
+    echo "✓ Code-signing identity \"$IDENTITY\" already exists."
+else
+    echo "Setting up \"$IDENTITY\" code-signing certificate …"
 
 # ── 2. Generate a self-signed certificate ────────────────────────────
 
@@ -64,17 +62,33 @@ security import "$TMPDIR_CERT/cert.p12" \
 security add-trusted-cert -d -r trustRoot -p codeSign \
     -k ~/Library/Keychains/login.keychain-db \
     "$TMPDIR_CERT/cert.pem"
+fi
 
 # ── 5. Verify ────────────────────────────────────────────────────────
 
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
-    echo "✓ Done. \"$IDENTITY\" is ready for code signing."
-    echo ""
-    echo "  Use:  bun run dev:signed"
-    echo ""
-    echo "  On first vault open you will see the Keychain prompt once more —"
-    echo "  enter your password and click \"Always Allow\". After that it won't appear again."
-else
+if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$IDENTITY\""; then
     echo "✗ Something went wrong — identity not found after import." >&2
     exit 1
 fi
+
+PROBE="$TMPDIR_CERT/chromvoid-dev-signing-probe"
+printf '#!/bin/sh\nexit 0\n' > "$PROBE"
+chmod 755 "$PROBE"
+codesign --force --sign "$IDENTITY" --identifier com.chromvoid.app.dev --timestamp=none "$PROBE"
+codesign --verify --strict --verbose=2 "$PROBE"
+DETAILS="$(codesign -dv --verbose=4 "$PROBE" 2>&1)"
+REQUIREMENT="$(codesign -d -r- "$PROBE" 2>&1)"
+if ! grep -Fq 'Identifier=com.chromvoid.app.dev' <<<"$DETAILS" || \
+   grep -Fqi 'Signature=adhoc' <<<"$DETAILS" || \
+   [ -z "$REQUIREMENT" ] || \
+   grep -Eqi '(^|[^[:alnum:]_])cdhash([^[:alnum:]_]|$)' <<<"$REQUIREMENT"; then
+    echo "✗ Probe signature does not have a stable ChromVoid development identity." >&2
+    exit 1
+fi
+
+echo "✓ Done. \"$IDENTITY\" is ready for stable development signing."
+echo ""
+echo "  Use:  bun run dev"
+echo ""
+echo "  Existing generic \"chromvoid\" storage access may prompt once; choose \"Always Allow\"."
+echo "  Development USB pairing now uses a separate Keychain service and must be paired once again."

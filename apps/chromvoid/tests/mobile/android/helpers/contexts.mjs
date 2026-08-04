@@ -17,7 +17,11 @@ function normalizeContexts(raw) {
   })
 }
 
-export async function listContexts(driver) {
+export async function listContexts(driver, {detailed = true} = {}) {
+  if (!detailed) {
+    return normalizeContexts(await driver.getContexts())
+  }
+
   try {
     return normalizeContexts(
       await driver.getContexts({returnDetailedContexts: true, filterByCurrentAndroidApp: true}),
@@ -31,20 +35,20 @@ export async function waitForWebviewContext(driver, {timeout = 90_000, interval 
   return await waitForMatchingWebviewContext(
     driver,
     (context) => context.id && String(context.id).startsWith('WEBVIEW'),
-    {timeout, interval},
+    {timeout, interval, detailed: false},
   )
 }
 
 export async function waitForMatchingWebviewContext(
   driver,
   matcher,
-  {timeout = 90_000, interval = 1_000} = {},
+  {timeout = 90_000, interval = 1_000, detailed = true} = {},
 ) {
   const startedAt = Date.now()
   let lastContexts = []
 
   while (Date.now() - startedAt < timeout) {
-    lastContexts = await listContexts(driver)
+    lastContexts = await listContexts(driver, {detailed})
     const webview = lastContexts.find((context) => matcher(context))
     if (webview) {
       return {contextId: webview.id, contexts: lastContexts}

@@ -7,8 +7,9 @@ Testing:
 CRUD operations and their reflection in UI
 */
 import {expect, test} from 'vitest'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 
-import {openFilesRoot} from './utils'
+import {openFilesRoot, waitForCatalogItem} from './utils'
 import type {Page} from 'playwright'
 
 declare global {
@@ -20,42 +21,32 @@ test('S17: full event synchronization cycle', async () => {
   await openFilesRoot(page)
 
   const testDirName = `test-sync-${Date.now()}`
-  const result = await page.evaluate(async (dirName) => {
-    const cat = (window as any).getAppContext?.()?.catalog
+  const created = await page.evaluate(async (dirName) => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const cat = getAppContext().catalog
     if (!cat?.api?.createDir) {
       throw new Error('catalog.api.createDir is unavailable')
     }
-    if (!cat?.api?.delete) {
+    return cat.api.createDir(dirName)
+  }, testDirName)
+  expect(created.nodeId).toEqual(expect.any(Number))
+  await waitForCatalogItem(page, testDirName, {path: '/'})
+
+  await page.evaluate(async (nodeId) => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const cat = getAppContext().catalog
+    if (!cat.api.delete) {
       throw new Error('catalog.api.delete is unavailable')
     }
-    const created = await cat.api.createDir(dirName)
-    const childrenAfterCreate = cat.catalog.getChildren('/')
-    const createdVisible = Array.isArray(childrenAfterCreate)
-      ? childrenAfterCreate.some((node: {name?: string}) => node?.name === dirName)
-      : false
-
-    if (!created?.nodeId) {
-      return {nodeId: null, createdVisible, deletedVisible: false}
-    }
-
-    await cat.api.delete(created.nodeId)
-    const childrenAfterDelete = cat.catalog.getChildren('/')
-    const deletedVisible = Array.isArray(childrenAfterDelete)
-      ? !childrenAfterDelete.some((node: {name?: string}) => node?.name === dirName)
-      : false
-
-    return {
-      nodeId: created.nodeId,
-      createdVisible,
-      deletedVisible,
-    }
-  }, testDirName)
-
-  expect(result).toEqual({
-    nodeId: expect.any(Number),
-    createdVisible: true,
-    deletedVisible: true,
-  })
+    await cat.api.delete(nodeId)
+  }, created.nodeId)
+  await waitForCatalogItem(page, testDirName, {exists: false, path: '/'})
 })
 
 test('S17b: mirror correctly displays nested structure', async () => {
@@ -63,8 +54,12 @@ test('S17b: mirror correctly displays nested structure', async () => {
   await openFilesRoot(page)
 
   // Check that getPath and findByPath work correctly
-  const pathsWork = await page.evaluate(() => {
-    const cat = (window as any).getAppContext?.()?.catalog
+  const pathsWork = await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const cat = getAppContext().catalog
     if (!cat?.catalog) return false
     try {
       const children = cat.catalog.getChildren('/')
@@ -87,8 +82,12 @@ test('S17c: Connection status updated correctly', async () => {
   await openFilesRoot(page)
 
   // Status check.
-  const isConnected = await page.evaluate(() => {
-    const ws = (window as any).getAppContext?.()?.ws
+  const isConnected = await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const ws = getAppContext().ws
     return Boolean(ws?.connected?.())
   })
 

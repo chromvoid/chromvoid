@@ -1,4 +1,5 @@
 import {expect, test} from 'vitest'
+import type * as AppContextModule from '../../src/shared/services/app-context'
 
 import {waitForAuthenticated} from './utils'
 
@@ -13,24 +14,37 @@ test('S16: break and reconnect WS', async () => {
   await waitForAuthenticated(page)
 
   // break off
-  await page.evaluate(() => {
-    const ws = (window as any).getAppContext?.()?.ws
+  await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const ws = getAppContext().ws
     if (!ws?.disconnect) {
       throw new Error('ws.disconnect is unavailable')
     }
     ws.disconnect()
   })
-  await page.waitForFunction(() => {
-    const ws = (window as any).getAppContext?.()?.ws
+  await page.waitForFunction(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    const ws = getAppContext().ws
     return !!ws && typeof ws.connected === 'function' && ws.connected() === false
   })
 
-  await page.waitForFunction(() => (window as any).router?.route?.() === 'no-connection')
+  await page.waitForSelector('no-connection')
 
   await page.reload()
   await waitForAuthenticated(page)
 
-  // Make sure the router is back on dashboard
-  const route = await page.evaluate(() => (window as any).router?.route?.())
-  expect(route).toBe('dashboard')
+  const connected = await page.evaluate(async () => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
+    const {getAppContext} = (await dynamicImport(
+      '/shared/services/app-context.ts',
+    )) as typeof AppContextModule
+    return getAppContext().ws.connected()
+  })
+  expect(connected).toBe(true)
 })

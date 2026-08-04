@@ -49,50 +49,6 @@ export class WelcomeToolsSection extends ReatomLitElement {
         background: var(--cv-color-surface-glass-subtle);
       }
 
-      .desktop-utility-status {
-        display: flex;
-        flex: 1 1 auto;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 6px 18px;
-        min-inline-size: 0;
-      }
-
-      .desktop-utility-status-item {
-        display: inline-flex;
-        align-items: baseline;
-        gap: 6px;
-        min-inline-size: 0;
-        color: var(--cv-color-text-subtle);
-        font-family: var(--cv-font-family-code);
-        font-size: 0.65625rem;
-        font-weight: 650;
-      }
-
-      .desktop-utility-status-value {
-        overflow: hidden;
-        color: var(--cv-color-text-muted);
-        font-weight: 750;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .desktop-utility-status-value[data-state='connected'] {
-        color: var(--cv-color-success);
-      }
-
-      .desktop-utility-status-separator {
-        color: var(--cv-color-text-muted);
-      }
-
-      .desktop-utilities-label {
-        color: var(--cv-color-text-subtle);
-        font-family: var(--cv-font-family-code);
-        font-size: 0.625rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-      }
-
       .desktop-utility-actions {
         display: flex;
         flex: 0 0 auto;
@@ -794,7 +750,12 @@ export class WelcomeToolsSection extends ReatomLitElement {
     }
 
     return html`
-      <button class="utilities-sheet-back" type="button" @click=${this.model.backToDeviceUtilitiesList} aria-label=${i18n('button:back')}>
+      <button
+        class="utilities-sheet-back"
+        type="button"
+        @click=${this.model.backToDeviceUtilitiesList}
+        aria-label=${i18n('button:back')}
+      >
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M15 6l-6 6 6 6"></path>
         </svg>
@@ -808,7 +769,12 @@ export class WelcomeToolsSection extends ReatomLitElement {
     }
 
     return html`
-      <button class="utilities-sheet-close" type="button" @click=${this.model.closeDeviceUtilities} aria-label=${i18n('button:close')}>
+      <button
+        class="utilities-sheet-close"
+        type="button"
+        @click=${this.model.closeDeviceUtilities}
+        aria-label=${i18n('button:close')}
+      >
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M6 6l12 12M18 6L6 18"></path>
         </svg>
@@ -966,8 +932,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
           ? html`<div class="utilities-progress-inline">${this.renderBackupProgress()}</div>`
           : html`
               <form class="utilities-form" @submit=${this.model.handleDeviceUtilitiesBackupSubmit}>
-                ${this.renderUtilitiesMasterPasswordField()}
-                ${this.renderUtilitiesError()}
+                ${this.renderUtilitiesMasterPasswordField()} ${this.renderUtilitiesError()}
                 <div class="utilities-form-actions">
                   <cv-button
                     class="utilities-form-submit"
@@ -1009,8 +974,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
                 >
                   ${i18n('welcome:restore-inline-confirm')}
                 </cv-checkbox>
-                ${this.renderUtilitiesMasterPasswordField()}
-                ${this.renderUtilitiesError()}
+                ${this.renderUtilitiesMasterPasswordField()} ${this.renderUtilitiesError()}
                 <div class="utilities-form-actions">
                   <cv-button
                     class="utilities-form-submit"
@@ -1109,7 +1073,12 @@ export class WelcomeToolsSection extends ReatomLitElement {
         <div class="utilities-system-panel">
           <div class="utilities-system-header">
             <div class="utilities-system-title">${i18n('welcome:storage-folder')}</div>
-            <button class="privacy-toggle" type="button" @click=${this.model.togglePrivacy} title=${i18n('welcome:toggle-privacy')}>
+            <button
+              class="privacy-toggle"
+              type="button"
+              @click=${this.model.togglePrivacy}
+              title=${i18n('welcome:toggle-privacy')}
+            >
               <svg
                 width="16"
                 height="16"
@@ -1127,7 +1096,9 @@ export class WelcomeToolsSection extends ReatomLitElement {
               </svg>
             </button>
           </div>
-          <div class="meta-info ${isPrivacyMode ? 'privacy-blur' : ''}">${storePath || i18n('welcome:no-path-set')}</div>
+          <div class="meta-info ${isPrivacyMode ? 'privacy-blur' : ''}">
+            ${storePath || i18n('welcome:no-path-set')}
+          </div>
           ${supportsStorageRootSelection
             ? html`
                 <div class="location-actions">
@@ -1207,8 +1178,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
           >
             ${i18n('welcome:erase-inline-confirm')}
           </cv-checkbox>
-          ${this.renderUtilitiesMasterPasswordField()}
-          ${this.renderUtilitiesError()}
+          ${this.renderUtilitiesMasterPasswordField()} ${this.renderUtilitiesError()}
           <div class="utilities-form-actions">
             <cv-button
               class="utilities-form-submit"
@@ -1277,12 +1247,16 @@ export class WelcomeToolsSection extends ReatomLitElement {
     return html`
       <div class="backup-progress">
         <cv-callout variant="info">
-          ${cancelling ? i18n('remote-storage:backup-stopping-text') : i18n('remote-storage:backup-running-text')}
+          ${cancelling
+            ? i18n('remote-storage:backup-stopping-text')
+            : i18n('remote-storage:backup-running-text')}
         </cv-callout>
 
         <div class="backup-progress-header">
           <span class="backup-progress-phase">
-            ${progress ? this.model.getBackupPhaseLabel(progress.phase) : i18n('remote-storage:phase-starting')}
+            ${progress
+              ? this.model.getBackupPhaseLabel(progress.phase)
+              : i18n('remote-storage:phase-starting')}
           </span>
           <span class="backup-progress-percent">${isIndeterminate ? '0%' : `${percent}%`}</span>
         </div>
@@ -1336,7 +1310,9 @@ export class WelcomeToolsSection extends ReatomLitElement {
 
         <div class="backup-progress-header">
           <span class="backup-progress-phase">
-            ${progress ? this.model.getRestorePhaseLabel(progress.phase) : i18n('welcome:restore-phase-starting')}
+            ${progress
+              ? this.model.getRestorePhaseLabel(progress.phase)
+              : i18n('welcome:restore-phase-starting')}
           </span>
           <span class="backup-progress-percent">${isIndeterminate ? '0%' : `${percent}%`}</span>
         </div>
@@ -1361,7 +1337,9 @@ export class WelcomeToolsSection extends ReatomLitElement {
           </span>
           <span>
             ${progress ? this.model.formatBackupBytes(progress.bytes_written) : '0 B'} /
-            ${progress && progress.estimated_size > 0 ? this.model.formatBackupBytes(progress.estimated_size) : '—'}
+            ${progress && progress.estimated_size > 0
+              ? this.model.formatBackupBytes(progress.estimated_size)
+              : '—'}
           </span>
         </div>
 
@@ -1380,29 +1358,16 @@ export class WelcomeToolsSection extends ReatomLitElement {
     const busy = this.model.busy()
     const backupInProgress = this.model.backupInProgress()
     const restoreInProgress = this.model.restoreInProgress()
-    const statusItems = this.model.desktopStatusItems()
 
     return html`
       <div class="desktop-utilities">
-        ${statusItems.length > 0
-          ? html`
-              <div class="desktop-utility-status" aria-label=${i18n('welcome:remote-flow-frame')}>
-                ${statusItems.map(
-                  (item) => html`
-                    <span class="desktop-utility-status-item">
-                      <span>${item.label}</span>
-                      <span class="desktop-utility-status-separator">·</span>
-                      <strong class="desktop-utility-status-value" data-state=${item.state ?? 'idle'}>
-                        ${item.value}
-                      </strong>
-                    </span>
-                  `,
-                )}
-              </div>
-            `
-          : html`<span class="desktop-utilities-label">SECONDARY</span>`}
         <div class="desktop-utility-actions">
-          <button class="desktop-utility-button" type="button" ?disabled=${busy} @click=${this.model.openDeviceUtilities}>
+          <button
+            class="desktop-utility-button"
+            type="button"
+            ?disabled=${busy}
+            @click=${this.model.openDeviceUtilities}
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M4 7h9M17 7h3M4 17h3M11 17h9"></path>
               <circle cx="15" cy="7" r="2.3"></circle>
@@ -1410,7 +1375,12 @@ export class WelcomeToolsSection extends ReatomLitElement {
             </svg>
             ${i18n('welcome:device-utilities')}
           </button>
-          <button class="desktop-utility-button danger" type="button" ?disabled=${busy} @click=${this.model.openSystemUtilities}>
+          <button
+            class="desktop-utility-button danger"
+            type="button"
+            ?disabled=${busy}
+            @click=${this.model.openSystemUtilities}
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"></path>
@@ -1419,10 +1389,13 @@ export class WelcomeToolsSection extends ReatomLitElement {
           </button>
         </div>
       </div>
-      ${backupInProgress ? html`<div class="desktop-utility-progress">${this.renderBackupProgress()}</div>` : nothing}
-      ${restoreInProgress ? html`<div class="desktop-utility-progress">${this.renderRestoreProgress()}</div>` : nothing}
-      ${renderGuidanceInline('welcome.backup-tools', 'welcome')}
-      ${this.renderUtilitiesSheet()}
+      ${backupInProgress
+        ? html`<div class="desktop-utility-progress">${this.renderBackupProgress()}</div>`
+        : nothing}
+      ${restoreInProgress
+        ? html`<div class="desktop-utility-progress">${this.renderRestoreProgress()}</div>`
+        : nothing}
+      ${renderGuidanceInline('welcome.backup-tools', 'welcome')} ${this.renderUtilitiesSheet()}
     `
   }
 
@@ -1437,8 +1410,15 @@ export class WelcomeToolsSection extends ReatomLitElement {
 
     return html`
       <div class="mobile-support">
-        ${backupInProgress ? html`<div class="mobile-operation">${this.renderBackupProgress()}</div>` : nothing}
-        <button class="mobile-utilities-button" type="button" ?disabled=${busy && !backupInProgress && !restoreInProgress} @click=${this.model.openDeviceUtilities}>
+        ${backupInProgress
+          ? html`<div class="mobile-operation">${this.renderBackupProgress()}</div>`
+          : nothing}
+        <button
+          class="mobile-utilities-button"
+          type="button"
+          ?disabled=${busy && !backupInProgress && !restoreInProgress}
+          @click=${this.model.openDeviceUtilities}
+        >
           <span class="mobile-utilities-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
               <path d="M4 7h9M17 7h3M4 17h3M11 17h9"></path>
@@ -1455,7 +1435,9 @@ export class WelcomeToolsSection extends ReatomLitElement {
           </svg>
         </button>
         ${renderGuidanceInline('welcome.backup-tools', 'welcome')}
-        ${restoreInProgress ? html`<div class="mobile-operation">${this.renderRestoreProgress()}</div>` : nothing}
+        ${restoreInProgress
+          ? html`<div class="mobile-operation">${this.renderRestoreProgress()}</div>`
+          : nothing}
         ${this.renderUtilitiesSheet()}
       </div>
     `

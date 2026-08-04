@@ -200,6 +200,11 @@ fn priority_for_request(req: &RpcRequest) -> RemoteRpcPriority {
         "vault:lock" | "catalog:media:inspect:cancel" => RemoteRpcPriority::High,
         "catalog:downloadRange" => RemoteRpcPriority::Media,
         "catalog:media:inspect" => RemoteRpcPriority::Low,
+        "catalog:derivative:ensure"
+            if req.data.get("tier").and_then(Value::as_str) == Some("thumbnail") =>
+        {
+            RemoteRpcPriority::Low
+        }
         _ => RemoteRpcPriority::Normal,
     }
 }
@@ -430,5 +435,35 @@ mod capability_parse_tests {
         let response = RpcResponse::success(json!({ "features": "remote-media" }));
 
         assert!(parse_capability_features(&response).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod priority_tests {
+    use super::priority_for_request;
+    use crate::core_adapter::RemoteRpcPriority;
+    use chromvoid_core::rpc::types::RpcRequest;
+    use serde_json::json;
+
+    #[test]
+    fn derivative_ensure_priority_follows_requested_tier() {
+        let preview = RpcRequest::new("catalog:derivative:ensure", json!({ "tier": "preview" }));
+        let thumbnail =
+            RpcRequest::new("catalog:derivative:ensure", json!({ "tier": "thumbnail" }));
+
+        assert_eq!(priority_for_request(&preview), RemoteRpcPriority::Normal);
+        assert_eq!(priority_for_request(&thumbnail), RemoteRpcPriority::Low);
+    }
+
+    #[test]
+    fn derivative_ensure_priority_defaults_safely_to_normal() {
+        for data in [
+            json!({}),
+            json!({ "tier": "unknown" }),
+            json!({ "tier": 1 }),
+        ] {
+            let request = RpcRequest::new("catalog:derivative:ensure", data);
+            assert_eq!(priority_for_request(&request), RemoteRpcPriority::Normal);
+        }
     }
 }

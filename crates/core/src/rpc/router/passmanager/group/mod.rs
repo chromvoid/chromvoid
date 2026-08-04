@@ -31,7 +31,7 @@ pub(super) fn handle_ensure(
 }
 
 pub(super) fn handle_list(s: &VaultSession, _data: &serde_json::Value) -> RpcResponse {
-    let groups = list_group_paths(s);
+    let groups = service::list_group_summaries(s);
     RpcResponse::success(serde_json::json!({"groups": groups}))
 }
 

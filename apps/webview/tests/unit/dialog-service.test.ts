@@ -19,11 +19,13 @@ async function flushDom() {
   await Promise.resolve()
 }
 
-async function waitFor(check: () => boolean, label: string) {
-  for (let attempt = 0; attempt < 20; attempt++) {
+async function waitFor(check: () => boolean, label: string, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs
+  do {
     if (check()) return
     await flushDom()
-  }
+    await new Promise((resolve) => window.setTimeout(resolve, 10))
+  } while (Date.now() < deadline)
 
   throw new Error(`Timed out waiting for ${label}`)
 }
@@ -337,7 +339,7 @@ describe('dialogService', () => {
     input!.focus = focusSpy
 
     inputSurface?.dispatchEvent(new Event('cv-show', {bubbles: true, composed: true}))
-    await new Promise((resolve) => window.setTimeout(resolve, 90))
+    await waitFor(() => focusSpy.mock.calls.length > 0, 'desktop input autofocus')
 
     expect(focusSpy).toHaveBeenCalledWith({preventScroll: true})
 

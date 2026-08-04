@@ -29,6 +29,13 @@ export const passwordManagerLayoutStyles = css`
     contain: layout style;
   }
 
+  .pm-content[data-pm-motion-live='true'] > * {
+    animation-duration: var(--cv-duration-normal);
+    animation-timing-function: var(--cv-easing-decelerate);
+    animation-fill-mode: both;
+    will-change: transform, opacity;
+  }
+
   .card {
     flex: 1;
     min-block-size: 0;
@@ -78,6 +85,13 @@ export const passwordManagerLayoutStyles = css`
   .session-retry:focus-visible {
     outline: 2px solid var(--cv-color-focus-ring);
     outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pm-content[data-pm-motion-live='true'] > * {
+      animation: none;
+      will-change: auto;
+    }
   }
 
 `
