@@ -17,6 +17,18 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
     private let smokeCredentialTitle = "iOS durability smoke"
     private let smokeCredentialUsername = "ios-smoke@example.invalid"
     private let smokeCredentialPassword = "4097158263049"
+    private let layoutCredentialFixtures = [
+        (
+            title: "iOS layout alpha",
+            username: "ios-layout-alpha@example.invalid",
+            password: "5173084269517"
+        ),
+        (
+            title: "iOS layout beta",
+            username: "ios-layout-beta@example.invalid",
+            password: "6824197350862"
+        ),
+    ]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -39,40 +51,121 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
         }
 
         createAndVerifyCredential(in: app)
+        verifyCredentialRowsDoNotOverlap(in: app)
         verifyManualLockAndUnlock(in: app)
         verifyBackgroundResumeLock(in: app)
 
-        app = XCTContext.runActivity(named: "Terminate while unlocked and cold relaunch locked") { _ in
-            requireFilesProductRoot(in: app)
-            app.terminate()
-            requireAppState(
-                app,
-                oneOf: [.notRunning],
-                timeout: launchTimeout,
-                description: "terminate before cold relaunch"
-            )
-
-            // A second XCUIApplication launch/activate leaves Tauri's WKWebView blank on
-            // current iOS runtimes. Launch through SpringBoard like a user, then attach
-            // a fresh XCUIApplication instance to the new process.
-            openChromVoidFromSpringBoard()
-
-            let relaunchedApp = XCUIApplication()
-            XCTAssertTrue(
-                relaunchedApp.wait(for: .runningForeground, timeout: launchTimeout),
-                "ChromVoid did not return to the foreground after cold relaunch"
-            )
-
-            requireButton(
-                identifier: "welcome.unlock-submit",
-                label: "Unlock Vault",
-                in: relaunchedApp
-            )
-            attachScreenshot(named: "cold-relaunch-locked")
-            return relaunchedApp
-        }
+        app = coldRelaunchLockedApp(app)
 
         verifyPlausibleDeniabilityAndCredentialReadback(in: app)
+    }
+
+    func testIPadVaultUnlockLifecycle() {
+        var app = XCUIApplication()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: launchTimeout),
+            "ChromVoid must be prelaunched by the simulator smoke runner"
+        )
+        requireIPadViewport(in: app)
+
+        createLocalVault(in: app)
+
+        XCTContext.runActivity(named: "Unlock the new vault on iPad") { _ in
+            unlockVault(with: smokePassword, in: app)
+            requireFilesProductRoot(in: app)
+            attachScreenshot(named: "ipad-first-unlock")
+        }
+
+        verifyManualLockAndUnlock(in: app)
+        verifyBackgroundResumeLock(in: app)
+        app = coldRelaunchLockedApp(app)
+
+        XCTContext.runActivity(named: "Unlock after a cold relaunch on iPad") { _ in
+            unlockVault(with: smokePassword, in: app)
+            requireFilesProductRoot(in: app)
+            attachScreenshot(named: "ipad-cold-relaunch-unlocked")
+        }
+
+        verifyLandscapeLockAndUnlock(in: app)
+    }
+
+    func testPrepareFixedUpdateFixture() {
+        let app = XCUIApplication()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: launchTimeout),
+            "ChromVoid build N must be prelaunched by the simulator update runner"
+        )
+
+        createLocalVault(in: app)
+        unlockVault(with: smokePassword, in: app)
+        requireFilesProductRoot(in: app)
+        createAndVerifyUpdateFolder(in: app)
+        createAndVerifyCredential(in: app)
+        lockVaultFromMobileNavigation(in: app)
+        attachScreenshot(named: "update-fixture-seeded-and-locked")
+
+        app.terminate()
+        requireAppState(
+            app,
+            oneOf: [.notRunning],
+            timeout: launchTimeout,
+            description: "terminate build N after seeding the update fixture"
+        )
+    }
+
+    func testAssertFixedUpdateRemainsLocked() {
+        let app = XCUIApplication()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: launchTimeout),
+            "ChromVoid build N+1 must be prelaunched for the locked-state update check"
+        )
+
+        requireUpdateUnlockState(in: app)
+        app.terminate()
+        requireAppState(
+            app,
+            oneOf: [.notRunning],
+            timeout: launchTimeout,
+            description: "terminate build N+1 without unlocking it"
+        )
+    }
+
+    func testVerifyFixedUpdateFixture() {
+        var app = XCUIApplication()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: launchTimeout),
+            "ChromVoid build N+1 must be prelaunched by the simulator update runner"
+        )
+
+        requireUpdateUnlockState(in: app)
+        unlockVault(with: smokePassword, in: app)
+        verifyUpdateFixture(in: app, screenshotSuffix: "after-overlay-update")
+
+        app.terminate()
+        requireAppState(
+            app,
+            oneOf: [.notRunning],
+            timeout: launchTimeout,
+            description: "terminate build N+1 before cold relaunch"
+        )
+        openChromVoidFromSpringBoard()
+
+        app = XCUIApplication()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: launchTimeout),
+            "ChromVoid build N+1 did not return to the foreground after cold relaunch"
+        )
+        requireUpdateUnlockState(in: app)
+        unlockVault(with: smokePassword, in: app)
+        verifyUpdateFixture(in: app, screenshotSuffix: "after-cold-relaunch")
+
+        app.terminate()
+        requireAppState(
+            app,
+            oneOf: [.notRunning],
+            timeout: launchTimeout,
+            description: "terminate build N+1 after update verification"
+        )
     }
 
     private func createLocalVault(in app: XCUIApplication) {
@@ -113,62 +206,10 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
     private func createAndVerifyCredential(in app: XCUIApplication) {
         XCTContext.runActivity(named: "Create a durable credential") { _ in
             openCredentialsRoot(in: app)
-            tap(
-                requireButton(
-                    identifier: "passwords.create-entry",
-                    label: "Create entry",
-                    in: app
-                ),
-                in: app
-            )
-
-            enterText(
-                smokeCredentialTitle,
-                into: requireTextField(
-                    identifier: "passwords.create.title",
-                    label: "Title",
-                    placeholder: "Enter title",
-                    in: app
-                ),
-                description: "passwords.create.title",
-                in: app
-            )
-            enterText(
-                smokeCredentialUsername,
-                into: requireTextField(
-                    identifier: "passwords.create.username",
-                    label: "User name",
-                    placeholder: "Enter user name or account name",
-                    in: app
-                ),
-                description: "passwords.create.username",
-                in: app
-            )
-            enterText(
-                smokeCredentialPassword,
-                into: requireSecureTextField(
-                    identifier: "passwords.create.password",
-                    label: "Password",
-                    placeholder: "Enter password",
-                    in: app
-                ),
-                description: "passwords.create.password",
-                in: app
-            )
-
-            // Credential creation is not idempotent. Activate the submit button once,
-            // then wait for the persisted entry detail instead of retrying the tap.
-            tap(
-                requireButton(
-                    identifier: "passwords.create.submit",
-                    label: "Create entry",
-                    in: app
-                ),
-                in: app
-            )
-            requireButtonToDisappear(
-                identifier: "passwords.create.submit",
-                label: "Create entry",
+            createCredential(
+                title: smokeCredentialTitle,
+                username: smokeCredentialUsername,
+                password: smokeCredentialPassword,
                 in: app
             )
             requireCredentialDetailReady(in: app)
@@ -178,6 +219,116 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
             requireCredentialRow(in: app)
             attachScreenshot(named: "credential-created-list")
         }
+    }
+
+    private func verifyCredentialRowsDoNotOverlap(in app: XCUIApplication) {
+        XCTContext.runActivity(named: "Credentials remain separated on iPhone") { _ in
+            for fixture in layoutCredentialFixtures {
+                openCredentialsRoot(in: app)
+                createCredential(
+                    title: fixture.title,
+                    username: fixture.username,
+                    password: fixture.password,
+                    in: app
+                )
+            }
+
+            openCredentialsRoot(in: app)
+            let titles = [smokeCredentialTitle] + layoutCredentialFixtures.map(\.title)
+            let rows = titles.map { title in
+                requireUniqueHittable(
+                    credentialRowQuery(title: title, in: app),
+                    description: "credential row \(title)",
+                    in: app
+                )
+            }
+            let orderedRows = rows.sorted { $0.frame.minY < $1.frame.minY }
+
+            guard orderedRows.allSatisfy({ !$0.frame.isEmpty && !$0.frame.isInfinite }) else {
+                attachDiagnostics(for: app, named: "credential-rows-invalid-geometry")
+                XCTFail("Credential rows must expose non-empty finite frames")
+                return
+            }
+
+            for (upperRow, lowerRow) in zip(orderedRows, orderedRows.dropFirst()) {
+                guard upperRow.frame.maxY <= lowerRow.frame.minY + 0.5 else {
+                    attachDiagnostics(for: app, named: "credential-rows-overlap")
+                    XCTFail(
+                        "Credential rows overlap: \(upperRow.label) \(upperRow.frame) and " +
+                            "\(lowerRow.label) \(lowerRow.frame)"
+                    )
+                    return
+                }
+            }
+
+            attachScreenshot(named: "credential-list-separated-rows")
+        }
+    }
+
+    private func createCredential(
+        title: String,
+        username: String,
+        password: String,
+        in app: XCUIApplication
+    ) {
+        tap(
+            requireButton(
+                identifier: "passwords.create-entry",
+                label: "Create entry",
+                in: app
+            ),
+            in: app
+        )
+
+        enterText(
+            title,
+            into: requireTextField(
+                identifier: "passwords.create.title",
+                label: "Title",
+                placeholder: "Enter title",
+                in: app
+            ),
+            description: "passwords.create.title",
+            in: app
+        )
+        enterText(
+            username,
+            into: requireTextField(
+                identifier: "passwords.create.username",
+                label: "User name",
+                placeholder: "Enter user name or account name",
+                in: app
+            ),
+            description: "passwords.create.username",
+            in: app
+        )
+        enterText(
+            password,
+            into: requireSecureTextField(
+                identifier: "passwords.create.password",
+                label: "Password",
+                placeholder: "Enter password",
+                in: app
+            ),
+            description: "passwords.create.password",
+            in: app
+        )
+
+        // Credential creation is not idempotent. Activate the submit button once,
+        // then wait for the persisted entry detail instead of retrying the tap.
+        tap(
+            requireButton(
+                identifier: "passwords.create.submit",
+                label: "Create entry",
+                in: app
+            ),
+            in: app
+        )
+        requireButtonToDisappear(
+            identifier: "passwords.create.submit",
+            label: "Create entry",
+            in: app
+        )
     }
 
     private func verifyManualLockAndUnlock(in app: XCUIApplication) {
@@ -220,6 +371,100 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
         }
     }
 
+    private func coldRelaunchLockedApp(_ app: XCUIApplication) -> XCUIApplication {
+        XCTContext.runActivity(named: "Terminate while unlocked and cold relaunch locked") { _ in
+            requireFilesProductRoot(in: app)
+            app.terminate()
+            requireAppState(
+                app,
+                oneOf: [.notRunning],
+                timeout: launchTimeout,
+                description: "terminate before cold relaunch"
+            )
+
+            // A second XCUIApplication launch/activate leaves Tauri's WKWebView blank on
+            // current iOS runtimes. Launch through SpringBoard like a user, then attach
+            // a fresh XCUIApplication instance to the new process.
+            openChromVoidFromSpringBoard()
+
+            let relaunchedApp = XCUIApplication()
+            XCTAssertTrue(
+                relaunchedApp.wait(for: .runningForeground, timeout: launchTimeout),
+                "ChromVoid did not return to the foreground after cold relaunch"
+            )
+
+            requireButton(
+                identifier: "welcome.unlock-submit",
+                label: "Unlock Vault",
+                in: relaunchedApp
+            )
+            attachScreenshot(named: "cold-relaunch-locked")
+            return relaunchedApp
+        }
+    }
+
+    private func requireIPadViewport(in app: XCUIApplication) {
+        let window = app.windows.firstMatch
+        guard window.waitForExistence(timeout: elementTimeout) else {
+            attachDiagnostics(for: app, named: "ipad-window-missing")
+            XCTFail("ChromVoid did not expose an application window")
+            return
+        }
+
+        let shortestSide = min(window.frame.width, window.frame.height)
+        guard shortestSide >= 700 else {
+            attachDiagnostics(for: app, named: "ipad-viewport-required")
+            XCTFail("The iPad unlock smoke test requires an iPad viewport, received \(window.frame)")
+            return
+        }
+    }
+
+    private func verifyLandscapeLockAndUnlock(in app: XCUIApplication) {
+        XCTContext.runActivity(named: "Unlock the vault in iPad landscape") { _ in
+            lockVaultFromMobileNavigation(in: app)
+            XCUIDevice.shared.orientation = .landscapeLeft
+            requireOrientation(.landscape, in: app)
+
+            requireButton(
+                identifier: "welcome.unlock-submit",
+                label: "Unlock Vault",
+                in: app
+            )
+            attachScreenshot(named: "ipad-landscape-locked")
+
+            unlockVault(with: smokePassword, in: app)
+            requireFilesProductRoot(in: app)
+            attachScreenshot(named: "ipad-landscape-unlocked")
+
+            XCUIDevice.shared.orientation = .portrait
+            requireOrientation(.portrait, in: app)
+        }
+    }
+
+    private enum ExpectedOrientation {
+        case landscape
+        case portrait
+    }
+
+    private func requireOrientation(_ orientation: ExpectedOrientation, in app: XCUIApplication) {
+        let window = app.windows.firstMatch
+        let predicate = NSPredicate { _, _ in
+            switch orientation {
+            case .landscape:
+                return window.frame.width > window.frame.height
+            case .portrait:
+                return window.frame.height > window.frame.width
+            }
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: window)
+        let result = XCTWaiter.wait(for: [expectation], timeout: elementTimeout)
+        guard result == .completed else {
+            attachDiagnostics(for: app, named: "ipad-orientation-timeout")
+            XCTFail("ChromVoid did not reach the expected iPad orientation")
+            return
+        }
+    }
+
     private func verifyPlausibleDeniabilityAndCredentialReadback(in app: XCUIApplication) {
         XCTContext.runActivity(named: "Alternate password opens a plausible-deniability vault") { _ in
             unlockVault(with: alternatePassword, in: app)
@@ -239,6 +484,111 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
             requireCredentialDetailReady(in: app)
             attachScreenshot(named: "original-credential-readback")
         }
+    }
+
+    private func createAndVerifyUpdateFolder(in app: XCUIApplication) {
+        XCTContext.runActivity(named: "Create a durable folder for the update fixture") { _ in
+            requireFilesProductRoot(in: app)
+            tap(
+                requireShadowControl(
+                    app.webViews.otherElements.matching(
+                        NSPredicate(format: "label == %@", "Add")
+                    ),
+                    description: "files.mobile-add-menu",
+                    in: app
+                ),
+                in: app
+            )
+            tap(
+                requireUniqueHittable(
+                    app.webViews.menuItems.matching(
+                        NSPredicate(format: "label == %@", "Create folder")
+                    ),
+                    description: "files.mobile-add-menu.create-folder",
+                    in: app
+                ),
+                in: app
+            )
+
+            enterText(
+                updateFolderName,
+                into: requireTextField(
+                    identifier: "files.create-folder.name",
+                    label: "Folder name",
+                    placeholder: "Enter folder name...",
+                    in: app
+                ),
+                description: "files.create-folder.name",
+                in: app
+            )
+
+            // Folder creation is not idempotent. Submit once, then wait for the
+            // dialog to close and the persisted catalog row to appear.
+            tap(
+                requireButton(
+                    identifier: "files.create-folder.submit",
+                    label: "Create",
+                    in: app
+                ),
+                in: app
+            )
+            requireButtonToDisappear(
+                identifier: "files.create-folder.submit",
+                label: "Create",
+                in: app
+            )
+            requireUpdateFolder(in: app)
+            attachScreenshot(named: "update-folder-created")
+        }
+    }
+
+    private func requireUpdateUnlockState(in app: XCUIApplication) {
+        requireButton(
+            identifier: "welcome.unlock-submit",
+            label: "Unlock Vault",
+            in: app
+        )
+
+        let firstRunControls = buttonQuery(
+            identifier: "welcome.mode.local",
+            label: "Create Storage",
+            in: app
+        ).allElementsBoundByIndex.filter(\.exists)
+        guard firstRunControls.isEmpty else {
+            attachDiagnostics(for: app, named: "update-returned-to-first-run")
+            XCTFail("Build N+1 returned to first-run storage creation after an overlay update")
+            return
+        }
+        attachScreenshot(named: "update-existing-vault-locked")
+    }
+
+    private func verifyUpdateFixture(
+        in app: XCUIApplication,
+        screenshotSuffix: String
+    ) {
+        requireFilesProductRoot(in: app)
+        requireUpdateFolder(in: app)
+        attachScreenshot(named: "update-folder-\(screenshotSuffix)")
+
+        openCredentialsRoot(in: app)
+        tap(requireCredentialRow(in: app), in: app)
+        requireCredentialDetailReady(in: app)
+        attachScreenshot(named: "update-credential-\(screenshotSuffix)")
+    }
+
+    private var updateFolderName: String {
+        "iOS update durability folder"
+    }
+
+    @discardableResult
+    private func requireUpdateFolder(in app: XCUIApplication) -> XCUIElement {
+        requireUniqueExisting(
+            app.webViews.otherElements.matching(
+                NSPredicate(format: "label BEGINSWITH %@", updateFolderName)
+            ),
+            description: "persisted update folder",
+            in: app
+        )
     }
 
     private func openCredentialsRoot(in app: XCUIApplication) {
@@ -303,8 +653,15 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
     }
 
     private func credentialRowQuery(in app: XCUIApplication) -> XCUIElementQuery {
+        credentialRowQuery(title: smokeCredentialTitle, in: app)
+    }
+
+    private func credentialRowQuery(
+        title: String,
+        in app: XCUIApplication
+    ) -> XCUIElementQuery {
         app.webViews.buttons.matching(
-            NSPredicate(format: "label == %@", smokeCredentialTitle)
+            NSPredicate(format: "label == %@", title)
         )
     }
 
@@ -598,12 +955,22 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
 
     private func openChromVoidFromSpringBoard() {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let appIcon = springboard.icons["ChromVoid"]
+        let appIcons = springboard.icons.matching(identifier: "ChromVoid")
         XCTAssertTrue(
-            appIcon.waitForExistence(timeout: elementTimeout),
+            appIcons.firstMatch.waitForExistence(timeout: elementTimeout),
             "ChromVoid icon was not available in SpringBoard"
         )
-        XCTAssertTrue(appIcon.isHittable, "ChromVoid icon was not hittable in SpringBoard")
+
+        guard let appIcon = appIcons.allElementsBoundByIndex.first(where: \.isHittable) else {
+            attachScreenshot(named: "springboard-icon-not-hittable")
+            let hierarchy = XCTAttachment(string: springboard.debugDescription)
+            hierarchy.name = "springboard-icon-not-hittable-accessibility-hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+            XCTFail("No hittable ChromVoid icon was available in SpringBoard")
+            return
+        }
+
         appIcon.tap()
     }
 
@@ -732,6 +1099,42 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
         }
 
         return matches[0]
+    }
+
+    @discardableResult
+    private func requireShadowControl(
+        _ query: XCUIElementQuery,
+        description: String,
+        in app: XCUIApplication
+    ) -> XCUIElement {
+        // Current iOS WebKit can flatten a shadow-DOM control into nested AX
+        // nodes with the same label and frame. Treat that cluster as one control,
+        // while preserving the ambiguity failure for distinct on-screen controls.
+        let first = query.firstMatch
+        let predicate = NSPredicate { _, _ in
+            query.allElementsBoundByIndex.contains(where: \.isHittable)
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: query)
+        guard XCTWaiter.wait(for: [expectation], timeout: elementTimeout) == .completed else {
+            attachDiagnostics(for: app, named: "missing-\(description)")
+            XCTFail("XCUI shadow control was not hittable: \(description)")
+            return first
+        }
+
+        let matches = query.allElementsBoundByIndex.filter(\.isHittable)
+        guard let control = matches.first else {
+            attachDiagnostics(for: app, named: "missing-\(description)")
+            XCTFail("XCUI shadow control disappeared: \(description)")
+            return first
+        }
+
+        guard matches.dropFirst().allSatisfy({ $0.frame == control.frame }) else {
+            attachDiagnostics(for: app, named: "ambiguous-\(description)")
+            XCTFail("Expected one hittable XCUI control cluster for \(description)")
+            return control
+        }
+
+        return control
     }
 
     @discardableResult

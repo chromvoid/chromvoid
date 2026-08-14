@@ -90,7 +90,7 @@ export function renderHeaderIdentity(context: PMEntryMobileRenderContext) {
   const {card, data, model, ui} = context
   const canEditIdentity = data.canEditFields && data.isEditingEntry
   const canEditAvatar = canEditIdentity
-  const inlineError = model.inlineError()
+  const titleError = model.inlineTitleError()
 
   return html`
     <div class="entry-header-identity">
@@ -127,12 +127,17 @@ export function renderHeaderIdentity(context: PMEntryMobileRenderContext) {
                 data-inline-field="title"
                 .value=${model.inlineTitle()}
                 placeholder=${i18n('title_or_url:placeholder')}
-                aria-label=${i18n('title')}
+                aria-label=${titleError ? `${i18n('title')}. ${titleError}` : i18n('title')}
+                required
+                ?invalid=${Boolean(titleError)}
                 @cv-input=${ui.handleInlineEditInput}
                 @keydown=${ui.handleInlineEditorKeyDown}
-                ?data-has-error=${!!inlineError && !model.inlineTitle().trim()}
+                ?data-has-error=${Boolean(titleError)}
                 size="small"
               ></cv-input>
+              ${titleError
+                ? html`<p class="entry-title-error" role="alert">${titleError}</p>`
+                : nothing}
             `
           : html`
             <div

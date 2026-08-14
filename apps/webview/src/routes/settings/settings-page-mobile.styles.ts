@@ -2,16 +2,12 @@ import {css} from 'lit'
 
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 import {routeCalloutStyles} from 'root/shared/ui/route-callout.styles'
 
 export const settingsPageMobileStyles = [
   sharedStyles,
-  pageTransitionStyles,
-  pageFadeInStyles,
   hostLayoutPaintContainStyles,
   routeCalloutStyles,
   css`

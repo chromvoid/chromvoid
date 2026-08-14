@@ -1,6 +1,7 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {CVCheckbox} from '@chromvoid/uikit/components/cv-checkbox'
+import {CVDrawer} from '@chromvoid/uikit/components/cv-drawer'
 import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
@@ -108,23 +109,28 @@ export class WelcomeToolsSection extends ReatomLitElement {
         background: var(--cv-color-surface);
       }
 
-      :host([layout='desktop']) .utilities-sheet {
-        --cv-bottom-sheet-border-radius: 14px;
-        --cv-bottom-sheet-body-padding: 0 18px 22px;
-        --cv-bottom-sheet-grabber-height: 0px;
-        --cv-bottom-sheet-grabber-width: 0px;
-        --cv-bottom-sheet-handle-block-size: 18px;
-        --cv-bottom-sheet-handle-padding-block: 0;
-        --cv-bottom-sheet-max-height: min(86dvh, 620px);
+      .utilities-drawer {
+        --cv-drawer-z-index: calc(var(--cv-z-overlay, 300) + 34);
+        --cv-drawer-size: min(460px, calc(100vw - var(--cv-space-6)));
+        --cv-drawer-max-size: 100vw;
+        --cv-drawer-body-spacing: 0 var(--cv-space-6) var(--cv-space-6);
+        --cv-drawer-border-radius: var(--cv-radius-3);
+        --cv-drawer-overlay-color: var(--cv-color-overlay);
+        --cv-drawer-overlay-transition-duration: var(--cv-duration-fast);
+        --cv-drawer-overlay-closed-opacity: 0;
+        --cv-drawer-transition-duration: var(--cv-duration-normal);
       }
 
-      :host([layout='desktop']) .utilities-sheet::part(content) {
-        inline-size: min(460px, 94vw);
-        margin-inline: auto;
-        border: 1px solid var(--cv-color-border-muted);
-        border-radius: 14px;
+      .utilities-drawer::part(trigger),
+      .utilities-drawer::part(footer) {
+        display: none;
+      }
+
+      .utilities-drawer::part(panel) {
+        border-block: 0;
+        border-inline-end: 0;
         background: linear-gradient(180deg, var(--cv-color-surface) 0%, var(--cv-color-bg) 100%);
-        box-shadow: 0 30px 80px var(--cv-alpha-black-65);
+        box-shadow: var(--cv-shadow-4);
       }
 
       .tool-header {
@@ -344,14 +350,27 @@ export class WelcomeToolsSection extends ReatomLitElement {
         box-shadow: 0 -24px 70px var(--cv-alpha-black-62);
       }
 
-      .utilities-sheet-header {
+      @media (min-width: 700px) {
+        :host([layout='mobile'][tablet-viewport]) .mobile-utilities-button {
+          padding-inline: var(--app-spacing-2);
+          padding-block-start: var(--app-spacing-4);
+        }
+
+        :host([layout='mobile'][tablet-viewport]) .utilities-sheet::part(content) {
+          inline-size: min(620px, calc(100vw - 64px));
+          margin-inline: auto;
+          border-inline: 1px solid var(--welcome-lockscreen-border-muted);
+        }
+      }
+
+      .utilities-panel-header {
         display: flex;
         align-items: center;
         gap: var(--app-spacing-3);
         margin-block: 16px 6px;
       }
 
-      .utilities-sheet-title {
+      .utilities-panel-title {
         flex: 1;
         min-inline-size: 0;
         color: var(--welcome-lockscreen-foreground);
@@ -359,8 +378,8 @@ export class WelcomeToolsSection extends ReatomLitElement {
         font-weight: 650;
       }
 
-      .utilities-sheet-back,
-      .utilities-sheet-close {
+      .utilities-panel-back,
+      .utilities-panel-close {
         display: inline-grid;
         place-items: center;
         inline-size: 30px;
@@ -373,14 +392,14 @@ export class WelcomeToolsSection extends ReatomLitElement {
         cursor: pointer;
       }
 
-      .utilities-sheet-back:focus-visible,
-      .utilities-sheet-close:focus-visible {
+      .utilities-panel-back:focus-visible,
+      .utilities-panel-close:focus-visible {
         outline: 2px solid var(--cv-color-primary);
         outline-offset: 2px;
       }
 
-      .utilities-sheet-back svg,
-      .utilities-sheet-close svg {
+      .utilities-panel-back svg,
+      .utilities-panel-close svg {
         inline-size: 18px;
         block-size: 18px;
         stroke: currentColor;
@@ -388,7 +407,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
         stroke-linecap: round;
       }
 
-      .utilities-sheet-note {
+      .utilities-panel-note {
         margin: 0 0 20px;
         color: var(--welcome-lockscreen-foreground-subtle);
         font-family: var(--cv-font-family-code);
@@ -398,7 +417,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
         letter-spacing: 0.02em;
       }
 
-      .utilities-sheet-view {
+      .utilities-panel-view {
         display: grid;
         gap: 0;
       }
@@ -693,37 +712,37 @@ export class WelcomeToolsSection extends ReatomLitElement {
         background: var(--cv-color-danger-surface);
       }
 
-      @media (max-height: 700px) {
-        .mobile-utilities-button {
-          gap: 10px;
-          padding-block-start: 10px;
-        }
-
-        .mobile-utilities-icon {
-          inline-size: 16px;
-          block-size: 16px;
-        }
-
-        .mobile-utilities-label {
-          font-size: 0.8125rem;
-        }
-
-        .mobile-utilities-meta {
-          margin-block-start: 2px;
-          font-size: 0.59375rem;
-          line-height: 1.25;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .mobile-utilities-button,
+      :host([layout='mobile'][viewport-profile='condensed']) .mobile-utilities-button {
+        gap: 10px;
+        padding-block-start: 10px;
       }
 
-      @media (max-height: 620px) {
-        .mobile-utilities-button {
-          min-block-size: 44px;
-          padding-block-start: 8px;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .mobile-utilities-icon,
+      :host([layout='mobile'][viewport-profile='condensed']) .mobile-utilities-icon {
+        inline-size: 16px;
+        block-size: 16px;
+      }
 
-        .mobile-utilities-meta {
-          display: none;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .mobile-utilities-label,
+      :host([layout='mobile'][viewport-profile='condensed']) .mobile-utilities-label {
+        font-size: 0.8125rem;
+      }
+
+      :host([layout='mobile'][viewport-profile='compact']) .mobile-utilities-meta,
+      :host([layout='mobile'][viewport-profile='condensed']) .mobile-utilities-meta {
+        margin-block-start: 2px;
+        font-size: 0.59375rem;
+        line-height: 1.25;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .mobile-utilities-button {
+        min-block-size: 44px;
+        padding-block-start: 8px;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .mobile-utilities-meta {
+        display: none;
       }
     `,
   ]
@@ -739,19 +758,20 @@ export class WelcomeToolsSection extends ReatomLitElement {
   static define() {
     CVBottomSheet.define()
     CVCheckbox.define()
+    CVDrawer.define()
     if (!customElements.get('welcome-tools-section')) {
       customElements.define('welcome-tools-section', this)
     }
   }
 
-  private renderSheetBackButton() {
+  private renderUtilitiesBackButton() {
     if (!this.model) {
       return nothing
     }
 
     return html`
       <button
-        class="utilities-sheet-back"
+        class="utilities-panel-back"
         type="button"
         @click=${this.model.backToDeviceUtilitiesList}
         aria-label=${i18n('button:back')}
@@ -763,14 +783,15 @@ export class WelcomeToolsSection extends ReatomLitElement {
     `
   }
 
-  private renderSheetCloseButton() {
+  private renderUtilitiesCloseButton() {
     if (!this.model) {
       return nothing
     }
 
     return html`
       <button
-        class="utilities-sheet-close"
+        class="utilities-panel-close"
+        id="device-utilities-close"
         type="button"
         @click=${this.model.closeDeviceUtilities}
         aria-label=${i18n('button:close')}
@@ -782,12 +803,12 @@ export class WelcomeToolsSection extends ReatomLitElement {
     `
   }
 
-  private renderUtilitiesSheetHeader(title: string, back = false) {
+  private renderUtilitiesHeader(title: string, back = false) {
     return html`
-      <div class="utilities-sheet-header">
-        ${back ? this.renderSheetBackButton() : nothing}
-        <div class="utilities-sheet-title">${title}</div>
-        ${this.renderSheetCloseButton()}
+      <div class="utilities-panel-header">
+        ${back ? this.renderUtilitiesBackButton() : nothing}
+        <div class="utilities-panel-title">${title}</div>
+        ${this.renderUtilitiesCloseButton()}
       </div>
     `
   }
@@ -859,9 +880,9 @@ export class WelcomeToolsSection extends ReatomLitElement {
     const masterRekeyInProgress = this.model.masterRekeyInProgress()
 
     return html`
-      <div class="utilities-sheet-view">
-        ${this.renderUtilitiesSheetHeader(i18n('welcome:device-utilities'))}
-        <p class="utilities-sheet-note">${i18n('welcome:device-utilities-note')}</p>
+      <div class="utilities-panel-view">
+        ${this.renderUtilitiesHeader(i18n('welcome:device-utilities'))}
+        <p class="utilities-panel-note">${i18n('welcome:device-utilities-note')}</p>
 
         <div class="utilities-list">
           ${this.renderUtilitiesRow({
@@ -924,8 +945,8 @@ export class WelcomeToolsSection extends ReatomLitElement {
     const inProgress = this.model.backupInProgress()
 
     return html`
-      <div class="utilities-sheet-view">
-        ${this.renderUtilitiesSheetHeader(i18n('button:backup'), true)}
+      <div class="utilities-panel-view">
+        ${this.renderUtilitiesHeader(i18n('button:backup'), true)}
         <p class="utilities-subscreen-desc">${i18n('welcome:backup-inline-desc')}</p>
 
         ${inProgress
@@ -959,8 +980,8 @@ export class WelcomeToolsSection extends ReatomLitElement {
     const inProgress = this.model.restoreInProgress()
 
     return html`
-      <div class="utilities-sheet-view">
-        ${this.renderUtilitiesSheetHeader(i18n('button:restore'), true)}
+      <div class="utilities-panel-view">
+        ${this.renderUtilitiesHeader(i18n('button:restore'), true)}
         <p class="utilities-subscreen-desc">${i18n('welcome:restore-inline-desc')}</p>
 
         ${inProgress
@@ -1000,8 +1021,8 @@ export class WelcomeToolsSection extends ReatomLitElement {
     const form = this.model.deviceUtilitiesForm()
 
     return html`
-      <div class="utilities-sheet-view">
-        ${this.renderUtilitiesSheetHeader(i18n('button:changepwd'), true)}
+      <div class="utilities-panel-view">
+        ${this.renderUtilitiesHeader(i18n('button:changepwd'), true)}
         <p class="utilities-subscreen-desc">${i18n('welcome:change-password-inline-desc')}</p>
 
         <form class="utilities-form" @submit=${this.model.handleDeviceUtilitiesMasterPasswordSubmit}>
@@ -1067,8 +1088,8 @@ export class WelcomeToolsSection extends ReatomLitElement {
     const storePath = this.model.storePath()
 
     return html`
-      <div class="utilities-sheet-view">
-        ${this.renderUtilitiesSheetHeader(i18n('welcome:system-title'))}
+      <div class="utilities-panel-view">
+        ${this.renderUtilitiesHeader(i18n('welcome:system-title'))}
 
         <div class="utilities-system-panel">
           <div class="utilities-system-header">
@@ -1166,8 +1187,8 @@ export class WelcomeToolsSection extends ReatomLitElement {
     const form = this.model.deviceUtilitiesForm()
 
     return html`
-      <div class="utilities-sheet-view">
-        ${this.renderUtilitiesSheetHeader(i18n('button:erase'), true)}
+      <div class="utilities-panel-view">
+        ${this.renderUtilitiesHeader(i18n('button:erase'), true)}
         <p class="utilities-subscreen-desc">${i18n('welcome:erase-inline-desc')}</p>
 
         <form class="utilities-form" @submit=${this.model.handleDeviceUtilitiesEraseSubmit}>
@@ -1194,7 +1215,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
     `
   }
 
-  private renderUtilitiesSheetContent() {
+  private renderUtilitiesContent() {
     if (!this.model) {
       return nothing
     }
@@ -1215,7 +1236,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
     }
   }
 
-  private renderUtilitiesSheet() {
+  private renderMobileUtilitiesSheet() {
     if (!this.model) {
       return nothing
     }
@@ -1223,14 +1244,34 @@ export class WelcomeToolsSection extends ReatomLitElement {
     return html`
       <cv-bottom-sheet
         class="utilities-sheet"
-        .open=${this.model.deviceUtilitiesSheetOpen()}
+        .open=${this.model.deviceUtilitiesOpen()}
         no-header
         show-handle
         drag-to-close
-        @cv-change=${this.model.handleDeviceUtilitiesSheetChange}
+        @cv-change=${this.model.handleDeviceUtilitiesChange}
       >
-        ${this.renderUtilitiesSheetContent()}
+        ${this.renderUtilitiesContent()}
       </cv-bottom-sheet>
+    `
+  }
+
+  private renderDesktopUtilitiesDrawer() {
+    if (!this.model) {
+      return nothing
+    }
+
+    return html`
+      <cv-drawer
+        class="utilities-drawer"
+        placement="end"
+        no-header
+        initial-focus-id="device-utilities-close"
+        .open=${this.model.deviceUtilitiesOpen()}
+        @cv-change=${this.model.handleDeviceUtilitiesChange}
+      >
+        <span slot="title">${i18n('welcome:device-utilities')}</span>
+        ${this.renderUtilitiesContent()}
+      </cv-drawer>
     `
   }
 
@@ -1395,7 +1436,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
       ${restoreInProgress
         ? html`<div class="desktop-utility-progress">${this.renderRestoreProgress()}</div>`
         : nothing}
-      ${renderGuidanceInline('welcome.backup-tools', 'welcome')} ${this.renderUtilitiesSheet()}
+      ${renderGuidanceInline('welcome.backup-tools', 'welcome')} ${this.renderDesktopUtilitiesDrawer()}
     `
   }
 
@@ -1438,7 +1479,7 @@ export class WelcomeToolsSection extends ReatomLitElement {
         ${restoreInProgress
           ? html`<div class="mobile-operation">${this.renderRestoreProgress()}</div>`
           : nothing}
-        ${this.renderUtilitiesSheet()}
+        ${this.renderMobileUtilitiesSheet()}
       </div>
     `
   }

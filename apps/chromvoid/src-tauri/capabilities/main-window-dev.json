@@ -1,15 +1,7 @@
 {
   "identifier": "main-window-dev",
-  "description": "Main ChromVoid window IPC permissions (development only - allows localhost dev server).",
+  "description": "Main ChromVoid window IPC permissions for packaged development builds.",
   "platforms": ["macOS", "windows", "linux"],
-  "remote": {
-    "urls": [
-      "http://localhost:4400/*",
-      "http://127.0.0.1:4400/*",
-      "http://localhost:4410/*",
-      "http://127.0.0.1:4410/*"
-    ]
-  },
   "windows": ["main"],
   "permissions": ["core:default", "desktop", "dialog:default", "clipboard-manager:allow-write-text"]
 }

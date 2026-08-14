@@ -26,6 +26,7 @@ const sourceIcon = path.resolve(
   appRoot,
   process.env.ICON_SOURCE ?? path.join('src-tauri', 'icons', 'icon.source.png'),
 );
+const packageRunner = process.env.npm_execpath ?? 'bun';
 
 const scales = {
   desktop: parseScale('ICON_SCALE_DESKTOP', 0.93),
@@ -33,6 +34,12 @@ const scales = {
   android: parseScale('ICON_SCALE_ANDROID', 0.67),
 };
 const iconBackground = '#030507';
+const macosIconGeometry = {
+  canvasSize: 1024,
+  plateSize: 824,
+  plateCornerRadius: 185,
+  markSize: 800,
+};
 const androidSplashLogoPath = path.join(
   androidOwnedResDir,
   'drawable-nodpi',
@@ -107,6 +114,76 @@ async function buildScaledIcon(sourcePath, scale, label, workspaceDir, options =
   }
 
   return paddedPath;
+}
+
+async function buildMacosIcon(sourcePath, workspaceDir) {
+  const { canvasSize, plateSize, plateCornerRadius, markSize } = macosIconGeometry;
+  const plateOffset = Math.round((canvasSize - plateSize) / 2);
+  const markOffset = Math.round((canvasSize - markSize) / 2);
+  const outputPath = path.join(workspaceDir, 'macos.png');
+  const plate = Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="${canvasSize}" height="${canvasSize}">
+      <defs>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+          <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#000000" flood-opacity="0.38" />
+        </filter>
+      </defs>
+      <rect
+        x="${plateOffset}"
+        y="${plateOffset}"
+        width="${plateSize}"
+        height="${plateSize}"
+        rx="${plateCornerRadius}"
+        fill="#080c12"
+        filter="url(#shadow)"
+      />
+      <rect
+        x="${plateOffset + 1}"
+        y="${plateOffset + 1}"
+        width="${plateSize - 2}"
+        height="${plateSize - 2}"
+        rx="${plateCornerRadius - 1}"
+        fill="none"
+        stroke="#ffffff"
+        stroke-opacity="0.12"
+        stroke-width="2"
+      />
+    </svg>
+  `);
+  const mark = await sharp(sourcePath)
+    .resize(markSize, markSize, { fit: 'contain' })
+    .png()
+    .toBuffer();
+
+  await sharp({
+    create: {
+      width: canvasSize,
+      height: canvasSize,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([
+      { input: plate, top: 0, left: 0 },
+      { input: mark, top: markOffset, left: markOffset },
+    ])
+    .png()
+    .toFile(outputPath);
+
+  const { data, info } = await sharp(outputPath).ensureAlpha().raw().toBuffer({
+    resolveWithObject: true,
+  });
+  const cornerAlphaOffsets = [
+    3,
+    (info.width - 1) * 4 + 3,
+    (info.height - 1) * info.width * 4 + 3,
+    (info.width * info.height - 1) * 4 + 3,
+  ];
+  if (cornerAlphaOffsets.some((offset) => data[offset] !== 0)) {
+    throw new Error(`Generated macOS icon must have transparent canvas corners: ${outputPath}`);
+  }
+
+  return outputPath;
 }
 
 async function copyRootFiles(fromDir, toDir) {
@@ -196,10 +273,12 @@ async function syncAndroidLauncherResources(fromDir, toDir) {
 async function main() {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'chromvoid-icons-'));
   const tempDesktopOut = path.join(tempRoot, 'out-desktop');
+  const tempMacosOut = path.join(tempRoot, 'out-macos');
   const tempIosOut = path.join(tempRoot, 'out-ios');
   const tempAndroidOut = path.join(tempRoot, 'out-android');
 
   await fs.mkdir(tempDesktopOut, { recursive: true });
+  await fs.mkdir(tempMacosOut, { recursive: true });
   await fs.mkdir(tempIosOut, { recursive: true });
   await fs.mkdir(tempAndroidOut, { recursive: true });
 
@@ -209,18 +288,21 @@ async function main() {
     const desktopIcon = await buildScaledIcon(sourceIcon, scales.desktop, 'desktop', tempRoot, {
       background: iconBackground,
     });
+    const macosIcon = await buildMacosIcon(sourceIcon, tempRoot);
     const iosIcon = await buildScaledIcon(sourceIcon, scales.ios, 'ios', tempRoot, {
       padColor: '000000',
     });
     const androidIcon = await buildScaledIcon(sourceIcon, scales.android, 'android', tempRoot);
 
-    run('bun', ['run', 'tauri', '--', 'icon', desktopIcon, '-o', tempDesktopOut], appRoot);
-    run('bun', ['run', 'tauri', '--', 'icon', iosIcon, '-o', tempIosOut], appRoot);
-    run('bun', ['run', 'tauri', '--', 'icon', androidIcon, '-o', tempAndroidOut], appRoot);
+    run(packageRunner, ['run', 'tauri', '--', 'icon', desktopIcon, '-o', tempDesktopOut], appRoot);
+    run(packageRunner, ['run', 'tauri', '--', 'icon', macosIcon, '-o', tempMacosOut], appRoot);
+    run(packageRunner, ['run', 'tauri', '--', 'icon', iosIcon, '-o', tempIosOut], appRoot);
+    run(packageRunner, ['run', 'tauri', '--', 'icon', androidIcon, '-o', tempAndroidOut], appRoot);
 
     await removeIosAlphaChannels(path.join(tempIosOut, 'ios'));
 
     await copyRootFiles(tempDesktopOut, iconsDir);
+    await fs.copyFile(path.join(tempMacosOut, 'icon.icns'), path.join(iconsDir, 'icon.icns'));
     await copyIosIcons(path.join(tempIosOut, 'ios'), iosIconSetDir);
     await copyAndroidTree(path.join(tempAndroidOut, 'android'), path.join(iconsDir, 'android'));
     await writeAndroidLauncherBackground(
@@ -233,6 +315,7 @@ async function main() {
     const summary = [
       `source=${sourceIcon}`,
       `desktop=${scales.desktop}`,
+      `macosPlate=${macosIconGeometry.plateSize}/${macosIconGeometry.canvasSize}`,
       `ios=${scales.ios}`,
       `android=${scales.android}`,
       `androidSplash=${path.relative(appRoot, androidSplashLogoPath)}`,

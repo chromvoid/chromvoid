@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
+import {createHash} from 'node:crypto'
 import {fileURLToPath} from 'node:url'
 import {loadWalletEnvFromRoot} from './wallet-env.mjs'
 
@@ -13,7 +14,7 @@ const repoRoot = path.resolve(appRoot, '..', '..')
 loadWalletEnvFromRoot(repoRoot)
 const rawForwardedArgs = process.argv.slice(2)
 const forwardedArgs = []
-const devConfigArgs = ['--config', 'src-tauri/tauri.dev.conf.json', '--port', '4410']
+const devConfigArgs = ['--config', 'src-tauri/tauri.dev.conf.json', '--no-dev-server']
 let usePhysicalDeviceDefault = false
 let requestedPhysicalDeviceRef = process.env.IOS_DEVICE?.trim() ?? ''
 
@@ -54,6 +55,8 @@ const xcodeProjectFile = path.join(
 )
 const cargoLockFile = path.join(appRoot, 'src-tauri', 'Cargo.lock')
 const cargoRegistrySrcDir = path.join(os.homedir(), '.cargo', 'registry', 'src')
+const appleBuildRoot = path.join(appRoot, 'src-tauri', 'gen', 'apple', 'build')
+const releaseBuildRequested = rawForwardedArgs.includes('--release')
 
 function log(message) {
   console.log(`[tauri-ios-runner] ${message}`)
@@ -272,12 +275,26 @@ function applyIosDevBundleSettings(projectFile) {
       return block
     }
 
-    return block
+    let patchedBlock = block
       .replace(
         /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?"?;/g,
         'PRODUCT_BUNDLE_IDENTIFIER = com.chromvoid.app.dev;',
       )
       .replace(/PRODUCT_NAME = "?ChromVoid(?: Dev)?"?;/g, 'PRODUCT_NAME = "ChromVoid Dev";')
+
+    patchedBlock = patchedBlock
+      .replace(/CODE_SIGN_IDENTITY = [^;]+;/g, 'CODE_SIGN_IDENTITY = "Apple Development";')
+      .replace(/CODE_SIGN_STYLE = [^;]+;/g, 'CODE_SIGN_STYLE = Automatic;')
+      .replace(/PROVISIONING_PROFILE_SPECIFIER = [^;]+;/g, 'PROVISIONING_PROFILE_SPECIFIER = "";')
+
+    if (!patchedBlock.includes('CODE_SIGN_STYLE = ')) {
+      patchedBlock = patchedBlock.replace(
+        /(\n\s*CODE_SIGN_IDENTITY = [^;]+;)/,
+        '$1\n\t\t\t\tCODE_SIGN_STYLE = Automatic;',
+      )
+    }
+
+    return patchedBlock
   })
 }
 
@@ -300,10 +317,25 @@ function applyIosReleaseBundleSettings(projectFile) {
   })
 }
 
-function stripCredentialProviderForFreeTeam(projectFile) {
+function applyIosReleaseProductName(projectFile) {
+  return projectFile.replace(/buildSettings = \{[\s\S]*?\n\t\t\t\};/g, (block) => {
+    const isIosAppBlock = /PRODUCT_BUNDLE_IDENTIFIER = "?com\.chromvoid\.app(?:\.dev)?"?;/.test(block)
+    const isIosSdkBlock =
+      block.includes('SDKROOT = iphoneos;') || block.includes('SDKROOT = iphonesimulator;')
+
+    if (!isIosAppBlock || !isIosSdkBlock) {
+      return block
+    }
+
+    return block.replace(/PRODUCT_NAME = "?ChromVoid(?: Dev)?"?;/g, 'PRODUCT_NAME = ChromVoid;')
+  })
+}
+
+function stripIosExtensionsForFreeTeam(projectFile) {
   return projectFile
     .replace(/\n\t\t\t\t552D41F70370C5C9BCF89B10 \/\* Embed Foundation Extensions \*\/,/g, '')
     .replace(/\n\t\t\t\t43EF4DE18F6A48A061E6F8E0 \/\* PBXTargetDependency \*\/,/g, '')
+    .replace(/\n\t\t\t\t26CAD578600D45DAA0661168 \/\* PBXTargetDependency \*\/,/g, '')
 }
 
 function overrideIosAppEntitlements(projectFile, entitlementsPath) {
@@ -325,16 +357,18 @@ function emptyEntitlementsPlist() {
   ].join('\n')
 }
 
-function prepareTemporarySigning(teamInfo, {useLightweightDeviceSigning}) {
+function prepareTemporarySigning(teamInfo, {useLightweightDeviceSigning, useReleaseProductName}) {
   if (!fs.existsSync(xcodeProjectFile)) {
     return () => {}
   }
 
   const edits = []
 
-  const rawProject = fs.readFileSync(xcodeProjectFile, 'utf8')
-  const originalProject = applyIosReleaseBundleSettings(rawProject)
-  let patchedProject = applyIosDevBundleSettings(originalProject)
+  const originalProject = fs.readFileSync(xcodeProjectFile, 'utf8')
+  let patchedProject = applyIosDevBundleSettings(applyIosReleaseBundleSettings(originalProject))
+  if (useReleaseProductName) {
+    patchedProject = applyIosReleaseProductName(patchedProject)
+  }
   if (teamInfo?.teamID) {
     patchedProject = injectDevelopmentTeam(patchedProject, teamInfo.teamID)
   }
@@ -347,7 +381,7 @@ function prepareTemporarySigning(teamInfo, {useLightweightDeviceSigning}) {
       patched: emptyEntitlementsPlist(),
       cleanup: () => fs.rmSync(tempEntitlementsPath, {force: true}),
     })
-    patchedProject = stripCredentialProviderForFreeTeam(patchedProject)
+    patchedProject = stripIosExtensionsForFreeTeam(patchedProject)
     patchedProject = overrideIosAppEntitlements(patchedProject, tempEntitlementsPath)
   }
   if (patchedProject !== originalProject) {
@@ -368,6 +402,9 @@ function prepareTemporarySigning(teamInfo, {useLightweightDeviceSigning}) {
   }
   if (useLightweightDeviceSigning) {
     log(`using lightweight device signing for free Xcode team ${teamInfo.teamID}`)
+  }
+  if (useReleaseProductName) {
+    log('using the canonical ChromVoid product name for the release archive')
   }
 
   let restored = false
@@ -404,6 +441,253 @@ function runDeviceCtl(args) {
     fs.rmSync(jsonPath, {force: true})
   }
   return {result, json}
+}
+
+function runInherited(command, args, env = process.env) {
+  const result = spawnSync(command, args, {
+    cwd: appRoot,
+    env,
+    stdio: 'inherit',
+  })
+  if (result.signal) {
+    process.kill(process.pid, result.signal)
+    return 1
+  }
+  return result.status ?? 1
+}
+
+function bundleContainsText(root, needle) {
+  const entries = fs.readdirSync(root, {withFileTypes: true})
+  for (const entry of entries) {
+    const entryPath = path.join(root, entry.name)
+    if (entry.isDirectory()) {
+      if (bundleContainsText(entryPath, needle)) {
+        return true
+      }
+      continue
+    }
+    if (entry.isFile() && fs.readFileSync(entryPath).includes(Buffer.from(needle))) {
+      return true
+    }
+  }
+  return false
+}
+
+function extractPlistValue(plist, key, format = 'raw') {
+  const result = spawnSync('plutil', ['-extract', key, format, '-o', '-', '--', '-'], {
+    input: plist,
+    encoding: 'utf8',
+  })
+  return result.status === 0 ? result.stdout.trim() : null
+}
+
+function findDevelopmentProvisioningProfile(teamID, bundleID, deviceUdid) {
+  const profileDirectories = [
+    path.join(os.homedir(), 'Library', 'Developer', 'Xcode', 'UserData', 'Provisioning Profiles'),
+    path.join(os.homedir(), 'Library', 'MobileDevice', 'Provisioning Profiles'),
+  ]
+  const expectedApplicationID = `${teamID}.${bundleID}`
+  const profiles = []
+
+  for (const directory of profileDirectories) {
+    if (!fs.existsSync(directory)) {
+      continue
+    }
+    for (const entry of fs.readdirSync(directory, {withFileTypes: true})) {
+      if (!entry.isFile() || !entry.name.endsWith('.mobileprovision')) {
+        continue
+      }
+      const profilePath = path.join(directory, entry.name)
+      const decoded = spawnSync('security', ['cms', '-D', '-i', profilePath], {encoding: 'utf8'})
+      if (decoded.status !== 0) {
+        continue
+      }
+      const plist = decoded.stdout
+      const expirationTime = Date.parse(extractPlistValue(plist, 'ExpirationDate') ?? '')
+      const provisionedDevices = extractPlistValue(plist, 'ProvisionedDevices', 'xml1') ?? ''
+      if (
+        extractPlistValue(plist, 'TeamIdentifier.0') !== teamID ||
+        extractPlistValue(plist, 'Entitlements.application-identifier') !==
+          expectedApplicationID ||
+        !provisionedDevices.includes(`<string>${deviceUdid}</string>`) ||
+        !Number.isFinite(expirationTime) ||
+        expirationTime <= Date.now()
+      ) {
+        continue
+      }
+      profiles.push({profilePath, plist, expirationTime})
+    }
+  }
+
+  return profiles.sort((left, right) => right.expirationTime - left.expirationTime)[0] ?? null
+}
+
+function resolveDevelopmentSigningIdentity(profilePlist) {
+  const certificateBase64 = extractPlistValue(profilePlist, 'DeveloperCertificates.0')
+  if (!certificateBase64) {
+    return null
+  }
+  const fingerprint = createHash('sha1')
+    .update(Buffer.from(certificateBase64, 'base64'))
+    .digest('hex')
+    .toUpperCase()
+  const identities = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+    encoding: 'utf8',
+  })
+  return identities.status === 0 && identities.stdout.toUpperCase().includes(fingerprint)
+    ? fingerprint
+    : null
+}
+
+function prepareDevelopmentSignedReleaseApp(buildStartedAt, teamID, deviceUdid) {
+  const archiveApp = path.join(
+    appleBuildRoot,
+    'chromvoid_iOS.xcarchive',
+    'Products',
+    'Applications',
+    'ChromVoid.app',
+  )
+  const archiveBinary = path.join(archiveApp, 'ChromVoid')
+  if (
+    !fs.existsSync(archiveBinary) ||
+    fs.statSync(archiveBinary).mtimeMs < buildStartedAt - 1_000
+  ) {
+    console.error('[tauri-ios-runner] release build did not produce a fresh app archive')
+    return null
+  }
+
+  const profile = findDevelopmentProvisioningProfile(
+    teamID,
+    'com.chromvoid.app.dev',
+    deviceUdid,
+  )
+  if (!profile) {
+    console.error(
+      `[tauri-ios-runner] no valid com.chromvoid.app.dev provisioning profile includes ${deviceUdid}`,
+    )
+    return null
+  }
+  const signingIdentity = resolveDevelopmentSigningIdentity(profile.plist)
+  if (!signingIdentity) {
+    console.error('[tauri-ios-runner] provisioning profile signing identity is not installed')
+    return null
+  }
+  const entitlements = extractPlistValue(profile.plist, 'Entitlements', 'xml1')
+  if (!entitlements) {
+    console.error('[tauri-ios-runner] provisioning profile does not contain signing entitlements')
+    return null
+  }
+
+  const stagingRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chromvoid-ios-release-install-'))
+  const appPath = path.join(stagingRoot, 'ChromVoid.app')
+  const entitlementsPath = path.join(stagingRoot, 'development.entitlements')
+  fs.cpSync(archiveApp, appPath, {recursive: true})
+  fs.copyFileSync(profile.profilePath, path.join(appPath, 'embedded.mobileprovision'))
+  fs.writeFileSync(entitlementsPath, `${entitlements}\n`)
+
+  log('signing the release app with its matching Apple Development profile')
+  let exitCode = runInherited('codesign', [
+    '--force',
+    '--sign',
+    signingIdentity,
+    '--entitlements',
+    entitlementsPath,
+    '--timestamp=none',
+    '--generate-entitlement-der',
+    appPath,
+  ])
+  if (exitCode === 0) {
+    exitCode = runInherited('codesign', ['--verify', '--deep', '--strict', appPath])
+  }
+  if (exitCode !== 0) {
+    fs.rmSync(stagingRoot, {recursive: true, force: true})
+    return null
+  }
+
+  return {
+    appPath,
+    cleanup: () => fs.rmSync(stagingRoot, {recursive: true, force: true}),
+  }
+}
+
+async function runReleaseDeviceBuild(device, appleDevelopmentTeam) {
+  const childEnv = {
+    ...process.env,
+    APPLE_DEVELOPMENT_TEAM: appleDevelopmentTeam.teamID,
+  }
+  let signedApp = null
+
+  try {
+    log('building packaged WebView dist for the release device build')
+    let exitCode = runInherited(
+      process.execPath,
+      ['./scripts/build-webview-if-needed.mjs', '--force'],
+      childEnv,
+    )
+    if (exitCode !== 0) {
+      return exitCode
+    }
+
+    const buildStartedAt = Date.now()
+    log('building an unsigned iOS release archive')
+    exitCode = runInherited(
+      tauriBinary,
+      ['ios', 'build', '--ci', '--no-sign', '--archive-only'],
+      childEnv,
+    )
+    if (exitCode !== 0) {
+      return exitCode
+    }
+
+    signedApp = prepareDevelopmentSignedReleaseApp(
+      buildStartedAt,
+      appleDevelopmentTeam.teamID,
+      device.udid,
+    )
+    if (!signedApp) {
+      return 1
+    }
+    if (bundleContainsText(signedApp.appPath, ':4410')) {
+      console.error('[tauri-ios-runner] release app still contains the retired frontend dev-server port')
+      return 1
+    }
+
+    const lockState = getLockState(device.udid)
+    if (lockState?.locked) {
+      log(`release build is ready; waiting for ${device.name} to be unlocked before installation`)
+      if (!await waitUntilUnlocked(device.udid)) {
+        console.error(`[tauri-ios-runner] failed to confirm unlock for device ${device.udid}`)
+        return 1
+      }
+    }
+
+    log(`installing release build on ${device.name} (${device.udid})`)
+    exitCode = runInherited(
+      'xcrun',
+      ['devicectl', 'device', 'install', 'app', '--device', device.udid, signedApp.appPath],
+      childEnv,
+    )
+    if (exitCode !== 0) {
+      return exitCode
+    }
+
+    log('launching com.chromvoid.app.dev')
+    return runInherited(
+      'xcrun',
+      [
+        'devicectl',
+        'device',
+        'process',
+        'launch',
+        '--device',
+        device.udid,
+        'com.chromvoid.app.dev',
+      ],
+      childEnv,
+    )
+  } finally {
+    signedApp?.cleanup()
+  }
 }
 
 function listPhysicalIOSDevices() {
@@ -694,7 +978,7 @@ async function main() {
       requestedPhysicalDevice = resolveDefaultPhysicalDevice(preflightDevices, requestedPhysicalDeviceRef)
       tauriArgs = ['ios', 'dev', ...devConfigArgs, requestedPhysicalDevice.name, ...forwardedArgs]
     }
-    if (requestedPhysicalDevice) {
+    if (requestedPhysicalDevice && !releaseBuildRequested) {
       log(`using physical iOS device ${requestedPhysicalDevice.name} (${requestedPhysicalDevice.udid})`)
     }
   }
@@ -715,6 +999,7 @@ async function main() {
     requireSigningTeam && appleDevelopmentTeam?.isFreeProvisioningTeam === true
   const restoreSigning = prepareTemporarySigning(appleDevelopmentTeam, {
     useLightweightDeviceSigning,
+    useReleaseProductName: releaseBuildRequested,
   })
   const restoreOnExit = () => restoreSigning()
   process.once('exit', restoreOnExit)
@@ -738,6 +1023,11 @@ async function main() {
           return {exitCode, exitSignal, output: lastOutput, appleDevelopmentTeam}
         }
       }
+    }
+
+    if (requestedPhysicalDevice && releaseBuildRequested) {
+      exitCode = await runReleaseDeviceBuild(requestedPhysicalDevice, appleDevelopmentTeam)
+      return {exitCode, exitSignal, output: lastOutput, appleDevelopmentTeam}
     }
 
     let runResult = await runTauri(appleDevelopmentTeam)

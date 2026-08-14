@@ -8,7 +8,18 @@ use crate::core_adapter::CoreAdapter;
 use crate::types::StorageConfig;
 
 pub(crate) fn load_storage_root(data_dir: &std::path::Path) -> std::path::PathBuf {
+    load_storage_root_with_config(data_dir, !cfg!(target_os = "ios"))
+}
+
+fn load_storage_root_with_config(
+    data_dir: &std::path::Path,
+    allow_configured_root: bool,
+) -> std::path::PathBuf {
     let default_root = data_dir.join("storage");
+    if !allow_configured_root {
+        return default_root;
+    }
+
     let cfg_path = data_dir.join("storage.json");
     let bytes = match std::fs::read(&cfg_path) {
         Ok(bytes) => bytes,
@@ -239,6 +250,17 @@ mod tests {
         std::fs::write(dir.path().join("storage.json"), b"{").expect("invalid config written");
 
         let loaded = load_storage_root(dir.path());
+
+        assert_eq!(loaded, dir.path().join("storage"));
+    }
+
+    #[test]
+    fn fixed_ios_storage_root_ignores_absolute_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let configured_root = dir.path().join("outside-app-storage");
+        save_storage_root(dir.path(), &configured_root).expect("save storage root");
+
+        let loaded = load_storage_root_with_config(dir.path(), false);
 
         assert_eq!(loaded, dir.path().join("storage"));
     }

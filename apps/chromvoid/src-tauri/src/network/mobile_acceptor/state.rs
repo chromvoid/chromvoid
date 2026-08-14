@@ -99,8 +99,8 @@ struct PendingUsbPairingApproval {
 
 struct PendingUsbSessionApproval {
     view: MobileUsbHostSessionApprovalView,
-    approved: bool,
-    rejected: bool,
+    decision: Option<UsbSessionApprovalDecision>,
+    deadline: tokio::time::Instant,
     notify: Arc<tokio::sync::Notify>,
 }
 
@@ -352,6 +352,11 @@ impl MobileAcceptorRuntimeState {
         &self,
         view: MobileUsbHostSessionApprovalView,
     ) -> Result<(), String> {
+        let remaining_ms = view
+            .expires_at_ms
+            .saturating_sub(now_ms())
+            .min(crate::mobile_usb::MOBILE_USB_SESSION_APPROVAL_TIMEOUT.as_millis() as u64);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(remaining_ms);
         let mut approvals = self
             .usb_session_approvals
             .lock()
@@ -360,8 +365,8 @@ impl MobileAcceptorRuntimeState {
             view.attempt_id.clone(),
             PendingUsbSessionApproval {
                 view,
-                approved: false,
-                rejected: false,
+                decision: None,
+                deadline,
                 notify: Arc::new(tokio::sync::Notify::new()),
             },
         );
@@ -371,14 +376,13 @@ impl MobileAcceptorRuntimeState {
     pub fn pending_usb_session_approval(
         &self,
     ) -> Result<Option<MobileUsbHostSessionApprovalView>, String> {
-        self.expire_usb_session_approvals()?;
         let approvals = self
             .usb_session_approvals
             .lock()
             .map_err(|_| "USB session approval mutex poisoned".to_string())?;
         Ok(approvals
             .values()
-            .next()
+            .find(|pending| pending.deadline > tokio::time::Instant::now())
             .map(|pending| pending.view.clone()))
     }
 
@@ -395,7 +399,7 @@ impl MobileAcceptorRuntimeState {
         attempt_id: &str,
     ) -> Result<UsbSessionApprovalDecision, String> {
         loop {
-            let (decision, notify, expires_at_ms) = {
+            let (decision, notify, deadline) = {
                 let approvals = self
                     .usb_session_approvals
                     .lock()
@@ -403,24 +407,21 @@ impl MobileAcceptorRuntimeState {
                 let Some(pending) = approvals.get(attempt_id) else {
                     return Ok(UsbSessionApprovalDecision::Missing);
                 };
-                let decision = if pending.approved {
-                    Some(UsbSessionApprovalDecision::Approved)
-                } else if pending.rejected {
-                    Some(UsbSessionApprovalDecision::Rejected)
-                } else if pending.view.expires_at_ms <= now_ms() {
+                let decision = if let Some(decision) = pending.decision {
+                    Some(decision)
+                } else if pending.deadline <= tokio::time::Instant::now() {
                     Some(UsbSessionApprovalDecision::Expired)
                 } else {
                     None
                 };
-                (decision, pending.notify.clone(), pending.view.expires_at_ms)
+                (decision, pending.notify.clone(), pending.deadline)
             };
             if let Some(decision) = decision {
                 return Ok(decision);
             }
-            let remaining_ms = expires_at_ms.saturating_sub(now_ms());
             tokio::select! {
                 _ = notify.notified() => {}
-                _ = tokio::time::sleep(std::time::Duration::from_millis(remaining_ms.max(1))) => {}
+                _ = tokio::time::sleep_until(deadline) => {}
             }
         }
     }
@@ -442,17 +443,31 @@ impl MobileAcceptorRuntimeState {
         attempt_id: &str,
         approved: bool,
     ) -> Result<(), String> {
-        self.expire_usb_session_approvals()?;
         let notify = {
             let mut approvals = self
                 .usb_session_approvals
                 .lock()
                 .map_err(|_| "USB session approval mutex poisoned".to_string())?;
-            let pending = approvals
-                .get_mut(attempt_id)
-                .ok_or_else(|| "USB session approval attempt not found".to_string())?;
-            pending.approved = approved;
-            pending.rejected = !approved;
+            let Some(pending) = approvals.get_mut(attempt_id) else {
+                tracing::info!(
+                    attempt_id = %crate::mobile_usb::observability::redacted_identifier(Some(attempt_id)),
+                    "mobile_acceptor: ignored resolved USB session approval attempt"
+                );
+                return Ok(());
+            };
+            if pending.decision.is_some() || pending.deadline <= tokio::time::Instant::now() {
+                pending.notify.notify_waiters();
+                tracing::info!(
+                    attempt_id = %crate::mobile_usb::observability::redacted_identifier(Some(attempt_id)),
+                    "mobile_acceptor: ignored terminal USB session approval decision"
+                );
+                return Ok(());
+            }
+            pending.decision = Some(if approved {
+                UsbSessionApprovalDecision::Approved
+            } else {
+                UsbSessionApprovalDecision::Rejected
+            });
             pending.view.decision = if approved {
                 MobileUsbHostApprovalDecision::Approved
             } else {
@@ -461,16 +476,6 @@ impl MobileAcceptorRuntimeState {
             pending.notify.clone()
         };
         notify.notify_waiters();
-        Ok(())
-    }
-
-    fn expire_usb_session_approvals(&self) -> Result<(), String> {
-        let now = now_ms();
-        let mut approvals = self
-            .usb_session_approvals
-            .lock()
-            .map_err(|_| "USB session approval mutex poisoned".to_string())?;
-        approvals.retain(|_, pending| pending.view.expires_at_ms > now);
         Ok(())
     }
 
@@ -1035,7 +1040,7 @@ mod tests {
     }
 
     #[test]
-    fn usb_session_pending_view_reports_recorded_decision() {
+    fn usb_session_pending_view_records_first_terminal_decision() {
         let state = MobileAcceptorRuntimeState::new();
         state
             .register_usb_session_approval(session_view())
@@ -1059,7 +1064,23 @@ mod tests {
         state
             .reject_usb_session("session-attempt-1")
             .expect("reject session approval");
-        let rejected = state
+        let still_approved = state
+            .pending_usb_session_approval()
+            .expect("read terminal session approval")
+            .expect("first terminal session approval remains recorded");
+        assert_eq!(
+            still_approved.decision,
+            MobileUsbHostApprovalDecision::Approved
+        );
+
+        let rejected_state = MobileAcceptorRuntimeState::new();
+        rejected_state
+            .register_usb_session_approval(session_view())
+            .expect("register rejected session approval");
+        rejected_state
+            .reject_usb_session("session-attempt-1")
+            .expect("reject pending session approval");
+        let rejected = rejected_state
             .pending_usb_session_approval()
             .expect("read rejected session approval")
             .expect("rejected session approval remains recorded");
@@ -1089,6 +1110,38 @@ mod tests {
         assert!(MobileUsbApprovalKind::from_native("unexpected")
             .expect_err("unknown notification kind should be rejected")
             .starts_with("ERR_USB_MOBILE_INVALID_STATE"));
+    }
+
+    #[tokio::test]
+    async fn expired_session_approval_is_hidden_and_late_resolution_is_idempotent() {
+        let state = MobileAcceptorRuntimeState::new();
+        let mut view = session_view();
+        view.expires_at_ms = now_ms().saturating_sub(1);
+        state
+            .register_usb_session_approval(view)
+            .expect("register expired session approval");
+
+        assert!(state
+            .pending_usb_session_approval()
+            .expect("read expired session approval")
+            .is_none());
+        state
+            .approve_usb_session("session-attempt-1")
+            .expect("late approval is an idempotent no-op");
+        assert_eq!(
+            state
+                .wait_usb_session_approval("session-attempt-1")
+                .await
+                .expect("wait expired session approval"),
+            UsbSessionApprovalDecision::Expired
+        );
+
+        state
+            .finish_usb_session_approval("session-attempt-1")
+            .expect("finish expired approval");
+        state
+            .reject_usb_session("session-attempt-1")
+            .expect("resolution after cleanup remains idempotent");
     }
 }
 

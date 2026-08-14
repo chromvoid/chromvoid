@@ -50,6 +50,24 @@ pub use state::MobileAcceptorRuntimeState;
 pub(crate) use state::{MobileUsbApprovalKind, PeerRevocationResult};
 use state::{PeerConnection, PeerRegistrationResult};
 
+pub(crate) fn notify_usb_session_approval_resolved(attempt_id: &str, outcome: &str) {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Emitter;
+
+        if let Some(app) = crate::mobile::android::app_handle() {
+            let _ = app.emit(
+                "mobile_usb_host_approval_resolved",
+                serde_json::json!({"attempt_id": attempt_id, "outcome": outcome}),
+            );
+        }
+        crate::mobile::android::notify_mobile_usb_approval_resolved();
+    }
+
+    #[cfg(not(target_os = "android"))]
+    let _ = (attempt_id, outcome);
+}
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 /// Acceptor lifecycle state.

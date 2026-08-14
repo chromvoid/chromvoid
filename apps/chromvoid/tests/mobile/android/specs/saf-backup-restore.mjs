@@ -58,7 +58,7 @@ function readToolsState() {
   const model = tools?.model
   return {
     toolsVisible: Boolean(tools),
-    sheetOpen: model?.deviceUtilitiesSheetOpen?.() ?? null,
+    sheetOpen: model?.deviceUtilitiesOpen?.() ?? null,
     screen: model?.deviceUtilitiesScreen?.() ?? null,
     busy: model?.busy?.() ?? null,
     backupInProgress: model?.backupInProgress?.() ?? null,

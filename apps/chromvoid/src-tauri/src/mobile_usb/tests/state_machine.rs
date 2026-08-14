@@ -131,6 +131,33 @@ fn mobile_usb_state_machine_reuses_only_stable_active_host() {
 }
 
 #[test]
+fn mobile_usb_session_approval_expiry_is_terminal_and_generation_safe() {
+    let mut state = MobileUsbStateMachine::new();
+    let token = state
+        .begin_operation(MobileUsbOperationKind::Connect)
+        .expect("start connect");
+    state
+        .establish_session(
+            token,
+            "session-current".to_string(),
+            host_view("host-1", MobileUsbPairingState::Paired),
+            true,
+        )
+        .expect("establish pre-approval session");
+
+    assert!(!state.expire_session_approval(&"session-old".to_string()));
+    assert!(state.expire_session_approval(&"session-current".to_string()));
+    let status = state.status(Vec::new());
+    assert_eq!(status.session_state, MobileUsbSessionState::Disconnected);
+    assert_eq!(
+        status.error_code,
+        Some(MobileUsbErrorCode::SessionApprovalExpired)
+    );
+    assert_eq!(status.selected_transport, None);
+    assert!(!state.expire_session_approval(&"session-current".to_string()));
+}
+
+#[test]
 fn mobile_usb_state_machine_rejects_session_stopped_before_establish() {
     let mut state = MobileUsbStateMachine::new();
     state
@@ -268,6 +295,10 @@ fn mobile_usb_error_transition_matrix_is_deterministic() {
         ),
         (
             MobileUsbErrorCode::PairingApprovalExpired,
+            MobileUsbRecoveryAction::ManualRetry,
+        ),
+        (
+            MobileUsbErrorCode::SessionApprovalExpired,
             MobileUsbRecoveryAction::ManualRetry,
         ),
         (

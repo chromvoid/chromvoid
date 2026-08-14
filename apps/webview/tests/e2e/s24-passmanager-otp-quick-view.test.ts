@@ -486,38 +486,23 @@ async function waitForCopiedFeedback(page: Page): Promise<void> {
 }
 
 async function openEntryFromQuickView(page: Page, title: string): Promise<void> {
-  await page.evaluate((entryTitle) => {
-    const host = deepFind(document, 'pm-otp-quick-view, pm-otp-quick-view-mobile') as HTMLElement | null
-    const row = Array.from(host?.shadowRoot?.querySelectorAll('.row') ?? []).find((candidate) =>
-      candidate.querySelector('.row__entry-title')?.textContent?.includes(entryTitle),
-    )
-    const button = row?.querySelector('.open-entry') as HTMLElement | null
-    if (!button) throw new Error(`open-entry button not found for ${entryTitle}`)
-    button.click()
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  }, title)
+  const row = page
+    .locator('pm-otp-quick-view .row, pm-otp-quick-view-mobile .row')
+    .filter({hasText: title})
+  await row.locator('.open-entry').click()
 }
 
 async function waitForEntryRoute(page: Page, entry: FixtureEntry): Promise<void> {
   await page.waitForFunction(
-    ({entryId, title}) => {
+    ({entryId}) => {
       const url = new URL(window.location.href)
       if (url.searchParams.get('surface') !== 'passwords') return false
       if (url.searchParams.get('pm') !== 'entry') return false
       if (url.searchParams.get('entry') !== entryId) return false
-      const entryHost = deepFind(document, 'pm-entry, pm-entry-mobile') as HTMLElement | null
-      return Boolean(entryHost?.shadowRoot?.textContent?.includes(title))
+      const entryHost = deepFind(document, 'pm-entry, pm-entry-mobile') as
+        | (HTMLElement & {entry?: {id?: string}})
+        | null
+      return entryHost?.entry?.id === entryId
 
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
         const found = root.querySelector(selector)
@@ -531,7 +516,7 @@ async function waitForEntryRoute(page: Page, entry: FixtureEntry): Promise<void>
         return null
       }
     },
-    {entryId: entry.entryId, title: entry.title},
+    {entryId: entry.entryId},
     {timeout: 10_000},
   )
 }
@@ -539,15 +524,20 @@ async function waitForEntryRoute(page: Page, entry: FixtureEntry): Promise<void>
 async function openQuickViewFromEntrySnippet(page: Page): Promise<void> {
   await page.evaluate(() => {
     const entryHost = deepFind(document, 'pm-entry, pm-entry-mobile') as HTMLElement | null
-    const entryButton = entryHost?.shadowRoot?.querySelector('[data-action="otp-quick-view"]') as HTMLElement | null
+    const entryButton = entryHost?.shadowRoot?.querySelector(
+      '[data-action="otp-quick-view"]',
+    ) as HTMLElement | null
     if (entryButton) {
       entryButton.click()
       return
     }
 
-    const toolbarButton = deepFind(document, '[data-action="pm-otp-view"]') as HTMLElement | null
-    if (!toolbarButton) throw new Error('OTP Quick View action not found')
-    toolbarButton.click()
+    const navigationRails = deepFindAll(document, 'navigation-rail') as HTMLElement[]
+    const otpNavigationButton = navigationRails
+      .flatMap((rail) => Array.from(rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button') ?? []))
+      .find((button) => button.textContent?.replace(/\s+/g, ' ').trim().toLowerCase().includes('otp'))
+    if (!otpNavigationButton) throw new Error('OTP navigation item not found')
+    otpNavigationButton.click()
 
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -559,6 +549,16 @@ async function openQuickViewFromEntrySnippet(page: Page): Promise<void> {
         }
       }
       return null
+    }
+
+    function deepFindAll(root: Document | ShadowRoot, selector: string): Element[] {
+      const found = Array.from(root.querySelectorAll(selector))
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          found.push(...deepFindAll(el.shadowRoot, selector))
+        }
+      }
+      return found
     }
   })
 }

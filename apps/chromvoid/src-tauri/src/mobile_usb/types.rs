@@ -8,6 +8,8 @@ pub type SessionId = String;
 pub type ClientKeyRef = String;
 
 const PENDING_STOPPED_SESSION_LIMIT: usize = 8;
+pub const MOBILE_USB_SESSION_APPROVAL_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(5 * 60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -268,6 +270,9 @@ pub enum MobileUsbSessionEvent {
     HostLocked {
         session_id: SessionId,
     },
+    SessionApprovalExpired {
+        session_id: SessionId,
+    },
     RemoteIoStopped {
         session_id: SessionId,
         reason: RemoteIoStopReason,
@@ -362,6 +367,8 @@ pub enum MobileUsbErrorCode {
     PairingApprovalRejected,
     #[serde(rename = "ERR_USB_MOBILE_PAIRING_APPROVAL_EXPIRED")]
     PairingApprovalExpired,
+    #[serde(rename = "ERR_USB_MOBILE_SESSION_APPROVAL_EXPIRED")]
+    SessionApprovalExpired,
     #[serde(rename = "ERR_USB_MOBILE_RECORD_LAYER_FAILED")]
     RecordLayerFailed,
     #[serde(rename = "ERR_USB_MOBILE_CABLE_DISCONNECTED")]
@@ -415,6 +422,7 @@ impl MobileUsbErrorCode {
             Self::PairingApprovalRequired => "ERR_USB_MOBILE_PAIRING_APPROVAL_REQUIRED",
             Self::PairingApprovalRejected => "ERR_USB_MOBILE_PAIRING_APPROVAL_REJECTED",
             Self::PairingApprovalExpired => "ERR_USB_MOBILE_PAIRING_APPROVAL_EXPIRED",
+            Self::SessionApprovalExpired => "ERR_USB_MOBILE_SESSION_APPROVAL_EXPIRED",
             Self::RecordLayerFailed => "ERR_USB_MOBILE_RECORD_LAYER_FAILED",
             Self::CableDisconnected => "ERR_USB_MOBILE_CABLE_DISCONNECTED",
             Self::HostLocked => "ERR_USB_MOBILE_HOST_LOCKED",
@@ -437,6 +445,7 @@ impl MobileUsbErrorCode {
             | Self::PairingStoreCorrupt
             | Self::PairingApprovalRejected
             | Self::PairingApprovalExpired
+            | Self::SessionApprovalExpired
             | Self::RecordLayerFailed => MobileUsbRecoveryAction::ManualRetry,
             Self::PairingApprovalRequired => MobileUsbRecoveryAction::KeepCurrentFlow,
             Self::NoAccessory => MobileUsbRecoveryAction::RetryScan,
@@ -681,6 +690,18 @@ impl MobileUsbStateMachine {
             self.session_state = MobileUsbSessionState::RemoteDashboardOpen;
         }
         Ok(())
+    }
+
+    pub fn expire_session_approval(&mut self, session_id: &SessionId) -> bool {
+        if self.active_session_id.as_ref() != Some(session_id)
+            || self.session_state != MobileUsbSessionState::SessionApprovalRequired
+        {
+            return false;
+        }
+
+        self.disconnect();
+        self.error_code = Some(MobileUsbErrorCode::SessionApprovalExpired);
+        true
     }
 
     pub fn remote_io_stopped(

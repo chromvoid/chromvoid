@@ -128,27 +128,44 @@ async function readLockedVaultGeometry(page: Page) {
     const route = deepFind(document, 'chromvoid-app') as HTMLElement | null
     const layout = deepFind(document, 'welcome-page-mobile-layout') as HTMLElement | null
     const locked = layout?.shadowRoot?.querySelector<HTMLElement>('.locked-vault')
+    const mainCard = layout?.shadowRoot?.querySelector<HTMLElement>('.main-card')
+    const hero = layout?.shadowRoot?.querySelector<HTMLElement>('welcome-hero-section')
+    const heroIcon = hero?.shadowRoot?.querySelector<HTMLElement>('.hero-icon-shell')
+    const task = layout?.shadowRoot?.querySelector<HTMLElement>('.welcome-task')
+    const tools = layout?.shadowRoot?.querySelector<HTMLElement>('welcome-tools-section')
     const setup = layout?.shadowRoot?.querySelector<HTMLElement>('welcome-setup-section')
     const setupRoot = setup?.shadowRoot
-    const inputHost = setupRoot?.querySelector<HTMLElement>(
-      '[control-id="welcome.unlock-password"]',
-    )
+    const inputHost = setupRoot?.querySelector<HTMLElement>('[control-id="welcome.unlock-password"]')
     const nativeInput = inputHost?.shadowRoot?.querySelector('input')
     const submit = setupRoot?.querySelector<HTMLButtonElement>('#welcome\\.unlock-submit')
     const technicalAlert = layout?.shadowRoot?.querySelector<HTMLElement>('cv-callout[variant="danger"]')
-    if (!route || !locked || !inputHost || !nativeInput || !submit) {
+    if (
+      !route ||
+      !locked ||
+      !mainCard ||
+      !hero ||
+      !heroIcon ||
+      !task ||
+      !tools ||
+      !inputHost ||
+      !nativeInput ||
+      !submit
+    ) {
       throw new Error('Locked-vault geometry is unavailable')
     }
 
     const lockedRect = locked.getBoundingClientRect()
+    const mainCardRect = mainCard.getBoundingClientRect()
+    const heroRect = hero.getBoundingClientRect()
+    const heroIconRect = heroIcon.getBoundingClientRect()
+    const taskRect = task.getBoundingClientRect()
+    const toolsRect = tools.getBoundingClientRect()
     const inputRect = inputHost.getBoundingClientRect()
     const submitRect = submit.getBoundingClientRect()
     const technicalAlertRect = technicalAlert?.getBoundingClientRect()
     const styles = getComputedStyle(locked)
     const keyboardOffset = Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue(
-        '--app-runtime-keyboard-overlay-offset',
-      ),
+      getComputedStyle(document.documentElement).getPropertyValue('--app-runtime-keyboard-overlay-offset'),
     )
 
     return {
@@ -157,13 +174,26 @@ async function readLockedVaultGeometry(page: Page) {
         setupRoot?.activeElement === inputHost && inputHost.shadowRoot?.activeElement === nativeInput,
       inputInvalid: inputHost.hasAttribute('invalid'),
       inputRequired: inputHost.hasAttribute('aria-required'),
+      inputSize: inputHost.getAttribute('size'),
       inputTop: inputRect.top,
+      inputFontSize: Number.parseFloat(getComputedStyle(nativeInput).fontSize),
       keyboardOffset: Number.isFinite(keyboardOffset) ? keyboardOffset : 0,
+      heroBottom: heroRect.bottom,
+      heroIconHeight: heroIconRect.height,
+      heroIconWidth: heroIconRect.width,
+      heroLeft: heroRect.left,
+      heroRight: heroRect.right,
       lockedBottom: lockedRect.bottom,
       lockedClientHeight: locked.clientHeight,
+      lockedLeft: lockedRect.left,
+      lockedRight: lockedRect.right,
       lockedScrollHeight: locked.scrollHeight,
       lockedScrollTop: locked.scrollTop,
       lockedTop: lockedRect.top,
+      mainCardBottom: mainCardRect.bottom,
+      mainCardLeft: mainCardRect.left,
+      mainCardRight: mainCardRect.right,
+      mainCardTop: mainCardRect.top,
       overscrollBehaviorY: styles.overscrollBehaviorY,
       pendingSpinnerPresent: Boolean(submit.querySelector('.welcome-primary-spinner')),
       promptPresent: Boolean(setupRoot?.querySelector('#welcome\\.unlock')),
@@ -173,10 +203,22 @@ async function readLockedVaultGeometry(page: Page) {
       sheetPresent: Boolean(setupRoot?.querySelector('cv-bottom-sheet.unlock-sheet')),
       submitAriaBusy: submit.getAttribute('aria-busy'),
       submitBottom: submitRect.bottom,
+      submitHeight: submitRect.height,
       submitDisabled: submit.disabled,
       submitTop: submitRect.top,
+      taskBottom: taskRect.bottom,
+      taskLeft: taskRect.left,
+      taskRight: taskRect.right,
+      taskTop: taskRect.top,
       technicalAlertBottom: technicalAlertRect?.bottom ?? null,
       technicalAlertTop: technicalAlertRect?.top ?? null,
+      toolsBottom: toolsRect.bottom,
+      toolsLeft: toolsRect.left,
+      toolsRight: toolsRect.right,
+      toolsTop: toolsRect.top,
+      tabletViewport: locked.hasAttribute('data-tablet-viewport'),
+      viewportProfile: locked.dataset['viewportProfile'],
+      viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
     }
   })
@@ -199,24 +241,99 @@ async function readFirstRunGeometry(page: Page) {
     const route = deepFind(document, 'chromvoid-app') as HTMLElement | null
     const layout = deepFind(document, 'welcome-page-mobile-layout') as HTMLElement | null
     const container = layout?.shadowRoot?.querySelector<HTMLElement>('.container')
+    const mainCard = layout?.shadowRoot?.querySelector<HTMLElement>('.main-card')
+    const hero = layout?.shadowRoot?.querySelector<HTMLElement>('welcome-hero-section')
+    const task = layout?.shadowRoot?.querySelector<HTMLElement>('.welcome-task')
     const tools = layout?.shadowRoot?.querySelector<HTMLElement>('welcome-tools-section')
     const button = tools?.shadowRoot?.querySelector<HTMLElement>('.mobile-utilities-button')
-    if (!route || !container || !button) throw new Error('First-run layout geometry is unavailable')
+    if (!route || !container || !mainCard || !hero || !task || !tools || !button) {
+      throw new Error('First-run layout geometry is unavailable')
+    }
 
     const routeRect = route.getBoundingClientRect()
     const containerRect = container.getBoundingClientRect()
+    const mainCardRect = mainCard.getBoundingClientRect()
+    const heroRect = hero.getBoundingClientRect()
+    const taskRect = task.getBoundingClientRect()
+    const toolsRect = tools.getBoundingClientRect()
     const buttonRect = button.getBoundingClientRect()
 
     return {
       buttonBottom: buttonRect.bottom,
       buttonTop: buttonRect.top,
       containerBottom: containerRect.bottom,
+      containerLeft: containerRect.left,
+      containerRight: containerRect.right,
       footerClearance: containerRect.bottom - buttonRect.bottom,
+      heroBottom: heroRect.bottom,
+      heroLeft: heroRect.left,
+      heroRight: heroRect.right,
+      mainCardBottom: mainCardRect.bottom,
+      mainCardLeft: mainCardRect.left,
+      mainCardRight: mainCardRect.right,
+      mainCardTop: mainCardRect.top,
       routeClientHeight: route.clientHeight,
       routeScrollHeight: route.scrollHeight,
       routeTop: routeRect.top,
+      taskLeft: taskRect.left,
+      taskRight: taskRect.right,
+      taskTop: taskRect.top,
+      toolsBottom: toolsRect.bottom,
+      toolsLeft: toolsRect.left,
+      toolsRight: toolsRect.right,
+      toolsTop: toolsRect.top,
+      viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
+      viewportProfile: container.dataset['viewportProfile'],
+      tabletViewport: container.hasAttribute('data-tablet-viewport'),
     }
+  })
+}
+
+async function applyIOSKeyboardTransition(
+  page: Page,
+  payload: {visible: boolean; bottomInset: number; phase: 'progress' | 'settled'},
+) {
+  await page.evaluate(async (keyboardPayload) => {
+    const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<{
+      applyMobileKeyboardVisibilityPayload: (root: HTMLElement, payload: Record<string, unknown>) => void
+    }>
+    const {applyMobileKeyboardVisibilityPayload} = await dynamicImport(
+      '/app/bootstrap/mobile-keyboard-insets.ts',
+    )
+    applyMobileKeyboardVisibilityPayload(document.documentElement, {
+      ...keyboardPayload,
+      safeAreaTopInset: 59,
+      safeAreaBottomInset: 34,
+      source: 'ios-native',
+      viewportMode: 'native-resize',
+    })
+  }, payload)
+
+  await page.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  )
+}
+
+async function focusUnlockInput(page: Page) {
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const setup = deepFind(document, 'welcome-setup-section') as HTMLElement | null
+    const inputHost = setup?.shadowRoot?.querySelector<HTMLElement>('[control-id="welcome.unlock-password"]')
+    const input = inputHost?.shadowRoot?.querySelector('input')
+    if (!(input instanceof HTMLInputElement)) throw new Error('Unlock input is unavailable')
+    input.focus()
   })
 }
 
@@ -322,9 +439,7 @@ async function readCreateStorageSheetGeometry(page: Page) {
       getComputedStyle(document.documentElement).getPropertyValue('--app-runtime-safe-area-block-start'),
     )
     const overlayOffset = Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue(
-        '--app-runtime-keyboard-overlay-offset',
-      ),
+      getComputedStyle(document.documentElement).getPropertyValue('--app-runtime-keyboard-overlay-offset'),
     )
 
     return {
@@ -357,10 +472,45 @@ test.each([
   await openMobileFirstRun(page, viewport)
   const geometry = await readFirstRunGeometry(page)
 
+  expect(geometry.viewportProfile).toBe(viewport.height <= 700 ? 'compact' : 'regular')
   expect(geometry.routeScrollHeight).toBeLessThanOrEqual(geometry.routeClientHeight + 1)
   expect(geometry.buttonTop).toBeGreaterThanOrEqual(geometry.routeTop)
   expect(geometry.buttonBottom).toBeLessThanOrEqual(geometry.viewportHeight)
   expect(geometry.footerClearance).toBeGreaterThanOrEqual(40)
+})
+
+test.each([
+  {height: 1180, width: 820},
+  {height: 820, width: 1180},
+])('iPad first-run uses a balanced task layout at $width×$height', async (viewport, ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await openMobileFirstRun(page, viewport)
+  const geometry = await readFirstRunGeometry(page)
+
+  expect(geometry.tabletViewport).toBe(true)
+  expect(geometry.viewportProfile).toBe('regular')
+  expect(geometry.routeScrollHeight).toBeLessThanOrEqual(geometry.routeClientHeight + 1)
+  expect(geometry.mainCardLeft).toBeGreaterThanOrEqual(0)
+  expect(geometry.mainCardRight).toBeLessThanOrEqual(geometry.viewportWidth)
+  expect(geometry.mainCardTop).toBeGreaterThanOrEqual(0)
+  expect(geometry.mainCardBottom).toBeLessThanOrEqual(geometry.viewportHeight)
+  expect(geometry.mainCardRight - geometry.mainCardLeft).toBeLessThanOrEqual(561)
+  expect(geometry.heroLeft).toBeGreaterThanOrEqual(geometry.mainCardLeft)
+  expect(geometry.heroRight).toBeLessThanOrEqual(geometry.mainCardRight)
+  expect(geometry.taskLeft).toBeGreaterThanOrEqual(geometry.mainCardLeft)
+  expect(geometry.taskRight).toBeLessThanOrEqual(geometry.mainCardRight)
+  expect(geometry.taskTop).toBeGreaterThanOrEqual(geometry.heroBottom)
+  expect(geometry.toolsTop).toBeGreaterThanOrEqual(geometry.mainCardBottom)
+  expect(geometry.toolsBottom).toBeLessThanOrEqual(geometry.viewportHeight)
+  expect(geometry.toolsRight - geometry.toolsLeft).toBeLessThanOrEqual(561)
+  expect(
+    Math.abs(
+      (geometry.mainCardLeft + geometry.mainCardRight) / 2 -
+        (geometry.containerLeft + geometry.containerRight) / 2,
+    ),
+  ).toBeLessThanOrEqual(1)
 })
 
 test.each([
@@ -378,6 +528,9 @@ test.each([
   expect(geometry.inputFocused).toBe(false)
   expect(geometry.inputInvalid).toBe(false)
   expect(geometry.inputRequired).toBe(false)
+  expect(geometry.inputSize).toBe('large')
+  expect(geometry.inputFontSize).toBeGreaterThanOrEqual(16)
+  expect(geometry.viewportProfile).toBe(viewport.height <= 700 ? 'compact' : 'regular')
   expect(geometry.submitDisabled).toBe(false)
   expect(geometry.lockedTop).toBeGreaterThanOrEqual(0)
   expect(geometry.lockedBottom).toBeLessThanOrEqual(geometry.viewportHeight + 1)
@@ -389,6 +542,100 @@ test.each([
   expect(geometry.overscrollBehaviorY).toBe('contain')
   expect(geometry.scrollPaddingBottom).toBeGreaterThan(0)
 })
+
+test.each([
+  {height: 1180, width: 820},
+  {height: 820, width: 1180},
+])('iPad locked vault keeps unlock action visible at $width×$height', async (viewport, ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await openMobileLockedVault(page, viewport)
+  const geometry = await readLockedVaultGeometry(page)
+
+  expect(geometry.promptPresent).toBe(false)
+  expect(geometry.sheetPresent).toBe(false)
+  expect(geometry.submitDisabled).toBe(false)
+  expect(geometry.tabletViewport).toBe(true)
+  expect(geometry.viewportProfile).toBe('regular')
+  expect(geometry.routeScrollHeight).toBeLessThanOrEqual(geometry.routeClientHeight + 1)
+  expect(geometry.mainCardLeft).toBeGreaterThanOrEqual(0)
+  expect(geometry.mainCardRight).toBeLessThanOrEqual(geometry.viewportWidth)
+  expect(geometry.mainCardTop).toBeGreaterThanOrEqual(0)
+  expect(geometry.mainCardBottom).toBeLessThanOrEqual(geometry.viewportHeight)
+  expect(geometry.mainCardRight - geometry.mainCardLeft).toBeLessThanOrEqual(561)
+  expect(geometry.heroLeft).toBeGreaterThanOrEqual(geometry.mainCardLeft)
+  expect(geometry.heroRight).toBeLessThanOrEqual(geometry.mainCardRight)
+  expect(geometry.taskLeft).toBeGreaterThanOrEqual(geometry.mainCardLeft)
+  expect(geometry.taskRight).toBeLessThanOrEqual(geometry.mainCardRight)
+  expect(geometry.taskTop).toBeGreaterThanOrEqual(geometry.heroBottom)
+  expect(geometry.submitTop).toBeGreaterThanOrEqual(geometry.taskTop)
+  expect(geometry.submitBottom).toBeLessThanOrEqual(geometry.taskBottom)
+  expect(geometry.toolsTop).toBeGreaterThanOrEqual(geometry.mainCardBottom)
+  expect(geometry.toolsBottom).toBeLessThanOrEqual(geometry.viewportHeight)
+  expect(geometry.toolsRight - geometry.toolsLeft).toBeLessThanOrEqual(561)
+  expect(
+    Math.abs(
+      (geometry.mainCardLeft + geometry.mainCardRight) / 2 - (geometry.lockedLeft + geometry.lockedRight) / 2,
+    ),
+  ).toBeLessThanOrEqual(1)
+})
+
+test.each([
+  {
+    viewport: {width: 390, height: 844},
+    visualViewportHeights: [700, 620, 522],
+    expectedProfile: 'regular',
+  },
+  {
+    viewport: {width: 360, height: 640},
+    visualViewportHeights: [600, 520, 420],
+    expectedProfile: 'compact',
+  },
+])(
+  'mobile locked vault keeps its $expectedProfile layout through repeated iOS keyboard transitions',
+  async ({viewport, visualViewportHeights, expectedProfile}, ctx) => {
+    const page = getPage(ctx)
+    if (!page) return
+
+    await openMobileLockedVault(page, viewport)
+    const baseline = await readLockedVaultGeometry(page)
+    expect(baseline.viewportProfile).toBe(expectedProfile)
+
+    const expectStableComposition = async () => {
+      const geometry = await readLockedVaultGeometry(page)
+      expect(geometry.viewportProfile).toBe(expectedProfile)
+      expect(geometry.heroIconWidth).toBeCloseTo(baseline.heroIconWidth, 0)
+      expect(geometry.heroIconHeight).toBeCloseTo(baseline.heroIconHeight, 0)
+      expect(geometry.submitHeight).toBeCloseTo(baseline.submitHeight, 0)
+      expect(geometry.inputSize).toBe('large')
+      expect(geometry.inputFontSize).toBeGreaterThanOrEqual(16)
+    }
+
+    await applyIOSKeyboardTransition(page, {visible: true, bottomInset: 302, phase: 'progress'})
+    await focusUnlockInput(page)
+    for (const height of visualViewportHeights) {
+      await applyIOSKeyboardTransition(page, {
+        visible: true,
+        bottomInset: viewport.height - height,
+        phase: 'progress',
+      })
+      await expectStableComposition()
+    }
+
+    const settledInset = viewport.height - (visualViewportHeights.at(-1) ?? viewport.height)
+    await applyIOSKeyboardTransition(page, {visible: true, bottomInset: settledInset, phase: 'settled'})
+    await expectStableComposition()
+
+    await applyIOSKeyboardTransition(page, {visible: false, bottomInset: 0, phase: 'progress'})
+    await applyIOSKeyboardTransition(page, {visible: false, bottomInset: 0, phase: 'settled'})
+    await expectStableComposition()
+
+    await applyIOSKeyboardTransition(page, {visible: true, bottomInset: settledInset, phase: 'progress'})
+    await applyIOSKeyboardTransition(page, {visible: true, bottomInset: settledInset, phase: 'settled'})
+    await expectStableComposition()
+  },
+)
 
 test('mobile locked vault keeps technical errors separate and exposes pending state', async (ctx) => {
   const page = getPage(ctx)
@@ -419,9 +666,7 @@ test('mobile locked vault keeps technical errors separate and exposes pending st
         })
       | null
     const setup = layout?.shadowRoot?.querySelector<HTMLElement>('welcome-setup-section')
-    const inputHost = setup?.shadowRoot?.querySelector<HTMLElement>(
-      '[control-id="welcome.unlock-password"]',
-    )
+    const inputHost = setup?.shadowRoot?.querySelector<HTMLElement>('[control-id="welcome.unlock-password"]')
     const input = inputHost?.shadowRoot?.querySelector('input')
     if (!(input instanceof HTMLInputElement) || !layout?.model) {
       throw new Error('Unlock input or model is unavailable')
@@ -453,9 +698,7 @@ test('mobile locked vault keeps technical errors separate and exposes pending st
   expect(technicalGeometry.inputInvalid).toBe(false)
   expect(technicalGeometry.inputRequired).toBe(false)
   expect(technicalGeometry.technicalAlertTop).not.toBeNull()
-  expect(technicalGeometry.technicalAlertBottom).toBeLessThanOrEqual(
-    technicalGeometry.lockedBottom + 1,
-  )
+  expect(technicalGeometry.technicalAlertBottom).toBeLessThanOrEqual(technicalGeometry.lockedBottom + 1)
 
   await page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -499,9 +742,7 @@ test('mobile locked vault keeps technical errors separate and exposes pending st
     }
 
     const setup = deepFind(document, 'welcome-setup-section') as HTMLElement | null
-    return setup?.shadowRoot
-      ?.querySelector('#welcome\\.unlock-submit')
-      ?.getAttribute('aria-busy') === 'true'
+    return setup?.shadowRoot?.querySelector('#welcome\\.unlock-submit')?.getAttribute('aria-busy') === 'true'
   })
 
   const pendingGeometry = await readLockedVaultGeometry(page)
@@ -529,14 +770,9 @@ test('mobile locked vault scrolls input, submit, and alerts clear of an overlay 
     }
 
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<{
-      applyMobileKeyboardInsetsPayload: (
-        root: HTMLElement,
-        payload: Record<string, unknown>,
-      ) => void
+      applyMobileKeyboardInsetsPayload: (root: HTMLElement, payload: Record<string, unknown>) => void
     }>
-    const {applyMobileKeyboardInsetsPayload} = await dynamicImport(
-      '/app/bootstrap/mobile-keyboard-insets.ts',
-    )
+    const {applyMobileKeyboardInsetsPayload} = await dynamicImport('/app/bootstrap/mobile-keyboard-insets.ts')
     applyMobileKeyboardInsetsPayload(document.documentElement, {
       visible: true,
       bottomInset: 360,
@@ -558,9 +794,7 @@ test('mobile locked vault scrolls input, submit, and alerts clear of an overlay 
       | null
     const setup = layout?.shadowRoot?.querySelector<HTMLElement>('welcome-setup-section')
     const locked = layout?.shadowRoot?.querySelector<HTMLElement>('.locked-vault')
-    const inputHost = setup?.shadowRoot?.querySelector<HTMLElement>(
-      '[control-id="welcome.unlock-password"]',
-    )
+    const inputHost = setup?.shadowRoot?.querySelector<HTMLElement>('[control-id="welcome.unlock-password"]')
     const input = inputHost?.shadowRoot?.querySelector('input')
     if (!(input instanceof HTMLInputElement) || !locked || !layout?.model) {
       throw new Error('Unlock input or model is unavailable')
@@ -652,14 +886,9 @@ test('mobile Create Storage sheet stays above an overlay keyboard with a reachab
     }
 
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<{
-      applyMobileKeyboardInsetsPayload: (
-        root: HTMLElement,
-        payload: Record<string, unknown>,
-      ) => void
+      applyMobileKeyboardInsetsPayload: (root: HTMLElement, payload: Record<string, unknown>) => void
     }>
-    const {applyMobileKeyboardInsetsPayload} = await dynamicImport(
-      '/app/bootstrap/mobile-keyboard-insets.ts',
-    )
+    const {applyMobileKeyboardInsetsPayload} = await dynamicImport('/app/bootstrap/mobile-keyboard-insets.ts')
     applyMobileKeyboardInsetsPayload(document.documentElement, {
       visible: true,
       bottomInset: 424,
@@ -707,9 +936,7 @@ test('mobile Create Storage sheet stays above an overlay keyboard with a reachab
   expect(beforeScroll.nativeResize).toBe(false)
   expect(beforeScroll.overlayOffset).toBe(424)
   expect(beforeScroll.confirmFocused).toBe(true)
-  expect(beforeScroll.bodyTop).toBeGreaterThanOrEqual(
-    beforeScroll.visibleTop + beforeScroll.safeTop - 1,
-  )
+  expect(beforeScroll.bodyTop).toBeGreaterThanOrEqual(beforeScroll.visibleTop + beforeScroll.safeTop - 1)
   expect(beforeScroll.contentBottom).toBeLessThanOrEqual(
     beforeScroll.visibleBottom - beforeScroll.overlayOffset + 1,
   )
@@ -748,9 +975,6 @@ test('mobile Create Storage sheet stays above an overlay keyboard with a reachab
   }
   expect(afterScroll.submitTop).toBeGreaterThanOrEqual(afterScroll.bodyTop - 1)
   expect(afterScroll.submitBottom).toBeLessThanOrEqual(
-    Math.min(
-      afterScroll.bodyBottom,
-      afterScroll.visibleBottom - afterScroll.overlayOffset,
-    ) + 1,
+    Math.min(afterScroll.bodyBottom, afterScroll.visibleBottom - afterScroll.overlayOffset) + 1,
   )
 })

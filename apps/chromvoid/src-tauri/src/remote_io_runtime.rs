@@ -15,6 +15,7 @@ const MOBILE_USB_SESSION_DISCONNECT: &str = "mobile_usb:session_disconnect";
 pub(crate) enum RemoteIoRuntimeEvent {
     HostUnlockConfirmed,
     HostLocked,
+    SessionApprovalExpired,
     Disconnected {
         reason: String,
         failure: crate::remote_data_plane::RemoteIoFailure,
@@ -456,6 +457,7 @@ async fn run_remote_event_pump<R: tauri::Runtime>(
 ) {
     const MOBILE_USB_HOST_UNLOCK_CONFIRMED: &str = "mobile_usb:host_unlock_confirmed";
     const MOBILE_USB_HOST_LOCKED: &str = "mobile_usb:host_locked";
+    const MOBILE_USB_SESSION_APPROVAL_EXPIRED: &str = "mobile_usb:session_approval_expired";
 
     while let Some(event) = evt_rx.recv().await {
         if !runtime.is_generation_current(generation) {
@@ -479,6 +481,14 @@ async fn run_remote_event_pump<R: tauri::Runtime>(
                         if request.command == MOBILE_USB_HOST_LOCKED {
                             if let Some(sink) = event_sink.as_ref() {
                                 sink.on_remote_io_event(RemoteIoRuntimeEvent::HostLocked);
+                            }
+                            return;
+                        }
+                        if request.command == MOBILE_USB_SESSION_APPROVAL_EXPIRED {
+                            if let Some(sink) = event_sink.as_ref() {
+                                sink.on_remote_io_event(
+                                    RemoteIoRuntimeEvent::SessionApprovalExpired,
+                                );
                             }
                             return;
                         }
@@ -809,6 +819,48 @@ mod tests {
             .expect("sink event timeout")
             .expect("sink event");
         assert_eq!(event, RemoteIoRuntimeEvent::HostLocked);
+        tokio::time::timeout(Duration::from_secs(1), pump)
+            .await
+            .expect("event pump stop timeout")
+            .expect("event pump join");
+    }
+
+    #[tokio::test]
+    async fn event_pump_forwards_authenticated_session_approval_expiry_and_stops() {
+        let app = tauri::test::mock_app();
+        let runtime = Arc::new(RemoteIoRuntimeState::new());
+        let generation = runtime.next_active_generation();
+        let (evt_tx, evt_rx) = mpsc::channel(1);
+        let (sink_tx, sink_rx) = tokio::sync::oneshot::channel();
+        let sink = Arc::new(RecordingRuntimeEventSink {
+            tx: Mutex::new(Some(sink_tx)),
+        });
+
+        let pump = tokio::spawn(run_remote_event_pump(
+            runtime,
+            app.handle().clone(),
+            generation,
+            evt_rx,
+            Some(sink),
+        ));
+        let request = RpcRequest::new("mobile_usb:session_approval_expired", serde_json::json!({}));
+        evt_tx
+            .send(crate::remote_data_plane::RemoteIoEvent::Frame(
+                crate::gateway::protocol::Frame {
+                    frame_type: crate::gateway::protocol::FrameType::RpcRequest,
+                    message_id: 1,
+                    flags: 0,
+                    payload: serde_json::to_vec(&request).expect("session expiry request"),
+                },
+            ))
+            .await
+            .expect("send session expiry");
+
+        let event = tokio::time::timeout(Duration::from_secs(1), sink_rx)
+            .await
+            .expect("sink event timeout")
+            .expect("sink event");
+        assert_eq!(event, RemoteIoRuntimeEvent::SessionApprovalExpired);
         tokio::time::timeout(Duration::from_secs(1), pump)
             .await
             .expect("event pump stop timeout")

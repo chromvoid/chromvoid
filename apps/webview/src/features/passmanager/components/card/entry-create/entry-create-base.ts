@@ -92,7 +92,7 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
 
   protected onManageTags(event: Event): void {
     event.preventDefault()
-    pmCredentialTagsModel.openManageSheet()
+    this.model.openTagCatalogManager()
   }
 
   protected async onSubmit(e: Event) {

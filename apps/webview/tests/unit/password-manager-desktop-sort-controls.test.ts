@@ -220,8 +220,8 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
 
     expect(controls).not.toBeNull()
 
-    const selects = controls?.shadowRoot?.querySelectorAll('cv-select') ?? []
-    ;(selects[0] as HTMLElement | undefined)?.dispatchEvent(
+    const radioGroups = controls?.shadowRoot?.querySelectorAll('cv-radio-group') ?? []
+    ;(radioGroups[0] as HTMLElement | undefined)?.dispatchEvent(
       new CustomEvent('cv-change', {
         detail: {value: 'website'},
         bubbles: true,
@@ -233,23 +233,22 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
 
     expect(getGroupRows(layout)).toEqual(['group:Child', 'entry:Zulu', 'entry:Alpha'])
 
-    const directionButton = controls?.shadowRoot?.querySelector(
-      '.direction-button',
-    ) as HTMLButtonElement | null
-    expect(directionButton).not.toBeNull()
-
-    directionButton?.click()
+    const updatedRadioGroups = controls?.shadowRoot?.querySelectorAll('cv-radio-group') ?? []
+    ;(updatedRadioGroups[1] as HTMLElement | undefined)?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {value: 'desc'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
     await flush(controls!)
     await flush(layout)
 
-    const updatedDirectionButton = controls?.shadowRoot?.querySelector(
-      '.direction-button',
-    ) as HTMLButtonElement | null
-    expect(updatedDirectionButton?.getAttribute('aria-pressed')).toBe('true')
+    expect(sortDirection()).toBe('desc')
     expect(getGroupRows(layout)).toEqual(['group:Child', 'entry:Alpha', 'entry:Zulu'])
 
-    const updatedSelects = controls?.shadowRoot?.querySelectorAll('cv-select') ?? []
-    ;(updatedSelects[1] as HTMLElement | undefined)?.dispatchEvent(
+    const finalRadioGroups = controls?.shadowRoot?.querySelectorAll('cv-radio-group') ?? []
+    ;(finalRadioGroups[2] as HTMLElement | undefined)?.dispatchEvent(
       new CustomEvent('cv-change', {
         detail: {value: 'website'},
         bubbles: true,
@@ -266,5 +265,9 @@ describe('PasswordManagerDesktopLayout sort controls', () => {
       'header:zeta.test 1',
       'entry:Alpha',
     ])
+    expect(groupBy()).toBe('website')
+    expect(controls.shadowRoot?.querySelector('.group-popover .trigger-label')?.textContent?.trim()).toBe(
+      'Websites',
+    )
   })
 })

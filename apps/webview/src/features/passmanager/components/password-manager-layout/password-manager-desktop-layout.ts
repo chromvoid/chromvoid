@@ -12,9 +12,9 @@ import {hostContainStyles} from 'root/shared/ui/shared-styles'
 import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.model'
 import {scrollEdgeAffordanceStyles} from 'root/shared/ui/scroll-edge-affordance.styles'
 import {pmSharedStyles} from '../../styles/shared'
-import {PMMobileTagFilterSheet} from '../list/mobile-tag-filter-sheet'
 import {PMOtpQuickView} from '../otp-quick-view'
 import {PMSshKeysView} from '../ssh-keys-view'
+import {PMDesktopTagManagerDrawer} from '../tags/desktop-tag-manager-drawer'
 import {PMLayoutBase, type SearchElement} from './password-manager-layout-base'
 import {
   PM_SIDEBAR_MAX_WIDTH,
@@ -41,7 +41,7 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     }
     PMOtpQuickView.define()
     PMSshKeysView.define()
-    PMMobileTagFilterSheet.define()
+    PMDesktopTagManagerDrawer.define()
     CVButton.define()
     CVIcon.define()
     CVWindowSplitter.define()
@@ -306,7 +306,7 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
     return html`
       <div class="page">
         <div class="content scrollable">${this.renderMotionContent()}</div>
-        <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
+        <pm-desktop-tag-manager-drawer></pm-desktop-tag-manager-drawer>
       </div>
     `
   }
@@ -410,10 +410,12 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
   }
 
   private handleSidebarResizeInput(event: CustomEvent<{position: number}>) {
+    if (event.target !== event.currentTarget) return
     this.model.previewSidebarWidth(event.detail.position)
   }
 
   private handleSidebarResizeChange(event: CustomEvent<{position: number}>) {
+    if (event.target !== event.currentTarget) return
     this.model.commitSidebarWidth(event.detail.position)
   }
 
@@ -475,7 +477,7 @@ export class PasswordManagerDesktopLayout extends PMLayoutBase {
           <span slot="separator" class="splitter-handle" aria-hidden="true"></span>
           <div slot="secondary" class="content scrollable">${this.renderMotionContent()}</div>
         </cv-window-splitter>
-        <pm-mobile-tag-filter-sheet></pm-mobile-tag-filter-sheet>
+        <pm-desktop-tag-manager-drawer></pm-desktop-tag-manager-drawer>
       </div>
     `
   }

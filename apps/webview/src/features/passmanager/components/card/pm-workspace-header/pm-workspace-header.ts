@@ -33,6 +33,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     contextLabel: {type: String, attribute: 'context-label'},
     contextItems: {attribute: false},
     title: {type: String},
+    titleLabel: {type: String, attribute: 'title-label'},
     titleError: {type: String, attribute: 'title-error'},
     supportText: {type: String, attribute: 'support-text'},
     avatarLetter: {type: String, attribute: 'avatar-letter'},
@@ -52,6 +53,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
   declare contextLabel: string
   declare contextItems: PMWorkspaceContextItem[]
   declare title: string
+  declare titleLabel: string
   declare titleError: string
   declare supportText: string
   declare avatarLetter: string
@@ -79,6 +81,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
     this.contextLabel = ''
     this.contextItems = []
     this.title = ''
+    this.titleLabel = ''
     this.titleError = ''
     this.supportText = ''
     this.avatarLetter = ''
@@ -261,7 +264,11 @@ export class PMWorkspaceHeader extends ReatomLitElement {
       }
 
       .title-avatar-picker {
+        inline-size: 56px;
+        block-size: 56px;
         flex: 0 0 56px;
+        --pm-icon-picker-trigger-size: 56px;
+        --pm-icon-picker-trigger-shadow: none;
         --pm-avatar-fallback-background: var(
           --pm-workspace-header-avatar-fallback-background,
           var(--cv-color-primary-dark)
@@ -429,11 +436,13 @@ export class PMWorkspaceHeader extends ReatomLitElement {
 
       .workspace-header[data-density='compact'] .workspace-head {
         gap: 16px;
+        align-items: center;
       }
 
       .workspace-header[data-density='compact'] .workspace-title-block {
         gap: 12px;
-        padding: 10px 0;
+        min-block-size: 44px;
+        padding: 8px 0;
       }
 
       .workspace-header[data-density='compact'] .title-avatar-icon,
@@ -442,6 +451,10 @@ export class PMWorkspaceHeader extends ReatomLitElement {
         block-size: 42px;
         flex-basis: 42px;
         --pm-avatar-icon-size: 18px;
+      }
+
+      .workspace-header[data-density='compact'] .title-avatar-picker {
+        --pm-icon-picker-trigger-size: 42px;
       }
 
       .workspace-header[data-density='compact'] .title-content {
@@ -458,12 +471,14 @@ export class PMWorkspaceHeader extends ReatomLitElement {
 
       .workspace-header[data-density='compact'] .title-summary {
         max-inline-size: 62ch;
+        padding-inline-start: var(--cv-space-2);
         font-size: 13px;
         line-height: 1.3;
       }
 
       .workspace-header[data-density='compact'] .workspace-head-actions {
-        padding-block-start: 10px;
+        align-self: center;
+        padding-block-start: 0;
       }
 
       .workspace-header[data-density='compact'] .workspace-side {
@@ -730,8 +745,11 @@ export class PMWorkspaceHeader extends ReatomLitElement {
                         type="text"
                         size="large"
                         .value=${this.title}
+                        required
                         ?invalid=${Boolean(this.titleError)}
-                        aria-describedby=${this.titleError ? 'workspace-title-error' : nothing}
+                        aria-label=${this.titleError
+                          ? `${this.titleLabel || this.titlePlaceholder}. ${this.titleError}`
+                          : this.titleLabel || this.titlePlaceholder}
                         placeholder=${this.titlePlaceholder}
                         @cv-input=${this.onTitleInput}
                       ></cv-input>
@@ -742,7 +760,7 @@ export class PMWorkspaceHeader extends ReatomLitElement {
                 </div>
               </div>
               ${this.titleError
-                ? html`<p id="workspace-title-error" class="title-error" role="alert">${this.titleError}</p>`
+                ? html`<p class="title-error" role="alert">${this.titleError}</p>`
                 : nothing}
               <div class="title-support" ?hidden=${!this.hasSupportSlot}>
                 <slot name="support" @slotchange=${this.handleSlotChange}></slot>

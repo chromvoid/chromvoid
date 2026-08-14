@@ -51,18 +51,6 @@ impl StoragePepper {
         Ok(keystore.delete_storage_pepper()?)
     }
 
-    pub fn get_or_create(
-        keystore: &dyn Keystore,
-    ) -> Result<[u8; STORAGE_PEPPER_LEN], StoragePepperError> {
-        if let Some(existing) = Self::load(keystore)? {
-            return Ok(existing);
-        }
-
-        let pepper = Self::generate()?;
-        Self::store(keystore, pepper)?;
-        Ok(pepper)
-    }
-
     pub fn wrap_for_backup(
         pepper: [u8; STORAGE_PEPPER_LEN],
         backup_key: &[u8; 32],

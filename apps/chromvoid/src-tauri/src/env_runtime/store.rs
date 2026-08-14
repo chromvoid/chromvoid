@@ -228,7 +228,7 @@ fn load_payload(path: &Path) -> Result<PresetStorePayload, EnvRuntimeError> {
                 "Invalid preset ciphertext",
             )
         })?;
-    let key = Zeroizing::new(device_store_key(path, false)?);
+    let key = Zeroizing::new(device_store_key(path)?);
     let plaintext = Zeroizing::new(
         chromvoid_core::crypto::decrypt(&ciphertext, &*key, STORE_AAD).map_err(|_| {
             EnvRuntimeError::new(
@@ -266,7 +266,7 @@ fn save_payload(path: &Path, payload: &PresetStorePayload) -> Result<(), EnvRunt
             format!("Failed to serialize device presets: {error}"),
         )
     })?);
-    let key = Zeroizing::new(device_store_key(path, !path.exists())?);
+    let key = Zeroizing::new(device_store_key(path)?);
     let ciphertext = chromvoid_core::crypto::encrypt(plaintext.as_slice(), &*key, STORE_AAD)
         .map_err(|error| {
             EnvRuntimeError::new(
@@ -288,7 +288,7 @@ fn save_payload(path: &Path, payload: &PresetStorePayload) -> Result<(), EnvRunt
 }
 
 #[cfg(test)]
-fn device_store_key(path: &Path, _allow_create: bool) -> Result<[u8; 32], EnvRuntimeError> {
+fn device_store_key(path: &Path) -> Result<[u8; 32], EnvRuntimeError> {
     let mut hasher = Sha256::new();
     hasher.update(b"chromvoid:test:env-runtime-device-store:");
     hasher.update(path.to_string_lossy().as_bytes());
@@ -296,9 +296,8 @@ fn device_store_key(path: &Path, _allow_create: bool) -> Result<[u8; 32], EnvRun
 }
 
 #[cfg(all(not(test), target_os = "macos"))]
-fn device_store_key(path: &Path, allow_create: bool) -> Result<[u8; 32], EnvRuntimeError> {
+fn device_store_key(path: &Path) -> Result<[u8; 32], EnvRuntimeError> {
     use chromvoid_core::crypto::keystore::KeyringKeystore;
-    use chromvoid_core::crypto::StoragePepper;
 
     let root = path.parent().unwrap_or_else(|| Path::new("."));
     let keystore = KeyringKeystore::for_storage_path(root).map_err(|error| {
@@ -307,28 +306,7 @@ fn device_store_key(path: &Path, allow_create: bool) -> Result<[u8; 32], EnvRunt
             format!("Device keychain is unavailable: {error}"),
         )
     })?;
-    let pepper = Zeroizing::new(if allow_create {
-        StoragePepper::get_or_create(&keystore).map_err(|error| {
-            EnvRuntimeError::new(
-                crate::env_runtime::EnvRuntimeErrorCode::DEVICE_STORE_KEY_UNAVAILABLE,
-                format!("Device keychain is unavailable: {error}"),
-            )
-        })?
-    } else {
-        StoragePepper::load(&keystore)
-            .map_err(|error| {
-                EnvRuntimeError::new(
-                    crate::env_runtime::EnvRuntimeErrorCode::DEVICE_STORE_KEY_UNAVAILABLE,
-                    format!("Device keychain is unavailable: {error}"),
-                )
-            })?
-            .ok_or_else(|| {
-                EnvRuntimeError::new(
-                    crate::env_runtime::EnvRuntimeErrorCode::DEVICE_STORE_KEY_UNAVAILABLE,
-                    "Device keychain material is missing for the existing preset store",
-                )
-            })?
-    });
+    let pepper = Zeroizing::new(load_device_store_pepper(&keystore)?);
     let mut hasher = Sha256::new();
     hasher.update(b"chromvoid:env-runtime:device-store-key:v1:");
     hasher.update(pepper.as_slice());
@@ -336,11 +314,29 @@ fn device_store_key(path: &Path, allow_create: bool) -> Result<[u8; 32], EnvRunt
 }
 
 #[cfg(all(not(test), not(target_os = "macos")))]
-fn device_store_key(_path: &Path, _allow_create: bool) -> Result<[u8; 32], EnvRuntimeError> {
+fn device_store_key(_path: &Path) -> Result<[u8; 32], EnvRuntimeError> {
     Err(EnvRuntimeError::new(
         crate::env_runtime::EnvRuntimeErrorCode::PLATFORM_UNSUPPORTED,
         "Env Runtime v1 is available on macOS only",
     ))
+}
+
+fn load_device_store_pepper(
+    keystore: &dyn chromvoid_core::crypto::keystore::Keystore,
+) -> Result<[u8; 32], EnvRuntimeError> {
+    chromvoid_core::crypto::StoragePepper::load(keystore)
+        .map_err(|error| {
+            EnvRuntimeError::new(
+                crate::env_runtime::EnvRuntimeErrorCode::DEVICE_STORE_KEY_UNAVAILABLE,
+                format!("Device keychain is unavailable: {error}"),
+            )
+        })?
+        .ok_or_else(|| {
+            EnvRuntimeError::new(
+                crate::env_runtime::EnvRuntimeErrorCode::DEVICE_STORE_KEY_UNAVAILABLE,
+                "Device keychain material is missing for the preset store",
+            )
+        })
 }
 
 #[cfg(test)]
@@ -367,7 +363,7 @@ mod tests {
 
     fn write_authenticated_payload(path: &Path, payload: &PresetStorePayload) -> Vec<u8> {
         let plaintext = Zeroizing::new(serde_json::to_vec(payload).expect("serialize payload"));
-        let key = Zeroizing::new(device_store_key(path, false).expect("fixture key"));
+        let key = Zeroizing::new(device_store_key(path).expect("fixture key"));
         let ciphertext = chromvoid_core::crypto::encrypt(plaintext.as_slice(), &*key, STORE_AAD)
             .expect("encrypt payload");
         let wrapper = EncryptedPresetStore {
@@ -402,6 +398,19 @@ mod tests {
 
         let reopened = DevicePresetStore::load(path);
         assert_eq!(reopened.get("test").expect("get"), Some(preset()));
+    }
+
+    #[test]
+    fn missing_pepper_maps_to_typed_device_store_failure() {
+        let keystore = chromvoid_core::crypto::keystore::InMemoryKeystore::new();
+
+        let error = load_device_store_pepper(&keystore).expect_err("missing pepper");
+
+        assert_eq!(error.code, "DEVICE_STORE_KEY_UNAVAILABLE");
+        assert_eq!(
+            error.message,
+            "Device keychain material is missing for the preset store"
+        );
     }
 
     #[test]

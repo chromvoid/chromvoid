@@ -1,8 +1,9 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
-import {css} from 'lit'
+import {css, type PropertyValues} from 'lit'
 
 import {sharedStyles} from 'root/shared/ui/shared-styles'
+import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 
 import {NavigationRail} from 'root/features/file-manager/components/navigation-rail'
 
@@ -26,6 +27,7 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
   declare detailsOpen: boolean
   declare detailsHidden: boolean
   declare dualPane: boolean
+  private unregisterSurfaceTransitionTarget?: () => void
 
   static styles = [
     sharedStyles,
@@ -37,7 +39,7 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         grid-template-areas:
           'nav topbar'
           'nav content'
-          'statusbar statusbar';
+          'nav statusbar';
         block-size: 100%;
         position: relative;
         contain: content;
@@ -75,6 +77,39 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
         overflow: auto;
         background: var(--app-editorial-surface-raised, var(--cv-color-surface, #0a0a0a));
         contain: layout style;
+      }
+
+      @keyframes app-desktop-surface-dissolve-out {
+        to {
+          opacity: 0;
+        }
+      }
+
+      @keyframes app-desktop-surface-dissolve-in {
+        from {
+          opacity: 0;
+          transform: scale(0.996);
+        }
+      }
+
+      .content::view-transition-image-pair(root) {
+        isolation: isolate;
+        overflow: clip;
+      }
+
+      .content::view-transition-old(root),
+      .content::view-transition-new(root) {
+        mix-blend-mode: plus-lighter;
+      }
+
+      .content::view-transition-old(root) {
+        animation: var(--cv-duration-normal) var(--cv-easing-standard) both
+          app-desktop-surface-dissolve-out;
+      }
+
+      .content::view-transition-new(root) {
+        animation: var(--cv-duration-normal) var(--cv-easing-standard) both
+          app-desktop-surface-dissolve-in;
       }
 
       .statusbar {
@@ -170,6 +205,22 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
     this.detailsOpen = false
     this.detailsHidden = false
     this.dualPane = false
+  }
+
+  protected override firstUpdated(changedProperties: PropertyValues): void {
+    super.firstUpdated(changedProperties)
+    this.unregisterSurfaceTransitionTarget = viewTransitionTargets.register('desktop-surface', {
+      getElement: () => this.renderRoot.querySelector<HTMLElement>('.content'),
+      settle: async () => {
+        await this.updateComplete
+      },
+    })
+  }
+
+  override disconnectedCallback(): void {
+    this.unregisterSurfaceTransitionTarget?.()
+    this.unregisterSurfaceTransitionTarget = undefined
+    super.disconnectedCallback()
   }
 
   private onOverlayDetailsClick = () => {

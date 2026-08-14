@@ -44,6 +44,10 @@ export const pmWorkspaceHeaderWorkbenchStyles = css`
     --pm-avatar-icon-size: 16px;
   }
 
+  .workspace-header[data-density='workbench'] .title-avatar-picker {
+    --pm-icon-picker-trigger-size: 36px;
+  }
+
   .workspace-header[data-density='workbench'] .title-content {
     gap: 2px;
   }

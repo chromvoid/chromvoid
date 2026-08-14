@@ -138,7 +138,7 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     vi.restoreAllMocks()
   })
 
-  it('exposes and dispatches the desktop OTP quick view action', () => {
+  it('does not duplicate the OTP view in desktop toolbar actions', () => {
     const root = new ManagerRoot(createMockSaver())
     root.entries.set([])
     root.showElement.set(root)
@@ -148,15 +148,9 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     const openSpy = vi.spyOn(pmModel, 'openOtpView').mockImplementation(() => {})
     const actions = model.getDesktopToolbarSections().flatMap((section) => section.actions)
 
-    expect(actions.find((action) => action.id === 'pm-otp-view')).toMatchObject({
-      icon: 'shield-check',
-      disabled: false,
-    })
-    expect(model.isDesktopToolbarAction('pm-otp-view')).toBe(true)
-
-    model.executeDesktopToolbarAction('pm-otp-view')
-
-    expect(openSpy).toHaveBeenCalledTimes(1)
+    expect(actions.find((action) => action.id === 'pm-otp-view')).toBeUndefined()
+    expect(model.isDesktopToolbarAction('pm-otp-view')).toBe(false)
+    expect(openSpy).not.toHaveBeenCalled()
   })
 
   it('does not expose or dispatch the mobile passwords-list OTP quick view action', () => {
@@ -172,7 +166,7 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     expect(openSpy).not.toHaveBeenCalled()
   })
 
-  it('keeps Env Runtime locked-visible on desktop and absent from mobile', () => {
+  it('keeps the Env Runtime desktop command available without exposing it in toolbar menus', () => {
     const root = new ManagerRoot(createMockSaver())
     root.entries.set([])
     root.showElement.set(root)
@@ -186,10 +180,7 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     const openSpy = vi.spyOn(pmModel, 'openEnvRuntimeView').mockImplementation(() => {})
     const actions = model.getDesktopToolbarSections().flatMap((section) => section.actions)
 
-    expect(actions.find((action) => action.id === 'pm-env-runtime-view')).toMatchObject({
-      icon: 'terminal',
-      disabled: false,
-    })
+    expect(actions.find((action) => action.id === 'pm-env-runtime-view')).toBeUndefined()
     expect(model.isDesktopToolbarAction('pm-env-runtime-view')).toBe(true)
 
     model.executeDesktopToolbarAction('pm-env-runtime-view')
@@ -203,7 +194,7 @@ describe('PasswordManagerLayoutModel selection actions', () => {
         .getDesktopToolbarSections()
         .flatMap((section) => section.actions)
         .find((action) => action.id === 'pm-env-runtime-view'),
-    ).toMatchObject({disabled: false})
+    ).toBeUndefined()
 
     expect(pmMobileChromeModel.getToolbarActions().map((action) => action.id)).not.toContain(
       'pm-env-runtime-view',

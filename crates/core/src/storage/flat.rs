@@ -103,6 +103,20 @@ impl Storage {
         self.backend.get_or_create_salt()
     }
 
+    /// Read the vault salt without creating it.
+    pub(crate) fn read_salt(&self) -> Result<Option<[u8; SALT_SIZE]>> {
+        let Some(bytes) = self.backend.read_artifact(StorageArtifact::Salt)? else {
+            return Ok(None);
+        };
+        let actual_len = bytes.len();
+        let salt = bytes.try_into().map_err(|_| {
+            crate::error::Error::InvalidDataFormat(format!(
+                "invalid vault salt length: expected {SALT_SIZE}, got {actual_len}"
+            ))
+        })?;
+        Ok(Some(salt))
+    }
+
     pub fn get_or_create_master_salt(&self) -> Result<[u8; SALT_SIZE]> {
         self.backend.get_or_create_master_salt()
     }

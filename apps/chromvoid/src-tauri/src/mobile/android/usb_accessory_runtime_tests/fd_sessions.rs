@@ -268,10 +268,15 @@ async fn fd_session_spawner_failure_returns_fd_to_caller_ownership() {
 async fn pending_fd_session_spawner_failure_closes_native_owned_fd() {
     use std::os::fd::IntoRawFd;
     use std::os::unix::net::UnixStream;
+    use tokio::io::AsyncReadExt as _;
 
     let runtime = runtime_for_tests();
     runtime.set_task_spawner_for_tests(rejecting_task_spawner());
-    let (left, _right) = UnixStream::pair().expect("unix stream pair");
+    let (left, right) = UnixStream::pair().expect("unix stream pair");
+    right
+        .set_nonblocking(true)
+        .expect("right unix stream nonblocking");
+    let mut right = tokio::net::UnixStream::from_std(right).expect("tokio unix stream");
     let fd = left.into_raw_fd();
 
     runtime
@@ -280,5 +285,12 @@ async fn pending_fd_session_spawner_failure_closes_native_owned_fd() {
     runtime.set_host_starter(host_starter(|_start| async { Ok(()) }));
 
     assert_eq!(runtime.active_session_count(), 0);
-    assert!(!fd_is_open(fd));
+    let mut byte = [0_u8; 1];
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), right.read(&mut byte))
+            .await
+            .expect("peer close timeout")
+            .expect("peer close read"),
+        0,
+    );
 }

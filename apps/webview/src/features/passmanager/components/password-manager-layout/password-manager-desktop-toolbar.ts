@@ -100,28 +100,24 @@ export class PasswordManagerDesktopToolbar extends ReatomLitElement {
       }
 
       .toolbar-search {
-        flex: 0 1 auto;
-        inline-size: clamp(190px, 24cqi, 340px);
-        min-inline-size: 190px;
+        flex: 0 1 420px;
+        inline-size: clamp(220px, 28cqi, 420px);
+        min-inline-size: 220px;
         max-block-size: min(52vh, 320px);
       }
 
       .toolbar-controls {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) max-content;
+        display: inline-flex;
         align-items: center;
+        justify-content: flex-end;
         gap: var(--app-spacing-2);
-        inline-size: 100%;
+        inline-size: max-content;
         min-inline-size: 0;
       }
 
-      .toolbar-quick-filters {
-        min-inline-size: 0;
-      }
-
+      .toolbar-quick-filters,
       .toolbar-sort-controls {
-        inline-size: 312px;
-        max-inline-size: 312px;
+        flex: 0 0 auto;
       }
 
       .toolbar-actions {
@@ -174,7 +170,7 @@ export class PasswordManagerDesktopToolbar extends ReatomLitElement {
           inline-size: var(--pm-toolbar-control-block-size);
         }
 
-        .toolbar-primary-action-label {
+        .toolbar-primary-action::part(label) {
           display: none;
         }
       }
@@ -250,7 +246,7 @@ export class PasswordManagerDesktopToolbar extends ReatomLitElement {
         @click=${this.handleToolbarButtonClick}
       >
         <cv-icon slot="prefix" name=${action.icon} size="s"></cv-icon>
-        ${primary ? html`<span class="toolbar-primary-action-label">${action.label}</span>` : action.label}
+        ${action.label}
       </cv-button>
     `
   }
@@ -273,16 +269,9 @@ export class PasswordManagerDesktopToolbar extends ReatomLitElement {
     `
   }
 
-  private renderActionsMenu(
-    sections: readonly PMDesktopToolbarSection[],
-    options: {includeOtpView?: boolean} = {},
-  ) {
+  private renderActionsMenu(sections: readonly PMDesktopToolbarSection[]) {
     const menuLabel = passmanagerI18n('button:more_actions')
-    const menuItems = sections.flatMap((section) =>
-      section.actions
-        .filter((action) => options.includeOtpView || action.id !== 'pm-otp-view')
-        .map((action) => ({section, action})),
-    )
+    const menuItems = sections.flatMap((section) => section.actions.map((action) => ({section, action})))
     const menuKey = menuItems
       .map(({action}) => `${action.id}:${action.disabled ? 'disabled' : 'enabled'}`)
       .join('|')
@@ -323,8 +312,8 @@ export class PasswordManagerDesktopToolbar extends ReatomLitElement {
         .desktopToolbarModel=${model}
       ></pm-search>
       <div slot="center" class="toolbar-controls">
-        <pm-quick-filters class="toolbar-quick-filters" single-row></pm-quick-filters>
-        <pm-sort-controls class="toolbar-sort-controls" single-row></pm-sort-controls>
+        <pm-quick-filters class="toolbar-quick-filters"></pm-quick-filters>
+        <pm-sort-controls class="toolbar-sort-controls"></pm-sort-controls>
       </div>
       <div slot="actions" class="toolbar-actions">
         ${createEntryAction
@@ -334,7 +323,7 @@ export class PasswordManagerDesktopToolbar extends ReatomLitElement {
               </cv-guidance-anchor>
             `
           : nothing}
-        ${this.renderActionsMenu([vaultSection], {includeOtpView: true})}
+        ${this.renderActionsMenu([vaultSection])}
       </div>
     `
   }

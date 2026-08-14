@@ -88,6 +88,19 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_session_approval_expiry_maps_to_terminal_event() {
+        let session_id = "session-1".to_string();
+
+        assert_eq!(
+            mobile_usb_session_event_from_remote_runtime_event(
+                &session_id,
+                crate::remote_io_runtime::RemoteIoRuntimeEvent::SessionApprovalExpired,
+            ),
+            MobileUsbSessionEvent::SessionApprovalExpired { session_id },
+        );
+    }
+
+    #[test]
     fn typed_remote_runtime_stream_timeout_maps_to_liveness_stop() {
         let session_id = "session-1".to_string();
         let event = crate::remote_io_runtime::RemoteIoRuntimeEvent::Disconnected {
@@ -258,6 +271,11 @@ pub(crate) fn mobile_usb_session_event_from_remote_runtime_event(
         }
         crate::remote_io_runtime::RemoteIoRuntimeEvent::HostLocked => {
             MobileUsbSessionEvent::HostLocked {
+                session_id: session_id.clone(),
+            }
+        }
+        crate::remote_io_runtime::RemoteIoRuntimeEvent::SessionApprovalExpired => {
+            MobileUsbSessionEvent::SessionApprovalExpired {
                 session_id: session_id.clone(),
             }
         }

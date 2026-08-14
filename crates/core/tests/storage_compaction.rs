@@ -37,7 +37,9 @@ fn test_compaction_removes_old_deltas_and_writes_new_snapshot() {
         .as_slice()
         .try_into()
         .expect("salt must be 16 bytes");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::load(keystore.as_ref())
+        .expect("load pepper")
+        .expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     // Expected delta chunk names (ADR-003 naming).

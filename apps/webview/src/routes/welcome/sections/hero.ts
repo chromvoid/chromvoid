@@ -178,7 +178,6 @@ export class WelcomeHeroSection extends ReatomLitElement {
         text-align: center;
       }
 
-
       @keyframes shake {
         0%,
         100% {
@@ -283,70 +282,133 @@ export class WelcomeHeroSection extends ReatomLitElement {
         line-height: 1.55;
       }
 
-      @media (max-height: 700px) {
-        :host([layout='mobile']) .hero.locked-vault {
-          min-block-size: 245px;
+      @media (min-width: 700px) {
+        :host([layout='mobile'][tablet-viewport]) .hero {
+          justify-items: center;
+          gap: var(--app-spacing-4);
+          text-align: center;
         }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-icon-shell {
-          inline-size: 66px;
-          block-size: 66px;
-          border-radius: 20px;
+        :host([layout='mobile'][tablet-viewport]) .hero-mark,
+        :host([layout='mobile'][tablet-viewport]) .hero-copy,
+        :host([layout='mobile'][tablet-viewport]) .hero-proof {
+          justify-items: center;
+          margin-inline: auto;
+          text-align: center;
         }
 
-
-        :host([layout='mobile']) .hero.locked-vault .hero-kicker {
-          margin-block-start: 18px;
-          font-size: 0.625rem;
-          letter-spacing: 0.26em;
+        :host([layout='mobile'][tablet-viewport]) .hero.first-run .hero-kicker {
+          display: none;
         }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-copy {
-          margin-block-start: 8px;
-          gap: 8px;
+        :host([layout='mobile'][tablet-viewport]) .hero-copy,
+        :host([layout='mobile'][tablet-viewport]) .hero-proof {
+          max-inline-size: 42ch;
         }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-title {
-          font-size: 1.55rem;
+        :host([layout='mobile'][tablet-viewport]) .hero-title {
+          font-size: clamp(2.35rem, 5vw, 2.75rem);
+          line-height: 1.08;
         }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-desc {
-          font-size: 0.8125rem;
-          line-height: 1.38;
+        :host([layout='mobile'][tablet-viewport]) .hero-desc {
+          max-inline-size: 38ch;
+          font-size: 1.0625rem;
+        }
+
+        :host([layout='mobile'][tablet-viewport]) .hero.locked-vault {
+          min-block-size: 0;
+          align-content: center;
+          justify-content: center;
+        }
+
+        :host([layout='mobile'][tablet-viewport]) .hero.locked-vault .hero-icon-shell {
+          inline-size: 88px;
+          block-size: 88px;
+        }
+
+        :host([layout='mobile'][tablet-viewport]) .hero.locked-vault .hero-kicker {
+          margin-block-start: 24px;
+        }
+
+        :host([layout='mobile'][tablet-viewport]) .hero.locked-vault .hero-copy {
+          max-inline-size: 34ch;
+        }
+
+        :host([layout='mobile'][tablet-viewport]) .hero.locked-vault .hero-title {
+          font-size: clamp(2rem, 4.5vw, 2.5rem);
+        }
+
+        :host([layout='mobile'][tablet-viewport]) .hero.locked-vault .hero-desc {
+          max-inline-size: 34ch;
+          font-size: 1rem;
         }
       }
 
-      @media (max-height: 620px) {
-        :host([layout='mobile']) .hero.locked-vault {
-          min-block-size: 190px;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .hero.locked-vault,
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault {
+        min-block-size: 245px;
+      }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-icon-shell {
-          inline-size: 54px;
-          block-size: 54px;
-          border-radius: 17px;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .hero.locked-vault .hero-icon-shell,
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-icon-shell {
+        inline-size: 66px;
+        block-size: 66px;
+        border-radius: 20px;
+      }
 
+      :host([layout='mobile'][viewport-profile='compact']) .hero.locked-vault .hero-kicker,
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-kicker {
+        margin-block-start: 18px;
+        font-size: 0.625rem;
+        letter-spacing: 0.26em;
+      }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-kicker {
-          margin-block-start: 12px;
-          font-size: 0.5625rem;
-          letter-spacing: 0.22em;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .hero.locked-vault .hero-copy,
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-copy {
+        margin-block-start: 8px;
+        gap: 8px;
+      }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-copy {
-          margin-block-start: 6px;
-          gap: 6px;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .hero.locked-vault .hero-title,
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-title {
+        font-size: 1.55rem;
+      }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-title {
-          font-size: 1.35rem;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .hero.locked-vault .hero-desc,
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-desc {
+        font-size: 0.8125rem;
+        line-height: 1.38;
+      }
 
-        :host([layout='mobile']) .hero.locked-vault .hero-desc {
-          font-size: 0.75rem;
-          line-height: 1.3;
-        }
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault {
+        min-block-size: 190px;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-icon-shell {
+        inline-size: 54px;
+        block-size: 54px;
+        border-radius: 17px;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-kicker {
+        margin-block-start: 12px;
+        font-size: 0.5625rem;
+        letter-spacing: 0.22em;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-copy {
+        margin-block-start: 6px;
+        gap: 6px;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-title {
+        font-size: 1.35rem;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .hero.locked-vault .hero-desc {
+        font-size: 0.75rem;
+        line-height: 1.3;
       }
     `,
   ]
@@ -379,19 +441,17 @@ export class WelcomeHeroSection extends ReatomLitElement {
       this.model.isNeedInit() &&
       (setupStep === 'mode-select' || setupStep === 'create-master')
     const isUnlocking = isMobileLockedVault && this.model.unlockInProgress()
-    const eyebrow = isMobileFirstRun
-      ? i18n('welcome:eyebrow-first-run')
-      : this.model.heroEyebrow()
+    const eyebrow = isMobileFirstRun ? i18n('welcome:eyebrow-first-run') : this.model.heroEyebrow()
     const title = isMobileFirstRun ? i18n('onboard:hero:create') : this.model.heroTitle()
-    const description = isMobileFirstRun
-      ? i18n('welcome:create-master-desc')
-      : this.model.heroDescription()
-    const proof = isMobileFirstRun
-      ? i18n('welcome:proof-create-master')
-      : this.model.heroProof()
+    const description = isMobileFirstRun ? i18n('welcome:create-master-desc') : this.model.heroDescription()
+    const proof = isMobileFirstRun ? i18n('welcome:proof-create-master') : this.model.heroProof()
 
     return html`
-      <div class="hero ${isLockedVault ? 'locked-vault' : ''}${isUnlocking ? ' unlocking' : ''}">
+      <div
+        class="hero${isMobileFirstRun ? ' first-run' : ''}${isLockedVault ? ' locked-vault' : ''}${isUnlocking
+          ? ' unlocking'
+          : ''}"
+      >
         <div class="hero-mark">
           <div class="hero-icon-shell" aria-hidden="true">
             <welcome-chromvoid-icon
@@ -401,9 +461,7 @@ export class WelcomeHeroSection extends ReatomLitElement {
             ></welcome-chromvoid-icon>
           </div>
 
-          <div class="hero-kicker">
-            ${isMobileLockedVault ? i18n('welcome:device-locked') : eyebrow}
-          </div>
+          <div class="hero-kicker">${isMobileLockedVault ? i18n('welcome:device-locked') : eyebrow}</div>
         </div>
 
         <div class="hero-copy">

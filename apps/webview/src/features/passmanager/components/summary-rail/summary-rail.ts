@@ -2,7 +2,6 @@ import {css, nothing} from 'lit'
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 
 export type PMSummaryRailTone = 'neutral' | 'muted' | 'primary' | 'warning' | 'danger'
-export type PMSummaryRailDensity = 'comfortable' | 'compact'
 
 export type PMSummaryRailItem = {
   id: string
@@ -120,53 +119,6 @@ export const pmSummaryRailStyles = css`
   .summary-rail__value[data-loading='true'] {
     color: var(--cv-color-text-muted);
   }
-
-  :host([density='compact']) {
-    display: inline-block;
-    inline-size: max-content;
-  }
-
-  :host([density='compact']) .summary-rail {
-    display: flex;
-    flex-wrap: nowrap;
-    inline-size: max-content;
-    min-block-size: 24px;
-    overflow-x: auto;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  :host([density='compact']) .summary-rail__chip {
-    display: flex;
-    flex: 0 0 auto;
-    justify-content: flex-start;
-    gap: var(--cv-space-1);
-    min-block-size: 24px;
-    padding-block: 0;
-    padding-inline: var(--cv-space-2);
-    font-size: var(--cv-font-size-xs);
-    line-height: 1;
-  }
-
-  :host([density='compact']) .summary-rail__chip:first-child {
-    padding-inline-start: 0;
-  }
-
-  :host([density='compact']) .summary-rail__chip:last-child {
-    padding-inline-end: 0;
-  }
-
-  :host([density='compact']) .summary-rail__chip + .summary-rail__chip::before {
-    inset-block: var(--cv-space-1);
-    background: var(--cv-color-border-soft);
-  }
-
-  :host([density='compact']) .summary-rail__value {
-    font-size: var(--cv-font-size-sm);
-    line-height: 1;
-  }
 `
 
 export class PMSummaryRail extends ReatomLitElement {
@@ -174,7 +126,6 @@ export class PMSummaryRail extends ReatomLitElement {
     items: {attribute: false},
     label: {type: String},
     busy: {type: Boolean},
-    density: {type: String, reflect: true},
   }
 
   static styles = pmSummaryRailStyles
@@ -182,14 +133,12 @@ export class PMSummaryRail extends ReatomLitElement {
   declare items: readonly PMSummaryRailItem[]
   declare label: string
   declare busy: boolean
-  declare density: PMSummaryRailDensity
 
   constructor() {
     super()
     this.items = []
     this.label = ''
     this.busy = false
-    this.density = 'comfortable'
   }
 
   static define() {

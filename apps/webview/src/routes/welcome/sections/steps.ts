@@ -782,45 +782,66 @@ export class WelcomeSetupSection extends ReatomLitElement {
         }
       }
 
-      @media (max-height: 700px) {
-        .lockscreen-proof {
-          gap: 8px;
-          padding-block-start: 10px;
-          font-size: 0.71875rem;
-          line-height: 1.35;
+      @media (min-width: 700px) {
+        :host([layout='mobile'][tablet-viewport]) .mobile-first-run-actions,
+        :host([layout='mobile'][tablet-viewport]) .welcome-actions.lockscreen-actions {
+          gap: var(--app-spacing-3);
         }
 
-        :host([layout='mobile']) .welcome-actions.lockscreen-actions {
-          margin-block-start: 12px;
+        :host([layout='mobile'][tablet-viewport]) .welcome-actions.lockscreen-actions {
+          margin-block-start: 0;
         }
 
-        :host([layout='mobile']) .unlock-inline-submit,
-        :host([layout='mobile']) .password-sheet-submit {
-          min-block-size: 48px;
+        :host([layout='mobile'][tablet-viewport]) .lockscreen-proof {
+          padding-block-start: var(--app-spacing-4);
+        }
+
+        :host([layout='mobile'][tablet-viewport]) .password-sheet::part(content) {
+          inline-size: min(540px, calc(100vw - 64px));
+          margin-inline: auto;
+          border-inline: 1px solid var(--welcome-lockscreen-border-muted);
         }
       }
 
-      @media (max-height: 620px) {
-        .lockscreen-proof {
-          padding-block-start: 8px;
-          font-size: 0.65625rem;
-          line-height: 1.28;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .lockscreen-proof,
+      :host([layout='mobile'][viewport-profile='condensed']) .lockscreen-proof {
+        gap: 8px;
+        padding-block-start: 10px;
+        font-size: 0.71875rem;
+        line-height: 1.35;
+      }
 
-        .lockscreen-proof svg {
-          inline-size: 13px;
-          block-size: 13px;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .welcome-actions.lockscreen-actions,
+      :host([layout='mobile'][viewport-profile='condensed']) .welcome-actions.lockscreen-actions {
+        margin-block-start: 12px;
+      }
 
-        :host([layout='mobile']) .welcome-actions.lockscreen-actions {
-          margin-block-start: 9px;
-        }
+      :host([layout='mobile'][viewport-profile='compact']) .unlock-inline-submit,
+      :host([layout='mobile'][viewport-profile='compact']) .password-sheet-submit,
+      :host([layout='mobile'][viewport-profile='condensed']) .unlock-inline-submit,
+      :host([layout='mobile'][viewport-profile='condensed']) .password-sheet-submit {
+        min-block-size: 48px;
+      }
 
-        :host([layout='mobile']) .unlock-inline-submit,
-        :host([layout='mobile']) .password-sheet-submit {
-          min-block-size: 44px;
-          font-size: 0.9375rem;
-        }
+      :host([layout='mobile'][viewport-profile='condensed']) .lockscreen-proof {
+        padding-block-start: 8px;
+        font-size: 0.65625rem;
+        line-height: 1.28;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .lockscreen-proof svg {
+        inline-size: 13px;
+        block-size: 13px;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .welcome-actions.lockscreen-actions {
+        margin-block-start: 9px;
+      }
+
+      :host([layout='mobile'][viewport-profile='condensed']) .unlock-inline-submit,
+      :host([layout='mobile'][viewport-profile='condensed']) .password-sheet-submit {
+        min-block-size: 44px;
+        font-size: 0.9375rem;
       }
     `,
   ]
@@ -894,6 +915,7 @@ export class WelcomeSetupSection extends ReatomLitElement {
           id=${inputId}
           control-id="welcome.unlock-password"
           class="password-sheet-input"
+          size=${mobile ? 'large' : 'medium'}
           type="password"
           password-toggle
           autocomplete="current-password"

@@ -92,17 +92,23 @@ describe('welcome tools section', () => {
     mocks.tauriListen.mockReset()
   })
 
-  it('renders desktop utilities footer and opens the device utilities sheet', async () => {
+  it('renders desktop utilities footer and opens the device utilities drawer', async () => {
     const section = await mountTools('desktop')
 
     expect(section.shadowRoot?.querySelectorAll('.desktop-utility-button')).toHaveLength(2)
-    expect(section.shadowRoot?.querySelectorAll('cv-bottom-sheet.utilities-sheet')).toHaveLength(1)
+    const drawer = section.shadowRoot?.querySelector('cv-drawer.utilities-drawer') as
+      | (HTMLElement & {open?: boolean; placement?: string})
+      | null
+    expect(drawer).not.toBeNull()
+    expect(drawer?.placement).toBe('end')
+    expect(section.shadowRoot?.querySelector('cv-bottom-sheet.utilities-sheet')).toBeNull()
 
     section.shadowRoot?.querySelector<HTMLButtonElement>('.desktop-utility-button')?.click()
     await section.updateComplete
 
     const text = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
-    expect(section.model?.deviceUtilitiesSheetOpen()).toBe(true)
+    expect(section.model?.deviceUtilitiesOpen()).toBe(true)
+    await expect.poll(() => drawer?.open).toBe(true)
     expect(section.model?.deviceUtilitiesScreen()).toBe('list')
     expect(text).toContain('Device utilities')
     expect(text).toContain('Backup')
@@ -130,6 +136,7 @@ describe('welcome tools section', () => {
 
     expect(section.shadowRoot?.querySelectorAll('.mobile-utilities-button')).toHaveLength(1)
     expect(section.shadowRoot?.querySelectorAll('cv-bottom-sheet.utilities-sheet')).toHaveLength(1)
+    expect(section.shadowRoot?.querySelector('cv-drawer.utilities-drawer')).toBeNull()
     expect(text).toContain('Device utilities')
     expect(text).toContain('Change master password')
     expect(text).not.toContain('Storage location')
@@ -181,7 +188,7 @@ describe('welcome tools section', () => {
     await section.updateComplete
 
     expect(section.model?.supportsStorageRootSelection()).toBe(true)
-    expect(section.model?.deviceUtilitiesSheetOpen()).toBe(true)
+    expect(section.model?.deviceUtilitiesOpen()).toBe(true)
     expect(section.model?.deviceUtilitiesScreen()).toBe('system')
     await expect.poll(() => section.shadowRoot?.querySelector('.utilities-system-panel')).not.toBeNull()
     await expect
@@ -269,7 +276,7 @@ describe('welcome tools section', () => {
     })
     expect(passwordDialog).not.toHaveBeenCalled()
     expect(mocks.open).not.toHaveBeenCalled()
-    expect(model.deviceUtilitiesSheetOpen()).toBe(true)
+    expect(model.deviceUtilitiesOpen()).toBe(true)
     expect(model.deviceUtilitiesScreen()).toBe('list')
   })
 

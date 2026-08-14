@@ -67,11 +67,22 @@ pub(crate) fn save_store<T>(path: &Path, store: &HashMap<String, T>) -> Result<(
 where
     T: Serialize,
 {
-    backup_existing_store(path)?;
+    save_store_with_key_provider(path, store, paired_store_key)
+}
+
+fn save_store_with_key_provider<T, F>(
+    path: &Path,
+    store: &HashMap<String, T>,
+    key_provider: F,
+) -> Result<(), String>
+where
+    T: Serialize,
+    F: FnOnce(&Path) -> Result<[u8; 32], String>,
+{
     let plaintext = Zeroizing::new(
         serde_json::to_vec_pretty(store).map_err(|error| format!("serialize: {error}"))?,
     );
-    let key = Zeroizing::new(paired_store_key(path)?);
+    let key = Zeroizing::new(key_provider(path)?);
     let ciphertext =
         chromvoid_core::crypto::encrypt(plaintext.as_slice(), &*key, ENCRYPTED_PAIRED_STORE_AAD)
             .map_err(|error| format!("encrypt paired store: {error}"))?;
@@ -81,6 +92,7 @@ where
         ciphertext_b64: BASE64_STANDARD.encode(ciphertext),
     };
 
+    backup_existing_store(path)?;
     crate::helpers::storage::write_json_pretty_atomic(path, &wrapper)
 }
 
@@ -157,8 +169,7 @@ fn paired_store_key(path: &Path) -> Result<[u8; 32], String> {
     use chromvoid_core::crypto::keystore::AndroidKeystore;
 
     let keystore = AndroidKeystore::new();
-    chromvoid_core::crypto::StoragePepper::get_or_create(&keystore)
-        .map_err(|error| format!("paired store key unavailable: {error}"))
+    load_paired_store_pepper(&keystore)
 }
 
 #[cfg(all(
@@ -166,7 +177,6 @@ fn paired_store_key(path: &Path) -> Result<[u8; 32], String> {
     any(
         target_os = "macos",
         target_os = "windows",
-        target_os = "ios",
         all(target_os = "linux", not(target_env = "musl"))
     )
 ))]
@@ -180,8 +190,20 @@ fn paired_store_key(path: &Path) -> Result<[u8; 32], String> {
     let root = path.parent().unwrap_or_else(|| Path::new("."));
     let keystore = KeyringKeystore::for_storage_path(root)
         .map_err(|error| format!("paired store keystore unavailable: {error}"))?;
-    chromvoid_core::crypto::StoragePepper::get_or_create(&keystore)
-        .map_err(|error| format!("paired store key unavailable: {error}"))
+    load_paired_store_pepper(&keystore)
+}
+
+#[cfg(all(not(test), target_os = "ios"))]
+fn paired_store_key(path: &Path) -> Result<[u8; 32], String> {
+    if let Some(key) = debug_paired_store_key(path) {
+        return Ok(key);
+    }
+
+    use chromvoid_core::crypto::keystore::IosKeystore;
+
+    let keystore = IosKeystore::new()
+        .map_err(|error| format!("paired store keystore unavailable: {error}"))?;
+    load_paired_store_pepper(&keystore)
 }
 
 #[cfg(all(
@@ -196,6 +218,14 @@ fn paired_store_key(path: &Path) -> Result<[u8; 32], String> {
 ))]
 fn paired_store_key(_path: &Path) -> Result<[u8; 32], String> {
     Err("paired store encryption requires a platform keystore".to_string())
+}
+
+fn load_paired_store_pepper(
+    keystore: &dyn chromvoid_core::crypto::keystore::Keystore,
+) -> Result<[u8; 32], String> {
+    chromvoid_core::crypto::StoragePepper::load(keystore)
+        .map_err(|error| format!("paired store key unavailable: {error}"))?
+        .ok_or_else(|| "paired store key unavailable: storage pepper is missing".to_string())
 }
 
 #[cfg(debug_assertions)]
@@ -215,4 +245,42 @@ fn debug_paired_store_key(path: &Path) -> Option<[u8; 32]> {
 #[cfg(not(debug_assertions))]
 fn debug_paired_store_key(_path: &Path) -> Option<[u8; 32]> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chromvoid_core::crypto::keystore::InMemoryKeystore;
+
+    #[test]
+    fn missing_pepper_does_not_mutate_existing_store_or_create_backup() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let path = tempdir.path().join("paired.json");
+        let original = b"existing paired store";
+        std::fs::write(&path, original).expect("write existing store");
+        let store = HashMap::from([("peer".to_string(), "payload".to_string())]);
+        let keystore = InMemoryKeystore::new();
+
+        let error =
+            save_store_with_key_provider(&path, &store, |_| load_paired_store_pepper(&keystore))
+                .expect_err("missing pepper");
+
+        assert_eq!(
+            error,
+            "paired store key unavailable: storage pepper is missing"
+        );
+        assert_eq!(
+            std::fs::read(&path).expect("read preserved store"),
+            original
+        );
+        let mut entries = std::fs::read_dir(tempdir.path())
+            .expect("read tempdir")
+            .map(|entry| entry.expect("directory entry").file_name())
+            .collect::<Vec<_>>();
+        entries.sort();
+        assert_eq!(
+            entries,
+            vec![path.file_name().expect("file name").to_owned()]
+        );
+    }
 }

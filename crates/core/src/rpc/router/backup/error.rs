@@ -63,6 +63,12 @@ impl BackupCommandError {
         Self::new(message, Some(ErrorCode::KeystoreUnavailable))
     }
 
+    pub(in crate::rpc::router::backup) fn storage_pepper_required(
+        message: impl Into<String>,
+    ) -> Self {
+        Self::new(message, Some(ErrorCode::StoragePepperRequired))
+    }
+
     pub(in crate::rpc::router::backup) fn storage_version_not_supported(
         message: impl Into<String>,
     ) -> Self {

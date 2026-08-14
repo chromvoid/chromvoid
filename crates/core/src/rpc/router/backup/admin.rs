@@ -54,14 +54,37 @@ impl RpcRouter {
         // Derive backup_key for wrapping portable pepper.
         let backup_key = self.derive_backup_key_v2_for_password(request.master_password)?;
 
+        // Resolve the pepper before reading backup artifacts. Backup is a
+        // read-only operation and must fail before touching vault storage when
+        // the platform keystore cannot provide the existing pepper.
+        let keystore = self
+            .keystore
+            .as_ref()
+            .ok_or_else(|| BackupCommandError::keystore_unavailable("Keystore not available"))?;
+        let pepper = crate::crypto::StoragePepper::load(keystore.as_ref())
+            .map_err(|error| {
+                BackupCommandError::keystore_unavailable(format!(
+                    "Failed to load storage pepper: {}",
+                    error
+                ))
+            })?
+            .ok_or_else(|| {
+                BackupCommandError::storage_pepper_required("Storage pepper is missing")
+            })?;
+
         let chunks = self.storage.list_chunks().map_err(|error| {
             BackupCommandError::internal(format!("Failed to list chunks: {}", error))
         })?;
 
         let mut backup_data: Vec<(String, Vec<u8>)> = Vec::new();
-        if let Ok(salt) = self.storage.get_or_create_salt() {
-            backup_data.push(("__salt__".to_string(), salt.to_vec()));
-        }
+        let salt = self
+            .storage
+            .read_salt()
+            .map_err(|error| {
+                BackupCommandError::internal(format!("Failed to read vault salt: {}", error))
+            })?
+            .ok_or_else(|| BackupCommandError::internal("Vault salt is missing"))?;
+        backup_data.push(("__salt__".to_string(), salt.to_vec()));
 
         // ADR-017/ADR-006: include master artifacts so a restore can validate master_password and
         // keep admin operations functional after restore.
@@ -72,23 +95,6 @@ impl RpcRouter {
         backup_data.push(("__master_verify__".to_string(), master_verify));
 
         // Include portable pepper (SPEC-100 / ADR-012).
-        let keystore = match self.keystore.as_ref() {
-            Some(k) => k.as_ref(),
-            None => {
-                return Err(BackupCommandError::keystore_unavailable(
-                    "Keystore not available",
-                ))
-            }
-        };
-        let pepper = match crate::crypto::StoragePepper::get_or_create(keystore) {
-            Ok(p) => p,
-            Err(e) => {
-                return Err(BackupCommandError::keystore_unavailable(format!(
-                    "Failed to load storage pepper: {}",
-                    e
-                )))
-            }
-        };
         let pepper_wrapped =
             match crate::crypto::StoragePepper::wrap_for_backup(pepper, &backup_key) {
                 Ok(b) => b,

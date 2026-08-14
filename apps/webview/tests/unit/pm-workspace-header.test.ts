@@ -224,6 +224,7 @@ describe('PMWorkspaceHeader', () => {
   it('renders an editable title input and emits title input events when enabled', async () => {
     const element = createHeader()
     element.editableTitle = true
+    element.titleLabel = 'Group name'
     element.titlePlaceholder = 'Create a group'
 
     document.body.append(element)
@@ -236,6 +237,8 @@ describe('PMWorkspaceHeader', () => {
 
     const input = element.shadowRoot?.querySelector('cv-input.title-input') as HTMLElement | null
     expect(input).not.toBeNull()
+    expect(input?.getAttribute('aria-label')).toBe('Group name')
+    expect(input?.hasAttribute('required')).toBe(true)
 
     input?.dispatchEvent(
       new CustomEvent('cv-input', {

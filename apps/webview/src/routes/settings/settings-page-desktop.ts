@@ -7,8 +7,6 @@ import type {SessionSettings} from 'root/core/session/session-settings'
 import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inline'
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   routeHostStyles,
   routePageStyles,
   sharedStyles,
@@ -28,8 +26,6 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
 
   static styles = [
     sharedStyles,
-    pageTransitionStyles,
-    pageFadeInStyles,
     hostLayoutPaintContainStyles,
     routeHostStyles,
     routePageStyles,

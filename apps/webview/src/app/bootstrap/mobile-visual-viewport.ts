@@ -3,7 +3,10 @@ import {syncPasswordInputDialogKeyboardOffset} from '../../shared/services/mobil
 import {
   MOBILE_KEYBOARD_EXPANDED_ATTR,
   VISUAL_VIEWPORT_SHRUNK_ATTR,
+  mobileKeyboardOccluding,
+  mobileLayoutViewportBlockSize,
   setMobileKeyboardOccluding,
+  setMobileLayoutViewportBlockSize,
 } from './mobile-keyboard/keyboard-occlusion.model'
 import {
   applyMobileKeyboardCssOffsets,
@@ -67,6 +70,23 @@ export const getVisualViewportBottomInset = ({
   const offsetTop = Math.max(0, visualViewportOffsetTop)
   const inset = layoutViewportHeight - (visualViewportHeight + offsetTop)
   return inset > 1 ? Math.round(inset) : 0
+}
+
+export const resolveMobileLayoutViewportBlockSize = ({
+  currentBlockSize,
+  nextBlockSize,
+  currentlyOccluding,
+  nextOccluding,
+}: {
+  currentBlockSize: number
+  nextBlockSize: number
+  currentlyOccluding: boolean
+  nextOccluding: boolean
+}): number => {
+  const current = Number.isFinite(currentBlockSize) && currentBlockSize > 0 ? Math.round(currentBlockSize) : 0
+  if (currentlyOccluding || nextOccluding) return current
+
+  return Number.isFinite(nextBlockSize) && nextBlockSize > 0 ? Math.round(nextBlockSize) : current
 }
 
 export const splitVisualViewportBottomInset = ({
@@ -146,12 +166,7 @@ export const resolveSafeAreaBottomFallback = ({
 
   if (hasNativeSafeAreaBottom || normalizedNativeSafeAreaBottomInset > 0) return 0
 
-  if (
-    platform === 'android' &&
-    mobile &&
-    normalizedSafeAreaInset === 0 &&
-    normalizedSafeAreaEnvInset === 0
-  ) {
+  if (platform === 'android' && mobile && normalizedSafeAreaInset === 0 && normalizedSafeAreaEnvInset === 0) {
     return ANDROID_SAFE_AREA_BOTTOM_FALLBACK
   }
 
@@ -233,8 +248,17 @@ export const setupMobileVisualViewportSync = () => {
     applyMobileKeyboardCssOffsets(root, effectiveKeyboardInset, cssViewportMode)
     root.style.setProperty('--app-runtime-safe-area-block-end-fallback', `${resolvedSafeAreaInset}px`)
     const visualViewportShrunken = effectiveKeyboardInset > 0
+    const nextKeyboardOccluding = root.hasAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR) || visualViewportShrunken
+    setMobileLayoutViewportBlockSize(
+      resolveMobileLayoutViewportBlockSize({
+        currentBlockSize: mobileLayoutViewportBlockSize(),
+        nextBlockSize: layoutViewportHeight,
+        currentlyOccluding: mobileKeyboardOccluding(),
+        nextOccluding: nextKeyboardOccluding,
+      }),
+    )
     root.toggleAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR, visualViewportShrunken)
-    setMobileKeyboardOccluding(root.hasAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR) || visualViewportShrunken)
+    setMobileKeyboardOccluding(nextKeyboardOccluding)
     if (!preferNativeKeyboardInset) {
       syncPasswordInputDialogKeyboardOffset(effectiveKeyboardInset, {
         phase: 'settled',
@@ -252,6 +276,7 @@ export const setupMobileVisualViewportSync = () => {
   viewport.addEventListener('scroll', scheduleSync)
   window.addEventListener('resize', scheduleSync)
   window.addEventListener('orientationchange', scheduleSync)
+  mobileKeyboardOccluding.subscribe(scheduleSync)
 
   scheduleSync()
 }

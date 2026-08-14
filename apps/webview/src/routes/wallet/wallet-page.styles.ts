@@ -2,8 +2,6 @@ import {css} from 'lit'
 
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   routeHostStyles,
   routePageStyles,
   sharedStyles,
@@ -14,8 +12,6 @@ import {walletReceiveStyles} from './wallet-receive.styles'
 
 export const walletPageStyles = [
   sharedStyles,
-  pageTransitionStyles,
-  pageFadeInStyles,
   hostLayoutPaintContainStyles,
   routeHostStyles,
   routePageStyles,

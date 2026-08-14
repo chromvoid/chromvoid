@@ -69,6 +69,12 @@ export class PMEntryWebsiteEditorModel {
     () => !rulesEqual(comparableRules(this.rows()), this.baselineRules()),
     'entryWebsites.dirty',
   )
+  readonly hasAdvancedMatching = computed(
+    () =>
+      this.baselineRules().some((rule) => rule.match !== 'base_domain') ||
+      this.rows().some((row) => row.match !== 'base_domain'),
+    'entryWebsites.hasAdvancedMatching',
+  )
   readonly primaryRowId = computed(
     () => this.rows().find((row) => isOpenableUrlRule(row))?.id ?? '',
     'entryWebsites.primaryRowId',
@@ -125,19 +131,16 @@ export class PMEntryWebsiteEditorModel {
     return row.id
   }
 
-  remove(rowId: string): void {
-    if (!this.getRow(rowId)) return
-    const nextRows = this.rows().filter((row) => row.id !== rowId)
-    this.rows.set(nextRows.length ? nextRows : [createRow()])
+  remove(rowId: string): string | undefined {
+    const rows = this.rows()
+    const index = rows.findIndex((row) => row.id === rowId)
+    if (index <= 0) return undefined
+
+    const focusRowId = rows[index + 1]?.id ?? rows[index - 1]?.id
+    this.rows.set(rows.filter((row) => row.id !== rowId))
     this.touchedRowIds.set(this.touchedRowIds().filter((id) => id !== rowId))
     this.afterChange()
-  }
-
-  makePrimary(rowId: string): void {
-    const row = this.getRow(rowId)
-    if (!row || !isOpenableUrlRule(row) || this.primaryRowId() === rowId) return
-    this.rows.set([row, ...this.rows().filter((item) => item.id !== rowId)])
-    this.afterChange()
+    return focusRowId
   }
 
   pasteMultiline(rowId: string, text: string): boolean {

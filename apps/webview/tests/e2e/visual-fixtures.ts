@@ -460,6 +460,7 @@ export async function seedVisualEmptyNotesFixture(): Promise<void> {
 
 export async function seedVisualPassmanagerFixture(options?: {
   authoredGroupDescription?: boolean
+  positiveCredentialRisks?: boolean
   structuredWebsites?: boolean
 }): Promise<void> {
   await clearMockPassmanagerState()
@@ -561,7 +562,13 @@ export async function seedVisualPassmanagerFixture(options?: {
         },
       },
     ],
-    secrets: [],
+    secrets: options?.positiveCredentialRisks
+      ? [
+          ['visual-github:password', 'password'],
+          ['visual-aws:password', 'password'],
+          ['visual-vpn:password', 'CorrectHorseBatteryStaple!2026'],
+        ]
+      : [],
     otpSecrets: [
       ['visual-github:Primary', {secret: 'JBSWY3DPEHPK3PXP', digits: 6, period: 60}],
       ['visual-aws:Admin', {secret: 'JBSWY3DPEHPK3PXP', digits: 6, period: 60}],
@@ -629,6 +636,46 @@ export async function seedVisualPassmanagerTagSnippetFixture(): Promise<void> {
     ],
     secrets: [['visual-tag-snippet:password', 'CorrectHorseBatteryStaple!2026']],
     otpSecrets: [['visual-tag-snippet:Primary', {secret: 'JBSWY3DPEHPK3PXP', digits: 6, period: 60}]],
+    icons: [],
+  })
+}
+
+export async function seedVisualPaymentCardEntryFixture(): Promise<void> {
+  await clearMockPassmanagerState()
+  await writeMockPassmanagerState({
+    version: 1,
+    revision: 1,
+    nextNodeId: 3,
+    folders: [],
+    foldersMeta: [],
+    tags: ['Finance'],
+    tagMeta: {
+      finance: {colorId: 'green'},
+    },
+    entries: [
+      {
+        nodeId: 2,
+        meta: {
+          id: 'visual-card-details',
+          title: 'Corporate Card',
+          entryType: 'payment_card',
+          paymentCard: {
+            cardholderName: 'Visual Tester',
+            brand: 'visa',
+            last4: '4242',
+            expMonth: 12,
+            expYear: 2030,
+          },
+          tags: ['Finance'],
+        },
+      },
+    ],
+    secrets: [
+      ['visual-card-details:card_pan', '4242424242424242'],
+      ['visual-card-details:card_cvv', '123'],
+      ['visual-card-details:note', 'Approved for infrastructure subscriptions.'],
+    ],
+    otpSecrets: [],
     icons: [],
   })
 }

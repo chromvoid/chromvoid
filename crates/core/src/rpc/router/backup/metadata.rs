@@ -16,9 +16,27 @@ impl RpcRouter {
         created_at: u64,
     ) -> BackupResult<BackupLocalMetadata> {
         let backup_key = self.derive_backup_key_v2()?;
-        let vault_salt = self.storage.get_or_create_salt().map_err(|error| {
-            BackupCommandError::internal(format!("Failed to read vault salt: {}", error))
-        })?;
+        let keystore = self
+            .keystore
+            .as_ref()
+            .ok_or_else(|| BackupCommandError::keystore_unavailable("Keystore not available"))?;
+        let storage_pepper = StoragePepper::load(keystore.as_ref())
+            .map_err(|error| {
+                BackupCommandError::keystore_unavailable(format!(
+                    "Failed to load storage pepper: {}",
+                    error
+                ))
+            })?
+            .ok_or_else(|| {
+                BackupCommandError::storage_pepper_required("Storage pepper is missing")
+            })?;
+        let vault_salt = self
+            .storage
+            .read_salt()
+            .map_err(|error| {
+                BackupCommandError::internal(format!("Failed to read vault salt: {}", error))
+            })?
+            .ok_or_else(|| BackupCommandError::internal("Vault salt is missing"))?;
         let storage_format_v = self.storage.format_version().map_err(|error| {
             BackupCommandError::internal(format!(
                 "Failed to read storage format version: {}",
@@ -31,16 +49,6 @@ impl RpcRouter {
             ));
         }
 
-        let keystore = self
-            .keystore
-            .as_ref()
-            .ok_or_else(|| BackupCommandError::keystore_unavailable("Keystore not available"))?;
-        let storage_pepper = StoragePepper::get_or_create(keystore.as_ref()).map_err(|error| {
-            BackupCommandError::keystore_unavailable(format!(
-                "Failed to load storage pepper: {}",
-                error
-            ))
-        })?;
         let pepper_wrapped =
             StoragePepper::wrap_for_backup(storage_pepper, &backup_key).map_err(|error| {
                 BackupCommandError::internal(format!("Pepper wrap failed: {}", error))

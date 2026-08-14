@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.4</string>
+	<string>1.0.6</string>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>9</string>
 	<key>ChromVoidSharedKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)com.chromvoid.app.shared</string>
 	<key>NSExtension</key>

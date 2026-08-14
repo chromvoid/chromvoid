@@ -5,155 +5,208 @@ import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {hostContentContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
+import {
+  androidShareImportModel,
+  type AndroidSharePendingLockedSummary,
+} from 'root/features/file-manager/models/android-share-import.model'
 import {MediaMiniPlayer} from 'root/features/media/components/media-mini-player'
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
-import {androidShareImportModel} from 'root/features/file-manager/models/android-share-import.model'
-import {PMSummaryRail} from 'root/features/passmanager/components/summary-rail'
-import {statusBarSummaryModel} from '../models/status-bar-summary.model'
+import {statusBarSummaryModel, type StatusBarContextItem} from '../models/status-bar-summary.model'
 
-/**Status Bar with user-facing state indicators and compact global controls.
-* Shows: remote connection status, pending shared files, selected files, errors.
-*/
+/** Desktop status strip for shell context and compact global controls. */
 export class StatusBar extends ReatomLitElement {
   static define() {
     if (!customElements.get('status-bar')) {
       customElements.define('status-bar', this)
     }
     MediaMiniPlayer.define()
-    PMSummaryRail.define()
   }
+
   static styles = [
     sharedStyles,
     hostContentContainStyles,
     css`
       :host {
-        background: var(--cv-color-surface-2);
-        border-top: 1px solid var(--cv-color-border-soft);
+        display: block;
+        min-inline-size: 0;
         font-size: var(--cv-font-size-xs);
       }
 
       .status-bar {
-        container-type: inline-size;
-        container-name: statusbar;
-        display: flex;
+        container: statusbar / inline-size;
+        min-inline-size: 0;
+        block-size: 26px;
+        box-sizing: border-box;
+        overflow: hidden;
+        border-block-start: 1px solid var(--cv-color-border-muted);
+        background: var(--cv-color-surface-2);
+        color: var(--cv-color-text-subtle);
+      }
+
+      .status-bar[data-expanded] {
+        block-size: 42px;
+      }
+
+      .status-content {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;
         gap: var(--app-spacing-3);
-        padding: 8px 16px;
-        min-block-size: 42px;
+        block-size: 100%;
+        min-inline-size: 0;
+        box-sizing: border-box;
+        padding-inline: var(--app-spacing-3);
+        overflow: hidden;
+        font-family: var(--cv-font-family-code);
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
       }
 
-      /*========= Status of INDICATORS ==================================================================================================================================================*/
-
-      .status-indicators {
+      .status-start,
+      .status-end,
+      .status-indicators,
+      .status-context-items {
         display: flex;
         align-items: center;
-        gap: var(--app-spacing-4);
-        flex: 0 1 auto;
         min-inline-size: 0;
       }
 
-      .status-summary-slot {
-        display: flex;
-        align-items: center;
+      .status-start {
+        gap: var(--app-spacing-3);
+        overflow: hidden;
+      }
+
+      .status-end {
         justify-content: flex-end;
-        margin-inline-start: auto;
-        min-inline-size: 0;
+        gap: var(--app-spacing-3);
       }
 
-      .status-summary-slot pm-summary-rail.status-context-summary {
-        flex: 0 1 auto;
-        inline-size: max-content;
-        max-inline-size: 100%;
+      .status-indicators,
+      .status-context-items {
+        gap: var(--app-spacing-3);
+      }
+
+      .status-indicators:empty,
+      .status-context-items:empty {
+        display: none;
+      }
+
+      .status-context-items {
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      .status-context-item {
+        display: inline-flex;
+        align-items: baseline;
+        gap: var(--app-spacing-1);
         min-inline-size: 0;
+        overflow: hidden;
+        color: var(--cv-color-text-subtle);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status-context-item + .status-context-item::before {
+        content: '·';
+        flex: 0 0 auto;
+        margin-inline-end: calc(var(--app-spacing-3) - var(--app-spacing-1));
+        color: var(--cv-color-border);
+      }
+
+      .status-context-item[data-tone='accent'] {
+        color: var(--cv-color-accent);
+      }
+
+      .status-context-item[data-tone='warning'] {
+        color: var(--cv-color-warning);
+      }
+
+      .status-context-item[data-tone='danger'] {
+        color: var(--cv-color-danger);
+      }
+
+      .status-context-value {
+        color: var(--cv-color-text-strongest);
+        font-weight: var(--cv-font-weight-semibold);
+      }
+
+      .status-context-item[data-tone='accent'] .status-context-value,
+      .status-context-item[data-tone='warning'] .status-context-value,
+      .status-context-item[data-tone='danger'] .status-context-value {
+        color: inherit;
       }
 
       .status-indicator {
         display: flex;
         align-items: center;
         gap: var(--app-spacing-2);
-        color: var(--cv-color-text-muted);
-        font-weight: var(--cv-font-weight-medium);
+        min-inline-size: 0;
         padding: 2px 8px;
         border-radius: 999px;
+        color: var(--cv-color-text-muted);
         cursor: default;
-        position: relative;
-
-        &:hover {
-          background: var(--cv-color-hover);
-        }
-
-        &.connected .status-icon {
-          color: var(--cv-color-success);
-        }
-
-        &.syncing .status-icon {
-          color: var(--cv-color-warning);
-        }
-
-        &[title] {
-          cursor: help;
-        }
+        font-family: var(--cv-font-family-sans);
+        font-weight: var(--cv-font-weight-medium);
       }
 
-      /*Status icon with color indicator*/
+      .status-indicator:hover {
+        background: var(--cv-color-hover);
+      }
+
+      .status-indicator.connected .status-icon {
+        color: var(--cv-color-success);
+      }
+
+      .status-indicator.syncing .status-icon {
+        color: var(--cv-color-warning);
+      }
+
+      .status-indicator[title] {
+        cursor: help;
+      }
+
       .status-icon {
-        position: relative;
-        inline-size: 16px;
-        block-size: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
-
-        cv-icon {
-          color: inherit;
-        }
+        flex: 0 0 auto;
+        inline-size: 16px;
+        block-size: 16px;
       }
 
-      /*Text of status*/
+      .status-icon cv-icon {
+        color: inherit;
+      }
+
       .status-text {
-        white-space: nowrap;
+        max-inline-size: 120px;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-inline-size: 120px;
+        white-space: nowrap;
       }
-
-      /*Conditions of the indicator*/
-      /*=========================*/
 
       .selection-counter {
         display: flex;
         align-items: center;
         gap: var(--app-spacing-2);
+        flex: 0 0 auto;
         padding: var(--app-spacing-1) var(--app-spacing-3);
-        background: var(--cv-color-accent-surface);
         border: 1px solid var(--cv-color-accent-border);
         border-radius: var(--cv-radius-3);
+        background: var(--cv-color-accent-surface);
         color: var(--cv-color-accent);
+        font-family: var(--cv-font-family-sans);
         font-weight: var(--cv-font-weight-semibold);
-
-        &:empty {
-          display: none;
-        }
       }
-
-      @keyframes progressFadeIn {
-        from {
-          opacity: 0;
-          transform: translateY(4px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      /*=========================*/
 
       cv-callout.status-error-callout {
         --cv-callout-dense-padding-block: var(--app-spacing-1);
         --cv-callout-gap: var(--app-spacing-2);
-        font-weight: var(--cv-font-weight-medium);
+        flex: 0 1 300px;
         max-inline-size: 300px;
+        font-family: var(--cv-font-family-sans);
+        font-weight: var(--cv-font-weight-medium);
         animation: errorSlideIn var(--cv-duration-normal, 220ms) var(--cv-easing-decelerate);
       }
 
@@ -192,9 +245,7 @@ export class StatusBar extends ReatomLitElement {
       @keyframes errorSlideIn {
         from {
           opacity: 0;
-          transform: translateX(
-            calc(8px * var(--app-runtime-inline-start-direction-sign, -1))
-          );
+          transform: translateX(calc(8px * var(--app-runtime-inline-start-direction-sign, -1)));
         }
         to {
           opacity: 1;
@@ -208,28 +259,37 @@ export class StatusBar extends ReatomLitElement {
         }
       }
 
-      /*==================*/
+      @container statusbar (width < 720px) {
+        .status-context-item[data-priority='optional'] {
+          display: none;
+        }
+      }
 
-      @container statusbar (max-width: 600px) {
+      @container statusbar (width < 560px) {
+        .status-context-item[data-priority='supporting'] {
+          display: none;
+        }
+
         .status-text {
           display: none;
         }
 
-        .status-indicators {
+        .status-start,
+        .status-end,
+        .status-indicators,
+        .status-context-items {
           gap: var(--app-spacing-2);
         }
       }
 
-      @container statusbar (max-width: 400px) {
-        .status-bar {
-          padding: var(--app-spacing-2);
+      @container statusbar (width < 400px) {
+        .status-content {
           gap: var(--app-spacing-2);
+          padding-inline: var(--app-spacing-2);
         }
 
-        .selection-counter {
-          .counter-text {
-            display: none;
-          }
+        .selection-counter .counter-text {
+          display: none;
         }
 
         cv-callout.status-error-callout {
@@ -237,14 +297,13 @@ export class StatusBar extends ReatomLitElement {
         }
 
         media-mini-player {
-          max-inline-size: 52vw;
+          max-inline-size: 52cqi;
         }
       }
     `,
   ]
 
-  private renderRemoteConnectionStatus() {
-    const remoteSessionState = getAppContext().store.remoteSessionState()
+  private renderRemoteConnectionStatus(remoteSessionState: string) {
     if (remoteSessionState === 'inactive') return nothing
 
     const ready = remoteSessionState === 'ready'
@@ -269,8 +328,7 @@ export class StatusBar extends ReatomLitElement {
     `
   }
 
-  private renderSelectionCounter() {
-    const selectedCount = getAppContext().store.selectedNodeIds().length
+  private renderSelectionCounter(selectedCount: number) {
     if (selectedCount === 0) return nothing
 
     return html`
@@ -282,8 +340,7 @@ export class StatusBar extends ReatomLitElement {
     `
   }
 
-  private renderAndroidSharePending() {
-    const summary = androidShareImportModel.pendingLockedSummary()
+  private renderAndroidSharePending(summary: AndroidSharePendingLockedSummary | null) {
     if (!summary) return nothing
 
     const label = i18n('statusbar:android-share-pending', {count: String(summary.fileCount)})
@@ -302,27 +359,30 @@ export class StatusBar extends ReatomLitElement {
     `
   }
 
-  private renderContextSummarySlot() {
-    const summary = statusBarSummaryModel.current()
-    if (!summary) return nothing
+  private renderContextItems(items: readonly StatusBarContextItem[]) {
+    return items.map((item) => {
+      const content =
+        item.kind === 'metric'
+          ? html`<span class="status-context-value">${item.value}</span><span>${item.label}</span>`
+          : item.text
+      const ariaLabel = item.kind === 'metric' ? `${item.label}: ${item.value}` : item.text
 
-    return html`
-      <div class="status-summary-slot">
-        <pm-summary-rail
-          class="status-context-summary"
-          density="compact"
-          .items=${summary.items}
-          .label=${summary.label}
-          .busy=${Boolean(summary.busy)}
-          data-summary-context=${summary.id}
-          data-security-status=${summary.status ?? nothing}
-        ></pm-summary-rail>
-      </div>
-    `
+      return html`
+        <span
+          class="status-context-item"
+          data-summary-id=${item.id}
+          data-priority=${item.priority}
+          data-tone=${item.tone}
+          role=${item.operational ? 'status' : nothing}
+          aria-label=${ariaLabel}
+        >
+          ${content}
+        </span>
+      `
+    })
   }
 
-  private renderError() {
-    const lastError = getAppContext().store.lastErrorMessage()
+  private renderError(lastError: string | null) {
     if (!lastError) return nothing
 
     return html`
@@ -340,27 +400,59 @@ export class StatusBar extends ReatomLitElement {
     `
   }
 
-  private renderMediaMiniControls() {
-    if (!mediaPlaybackModel.miniControlsVisible()) return nothing
-
-    return html`<media-mini-player variant="statusbar"></media-mini-player>`
-  }
-
   private onDismissError() {
     getAppContext().store.clearLastError()
   }
 
-  render() {
-    return html`
-      <nav class="status-bar" role="navigation" aria-label=${i18n('statusbar:system')}>
-        <div class="status-indicators">
-          ${this.renderRemoteConnectionStatus()}
-          ${this.renderAndroidSharePending()}
-        </div>
+  protected render() {
+    const store = getAppContext().store
+    const remoteSessionState = store.remoteSessionState()
+    const androidShareSummary = androidShareImportModel.pendingLockedSummary()
+    const selectedCount = store.selectedNodeIds().length
+    const lastError = store.lastErrorMessage()
+    const mediaVisible = mediaPlaybackModel.miniControlsVisible()
+    const summary = statusBarSummaryModel.current()
+    const hasOperationalIndicators = remoteSessionState !== 'inactive' || Boolean(androidShareSummary)
+    const hasContent =
+      hasOperationalIndicators || selectedCount > 0 || Boolean(lastError) || mediaVisible || Boolean(summary)
 
-        ${this.renderMediaMiniControls()} ${this.renderSelectionCounter()} ${this.renderError()}
-        ${this.renderContextSummarySlot()}
-      </nav>
+    if (!hasContent) return nothing
+
+    const expanded = mediaVisible || Boolean(lastError)
+
+    return html`
+      <div class="status-bar" data-expanded=${expanded ? '' : nothing} aria-label=${i18n('statusbar:system')}>
+        <div
+          class="status-content ${summary ? 'status-context-summary' : ''}"
+          role=${summary ? 'group' : nothing}
+          aria-label=${summary?.label ?? nothing}
+          aria-busy=${summary?.busy ? 'true' : nothing}
+          data-summary-context=${summary?.id ?? nothing}
+          data-security-status=${summary?.securityStatus ?? nothing}
+        >
+          <div class="status-start">
+            <div
+              class="status-indicators"
+              role=${hasOperationalIndicators ? 'status' : nothing}
+              aria-live=${hasOperationalIndicators ? 'polite' : nothing}
+            >
+              ${this.renderRemoteConnectionStatus(remoteSessionState)}
+              ${this.renderAndroidSharePending(androidShareSummary)}
+            </div>
+            <div class="status-context-items status-context-start">
+              ${summary ? this.renderContextItems(summary.startItems) : nothing}
+            </div>
+          </div>
+
+          <div class="status-end">
+            ${mediaVisible ? html`<media-mini-player variant="statusbar"></media-mini-player>` : nothing}
+            ${this.renderSelectionCounter(selectedCount)} ${this.renderError(lastError)}
+            <div class="status-context-items status-context-end">
+              ${summary ? this.renderContextItems(summary.endItems) : nothing}
+            </div>
+          </div>
+        </div>
+      </div>
     `
   }
 }

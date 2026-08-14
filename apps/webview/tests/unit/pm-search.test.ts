@@ -142,33 +142,30 @@ describe('PMSearch', () => {
     expect(element.shadowRoot?.querySelector('.kbd-slash')).toBeNull()
   })
 
-  it('marks toolbar quick filters as pressed and active when selected', async () => {
+  it('tracks independent toolbar filters and clears quick filters with tags', async () => {
     ensureQuickFiltersDefined()
-    installPassmanagerRoot()
+    installRootWithTags()
 
     const element = document.createElement('pm-quick-filters') as PMQuickFilters
     document.body.appendChild(element)
     await settle(element)
 
+    type QuickFilterElement = HTMLElement & {checked: boolean}
     const getQuickFilter = (name: 'recent' | 'otp' | 'ssh' | 'card' | 'files' | 'favorites' | 'nopass') =>
-      element.shadowRoot?.querySelector(`[data-quick-filter="${name}"]`) as HTMLElement | null
+      element.shadowRoot?.querySelector(`[data-quick-filter="${name}"]`) as QuickFilterElement | null
 
     const recentBefore = getQuickFilter('recent')
     const otpBefore = getQuickFilter('otp')
     const sshBefore = getQuickFilter('ssh')
     const cardBefore = getQuickFilter('card')
 
-    expect(recentBefore?.getAttribute('aria-pressed')).toBe('false')
-    expect(otpBefore?.getAttribute('aria-pressed')).toBe('false')
-    expect(sshBefore?.getAttribute('aria-pressed')).toBe('false')
-    expect(cardBefore?.getAttribute('aria-pressed')).toBe('false')
+    expect(recentBefore?.checked).toBe(false)
+    expect(otpBefore?.checked).toBe(false)
+    expect(sshBefore?.checked).toBe(false)
+    expect(cardBefore?.checked).toBe(false)
     expect(getQuickFilter('files')).toBeNull()
     expect(getQuickFilter('favorites')).toBeNull()
     expect(getQuickFilter('nopass')).toBeNull()
-    expect(recentBefore?.classList.contains('active')).toBe(false)
-    expect(otpBefore?.classList.contains('active')).toBe(false)
-    expect(sshBefore?.classList.contains('active')).toBe(false)
-    expect(cardBefore?.classList.contains('active')).toBe(false)
 
     recentBefore?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     otpBefore?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
@@ -182,14 +179,11 @@ describe('PMSearch', () => {
     const cardActive = getQuickFilter('card')
 
     expect(quickFilters()).toEqual(['recent', 'otp', 'ssh', 'card'])
-    expect(recentActive?.getAttribute('aria-pressed')).toBe('true')
-    expect(otpActive?.getAttribute('aria-pressed')).toBe('true')
-    expect(sshActive?.getAttribute('aria-pressed')).toBe('true')
-    expect(cardActive?.getAttribute('aria-pressed')).toBe('true')
-    expect(recentActive?.classList.contains('active')).toBe(true)
-    expect(otpActive?.classList.contains('active')).toBe(true)
-    expect(sshActive?.classList.contains('active')).toBe(true)
-    expect(cardActive?.classList.contains('active')).toBe(true)
+    expect(recentActive?.checked).toBe(true)
+    expect(otpActive?.checked).toBe(true)
+    expect(sshActive?.checked).toBe(true)
+    expect(cardActive?.checked).toBe(true)
+    expect(element.shadowRoot?.querySelector('.trigger-count')?.textContent).toBe('4')
 
     otpActive?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
     await settle(element)
@@ -198,10 +192,19 @@ describe('PMSearch', () => {
     const sshStillActive = getQuickFilter('ssh')
 
     expect(quickFilters()).toEqual(['recent', 'ssh', 'card'])
-    expect(otpInactive?.getAttribute('aria-pressed')).toBe('false')
-    expect(otpInactive?.classList.contains('active')).toBe(false)
-    expect(sshStillActive?.getAttribute('aria-pressed')).toBe('true')
-    expect(sshStillActive?.classList.contains('active')).toBe(true)
+    expect(otpInactive?.checked).toBe(false)
+    expect(sshStillActive?.checked).toBe(true)
+
+    selectedCredentialTagFilters.set(['work'])
+    await settle(element)
+
+    expect(element.shadowRoot?.querySelector('.trigger-count')?.textContent).toBe('4')
+    ;(element.shadowRoot?.querySelector('.clear-button') as HTMLElement | null)?.click()
+    await settle(element)
+
+    expect(quickFilters()).toEqual([])
+    expect(selectedCredentialTagFilters()).toEqual([])
+    expect(element.shadowRoot?.querySelector('.trigger-count')).toBeNull()
   })
 
   it('shows the current external search query when the input is not focused', async () => {

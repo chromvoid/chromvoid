@@ -59,7 +59,7 @@
   --media-image-gallery-sheet-text-soft: hwb(240 90.2% 7.5%);
   --media-image-gallery-sheet-text-muted: hwb(240 54.1% 41.2%);
   --media-image-gallery-sheet-text-muted-strong: hwb(240 60.4% 34.9%);
-  --media-image-gallery-sheet-handle-block-size: 24px;
+  --media-image-gallery-sheet-handle-block-size: 48px;
   --media-image-gallery-sheet-radius: 28px 28px 0 0;
   --media-image-gallery-sheet-expanded-block-size: min(80dvh, calc(100dvh - 24px));
   --media-image-gallery-sheet-middle-block-size: min(62dvh, 540px);

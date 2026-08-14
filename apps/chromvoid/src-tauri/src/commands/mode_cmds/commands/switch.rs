@@ -256,6 +256,12 @@ async fn prepare_mode_switch(
                 }
 
                 let was_unlocked = adapter.is_unlocked();
+                if adapter.mobile_usb_session_requires_approval() {
+                    info!(
+                        "mode_switch: skipping remote vault lock before pre-approval mobile USB teardown"
+                    );
+                    return Ok((previous_mode, was_unlocked, false));
+                }
                 if !was_unlocked {
                     return Ok((previous_mode, false, false));
                 }
@@ -838,6 +844,7 @@ mod tests {
             },
             request_tx,
         );
+        remote.mark_mobile_usb_session_approved();
         remote.apply_startup_state(Vec::new(), true);
         let adapter: Arc<std::sync::Mutex<Box<dyn CoreAdapter>>> =
             Arc::new(std::sync::Mutex::new(Box::new(remote)));
@@ -871,6 +878,44 @@ mod tests {
             .lock()
             .expect("adapter remains healthy")
             .is_unlocked());
+        dispatcher
+            .shutdown_with_timeout(std::time::Duration::from_secs(1))
+            .expect("dispatcher shutdown");
+    }
+
+    #[tokio::test]
+    async fn pre_approval_mobile_usb_switch_skips_remote_vault_lock() {
+        let dispatcher = CoreRpcDispatcher::try_new().expect("core RPC dispatcher");
+        let (request_tx, mut request_rx) = tokio::sync::mpsc::channel(1);
+        let mut remote = RemoteCoreAdapter::from_remote_sender(
+            RemoteHost::MobileUsb {
+                host_id: "usb-host".to_string(),
+                label: Some("Test phone".to_string()),
+                platform: "android".to_string(),
+            },
+            request_tx,
+        );
+        remote.apply_startup_state(Vec::new(), true);
+        let adapter: Arc<std::sync::Mutex<Box<dyn CoreAdapter>>> =
+            Arc::new(std::sync::Mutex::new(Box::new(remote)));
+
+        let (previous_mode, was_unlocked, auto_locked) =
+            prepare_mode_switch(dispatcher.clone(), adapter.clone(), "local".to_string())
+                .await
+                .expect("pre-approval mobile USB preconditions");
+
+        assert!(matches!(
+            previous_mode,
+            CoreMode::Remote {
+                host: RemoteHost::MobileUsb { .. }
+            }
+        ));
+        assert!(was_unlocked);
+        assert!(!auto_locked);
+        assert!(matches!(
+            request_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        ));
         dispatcher
             .shutdown_with_timeout(std::time::Duration::from_secs(1))
             .expect("dispatcher shutdown");

@@ -93,6 +93,7 @@ const MOBILE_USB_ERROR_RECOVERY_ACTIONS: Record<MobileUsbErrorCode, MobileUsbRec
   ERR_USB_MOBILE_PAIRING_APPROVAL_REQUIRED: 'keep_current_flow',
   ERR_USB_MOBILE_PAIRING_APPROVAL_REJECTED: 'keep_current_flow',
   ERR_USB_MOBILE_PAIRING_APPROVAL_EXPIRED: 'manual_retry',
+  ERR_USB_MOBILE_SESSION_APPROVAL_EXPIRED: 'manual_retry',
   ERR_USB_MOBILE_RECORD_LAYER_FAILED: 'manual_retry',
   ERR_USB_MOBILE_CABLE_DISCONNECTED: 'disconnect_before_retry',
   ERR_USB_MOBILE_HOST_LOCKED: 'wait_for_host_unlock',

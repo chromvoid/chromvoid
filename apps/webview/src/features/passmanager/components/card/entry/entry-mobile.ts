@@ -332,8 +332,31 @@ export class PMEntryMobile extends PMEntryBase {
   private handleSaveEntryEdit() {
     if (!(this.entry instanceof Entry)) return
     void this.model.saveEntryEdit(this.entry).then((saved) => {
-      if (!saved) this.focusFirstInvalidWebsite()
+      if (!saved) {
+        this.afterRenderScheduler.schedule(() => this.focusFirstInvalidEntryField())
+      }
     })
+  }
+
+  private focusFirstInvalidEntryField(): void {
+    if (this.model.inlineTitleError()) {
+      this.shadowRoot?.querySelector<HTMLElement>('cv-input[name="inline-title"]')?.focus()
+      return
+    }
+
+    if (
+      this.shadowRoot?.querySelector<PMEntryWebsiteEditor>('pm-entry-website-editor')?.focusFirstInvalid()
+    ) {
+      return
+    }
+
+    const firstOtpId = Object.keys(this.model.otpLabelErrors())[0]
+    if (!firstOtpId) return
+
+    const input = Array.from(
+      this.shadowRoot?.querySelectorAll<HTMLElement>('cv-input[data-otp-label-input]') ?? [],
+    ).find((candidate) => candidate.dataset['otpLabelInput'] === firstOtpId)
+    input?.focus()
   }
 
   private focusFirstInvalidWebsite(): void {

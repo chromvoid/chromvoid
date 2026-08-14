@@ -1,4 +1,4 @@
-import {hostContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
+import {hostContainStyles} from 'root/shared/ui/shared-styles'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {css, nothing} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
@@ -6,6 +6,8 @@ import {CVToolbar} from '@chromvoid/uikit/components/cv-toolbar'
 import {CVToolbarItem} from '@chromvoid/uikit/components/cv-toolbar-item'
 import type {Group, ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
+
+import '@lit-labs/virtualizer'
 
 import {folderItemCSS, listItemsCSS, metadataSectionCSS, pmSharedStyles} from '../../../styles/shared'
 import {listGroupStyles} from '../../list/list-item-styles'
@@ -24,7 +26,6 @@ export const pmGroupDesktopStyles = css`
     display: grid;
     gap: var(--cv-space-2);
     grid-template-rows: min-content minmax(0, 1fr);
-    animation: var(--app-motion-fade-up-animation, fadeInUp 0.35s var(--cv-easing-standard) both);
     block-size: 100%;
     min-height: 0;
     padding: 0;
@@ -369,7 +370,6 @@ export class PMGroup extends PMGroupBase {
   static styles = [
     ...pmSharedStyles,
     hostContainStyles,
-    motionPrimitiveStyles,
     pmEntryCardStyles,
     listItemsCSS,
     listGroupStyles,

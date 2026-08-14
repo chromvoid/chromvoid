@@ -342,7 +342,9 @@ async fn accept_transport_connection_for_generation(
     spawn_touch_paired_peer_store(store_path, peer_id.clone());
     let usb_session_approval = if transport_type == TransportType::UsbMobile {
         let attempt_id = Uuid::new_v4().to_string();
-        let expires_at_ms = now_ms().saturating_add(5 * 60 * 1000);
+        let expires_at_ms = now_ms().saturating_add(
+            crate::mobile_usb::MOBILE_USB_SESSION_APPROVAL_TIMEOUT.as_millis() as u64,
+        );
         runtime
             .register_usb_session_approval(MobileUsbHostSessionApprovalView {
                 attempt_id: attempt_id.clone(),

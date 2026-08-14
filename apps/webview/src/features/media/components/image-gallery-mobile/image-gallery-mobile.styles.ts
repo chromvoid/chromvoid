@@ -98,10 +98,6 @@ export const imageGalleryMobileStyles = [
       box-shadow: 0 -24px 60px var(--cv-alpha-black-55);
     }
 
-    cv-bottom-sheet::part(content):focus-visible {
-      outline: none;
-    }
-
     cv-bottom-sheet::part(handle) {
       box-sizing: border-box;
       block-size: var(--media-image-gallery-sheet-handle-block-size);

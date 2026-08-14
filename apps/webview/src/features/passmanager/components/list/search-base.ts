@@ -4,11 +4,14 @@ import {css, nothing, type PropertyValues} from 'lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
+import {dashboardToolbarSearchStyles} from 'root/shared/ui/dashboard-toolbar-search.styles'
 import type {PasswordManagerLayoutModel} from '../password-manager-layout/password-manager-layout.model'
 import {PMSearchInputModel} from './search.model'
 
 /** Shared CSS for search host, input field, and kbd hint */
 export const searchBaseStyles = css`
+  ${dashboardToolbarSearchStyles}
+
   :host {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -53,50 +56,9 @@ export const searchBaseStyles = css`
 
   /*Styling the input field*/
   cv-input {
-    --cv-input-height: var(--pm-toolbar-control-block-size, var(--app-toolbar-control-block-size, 40px));
-    --cv-input-padding-inline: var(
-      --pm-toolbar-control-padding-inline,
-      var(--app-toolbar-control-padding-inline, var(--cv-space-3))
-    );
-    --cv-input-border-radius: var(
-      --pm-toolbar-control-radius,
-      var(--app-toolbar-control-radius, var(--cv-radius-2))
-    );
-    --cv-input-background: var(--cv-color-surface-2);
-    --cv-input-font-size: var(
-      --pm-toolbar-control-font-size,
-      var(--app-toolbar-control-font-size, var(--cv-font-size-sm))
-    );
-    border-radius: var(--cv-input-border-radius);
     min-inline-size: 0;
     inline-size: 100%;
     max-inline-size: 100%;
-    box-shadow:
-      inset 0 1px 3px var(--cv-alpha-black-5),
-      0 1px 0 var(--cv-alpha-white-4);
-  }
-
-  cv-input:hover {
-    --cv-input-border-color: var(--cv-color-primary-border);
-  }
-
-  cv-input:focus-within {
-    --cv-input-border-color: var(
-      --pm-focus-border-color,
-      var(--pm-focus-border-color, var(--cv-color-primary-border-strong))
-    );
-  }
-
-  cv-input cv-icon {
-    color: var(--cv-color-text-muted);
-    transition:
-      color var(--cv-duration-fast) var(--cv-easing-standard),
-      transform var(--cv-duration-fast) var(--cv-easing-standard);
-  }
-
-  cv-input:focus-within cv-icon {
-    color: var(--cv-color-primary);
-    transform: scale(1.1);
   }
 
   /* ===== KBD HINT ===== */
@@ -223,6 +185,7 @@ export abstract class PMSearchBase extends ReatomLitElement {
       <div class="search-form">
         <form @submit=${this.submit} class=${className}>
           <cv-input
+            class="dashboard-toolbar-search"
             type="text"
             size="small"
             preset=${preset ?? nothing}

@@ -1,10 +1,16 @@
+import {atom, computed} from '@reatom/core'
 import {type QuickFilter, quickFilters} from '@project/passmanager/select'
 import {pmCredentialTagsModel} from '../../models/pm-credential-tags.model'
 
 export type PMToolbarQuickFilter = Extract<QuickFilter, 'recent' | 'otp' | 'ssh' | 'card'>
 
 export class PMQuickFiltersModel {
+  readonly popoverOpen = atom(false, 'pm_quick_filters.popover_open')
   readonly selectedQuickFilters = quickFilters
+  readonly activeFilterCount = computed(
+    () => quickFilters().length + pmCredentialTagsModel.effectiveSelectedTagKeys().length,
+    'pm_quick_filters.active_filter_count',
+  )
 
   getAvailableTagOptions() {
     return pmCredentialTagsModel.availableTags()
@@ -12,6 +18,10 @@ export class PMQuickFiltersModel {
 
   getSelectedTagComboboxValue(): string {
     return pmCredentialTagsModel.selectedComboboxValue()
+  }
+
+  canManageTags(): boolean {
+    return pmCredentialTagsModel.canMutateTags()
   }
 
   toggleQuickFilter(filter: PMToolbarQuickFilter): void {
@@ -33,7 +43,17 @@ export class PMQuickFiltersModel {
   }
 
   openTagManage(): void {
-    pmCredentialTagsModel.openManageSheet()
+    this.popoverOpen.set(false)
+    pmCredentialTagsModel.openCatalogManager()
+  }
+
+  setPopoverOpen(open: boolean): void {
+    this.popoverOpen.set(open)
+  }
+
+  clearFilters(): void {
+    quickFilters.set([])
+    pmCredentialTagsModel.clearSelectedTags()
   }
 }
 

@@ -8,6 +8,7 @@ import {
   groupBy,
   viewMode,
   type SortField,
+  type SortDirection,
   type GroupBy,
   type ViewMode,
 } from './sort-controls'
@@ -40,8 +41,8 @@ export abstract class SortControlsBase extends ReatomLitElement {
     this.saveCurrentSettings()
   }
 
-  protected toggleDirection() {
-    sortDirection.set(sortDirection() === 'asc' ? 'desc' : 'asc')
+  protected setSortDirection(direction: SortDirection) {
+    sortDirection.set(direction)
     this.saveCurrentSettings()
   }
 

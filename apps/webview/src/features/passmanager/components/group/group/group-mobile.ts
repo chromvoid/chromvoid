@@ -1,7 +1,8 @@
-import {nothing, css} from 'lit'
+import {nothing, css, type PropertyValues} from 'lit'
+import {repeat} from 'lit/directives/repeat.js'
 import {html} from '@chromvoid/uikit/reatom-lit'
 
-import {Group, type Entry, type ManagerRoot} from '@project/passmanager/core'
+import {Group, type Entry} from '@project/passmanager/core'
 import {hostContainStyles, motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {WorkspaceDashboardHeader} from 'root/features/file-manager/components/workspace-dashboard-header'
@@ -12,13 +13,17 @@ import {PMSummaryRail} from '../../summary-rail'
 import {createCredentialsHeaderControlsModel} from '../../list/credentials-header-controls'
 import {getPassmanagerRoot} from '../../../models/pm-root.adapter'
 import {pmMobileDebug} from '../../../models/pm-mobile-debug'
-import type {PMListMutationPhase} from '../../../models/pm-list-mutation-motion.model'
+import {PMMobileListWindowModel} from '../../../models/pm-mobile-list-window.model'
+import type {
+  PMListMutationPhase,
+  PMListMutationRow,
+} from '../../../models/pm-list-mutation-motion.model'
 import {passwordManagerMobileLayoutModel} from '../../password-manager-layout/password-manager-mobile-layout.model'
 import {PMGroupBase} from './group-base'
 import {PMGroupListItemMobile} from './group-list-item-mobile'
 import {PMGroupEditMobile} from './group-edit-mobile'
 import {pmGroupEditModel} from './group-edit.model'
-import type {PMGroupPresentation, PMGroupRow} from './group.model'
+import type {PMGroupPresentation} from './group.model'
 import {pmGroupCommonStyles} from './styles'
 
 export const pmGroupMobileStyles = css`
@@ -40,6 +45,21 @@ export const pmGroupMobileStyles = css`
     width: calc(
       100% - var(--pm-mobile-group-inline-gutter) - var(--pm-mobile-group-inline-gutter)
     );
+  }
+
+  .group-virtual-list > .pm-mobile-virtual-spacer {
+    inline-size: 100%;
+    width: 100%;
+    block-size: var(--_pm-mobile-list-total-block-size, 0px);
+  }
+
+  .pm-mobile-virtual-window {
+    inline-size: 100%;
+    transform: translateY(var(--_pm-mobile-list-offset-block, 0px));
+  }
+
+  .pm-mobile-virtual-window > * {
+    inline-size: 100%;
   }
 
   .pm-group-scroll-edge {
@@ -109,8 +129,13 @@ export const pmGroupMobileStyles = css`
 
 
 export class PMGroupMobile extends PMGroupBase {
+  private readonly listWindowModel = new PMMobileListWindowModel()
   private groupTapToken: number | null = null
   private groupTapTokenId: string | null = null
+  private listResizeObserver: ResizeObserver | null = null
+  private listScrollFrame: number | null = null
+  private pendingListScrollTop = 0
+  private currentWindowRows: readonly PMListMutationRow[] = []
 
   static define() {
     CvEmptyState.define()
@@ -135,16 +160,180 @@ export class PMGroupMobile extends PMGroupBase {
     pmGroupMobileStyles,
   ]
 
-  protected override renderGroupsList(group: Group | ManagerRoot, items: PMGroupRow[]) {
-    // renderItem executes inside the child virtualizer, so read selection here to keep this host reactive.
+  protected override renderListScroller({
+    rows,
+    activeId,
+    dropTargetId,
+  }: {
+    rows: PMListMutationRow[]
+    activeId: string | null
+    dropTargetId: string | undefined
+  }) {
     passwordManagerMobileLayoutModel.getSelectionSnapshot()
-    return super.renderGroupsList(group, items)
+    this.currentWindowRows = rows
+    const window = this.listWindowModel.getWindow(rows)
+    this.publishListRanges(window.renderedRange, window.visibleRange)
+
+    return html`
+      ${this.renderMobileVirtualMetricsStyle(window.totalBlockSize, window.offsetBlock)}
+      <div
+        class="group-virtual-list scroll-edge-scroller"
+        tabindex="-1"
+        data-drop-target-id=${dropTargetId ?? nothing}
+        data-mobile-dnd-target-id=${dropTargetId ?? nothing}
+        @dragover=${this.onDragOverContentArea}
+        @dragenter=${this.onDragOverContentArea}
+        @drop=${this.onDropContentArea}
+        @dragleave=${this.onContentDragLeave}
+      >
+        <div
+          class="pm-mobile-virtual-spacer"
+          data-total-block-size=${String(window.totalBlockSize)}
+        >
+          <div class="pm-mobile-virtual-window" data-offset-block=${String(window.offsetBlock)}>
+            ${repeat(
+              window.rows,
+              ({row}) => row.id,
+              ({row}) => this.renderRow(row, row.deleteExiting === true ? false : row.id === activeId),
+            )}
+          </div>
+        </div>
+      </div>
+    `
+  }
+
+  protected override syncListScrollPosition(
+    rows: readonly PMListMutationRow[],
+    scrollTop: number,
+    force: boolean,
+  ): void {
+    this.currentWindowRows = rows
+    if (force) {
+      if (this.listScrollFrame !== null) cancelAnimationFrame(this.listScrollFrame)
+      this.listScrollFrame = null
+      this.listWindowModel.syncScrollTop(rows, scrollTop, true)
+      return
+    }
+
+    this.pendingListScrollTop = scrollTop
+    if (this.listScrollFrame !== null) return
+    this.listScrollFrame = requestAnimationFrame(() => {
+      this.listScrollFrame = null
+      this.listWindowModel.syncScrollTop(this.currentWindowRows, this.pendingListScrollTop)
+    })
+  }
+
+  protected override getListScrollTopForIndex(
+    rows: readonly PMListMutationRow[],
+    index: number,
+    block: 'nearest' | 'center',
+    currentScrollTop: number,
+  ): number {
+    return this.listWindowModel.getScrollTopForIndex(rows, index, block, currentScrollTop)
+  }
+
+  protected override updated(changedProperties: PropertyValues): void {
+    super.updated(changedProperties)
+    this.syncListMeasurements()
   }
 
   override disconnectedCallback(): void {
+    if (this.listScrollFrame !== null) cancelAnimationFrame(this.listScrollFrame)
+    this.listScrollFrame = null
+    this.listResizeObserver?.disconnect()
+    this.listResizeObserver = null
     passwordManagerMobileLayoutModel.cancelLongPress()
     this.clearGroupTapToken()
     super.disconnectedCallback()
+  }
+
+  private renderMobileVirtualMetricsStyle(totalBlockSize: number, offsetBlock: number) {
+    const nonce = this.getStyleNonce()
+    return html`
+      <style nonce=${nonce ?? nothing}>
+        :host {
+          --_pm-mobile-list-total-block-size: ${this.toCssPx(totalBlockSize)};
+          --_pm-mobile-list-offset-block: ${this.toCssPx(offsetBlock)};
+        }
+      </style>
+    `
+  }
+
+  private syncListMeasurements(): void {
+    const scroller = this.renderRoot.querySelector<HTMLElement>('.group-virtual-list')
+    if (!scroller) {
+      this.listResizeObserver?.disconnect()
+      return
+    }
+
+    this.listWindowModel.setViewportBlockSize(scroller.clientHeight)
+    this.listWindowModel.syncScrollTop(this.currentWindowRows, scroller.scrollTop, true)
+    const normalizedScrollTop = this.listWindowModel.scrollTop()
+    if (Math.abs(normalizedScrollTop - scroller.scrollTop) >= 0.5) {
+      scroller.scrollTop = normalizedScrollTop
+    }
+
+    if (typeof ResizeObserver === 'undefined') return
+    this.listResizeObserver ??= new ResizeObserver((entries) => this.handleListResize(entries))
+    this.listResizeObserver.disconnect()
+    this.listResizeObserver.observe(scroller)
+    for (const row of this.renderRoot.querySelectorAll<HTMLElement>(
+      '.pm-mobile-virtual-window > :is(.entry-row, .group-row-wrap, .group-header-row)',
+    )) {
+      this.listResizeObserver.observe(row)
+    }
+  }
+
+  private handleListResize(entries: readonly ResizeObserverEntry[]): void {
+    const scroller = this.renderRoot.querySelector<HTMLElement>('.group-virtual-list')
+    if (!scroller) return
+
+    const blockSizes = new Map<PMListMutationRow['kind'], number>()
+    for (const entry of entries) {
+      if (entry.target === scroller) {
+        this.listWindowModel.setViewportBlockSize(scroller.clientHeight)
+        continue
+      }
+
+      const target = entry.target
+      if (!(target instanceof HTMLElement)) continue
+      const kind = this.getObservedRowKind(target)
+      const blockSize = entry.borderBoxSize[0]?.blockSize ?? target.offsetHeight
+      if (!kind || !Number.isFinite(blockSize) || blockSize <= 0) continue
+      blockSizes.set(kind, Math.max(blockSizes.get(kind) ?? 0, blockSize))
+    }
+
+    let correctedScrollTop = scroller.scrollTop
+    for (const [kind, blockSize] of blockSizes) {
+      correctedScrollTop =
+        this.listWindowModel.syncMeasuredRowBlockSize(
+          kind,
+          blockSize,
+          this.currentWindowRows,
+          correctedScrollTop,
+        ) ?? correctedScrollTop
+    }
+    this.listWindowModel.syncScrollTop(this.currentWindowRows, correctedScrollTop, true)
+    if (Math.abs(correctedScrollTop - scroller.scrollTop) >= 0.5) {
+      scroller.scrollTop = correctedScrollTop
+    }
+  }
+
+  private getObservedRowKind(element: HTMLElement): PMListMutationRow['kind'] | null {
+    if (element.classList.contains('entry-row')) return 'entry'
+    if (element.classList.contains('group-row-wrap')) return 'group'
+    if (element.classList.contains('group-header-row')) return 'header'
+    return null
+  }
+
+  private toCssPx(value: number): string {
+    const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0
+    return `${Math.round(safeValue * 1000) / 1000}px`
+  }
+
+  private getStyleNonce(): string | null {
+    const nonce = (globalThis as typeof globalThis & {litNonce?: unknown}).litNonce
+    return typeof nonce === 'string' && nonce.length > 0 ? nonce : null
   }
 
   protected override renderEntryItem(

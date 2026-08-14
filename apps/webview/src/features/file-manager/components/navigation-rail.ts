@@ -226,6 +226,7 @@ export class NavigationRail extends ReatomLitElement {
         block-size: 40px;
         min-block-size: 40px;
         padding: 0;
+        gap: 0;
         justify-content: center;
         text-align: center;
         --cv-button-gap: 0;

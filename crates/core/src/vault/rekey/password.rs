@@ -7,6 +7,8 @@ use crate::error::{Error, Result};
 use crate::storage::Storage;
 use crate::types::KEY_SIZE;
 
+use super::super::session::load_storage_pepper;
+
 const VAULT_PASSWORD_MIN_LEN: usize = 8;
 
 pub(super) fn validate_new_password(current_password: &str, new_password: &str) -> Result<()> {
@@ -28,11 +30,10 @@ pub(super) fn derive_session_key(
     keystore: &dyn Keystore,
     password: &str,
 ) -> Result<Zeroizing<[u8; KEY_SIZE]>> {
-    let salt = storage.get_or_create_salt()?;
-    let pepper = keystore
-        .load_storage_pepper()
-        .map_err(|error| Error::KeystoreUnavailable(error.to_string()))?
-        .ok_or(Error::StoragePepperRequired)?;
+    let pepper = load_storage_pepper(keystore)?.ok_or(Error::StoragePepperRequired)?;
+    let salt = storage.read_salt()?.ok_or_else(|| {
+        Error::InvalidDataFormat("vault salt is missing during password rekey".to_string())
+    })?;
     derive_vault_key_v2(password, &salt, &pepper)
 }
 

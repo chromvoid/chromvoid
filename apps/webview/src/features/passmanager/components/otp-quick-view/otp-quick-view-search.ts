@@ -4,6 +4,7 @@ import {CVIcon} from '@chromvoid/uikit/components/cv-icon'
 import {CVInput, type CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
 
 import {i18n} from '@project/passmanager/i18n'
+import {dashboardToolbarSearchStyles} from 'root/shared/ui/dashboard-toolbar-search.styles'
 import type {PasswordManagerLayoutModel} from '../password-manager-layout/password-manager-layout.model'
 import {pmOtpQuickViewModel} from './otp-quick-view.model'
 
@@ -16,6 +17,7 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
   }
 
   static styles = [
+    dashboardToolbarSearchStyles,
     css`
       :host {
         display: block;
@@ -40,14 +42,6 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
         inline-size: 100%;
         max-inline-size: none;
         min-inline-size: 0;
-        --cv-input-height: var(--pm-toolbar-control-block-size);
-        --cv-input-padding-inline: var(--pm-toolbar-control-padding-inline);
-        --cv-input-border-radius: var(--pm-toolbar-control-radius);
-        --cv-input-background: var(--cv-color-surface-2);
-        --cv-input-border-color: var(--cv-color-border);
-        --cv-input-color: var(--cv-color-text);
-        --cv-input-font-size: var(--pm-toolbar-control-font-size);
-        --cv-input-focus-ring: 0 0 0 2px var(--cv-color-accent-ring);
         --cv-input-search-mobile-shadow: var(
           --pm-otp-search-mobile-shadow,
           inset 0 1px 2px var(--cv-alpha-black-10),
@@ -55,7 +49,11 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
         );
       }
 
-      cv-input.search[focused] {
+      cv-input.search[preset='search-mobile'] {
+        --cv-input-focus-ring: 0 0 0 2px var(--cv-color-accent-ring);
+      }
+
+      cv-input.search[preset='search-mobile'][focused] {
         --cv-input-border-color: var(--cv-color-accent);
       }
 
@@ -66,7 +64,7 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
           transform var(--cv-duration-fast) var(--cv-easing-standard);
       }
 
-      cv-input.search[focused] .search__prefix-icon {
+      cv-input.search[preset='search-mobile'][focused] .search__prefix-icon {
         color: var(--cv-color-accent);
         transform: scale(1.08);
       }
@@ -165,7 +163,7 @@ export class PMOtpQuickViewSearch extends ReatomLitElement {
     return html`
       <div class="controls">
         <cv-input
-          class="search"
+          class="search dashboard-toolbar-search"
           type="search"
           size="small"
           preset=${this.preset ?? nothing}

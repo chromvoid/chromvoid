@@ -40,6 +40,11 @@ type PMCredentialTagEntrySelectionSession = {
   onCancel(): void
 }
 
+export type PMCredentialTagCatalogContext = {
+  getSelectedTags(): readonly string[]
+  onSelectedTagsChange(tags: readonly string[]): void
+}
+
 const ALL_FILTER_CHIP_VALUE = '__all-tags'
 
 type PMCredentialTagFilterChipGroupDetail = {
@@ -68,7 +73,9 @@ function parseChipGroupValue(value: unknown): string[] {
 class PMCredentialTagsModel {
   private entrySelectionSession: PMCredentialTagEntrySelectionSession | undefined
   private entrySelectionPresentation: PMCredentialTagEntrySelectionPresentation = 'sheet'
+  private catalogContext: PMCredentialTagCatalogContext | undefined
 
+  readonly catalogManagerOpen = atom(false, 'pm_credential_tags.catalog_manager_open')
   readonly filterSheetOpen = atom(false, 'pm_credential_tags.filter_sheet_open')
   readonly sheetSelectionScope = atom<PMCredentialTagSheetSelectionScope>(
     'filter',
@@ -77,7 +84,7 @@ class PMCredentialTagsModel {
   readonly entrySelectionTagKeys = atom<CredentialTagKey[]>([], 'pm_credential_tags.entry_selection_tag_keys')
   readonly entrySelectionSaving = atom(false, 'pm_credential_tags.entry_selection_saving')
   readonly entrySelectionError = atom('', 'pm_credential_tags.entry_selection_error')
-  readonly filterSheetQuery = atom('', 'pm_credential_tags.filter_sheet_query')
+  readonly catalogQuery = atom('', 'pm_credential_tags.catalog_query')
   readonly sheetMode = atom<PMCredentialTagSheetMode>('manage', 'pm_credential_tags.sheet_mode')
   readonly sheetEditMode = atom(false, 'pm_credential_tags.sheet_edit_mode')
   readonly activeTagKey = atom<CredentialTagKey | null>(null, 'pm_credential_tags.active_tag_key')
@@ -139,15 +146,15 @@ class PMCredentialTagsModel {
       .filter((option): option is CredentialTagOption => option !== undefined)
   }, 'pm_credential_tags.selected_tag_options')
 
-  readonly filteredAvailableTags = computed((): CredentialTagOption[] => {
-    const query = this.filterSheetQuery().trim().toLowerCase()
+  readonly filteredCatalogTags = computed((): CredentialTagOption[] => {
+    const query = this.catalogQuery().trim().toLowerCase()
     const options = this.availableTags()
     if (!query) return options
 
     return options.filter((option) => {
       return option.label.toLowerCase().includes(query) || option.key.includes(query)
     })
-  }, 'pm_credential_tags.filtered_available_tags')
+  }, 'pm_credential_tags.filtered_catalog_tags')
 
   readonly activeTagOption = computed((): CredentialTagOption | undefined => {
     const key = this.activeTagKey()
@@ -196,14 +203,33 @@ class PMCredentialTagsModel {
     this.cancelEntryTagSelection()
   }
 
+  openCatalogManager(context?: PMCredentialTagCatalogContext): void {
+    this.catalogContext = context
+    this.catalogManagerOpen.set(true)
+    this.filterSheetOpen.set(false)
+    this.catalogQuery.set('')
+    this.sheetMode.set('manage')
+    this.sheetEditMode.set(false)
+    this.clearMutationState()
+  }
+
+  closeCatalogManager(): void {
+    this.catalogContext = undefined
+    this.catalogManagerOpen.set(false)
+    this.catalogQuery.set('')
+    this.sheetMode.set('manage')
+    this.clearMutationState()
+  }
+
   openManageSheet(): void {
+    this.closeCatalogManager()
     this.cancelEntrySelectionSession()
     this.entrySelectionPresentation = 'sheet'
     this.sheetSelectionScope.set('filter')
     this.filterSheetOpen.set(true)
     this.sheetMode.set('manage')
     this.sheetEditMode.set(false)
-    this.filterSheetQuery.set('')
+    this.catalogQuery.set('')
     this.clearMutationState()
   }
 
@@ -212,6 +238,7 @@ class PMCredentialTagsModel {
     session: Omit<PMCredentialTagEntrySelectionSession, 'initialTags'>,
     options: {presentation?: PMCredentialTagEntrySelectionPresentation} = {},
   ): void {
+    this.closeCatalogManager()
     this.cancelEntrySelectionSession()
     const initialTags = normalizeCredentialTags(tags)
     this.entrySelectionPresentation = options.presentation ?? 'sheet'
@@ -223,7 +250,7 @@ class PMCredentialTagsModel {
     this.filterSheetOpen.set(this.entrySelectionPresentation === 'sheet')
     this.sheetMode.set('manage')
     this.sheetEditMode.set(false)
-    this.filterSheetQuery.set('')
+    this.catalogQuery.set('')
     this.clearMutationState()
   }
 
@@ -324,8 +351,8 @@ class PMCredentialTagsModel {
     this.toggleSheetTagKey(key)
   }
 
-  setFilterSheetQuery(value: string): void {
-    this.filterSheetQuery.set(value)
+  setCatalogQuery(value: string): void {
+    this.catalogQuery.set(value)
   }
 
   setTagDraft(value: string): void {
@@ -369,7 +396,9 @@ class PMCredentialTagsModel {
       )
       const saved = await wrap(root.saveCredentialTagCatalog(catalogTags, tagMeta))
       if (!saved) throw new Error(i18n('error:save'))
-      this.setSheetSelectedTagKeys([...this.effectiveSheetSelectedTagKeys(), key])
+      if (!this.catalogManagerOpen()) {
+        this.setSheetSelectedTagKeys([...this.effectiveSheetSelectedTagKeys(), key])
+      }
       this.returnToTagGrid()
       return true
     } catch (error) {
@@ -431,6 +460,9 @@ class PMCredentialTagsModel {
       this.entrySelectionTagKeys.set(
         this.entrySelectionTagKeys().map((item) => (item === plan.sourceKey ? plan.nextKey : item)),
       )
+      this.updateCatalogContext((tags) =>
+        replaceCredentialTagLabel(tags, plan.sourceKey, plan.nextLabel),
+      )
       this.returnToTagGrid()
       return true
     } catch (error) {
@@ -466,6 +498,7 @@ class PMCredentialTagsModel {
         selectedCredentialTagFilters().filter((item) => credentialTagKey(item) !== plan.key),
       )
       this.entrySelectionTagKeys.set(this.entrySelectionTagKeys().filter((item) => item !== plan.key))
+      this.updateCatalogContext((tags) => removeCredentialTagLabel(tags, plan.key))
       this.returnToTagGrid()
       return true
     } catch (error) {
@@ -616,7 +649,7 @@ class PMCredentialTagsModel {
     this.entrySelectionTagKeys.set([])
     this.entrySelectionSaving.set(false)
     this.entrySelectionError.set('')
-    this.filterSheetQuery.set('')
+    this.catalogQuery.set('')
     this.sheetMode.set('manage')
     this.sheetEditMode.set(false)
     this.clearMutationState()
@@ -628,12 +661,25 @@ class PMCredentialTagsModel {
   }
 
   private ensureActivePresentationVisible(): void {
+    if (this.catalogManagerOpen()) return
+
     if (
       this.sheetSelectionScope() !== 'entry' ||
       this.entrySelectionPresentation === 'sheet'
     ) {
       this.filterSheetOpen.set(true)
     }
+  }
+
+  private updateCatalogContext(transform: (tags: readonly string[]) => string[]): void {
+    const context = this.catalogContext
+    if (!context) return
+
+    const current = normalizeCredentialTags(context.getSelectedTags())
+    const next = normalizeCredentialTags(transform(current))
+    if (current.length === next.length && current.every((tag, index) => tag === next[index])) return
+
+    context.onSelectedTagsChange(next)
   }
 
   private ensureWritable(): boolean {

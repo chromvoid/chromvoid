@@ -6,6 +6,14 @@ import {PMEntryCreateDesktop} from '../../src/features/passmanager/components/ca
 import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credential-tags.model'
 import {setPassmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
 
+type WorkspaceHeaderElement = HTMLElement & {
+  contextLabel?: string
+  hasContextBand?: boolean
+  titleError?: string
+  titlePlaceholder?: string
+  shadowRoot: ShadowRoot
+}
+
 const settle = async (component: PMEntryCreateDesktop) => {
   await component.updateComplete
   await Promise.resolve()
@@ -16,6 +24,24 @@ function clickSubmit(button: CVButton | null, form: HTMLFormElement | null): voi
   if (!button || !form) return
   Object.defineProperty(button, 'form', {configurable: true, value: form})
   button.click()
+}
+
+function getWorkspaceHeader(component: PMEntryCreateDesktop): WorkspaceHeaderElement | null {
+  return component.shadowRoot?.querySelector('pm-workspace-header') as WorkspaceHeaderElement | null
+}
+
+function getWorkspaceTitleInput(component: PMEntryCreateDesktop): CVInput | null {
+  return getWorkspaceHeader(component)?.shadowRoot.querySelector('cv-input.title-input') as CVInput | null
+}
+
+function setWorkspaceTitle(component: PMEntryCreateDesktop, value: string): void {
+  getWorkspaceHeader(component)?.dispatchEvent(
+    new CustomEvent('pm-workspace-header-title-input', {
+      detail: {value},
+      bubbles: true,
+      composed: true,
+    }),
+  )
 }
 
 function installTagRoot({
@@ -74,38 +100,46 @@ describe('PMEntryCreate desktop layout', () => {
     window.passmanager = previousPassmanager
     setPassmanagerRoot(undefined)
     pmCredentialTagsModel.closeSheet()
+    pmCredentialTagsModel.closeCatalogManager()
     setPasswordManagerLang('en')
     vi.restoreAllMocks()
   })
 
-  it('renders separate details, website, and credentials sections', async () => {
+  it('renders a desktop workbench with an editable header, primary fields, and configuration rail', async () => {
     const component = document.createElement('pm-entry-create-desktop') as PMEntryCreateDesktop
     document.body.append(component)
     await settle(component)
 
-    expect(component.shadowRoot?.querySelector('.create-header-title')?.textContent).toContain('Create login')
-    expect(component.shadowRoot?.querySelector('cv-input[name="title"]')).not.toBeNull()
-    const picker = component.shadowRoot?.querySelector('pm-icon-picker') as (HTMLElement & {shadowRoot?: ShadowRoot}) | null
+    const workspaceHeader = getWorkspaceHeader(component)
+    expect(workspaceHeader?.contextLabel).toBe('')
+    expect(workspaceHeader?.hasContextBand).toBe(false)
+    expect(workspaceHeader?.titlePlaceholder).toBe('Enter title')
+    expect(getWorkspaceTitleInput(component)).not.toBeNull()
+    const picker = workspaceHeader?.shadowRoot.querySelector('pm-icon-picker') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot})
+      | null
     const avatar = picker?.shadowRoot?.querySelector('pm-avatar-icon') as {icon?: string} | null
     expect(avatar?.icon).toBe('person-circle')
 
-    const detailsSection = component.shadowRoot?.querySelector('.section-desktop-details')
-    expect(detailsSection).not.toBeNull()
-    expect(detailsSection?.querySelector('cv-input[name="title"]')).not.toBeNull()
-    expect(detailsSection?.querySelector('pm-entry-website-editor')).not.toBeNull()
+    const primarySurface = component.shadowRoot?.querySelector('.primary-surface')
+    expect(primarySurface).not.toBeNull()
+    expect(primarySurface?.querySelector('cv-input[name="username"]')).not.toBeNull()
+    expect(primarySurface?.querySelector('cv-input[name="password"]')).not.toBeNull()
+    const websiteEditor = primarySurface?.querySelector('pm-entry-website-editor') as
+      | (HTMLElement & {controlSize?: string})
+      | null
+    expect(websiteEditor?.controlSize).toBe('large')
+    expect(primarySurface?.querySelector('cv-textarea[name="note"]')).not.toBeNull()
 
-    const credentialsSection = component.shadowRoot?.querySelector('.section-desktop-credentials')
-    expect(credentialsSection).not.toBeNull()
-    expect(credentialsSection?.querySelector('cv-input[name="username"]')).not.toBeNull()
-    expect(credentialsSection?.querySelector('pm-entry-website-editor')).toBeNull()
-    expect(credentialsSection?.querySelector('cv-input[name="password"]')).not.toBeNull()
+    const configurationRail = component.shadowRoot?.querySelector('.configuration-rail')
+    expect(configurationRail).not.toBeNull()
+    expect(configurationRail?.querySelector('.entry-type-switch')).not.toBeNull()
+    const locationSelect = configurationRail?.querySelector('.rail-location-section cv-select') as
+      | (HTMLElement & {value?: string})
+      | null
+    expect(locationSelect?.value).toBe('root')
 
-    const notesSection = component.shadowRoot?.querySelector('.section-desktop-notes')
-    expect(notesSection).not.toBeNull()
-    expect(notesSection?.querySelector('cv-textarea[name="note"]')).not.toBeNull()
-    expect(notesSection?.querySelector('cv-input[name="urls"]')).toBeNull()
-
-    const tagsSection = component.shadowRoot?.querySelector('.section-desktop-tags')
+    const tagsSection = configurationRail?.querySelector('.rail-tags-section')
     expect(tagsSection).not.toBeNull()
     const tagCombobox = tagsSection?.querySelector('cv-combobox.entry-tags-combobox') as
       | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
@@ -127,12 +161,11 @@ describe('PMEntryCreate desktop layout', () => {
     document.body.append(component)
     await settle(component)
 
-    expect(component.shadowRoot?.textContent).toContain('Создать логин')
+    const workspaceHeader = getWorkspaceHeader(component)
+    expect(workspaceHeader?.contextLabel).toBe('')
     expect(component.shadowRoot?.textContent).toContain('Тип записи')
     expect(component.shadowRoot?.textContent).toContain('Платёжная карта')
-
-    const titleInput = component.shadowRoot?.querySelector('cv-input[name="title"]') as CVInput | null
-    expect(titleInput?.placeholder).toBe('Введите название')
+    expect(getWorkspaceTitleInput(component)?.placeholder).toBe('Введите название')
   })
 
   it('renders desktop payment-card expiry year as YY input', async () => {
@@ -173,19 +206,17 @@ describe('PMEntryCreate desktop layout', () => {
     document.body.append(component)
     await settle(component)
 
-    component.shadowRoot?.querySelector('cv-input[name="title"]')?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'AWS Console'}, bubbles: true, composed: true}),
-    )
-    component.shadowRoot?.querySelector('cv-input[name="username"]')?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'alice'}, bubbles: true, composed: true}),
-    )
-    component.shadowRoot?.querySelector('cv-input[name="password"]')?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'secret'}, bubbles: true, composed: true}),
-    )
+    setWorkspaceTitle(component, 'AWS Console')
+    component.shadowRoot
+      ?.querySelector('cv-input[name="username"]')
+      ?.dispatchEvent(new CustomEvent('cv-input', {detail: {value: 'alice'}, bubbles: true, composed: true}))
+    component.shadowRoot
+      ?.querySelector('cv-input[name="password"]')
+      ?.dispatchEvent(new CustomEvent('cv-input', {detail: {value: 'secret'}, bubbles: true, composed: true}))
     await settle(component)
 
     const form = component.shadowRoot?.querySelector('form') as HTMLFormElement | null
-    const submitButton = component.shadowRoot?.querySelector('.create-footer cv-button') as CVButton | null
+    const submitButton = component.shadowRoot?.querySelector('[data-create-entry-submit]') as CVButton | null
     clickSubmit(submitButton, form)
     await settle(component)
 
@@ -207,7 +238,7 @@ describe('PMEntryCreate desktop layout', () => {
     document.body.append(component)
     await settle(component)
 
-    const submitButton = component.shadowRoot?.querySelector('.create-footer cv-button') as CVButton | null
+    const submitButton = component.shadowRoot?.querySelector('[data-create-entry-submit]') as CVButton | null
     const form = component.shadowRoot?.querySelector('form') as HTMLFormElement | null
     expect(submitButton?.disabled).toBe(false)
     expect(form?.noValidate).toBe(true)
@@ -215,14 +246,14 @@ describe('PMEntryCreate desktop layout', () => {
     clickSubmit(submitButton, form)
     await settle(component)
 
-    const titleInput = component.shadowRoot?.querySelector('cv-input[name="title"]') as CVInput | null
+    const titleInput = getWorkspaceTitleInput(component)
     expect(titleInput?.invalid).toBe(true)
-    expect(component.shadowRoot?.querySelector('.section-desktop-details .field-error')?.textContent?.trim()).not.toBe('')
+    expect(
+      getWorkspaceHeader(component)?.shadowRoot.querySelector('.title-error')?.textContent?.trim(),
+    ).not.toBe('')
     expect(createEntry).not.toHaveBeenCalled()
 
-    titleInput?.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: 'AWS Console'}, bubbles: true, composed: true}),
-    )
+    setWorkspaceTitle(component, 'AWS Console')
     await settle(component)
 
     expect(submitButton?.disabled).toBe(false)
@@ -231,7 +262,9 @@ describe('PMEntryCreate desktop layout', () => {
 
     const usernameInput = component.shadowRoot?.querySelector('cv-input[name="username"]') as CVInput | null
     expect(usernameInput?.invalid).toBe(true)
-    expect(component.shadowRoot?.querySelector('.section-desktop-credentials .field-error')?.textContent?.trim()).not.toBe('')
+    expect(
+      component.shadowRoot?.querySelector('.primary-surface .field-error')?.textContent?.trim(),
+    ).not.toBe('')
     expect(createEntry).not.toHaveBeenCalled()
   })
 
@@ -255,10 +288,18 @@ describe('PMEntryCreate desktop layout', () => {
     const model = (component as any).model
     await settle(component)
 
-    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as HTMLElement | null
+    const combobox = component.shadowRoot?.querySelector(
+      'cv-combobox.entry-tags-combobox',
+    ) as HTMLElement | null
     combobox?.dispatchEvent(
       new CustomEvent('cv-change', {
-        detail: {selectedIds: ['work', 'client-a'], value: 'work client-a', inputValue: '', activeId: null, open: false},
+        detail: {
+          selectedIds: ['work', 'client-a'],
+          value: 'work client-a',
+          inputValue: '',
+          activeId: null,
+          open: false,
+        },
         bubbles: true,
         composed: true,
       }),
@@ -270,8 +311,10 @@ describe('PMEntryCreate desktop layout', () => {
     const manageButton = component.shadowRoot?.querySelector('.entry-tags-manage') as HTMLButtonElement | null
     manageButton?.click()
 
-    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(true)
+    expect(pmCredentialTagsModel.catalogManagerOpen()).toBe(true)
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
     expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
+    expect(model.tags()).toEqual(['Work', 'Client A'])
   })
 
   it('does not mutate draft tags through the disabled tag editor', async () => {
@@ -285,7 +328,9 @@ describe('PMEntryCreate desktop layout', () => {
     model.setTags(['Work'])
     await settle(component)
 
-    const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as HTMLElement | null
+    const combobox = component.shadowRoot?.querySelector(
+      'cv-combobox.entry-tags-combobox',
+    ) as HTMLElement | null
     expect(combobox?.getAttribute('aria-disabled')).toBe('true')
     expect(combobox?.hasAttribute('disabled')).toBe(true)
 

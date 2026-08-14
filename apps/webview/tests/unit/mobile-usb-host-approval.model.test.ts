@@ -206,6 +206,38 @@ describe('MobileUsbHostApprovalModel', () => {
     model.disconnect()
   })
 
+  it('closes a pending session approval when its deadline elapses', async () => {
+    vi.useFakeTimers()
+    pendingSession = sessionApproval({expires_at_ms: Date.now() + 1_000})
+    const model = new MobileUsbHostApprovalModel()
+    setRuntimeCapabilities({platform: 'android', mobile: true})
+    model.connect()
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(model.sessionApproval()?.attempt_id).toBe('session-attempt-1')
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(model.sessionApproval()).toBeNull()
+    expect(model.visible()).toBe(false)
+
+    model.disconnect()
+  })
+
+  it('does not resurrect an already expired session approval during refresh', async () => {
+    pendingSession = sessionApproval({expires_at_ms: Date.now() - 1})
+    const model = new MobileUsbHostApprovalModel()
+    setRuntimeCapabilities({platform: 'android', mobile: true})
+    model.connect()
+
+    await vi.waitFor(() => {
+      expect(ipc.tauriInvoke).toHaveBeenCalledWith('mobile_usb_host_pending_session_approval')
+    })
+    expect(model.sessionApproval()).toBeNull()
+    expect(model.visible()).toBe(false)
+
+    model.disconnect()
+  })
+
   it('closes a session fallback after a notification action resolves it natively', async () => {
     const staleSession = sessionApproval()
     let sessionReadCount = 0

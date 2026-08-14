@@ -53,7 +53,7 @@ type MasterRekeyResult = {
   backup_recommended: boolean
 }
 
-type DeviceUtilitiesSheetScreen = 'list' | 'backup' | 'restore' | 'master-password' | 'system' | 'erase'
+type DeviceUtilitiesScreen = 'list' | 'backup' | 'restore' | 'master-password' | 'system' | 'erase'
 
 type DeviceUtilitiesFormState = {
   masterPassword: string
@@ -96,8 +96,8 @@ export class WelcomeToolsModel {
   readonly backupProgress = atom<BackupProgressEvent | null>(null)
   readonly restoreProgress = atom<RestoreProgressEvent | null>(null)
   readonly masterRekeyInProgress = atom(false)
-  readonly deviceUtilitiesSheetOpen = atom(false)
-  readonly deviceUtilitiesScreen = atom<DeviceUtilitiesSheetScreen>('list')
+  readonly deviceUtilitiesOpen = atom(false)
+  readonly deviceUtilitiesScreen = atom<DeviceUtilitiesScreen>('list')
   readonly deviceUtilitiesForm = atom<DeviceUtilitiesFormState>(createDeviceUtilitiesFormState())
   readonly deviceUtilitiesSubmitDisabled!: ReturnType<typeof computed<boolean>>
 
@@ -183,23 +183,23 @@ export class WelcomeToolsModel {
   openDeviceUtilities = () => {
     this.deviceUtilitiesScreen.set('list')
     this.resetDeviceUtilitiesForm()
-    this.deviceUtilitiesSheetOpen.set(true)
+    this.deviceUtilitiesOpen.set(true)
   }
 
   openSystemUtilities = () => {
     if (this.shared.busy()) return
     this.deviceUtilitiesScreen.set('system')
     this.resetDeviceUtilitiesForm()
-    this.deviceUtilitiesSheetOpen.set(true)
+    this.deviceUtilitiesOpen.set(true)
   }
 
   closeDeviceUtilities = () => {
-    this.deviceUtilitiesSheetOpen.set(false)
+    this.deviceUtilitiesOpen.set(false)
     this.deviceUtilitiesScreen.set('list')
     this.resetDeviceUtilitiesForm()
   }
 
-  handleDeviceUtilitiesSheetChange = (event: Event) => {
+  handleDeviceUtilitiesChange = (event: Event) => {
     const detail = (event as CustomEvent<{open?: boolean}>).detail
     if (detail?.open === false) {
       this.closeDeviceUtilities()

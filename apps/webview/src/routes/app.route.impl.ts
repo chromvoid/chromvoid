@@ -34,7 +34,10 @@ import {notesQuickViewHeaderControlsModel} from 'root/features/file-manager/comp
 import {PasswordManagerDesktopToolbar} from 'root/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar'
 import {passwordManagerDesktopLayoutModel} from 'root/features/passmanager/components/password-manager-layout/password-manager-layout.model'
 import {pmModel} from 'root/features/passmanager/password-manager.model'
-import {viewTransitionCoordinator} from 'root/utils/view-transitions'
+import {
+  elementScopedViewTransitionCoordinator,
+  viewTransitionCoordinator,
+} from 'root/utils/view-transitions'
 import {viewTransitionTargets} from 'root/utils/view-transition-targets'
 
 import {FileAppShell} from 'root/features/shell/components/file-app-shell'
@@ -165,14 +168,16 @@ export class ChromVoidApp extends ReatomLitElement {
       return
     }
 
-    const routeContent = this.renderRoot.querySelector<HTMLElement>('.route-content')
-    await viewTransitionCoordinator.run({
-      presentation: {scope: 'route', direction: plan.direction},
-      targets: [{element: routeContent, name: 'route-content'}],
+    const targetNames = ['desktop-surface'] as const
+    const surfaceContent = viewTransitionTargets.resolve(targetNames)[0]?.element ?? null
+    const settle = async () => {
+      await this.updateComplete
+      await viewTransitionTargets.settle(targetNames)
+    }
+    await elementScopedViewTransitionCoordinator.run({
+      scope: surfaceContent,
       update: commit,
-      settle: async () => {
-        await this.updateComplete
-      },
+      settle,
     })
   }
 

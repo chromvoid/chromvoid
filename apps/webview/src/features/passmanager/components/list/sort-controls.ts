@@ -1,12 +1,11 @@
 import {MAX_SAFE_TIMEOUT, atom, withLocalStorage} from '@reatom/core'
 
-import {css} from 'lit'
 import {html} from '@chromvoid/uikit/reatom-lit'
-import type {TemplateResult} from 'lit'
-import {CVButton} from '@chromvoid/uikit/components/cv-button'
 import {CVIcon} from '@chromvoid/uikit/components/cv-icon'
-import {CVSelect, type CVSelectChangeEvent} from '@chromvoid/uikit/components/cv-select'
-import {CVSelectOption} from '@chromvoid/uikit/components/cv-select-option'
+import {CVPopover} from '@chromvoid/uikit/components/cv-popover'
+import {CVRadio} from '@chromvoid/uikit/components/cv-radio'
+import {CVRadioGroup, type CVRadioGroupChangeEvent} from '@chromvoid/uikit/components/cv-radio-group'
+import {css, type TemplateResult} from 'lit'
 
 import {i18n} from '@project/passmanager/i18n'
 
@@ -137,7 +136,9 @@ export function normalizeStoredGroupBy(storage?: Pick<Storage, 'getItem' | 'setI
   }
 }
 
-export function normalizeStoredViewMode(storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>): ViewMode {
+export function normalizeStoredViewMode(
+  storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>,
+): ViewMode {
   try {
     const storageApi = storage ?? localStorage
     const persistedKey = 'pm_view_mode'
@@ -168,7 +169,9 @@ export function normalizeStoredViewMode(storage?: Pick<Storage, 'getItem' | 'set
 }
 
 // Global status of sorting and grouping
-export const sortField = atom<SortField>('name', 'pm_sort_field').extend(withLocalStorage({key: 'pm_sort_field'}))
+export const sortField = atom<SortField>('name', 'pm_sort_field').extend(
+  withLocalStorage({key: 'pm_sort_field'}),
+)
 export const sortDirection = atom<SortDirection>('asc', 'pm_sort_direction').extend(
   withLocalStorage({key: 'pm_sort_direction'}),
 )
@@ -179,12 +182,25 @@ export const viewMode = atom<ViewMode>(normalizeStoredViewMode(), 'pm_view_mode'
   withLocalStorage({key: 'pm_view_mode'}),
 )
 
+function getGroupByShortLabel(value: GroupBy): string {
+  switch (value) {
+    case 'none':
+      return i18n('group-by-short')
+    case 'website':
+      return i18n('group:website-short')
+    case 'modified':
+      return i18n('group:modified-short')
+    case 'security':
+      return i18n('group:security-short')
+  }
+}
+
 export class SortControls extends SortControlsBase {
   static define() {
-    CVButton.define()
     CVIcon.define()
-    CVSelect.define()
-    CVSelectOption.define()
+    CVPopover.define()
+    CVRadio.define()
+    CVRadioGroup.define()
     if (!customElements.get('pm-sort-controls')) {
       customElements.define('pm-sort-controls', this)
     }
@@ -192,355 +208,265 @@ export class SortControls extends SortControlsBase {
 
   static styles = css`
     :host {
-      display: block;
+      display: inline-block;
       min-inline-size: 0;
-      container-type: inline-size;
-      --pm-toolbar-control-block-size: 32px;
-      --pm-toolbar-control-radius: var(--app-toolbar-control-radius, var(--cv-radius-2));
-      --pm-toolbar-control-padding-inline: 11px;
-      --pm-toolbar-control-font-size: var(--cv-font-size-xs);
-      --pm-toolbar-control-font-weight: var(--cv-font-weight-bold);
-      --pm-toolbar-control-gap: var(--app-toolbar-control-gap, var(--cv-space-2));
-    }
-
-    @supports (-webkit-touch-callout: none) {
-      @media (max-width: 768px) {
-        cv-select::part(trigger) {
-          font-size: 16px;
-        }
-      }
+      contain: style;
     }
 
     .sort-controls {
-      display: grid;
-      grid-template-columns: minmax(160px, 184px) minmax(112px, 132px);
-      align-items: center;
-      justify-content: end;
-      gap: var(--pm-toolbar-control-gap);
-      inline-size: 100%;
-      min-inline-size: 0;
-    }
-
-    .sort-control-set {
-      display: grid;
-      grid-auto-flow: column;
-      grid-auto-columns: max-content;
+      display: inline-flex;
       align-items: center;
       gap: var(--pm-toolbar-control-gap);
       min-inline-size: 0;
     }
 
-    .sort-control-set[data-kind='sort'] {
-      grid-template-columns: var(--pm-toolbar-control-block-size) minmax(0, 1fr);
-      min-inline-size: 160px;
+    .control-popover {
+      --cv-popover-padding: 0;
+      --cv-popover-gap: 0;
+      --cv-popover-border-radius: var(--cv-radius-3);
+      --cv-popover-z-index: var(--cv-z-overlay, 300);
     }
 
-    .sort-control-set[data-kind='group'] {
-      grid-template-columns: minmax(0, 1fr);
-      min-inline-size: 112px;
+    .sort-popover {
+      --cv-popover-min-inline-size: 264px;
+      --cv-popover-max-inline-size: min(296px, calc(100vw - var(--cv-space-6)));
     }
 
-    .control-select {
-      --cv-select-inline-size: 100%;
-      --cv-select-min-height: var(--pm-toolbar-control-block-size);
-      --cv-select-padding-inline: var(--pm-toolbar-control-padding-inline);
-      --cv-select-padding-block: 0;
-      --cv-select-border-radius: var(--pm-toolbar-control-radius);
-      --cv-select-background: var(--cv-color-surface-2);
-      inline-size: 100%;
-      min-inline-size: 0;
+    .group-popover {
+      --cv-popover-min-inline-size: 244px;
+      --cv-popover-max-inline-size: min(276px, calc(100vw - var(--cv-space-6)));
     }
 
-    .control-select::part(trigger) {
+    .control-popover::part(trigger) {
+      min-block-size: var(--pm-toolbar-control-block-size);
+      padding: 0 var(--pm-toolbar-control-padding-inline);
+      gap: var(--pm-toolbar-control-gap);
       border-color: var(--cv-color-border);
-      box-shadow:
-        inset 0 1px 0 var(--cv-alpha-white-4),
-        0 1px 2px var(--cv-alpha-black-10);
-      transition:
-        border-color var(--cv-duration-fast) var(--cv-easing-standard),
-        background-color var(--cv-duration-fast) var(--cv-easing-standard),
-        box-shadow var(--cv-duration-fast) var(--cv-easing-standard);
-    }
-
-    .control-select:hover::part(trigger),
-    .control-select[open]::part(trigger) {
-      border-color: var(--cv-color-primary-border);
-      background: var(--cv-color-primary-surface);
-    }
-
-    .control-select:focus-within::part(trigger) {
-      border-color: var(--cv-color-primary-border-strong);
-      outline: 2px solid var(--cv-color-focus, var(--cv-color-primary));
-      outline-offset: 2px;
-      box-shadow: none;
-    }
-
-    .control-select::part(chevron) {
-      color: var(--cv-color-text-muted);
-    }
-
-    .control-select::part(listbox) {
-      border-color: var(--cv-color-primary-border);
-      background: var(--cv-color-surface-elevated);
-      box-shadow: var(--cv-shadow-3);
-      z-index: var(--cv-z-overlay, 300);
-    }
-
-    .select-trigger-content {
-      display: inline-grid;
-      grid-auto-flow: column;
-      grid-auto-columns: max-content;
-      align-items: center;
-      gap: 6px;
-      min-inline-size: 0;
-      max-inline-size: 100%;
-      font-size: var(--pm-toolbar-control-font-size);
-      line-height: 1;
-      color: var(--cv-color-text);
-    }
-
-    .select-icon {
-      inline-size: 14px;
-      block-size: 14px;
-      display: block;
-      color: var(--cv-color-text-muted);
-    }
-
-    .select-value {
-      min-inline-size: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: var(--pm-toolbar-control-font-weight);
-    }
-
-    .direction-button {
-      display: inline-grid;
-      place-items: center;
-      inline-size: var(--pm-toolbar-control-block-size);
-      block-size: var(--pm-toolbar-control-block-size);
       border-radius: var(--pm-toolbar-control-radius);
-      border: 1px solid var(--cv-color-border);
       background: var(--cv-color-surface-2);
-      color: var(--cv-color-text-muted);
-      cursor: pointer;
+      color: var(--cv-color-text);
+      font-size: var(--pm-toolbar-control-font-size);
+      font-weight: var(--pm-toolbar-control-font-weight);
+      line-height: 1;
       box-shadow:
         inset 0 1px 0 var(--cv-alpha-white-4),
         0 1px 2px var(--cv-alpha-black-10);
       transition:
         border-color var(--cv-duration-fast) var(--cv-easing-standard),
-        color var(--cv-duration-fast) var(--cv-easing-standard),
         background-color var(--cv-duration-fast) var(--cv-easing-standard),
-        transform var(--cv-duration-fast) var(--cv-easing-standard),
+        color var(--cv-duration-fast) var(--cv-easing-standard),
         box-shadow var(--cv-duration-fast) var(--cv-easing-standard);
     }
 
-    .direction-button:hover {
-      color: var(--cv-color-primary);
+    .control-popover::part(trigger):hover,
+    .control-popover[open]::part(trigger) {
       border-color: var(--cv-color-primary-border);
       background: var(--cv-color-primary-surface);
-      box-shadow:
-        inset 0 1px 0 var(--cv-alpha-white-8),
-        var(--cv-shadow-1);
     }
 
-    .direction-button:active {
-      outline: var(
-        --pm-active-outline,
-        2px solid var(--cv-color-primary-ring)
-      );
-      outline-offset: var(--pm-active-outline-offset, -2px);
-    }
-
-    .direction-button:focus-visible {
-      outline: var(--pm-focus-outline, 2px solid var(--cv-color-focus, var(--cv-color-primary)));
-      outline-offset: var(--pm-focus-outline-outer-offset, 2px);
-    }
-
-    .direction-button[aria-pressed='true'] {
-      color: var(--cv-color-primary);
+    .group-popover.active::part(trigger) {
       border-color: var(--cv-color-primary-border-strong);
       background: var(--cv-color-primary-surface-strong);
-      outline: var(
-        --pm-active-outline,
-        2px solid var(--cv-color-primary-ring)
-      );
-      outline-offset: var(--pm-active-outline-offset, -2px);
+      color: var(--cv-color-primary);
     }
 
-    .direction-icon {
-      inline-size: 15px;
-      block-size: 15px;
-      transition: transform var(--cv-duration-fast) var(--cv-easing-spring);
+    .trigger-icon,
+    .trigger-direction,
+    .trigger-chevron {
+      inline-size: 14px;
+      block-size: 14px;
+      color: var(--cv-color-text-muted);
     }
 
-    .direction-icon.desc {
+    .trigger-direction.desc {
       transform: rotate(180deg);
     }
 
-    @container (width < 460px) {
-      .sort-controls {
-        grid-template-columns: minmax(0, 1fr);
-        justify-content: stretch;
-      }
-
-      .sort-control-set[data-kind='sort'],
-      .sort-control-set[data-kind='group'] {
-        inline-size: 100%;
-        min-inline-size: 0;
-      }
+    .active .trigger-icon,
+    .active .trigger-chevron {
+      color: currentColor;
     }
 
-    @container (width < 300px) {
-      .sort-control-set[data-kind='sort'] {
-        display: grid;
-        grid-template-columns: var(--pm-toolbar-control-block-size) minmax(0, 1fr);
-      }
+    .trigger-label {
+      max-inline-size: 96px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    :host([single-row]) {
-      inline-size: 312px;
-    }
-
-    :host([single-row]) .sort-controls {
+    .control-panel {
       display: grid;
-      grid-auto-flow: column;
-      grid-auto-columns: max-content;
-      inline-size: max-content;
-      justify-content: start;
-    }
-
-    :host([single-row]) .sort-control-set {
-      display: grid;
-      grid-auto-flow: column;
-      grid-auto-columns: max-content;
       min-inline-size: 0;
     }
 
-    :host([single-row]) .sort-control-set[data-kind='sort'] {
-      grid-template-columns: var(--pm-toolbar-control-block-size) 132px;
+    .control-section {
+      display: grid;
+      gap: var(--cv-space-2);
+      padding: var(--cv-space-3);
     }
 
-    :host([single-row]) .sort-field-select {
-      inline-size: 132px;
+    .control-section + .control-section {
+      border-block-start: 1px solid var(--cv-color-border);
     }
 
-    :host([single-row]) .group-by-select {
-      inline-size: 132px;
+    .section-title {
+      color: var(--cv-color-text-muted);
+      font-size: var(--cv-font-size-xs);
+      font-weight: var(--cv-font-weight-semibold);
+    }
+
+    cv-radio-group {
+      inline-size: 100%;
+    }
+
+    cv-radio-group::part(base) {
+      display: grid;
+      inline-size: 100%;
+      gap: var(--cv-space-1);
+      padding: 0;
+      border: 0;
+      background: transparent;
+    }
+
+    cv-radio {
+      inline-size: 100%;
+    }
+
+    cv-radio::part(base) {
+      inline-size: 100%;
+      min-block-size: 34px;
+      padding-inline: var(--cv-space-2);
+    }
+
+    cv-radio:hover::part(base) {
+      background: var(--cv-color-surface-3);
     }
   `
 
-  private onSortFieldChange(field: SortField) {
-    this.setSortField(field)
-  }
-
-  private onToggleDirection() {
-    this.toggleDirection()
-  }
-
-  private onGroupByChange(event: CVSelectChangeEvent) {
-    const value = event.detail.value as GroupBy | null
-    if (value) {
-      this.setGroupBy(value)
+  private onSortFieldChange(event: CVRadioGroupChangeEvent): void {
+    const value = event.detail.value
+    if (SORT_FIELD_OPTIONS.some((option) => option.value === value)) {
+      this.setSortField(value as SortField)
     }
   }
 
-  private onSortDropdownSelect(event: CVSelectChangeEvent) {
-    const field = event.detail.value as SortField | null
-    if (field) {
-      this.onSortFieldChange(field)
+  private onSortDirectionChange(event: CVRadioGroupChangeEvent): void {
+    const value = event.detail.value
+    if (value === 'asc' || value === 'desc') {
+      this.setSortDirection(value)
     }
   }
 
-  private getSortLabel(field: SortField): string {
-    return getSortFieldLabel(field)
+  private onGroupByChange(event: CVRadioGroupChangeEvent): void {
+    const value = event.detail.value
+    if (GROUP_BY_OPTIONS.some((option) => option.value === value)) {
+      this.setGroupBy(value as GroupBy)
+    }
   }
 
-  private getGroupLabel(value: GroupBy): string {
-    return getGroupByLabel(value)
-  }
-
-  private getDirectionLabel(direction: SortDirection): string {
-    return direction === 'asc' ? i18n('sort:direction:asc') : i18n('sort:direction:desc')
-  }
-
-  private renderSelectTrigger(icon: string, value: string): TemplateResult {
+  private renderRadioGroup<T extends string>(
+    value: T,
+    label: string,
+    options: readonly {value: T; label: () => string}[],
+    onChange: (event: CVRadioGroupChangeEvent) => void,
+  ): TemplateResult {
     return html`
-      <span slot="trigger" class="select-trigger-content">
-        <cv-icon class="select-icon" name=${icon} aria-hidden="true"></cv-icon>
-        <span class="select-value">${value}</span>
-      </span>
+      <cv-radio-group orientation="vertical" .value=${value} aria-label=${label} @cv-change=${onChange}>
+        ${options.map(
+          (option) => html`
+            <cv-radio
+              size="small"
+              value=${option.value}
+              aria-label=${option.label()}
+              ?checked=${option.value === value}
+            >
+              ${option.label()}
+            </cv-radio>
+          `,
+        )}
+      </cv-radio-group>
     `
   }
 
-  private renderGroupSection(): TemplateResult {
-    const currentGroupBy = groupBy()
-    const label = i18n('group-by')
-    const valueLabel = this.getGroupLabel(currentGroupBy)
-    return html`
-      <div class="sort-control-set" data-kind="group">
-        <cv-select
-          class="control-select group-by-select"
-          size="small"
-          .value=${currentGroupBy}
-          aria-label=${label}
-          title=${`${label}: ${valueLabel}`}
-          @cv-change=${this.onGroupByChange}
-        >
-          ${this.renderSelectTrigger('layers', valueLabel)}
-          ${GROUP_BY_OPTIONS.map(
-            (item) => html`<cv-select-option value=${item.value}>${item.label()}</cv-select-option>`,
-          )}
-        </cv-select>
-      </div>
-    `
-  }
-
-  private renderSortSection(): TemplateResult {
-    const currentSortField = sortField()
+  private renderSortControl(): TemplateResult {
+    const currentField = sortField()
     const currentDirection = sortDirection()
-    const sortLabel = i18n('sort-by')
-    const fieldLabel = this.getSortLabel(currentSortField)
-    const directionLabel = this.getDirectionLabel(currentDirection)
-    return html`
-      <div class="sort-control-set" data-kind="sort">
-        <cv-button
-          unstyled
-          type="button"
-          class="direction-button"
-          aria-label=${directionLabel}
-          aria-pressed=${currentDirection === 'desc' ? 'true' : 'false'}
-          @click=${this.onToggleDirection}
-          title=${directionLabel}
-        >
-          <cv-icon
-            name="arrow-up"
-            class="direction-icon ${currentDirection === 'desc' ? 'desc' : ''}"
-            aria-hidden="true"
-          ></cv-icon>
-        </cv-button>
+    const fieldLabel = getSortFieldLabel(currentField)
+    const directionLabel =
+      currentDirection === 'asc' ? i18n('sort:direction:asc') : i18n('sort:direction:desc')
 
-        <cv-select
-          class="control-select sort-field-select"
-          size="small"
-          .value=${currentSortField}
-          aria-label=${sortLabel}
-          title=${`${sortLabel}: ${fieldLabel}`}
-          @cv-change=${this.onSortDropdownSelect}
-        >
-          ${this.renderSelectTrigger('arrow-up-down', fieldLabel)}
-          ${SORT_FIELD_OPTIONS.map(
-            (item) => html`<cv-select-option value=${item.value}>${item.label()}</cv-select-option>`,
-          )}
-        </cv-select>
-      </div>
+    return html`
+      <cv-popover
+        class="control-popover sort-popover"
+        placement="bottom-end"
+        aria-label=${i18n('sort-by')}
+        title=${`${i18n('sort-by')}: ${fieldLabel}, ${directionLabel}`}
+      >
+        <cv-icon class="trigger-icon" slot="trigger" name="arrow-up-down" aria-hidden="true"></cv-icon>
+        <span class="trigger-label" slot="trigger">${fieldLabel}</span>
+        <cv-icon
+          class="trigger-direction ${currentDirection === 'desc' ? 'desc' : ''}"
+          slot="trigger"
+          name="arrow-up"
+          aria-hidden="true"
+        ></cv-icon>
+
+        <div class="control-panel">
+          <section class="control-section" aria-labelledby="pm-sort-field-title">
+            <span id="pm-sort-field-title" class="section-title">${i18n('sort-by')}</span>
+            ${this.renderRadioGroup(
+              currentField,
+              i18n('sort-by'),
+              SORT_FIELD_OPTIONS,
+              this.onSortFieldChange,
+            )}
+          </section>
+          <section class="control-section" aria-labelledby="pm-sort-direction-title">
+            <span id="pm-sort-direction-title" class="section-title">${i18n('sort:direction')}</span>
+            ${this.renderRadioGroup(
+              currentDirection,
+              i18n('sort:direction'),
+              [
+                {value: 'asc', label: () => i18n('sort:direction:asc')},
+                {value: 'desc', label: () => i18n('sort:direction:desc')},
+              ],
+              this.onSortDirectionChange,
+            )}
+          </section>
+        </div>
+      </cv-popover>
+    `
+  }
+
+  private renderGroupControl(): TemplateResult {
+    const currentGroupBy = groupBy()
+    const groupLabel = getGroupByLabel(currentGroupBy)
+
+    return html`
+      <cv-popover
+        class=${currentGroupBy === 'none'
+          ? 'control-popover group-popover'
+          : 'control-popover group-popover active'}
+        placement="bottom-end"
+        aria-label=${i18n('group-by')}
+        title=${`${i18n('group-by')}: ${groupLabel}`}
+      >
+        <cv-icon class="trigger-icon" slot="trigger" name="layers" aria-hidden="true"></cv-icon>
+        <span class="trigger-label" slot="trigger">${getGroupByShortLabel(currentGroupBy)}</span>
+        <cv-icon class="trigger-chevron" slot="trigger" name="chevron-down" aria-hidden="true"></cv-icon>
+
+        <section class="control-section" aria-labelledby="pm-group-by-title">
+          <span id="pm-group-by-title" class="section-title">${i18n('group-by')}</span>
+          ${this.renderRadioGroup(currentGroupBy, i18n('group-by'), GROUP_BY_OPTIONS, this.onGroupByChange)}
+        </section>
+      </cv-popover>
     `
   }
 
   render(): TemplateResult {
     return html`
       <div class="sort-controls" role="group" aria-label=${i18n('button:filters_sorting')}>
-        ${this.renderSortSection()} ${this.renderGroupSection()}
+        ${this.renderSortControl()} ${this.renderGroupControl()}
       </div>
     `
   }

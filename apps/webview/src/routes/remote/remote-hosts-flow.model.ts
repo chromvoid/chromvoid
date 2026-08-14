@@ -696,8 +696,11 @@ export class RemoteHostsFlowModel {
       return false
     }
     if (isRemoteMode(modeInfo.mode)) {
+      const isMobileUsb = modeInfo.mode.remote.host.type === 'mobile_usb'
       try {
-        await wrap(switchMode('local'))
+        if (isMobileUsb && !(await wrap(this.usb.disconnect())))
+          throw new Error(this.usb.errorText() ?? i18n('remote:usb-mobile-error-generic'))
+        if (!isMobileUsb) await wrap(switchMode('local'))
       } catch (error) {
         this.setActionError('disconnect', error)
         this.resumeAfterFailedLocalModeRestore()
@@ -711,7 +714,6 @@ export class RemoteHostsFlowModel {
     getAppContext().store.resetRemoteSession()
     return true
   }
-
   private resumeAfterFailedLocalModeRestore(): void {
     if (this.transportConnected()) {
       this.polling.startMode()
@@ -719,7 +721,6 @@ export class RemoteHostsFlowModel {
     }
     this.peerList.resumeIfEnabled()
   }
-
   private async safeGetModeStatus(requestId?: number, silent = false): Promise<ModeInfo | null> {
     if (this.isMobileHostRuntime()) return null
     try {

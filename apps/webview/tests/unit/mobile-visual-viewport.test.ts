@@ -6,6 +6,7 @@ import {
   getVisualViewportBlockSize,
   getVisualViewportLayoutHeight,
   resolveEffectiveKeyboardInset,
+  resolveMobileLayoutViewportBlockSize,
   resolveSafeAreaBottomFallback,
   splitVisualViewportBottomInset,
 } from 'root/app/bootstrap/mobile-visual-viewport'
@@ -92,6 +93,50 @@ describe('getVisualViewportBlockSize', () => {
         windowInnerHeight: NaN,
       }),
     ).toBe(0)
+  })
+})
+
+describe('resolveMobileLayoutViewportBlockSize', () => {
+  it('tracks layout viewport changes while the keyboard is closed', () => {
+    expect(
+      resolveMobileLayoutViewportBlockSize({
+        currentBlockSize: 844,
+        nextBlockSize: 700,
+        currentlyOccluding: false,
+        nextOccluding: false,
+      }),
+    ).toBe(700)
+  })
+
+  it('holds the pre-keyboard layout height throughout opening and closing transitions', () => {
+    expect(
+      resolveMobileLayoutViewportBlockSize({
+        currentBlockSize: 844,
+        nextBlockSize: 620,
+        currentlyOccluding: true,
+        nextOccluding: true,
+      }),
+    ).toBe(844)
+
+    expect(
+      resolveMobileLayoutViewportBlockSize({
+        currentBlockSize: 844,
+        nextBlockSize: 844,
+        currentlyOccluding: true,
+        nextOccluding: false,
+      }),
+    ).toBe(844)
+  })
+
+  it('resynchronizes after occlusion is fully closed', () => {
+    expect(
+      resolveMobileLayoutViewportBlockSize({
+        currentBlockSize: 640,
+        nextBlockSize: 844,
+        currentlyOccluding: false,
+        nextOccluding: false,
+      }),
+    ).toBe(844)
   })
 })
 

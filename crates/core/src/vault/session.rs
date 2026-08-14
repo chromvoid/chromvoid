@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
 use crate::catalog::CatalogManager;
-use crate::crypto::keystore::Keystore;
+use crate::crypto::keystore::{Keystore, STORAGE_PEPPER_LEN};
 use crate::crypto::{derive_vault_key_v2, StoragePepper};
 use crate::error::{Error, Result};
 use crate::storage::Storage;
@@ -141,29 +142,20 @@ impl Vault {
         password: &str,
         keystore: Option<&dyn Keystore>,
     ) -> Result<Zeroizing<[u8; KEY_SIZE]>> {
-        let salt = storage.get_or_create_salt()?;
-
-        let format_v = storage.format_version()?;
-
-        if format_v < 2 {
-            return Err(Error::UnsupportedStorageVersion(format_v));
-        }
-
         let keystore = match keystore {
             Some(k) => k,
             None => return Err(Error::KeystoreUnavailable("not configured".to_string())),
         };
 
         let has_chunks = storage.has_any_chunk()?;
+        let has_vault_state = has_chunks || storage.salt_exists();
 
-        let pepper_opt = keystore
-            .load_storage_pepper()
-            .map_err(|e| Error::KeystoreUnavailable(e.to_string()))?;
+        let pepper_opt = load_storage_pepper(keystore)?;
 
         let pepper = match pepper_opt {
             Some(p) => p,
             None => {
-                if has_chunks {
+                if has_vault_state {
                     return Err(Error::StoragePepperRequired);
                 }
                 let p = StoragePepper::generate()
@@ -171,13 +163,45 @@ impl Vault {
                 keystore
                     .store_storage_pepper(p)
                     .map_err(|e| Error::KeystoreUnavailable(e.to_string()))?;
-                p
+
+                let stored = load_storage_pepper(keystore)?.ok_or_else(|| {
+                    Error::KeystoreUnavailable(
+                        "keystore returned no value after storing pepper".to_string(),
+                    )
+                })?;
+                if !bool::from(p.as_slice().ct_eq(stored.as_slice())) {
+                    return Err(Error::KeystoreUnavailable(
+                        "keystore returned a different value after storing pepper".to_string(),
+                    ));
+                }
+                stored
             }
+        };
+
+        let format_v = storage.format_version()?;
+        if format_v < 2 {
+            return Err(Error::UnsupportedStorageVersion(format_v));
+        }
+
+        let salt = if has_chunks {
+            storage.read_salt()?.ok_or_else(|| {
+                Error::InvalidDataFormat("vault salt is missing for non-empty storage".to_string())
+            })?
+        } else {
+            storage.get_or_create_salt()?
         };
 
         let vault_key = derive_vault_key_v2(password, &salt, &pepper)?;
         Ok(vault_key)
     }
+}
+
+pub(super) fn load_storage_pepper(
+    keystore: &dyn Keystore,
+) -> Result<Option<[u8; STORAGE_PEPPER_LEN]>> {
+    keystore
+        .load_storage_pepper()
+        .map_err(|error| Error::KeystoreUnavailable(error.to_string()))
 }
 
 /// An active vault session

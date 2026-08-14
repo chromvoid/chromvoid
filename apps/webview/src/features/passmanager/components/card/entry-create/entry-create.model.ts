@@ -24,6 +24,11 @@ const PAYMENT_CARD_OPTIONAL_DETAILS = ['icon', 'tags'] as const
 export type PMEntryCreateOptionalDetail = (typeof LOGIN_OPTIONAL_DETAILS)[number]
 export type PMEntryCreateDetailsView = 'hub' | PMEntryCreateOptionalDetail
 
+export type PMEntryCreateTargetOption = {
+  id: string
+  label: string
+}
+
 export type PMEntryCreateValidationField =
   | 'title'
   | 'username'
@@ -155,6 +160,13 @@ export class PMEntryCreateModel {
     if (!root || !targetGroupId || targetGroupId === root.id) return root?.name ?? ''
     return root.getGroup(targetGroupId)?.name ?? ''
   }, 'passmanager.entryCreate.targetGroupLabel')
+  readonly targetGroupOptions = computed<PMEntryCreateTargetOption[]>(() => {
+    const root = getPassmanagerRoot()
+    if (!root) return []
+
+    const groups = root.entriesList().filter((entry): entry is Group => entry instanceof Group)
+    return [{id: root.id, label: root.name}, ...groups.map((group) => ({id: group.id, label: group.name}))]
+  }, 'passmanager.entryCreate.targetGroupOptions')
   readonly isSubmitting = computed(
     () => this.submitAction.pending() > 0,
     'passmanager.entryCreate.isSubmitting',
@@ -534,6 +546,13 @@ export class PMEntryCreateModel {
 
   setTagsFromKeys(keys: readonly string[]): void {
     this.setTags(pmCredentialTagsModel.resolveLabelsFromTagKeys(keys, this.tags()))
+  }
+
+  openTagCatalogManager(): void {
+    pmCredentialTagsModel.openCatalogManager({
+      getSelectedTags: () => this.tags(),
+      onSelectedTagsChange: (tags) => this.setTags(tags),
+    })
   }
 
   optionalDetailHasData(detail: PMEntryCreateOptionalDetail): boolean {

@@ -75,6 +75,29 @@ fn test_salt_creation() {
 }
 
 #[test]
+fn test_read_salt_does_not_create_missing_salt() {
+    let (storage, _temp_dir) = create_test_storage();
+
+    assert_eq!(storage.read_salt().expect("read salt"), None);
+    assert!(!storage.salt_exists());
+}
+
+#[test]
+fn test_read_salt_rejects_invalid_length_without_rewriting() {
+    let (storage, _temp_dir) = create_test_storage();
+    std::fs::write(storage.base_path().join("salt"), [7u8; SALT_SIZE - 1])
+        .expect("write invalid salt");
+
+    let error = storage.read_salt().expect_err("invalid salt must fail");
+
+    assert!(matches!(error, Error::InvalidDataFormat(_)));
+    assert_eq!(
+        std::fs::read(storage.base_path().join("salt")).expect("read invalid salt"),
+        vec![7u8; SALT_SIZE - 1]
+    );
+}
+
+#[test]
 fn test_salt_persistence() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
 

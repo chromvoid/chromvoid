@@ -68,17 +68,6 @@ export const sharedStyles: CSSResult[] = [
   `,
 ]
 
-export const pageFadeInStyles: CSSResult = css`
-  @keyframes page-fade-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-`
-
 export const motionPrimitiveStyles: CSSResult = css`
   @keyframes spin {
     to {
@@ -108,29 +97,7 @@ export const motionPrimitiveStyles: CSSResult = css`
     }
   }
 
-  @keyframes fadeInUp {
-    from {
-      opacity: 0;
-      transform: translateY(var(--app-motion-fade-up-distance, 12px));
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
   /* pulse: removed — infinite animation hurt responsiveness */
-
-  @keyframes reveal {
-    from {
-      opacity: 0;
-      transform: var(--app-motion-reveal-start-transform, none);
-    }
-    to {
-      opacity: 1;
-      transform: var(--app-motion-reveal-end-transform, none);
-    }
-  }
 
   /* floatY, shimmer, progressShimmer: removed — infinite animations hurt responsiveness */
 
@@ -263,18 +230,6 @@ export const functionalMotionStyles: CSSResult = css`
       filter: none;
       animation: none;
       will-change: auto;
-    }
-  }
-`
-
-export const pageTransitionStyles: CSSResult = css`
-  :host {
-    animation: page-fade-in var(--cv-duration-normal, 200ms) var(--app-editorial-easing-out-quart, cubic-bezier(0.25, 1, 0.5, 1)) both;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    :host {
-      animation: none;
     }
   }
 `

@@ -12,8 +12,10 @@ import {
 import {markMobileKeyboardProgrammaticScroll} from '../../src/shared/services/mobile-keyboard-scroll-intent'
 import {
   ANDROID_KEYBOARD_INSETS_EVENT,
+  IOS_KEYBOARD_INSETS_EVENT,
   applyMobileKeyboardInsetsPayload,
 } from '../../src/app/bootstrap/mobile-keyboard-insets'
+import {createMobileKeyboardStateController} from '../../src/app/bootstrap/mobile-keyboard/keyboard-state'
 
 function dispatchAndroidKeyboardInsets(detail: Record<string, unknown>) {
   window.dispatchEvent(new CustomEvent(ANDROID_KEYBOARD_INSETS_EVENT, {detail}))
@@ -653,8 +655,12 @@ describe('mobile keyboard focus scroll coordinator', () => {
       currentTime = 501
 
       // deliberate user scroll: gesture moves beyond tap tolerance
-      document.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 400, pointerId: 7}))
-      document.dispatchEvent(createTouchPointerEvent('pointermove', {clientX: 12, clientY: 300, pointerId: 7}))
+      document.dispatchEvent(
+        createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 400, pointerId: 7}),
+      )
+      document.dispatchEvent(
+        createTouchPointerEvent('pointermove', {clientX: 12, clientY: 300, pointerId: 7}),
+      )
       scroller.scrollTop = 220
       scroller.dispatchEvent(new Event('scroll'))
       expect(scroller.scrollTop).toBe(220)
@@ -687,8 +693,12 @@ describe('mobile keyboard focus scroll coordinator', () => {
       currentTime = 501
 
       // user deliberately scrolls the focused field out of view
-      document.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 400, pointerId: 7}))
-      document.dispatchEvent(createTouchPointerEvent('pointermove', {clientX: 12, clientY: 200, pointerId: 7}))
+      document.dispatchEvent(
+        createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 400, pointerId: 7}),
+      )
+      document.dispatchEvent(
+        createTouchPointerEvent('pointermove', {clientX: 12, clientY: 200, pointerId: 7}),
+      )
       rect.mockReturnValue(createDOMRect({top: -300, bottom: -260}))
       scroller.scrollTop = 320
       scroller.dispatchEvent(new Event('scroll'))
@@ -721,8 +731,12 @@ describe('mobile keyboard focus scroll coordinator', () => {
       input.focus()
       currentTime = 501
 
-      document.dispatchEvent(createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 400, pointerId: 7}))
-      document.dispatchEvent(createTouchPointerEvent('pointermove', {clientX: 12, clientY: 200, pointerId: 7}))
+      document.dispatchEvent(
+        createTouchPointerEvent('pointerdown', {clientX: 12, clientY: 400, pointerId: 7}),
+      )
+      document.dispatchEvent(
+        createTouchPointerEvent('pointermove', {clientX: 12, clientY: 200, pointerId: 7}),
+      )
       rect.mockReturnValue(createDOMRect({top: -300, bottom: -260}))
       scroller.scrollTop = 320
       scroller.dispatchEvent(new Event('scroll'))
@@ -748,13 +762,17 @@ describe('mobile keyboard focus scroll coordinator', () => {
       document.documentElement.setAttribute('data-mobile-keyboard-expanded', '')
       const input = document.createElement('textarea')
       const scroller = appendFieldInScroller(input)
-      vi.mocked(input.getBoundingClientRect).mockReturnValue(createDOMRect({top: 200, bottom: 240, height: 40}))
+      vi.mocked(input.getBoundingClientRect).mockReturnValue(
+        createDOMRect({top: 200, bottom: 240, height: 40}),
+      )
       setupCoordinator()
       input.focus()
       currentTime = 501
 
       dispatchBeforeInput(input)
-      vi.mocked(input.getBoundingClientRect).mockReturnValue(createDOMRect({top: 200, bottom: 290, height: 90}))
+      vi.mocked(input.getBoundingClientRect).mockReturnValue(
+        createDOMRect({top: 200, bottom: 290, height: 90}),
+      )
       Object.defineProperty(scroller, 'scrollHeight', {
         configurable: true,
         value: 1_300,
@@ -855,7 +873,9 @@ describe('mobile keyboard focus scroll coordinator', () => {
       appendFieldInScroller(input)
       vi.mocked(input.getBoundingClientRect).mockReturnValue(createDOMRect({top: 200, bottom: 240}))
       const documentScroller =
-        document.scrollingElement instanceof HTMLElement ? document.scrollingElement : document.documentElement
+        document.scrollingElement instanceof HTMLElement
+          ? document.scrollingElement
+          : document.documentElement
       documentScroller.scrollTop = 0
       setupCoordinator()
       input.focus()
@@ -1163,6 +1183,63 @@ describe('mobile keyboard focus scroll coordinator', () => {
       expect(scroller.scrollTop).toBe(120)
     } finally {
       viewport.restore()
+    }
+  })
+})
+
+describe('mobile keyboard state controller', () => {
+  afterEach(() => {
+    resetRootKeyboardState()
+  })
+
+  it('keeps the open ios state and inset until the hide transition settles', () => {
+    const controller = createMobileKeyboardStateController()
+
+    try {
+      window.dispatchEvent(
+        new CustomEvent(IOS_KEYBOARD_INSETS_EVENT, {
+          detail: {
+            visible: true,
+            bottomInset: 302,
+            phase: 'settled',
+            source: 'ios-native',
+            viewportMode: 'native-resize',
+          },
+        }),
+      )
+      expect(controller.getState()).toMatchObject({status: 'open', bottomInset: 302})
+
+      window.dispatchEvent(
+        new CustomEvent(IOS_KEYBOARD_INSETS_EVENT, {
+          detail: {
+            visible: false,
+            bottomInset: 0,
+            phase: 'progress',
+            source: 'ios-native',
+            viewportMode: 'native-resize',
+          },
+        }),
+      )
+      expect(controller.getState()).toMatchObject({
+        status: 'open',
+        bottomInset: 302,
+        phase: 'progress',
+      })
+
+      window.dispatchEvent(
+        new CustomEvent(IOS_KEYBOARD_INSETS_EVENT, {
+          detail: {
+            visible: false,
+            bottomInset: 0,
+            phase: 'settled',
+            source: 'ios-native',
+            viewportMode: 'native-resize',
+          },
+        }),
+      )
+      expect(controller.getState()).toMatchObject({status: 'closed', bottomInset: 0})
+    } finally {
+      controller.cleanup()
     }
   })
 })

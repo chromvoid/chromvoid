@@ -296,14 +296,18 @@ impl RpcRouter {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
     use serde_json::json;
     use tempfile::TempDir;
 
-    use crate::crypto::keystore::InMemoryKeystore;
+    use crate::crypto::keystore::{InMemoryKeystore, Keystore, KeystoreError, STORAGE_PEPPER_LEN};
+    use crate::rpc::router::backup_pack::BackupChunkManifest;
     use crate::rpc::types::{RpcRequest, RpcResponse};
-    use crate::rpc::RpcRouter;
+    use crate::rpc::{RpcReply, RpcRouter};
     use crate::storage::Storage;
 
     fn router_with_master_password(master_password: &str) -> (TempDir, RpcRouter) {
@@ -314,6 +318,52 @@ mod tests {
             .ensure_master_setup(master_password)
             .expect("master setup");
         (temp_dir, router.with_master_key(master_password))
+    }
+
+    #[derive(Debug, Default)]
+    struct MissingPepperKeystore {
+        store_calls: AtomicUsize,
+    }
+
+    impl Keystore for MissingPepperKeystore {
+        fn load_storage_pepper(&self) -> Result<Option<[u8; STORAGE_PEPPER_LEN]>, KeystoreError> {
+            Ok(None)
+        }
+
+        fn store_storage_pepper(
+            &self,
+            _pepper: [u8; STORAGE_PEPPER_LEN],
+        ) -> Result<(), KeystoreError> {
+            self.store_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn delete_storage_pepper(&self) -> Result<(), KeystoreError> {
+            Ok(())
+        }
+    }
+
+    fn snapshot_files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn visit(root: &Path, directory: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in std::fs::read_dir(directory).expect("read storage directory") {
+                let entry = entry.expect("storage directory entry");
+                let path = entry.path();
+                if path.is_dir() {
+                    visit(root, &path, files);
+                } else if path.is_file() {
+                    files.insert(
+                        path.strip_prefix(root)
+                            .expect("relative storage path")
+                            .to_path_buf(),
+                        std::fs::read(path).expect("read storage file"),
+                    );
+                }
+            }
+        }
+
+        let mut files = BTreeMap::new();
+        visit(root, root, &mut files);
+        files
     }
 
     #[test]
@@ -366,5 +416,53 @@ mod tests {
             }
             RpcResponse::Success { .. } => panic!("backup unexpectedly started"),
         }
+    }
+
+    #[test]
+    fn local_backup_metadata_does_not_create_missing_storage_pepper() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let storage = Storage::new(temp_dir.path()).expect("storage");
+        let keystore = Arc::new(MissingPepperKeystore::default());
+        let router = RpcRouter::new(storage).with_keystore(keystore.clone());
+        router.ensure_master_setup("secret").expect("master setup");
+        let router = router.with_master_key("secret");
+        assert!(!router.storage.salt_exists());
+        let before = snapshot_files(temp_dir.path());
+
+        let error = router
+            .build_backup_local_metadata(&BackupChunkManifest::new(Vec::new()), 1)
+            .expect_err("missing pepper must fail backup metadata");
+        let (_, code) = error.into_parts();
+
+        assert_eq!(code.as_deref(), Some("STORAGE_PEPPER_REQUIRED"));
+        assert_eq!(keystore.store_calls.load(Ordering::SeqCst), 0);
+        assert!(!router.storage.salt_exists());
+        assert_eq!(snapshot_files(temp_dir.path()), before);
+    }
+
+    #[test]
+    fn admin_backup_does_not_create_missing_storage_pepper() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let storage = Storage::new(temp_dir.path()).expect("storage");
+        let keystore = Arc::new(MissingPepperKeystore::default());
+        let mut router = RpcRouter::new(storage).with_keystore(keystore.clone());
+        router.ensure_master_setup("secret").expect("master setup");
+        assert!(!router.storage.salt_exists());
+        let before = snapshot_files(temp_dir.path());
+
+        let reply = router.handle_admin_backup_stream(&json!({"master_password": "secret"}));
+
+        match reply {
+            RpcReply::Json(RpcResponse::Error { code, .. }) => {
+                assert_eq!(code.as_deref(), Some("STORAGE_PEPPER_REQUIRED"));
+            }
+            RpcReply::Json(RpcResponse::Success { .. }) | RpcReply::Stream(_) => {
+                panic!("missing pepper must fail admin backup")
+            }
+            RpcReply::RangeStream(_) => panic!("admin backup must not return a range stream"),
+        }
+        assert_eq!(keystore.store_calls.load(Ordering::SeqCst), 0);
+        assert!(!router.storage.salt_exists());
+        assert_eq!(snapshot_files(temp_dir.path()), before);
     }
 }

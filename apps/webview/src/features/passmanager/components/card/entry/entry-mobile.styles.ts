@@ -239,6 +239,13 @@ export const entryMobileStyles = css`
     padding-block: 0.08em 0.12em;
   }
 
+  .entry-title-error {
+    margin: 0;
+    color: var(--cv-color-danger);
+    font-size: var(--cv-font-size-xs);
+    line-height: var(--cv-line-height-tight);
+  }
+
   .entry-title-edit-action {
     inline-size: 28px;
     block-size: 28px;

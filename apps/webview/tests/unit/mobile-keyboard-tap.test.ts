@@ -185,7 +185,7 @@ describe('mobile keyboard visibility payload', () => {
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
   })
 
-  it('ignores ios native progress custom events', () => {
+  it('holds keyboard occlusion during ios native progress without applying layout offsets', () => {
     const cleanup = setupIOSKeyboardInsetsEventListener(document.documentElement)
 
     window.dispatchEvent(
@@ -206,9 +206,10 @@ describe('mobile keyboard visibility payload', () => {
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
     expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
     expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(false)
+    expect(mobileKeyboardOccluding()).toBe(true)
   })
 
-  it('ignores ios native progress visibility payloads', () => {
+  it('holds keyboard occlusion during ios fallback progress without applying layout offsets', () => {
     applyMobileKeyboardVisibilityPayload(document.documentElement, {
       visible: true,
       bottomInset: 301.6,
@@ -222,6 +223,7 @@ describe('mobile keyboard visibility payload', () => {
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
     expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
     expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(false)
+    expect(mobileKeyboardOccluding()).toBe(true)
   })
 
   it('treats zero android native bottom safe-area as an explicit value', () => {

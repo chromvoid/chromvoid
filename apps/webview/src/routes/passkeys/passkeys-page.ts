@@ -6,8 +6,6 @@ import {renderGuidanceInline} from 'root/features/guidance/render-guidance-inlin
 import {CvEmptyState} from 'root/shared/ui/empty-state'
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   routeHostStyles,
   routePageStyles,
   sharedStyles,
@@ -28,8 +26,6 @@ export class PasskeysPage extends ReatomLitElement {
 
   static styles = [
     sharedStyles,
-    pageTransitionStyles,
-    pageFadeInStyles,
     hostLayoutPaintContainStyles,
     routeHostStyles,
     routePageStyles,

@@ -13,11 +13,6 @@ export const audioPlayerStyles = css`
     box-shadow: var(--cv-shadow-xl);
   }
 
-  .player-surface::part(content):focus-visible {
-    outline: 1px solid var(--cv-color-border-muted);
-    outline-offset: -1px;
-  }
-
   .player-surface::part(overlay) {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);

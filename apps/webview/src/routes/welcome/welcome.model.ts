@@ -1,6 +1,13 @@
+import {computed} from '@reatom/core'
+
+import {mobileLayoutViewportBlockSize} from 'root/app/bootstrap/mobile-keyboard/keyboard-occlusion.model'
 import {WelcomeSetupModel, type PasswordFeedback, type WelcomeSetupStep} from './welcome-setup.model'
 import {WelcomeSharedModel} from './welcome-shared.model'
 import {WelcomeToolsModel} from './welcome-tools.model'
+import {
+  resolveWelcomeMobileViewportProfile,
+  resolveWelcomeTabletViewportEligibility,
+} from './welcome-mobile-viewport'
 
 export class WelcomeModel {
   readonly shared = new WelcomeSharedModel()
@@ -9,6 +16,14 @@ export class WelcomeModel {
   readonly busy = this.shared.busy
   readonly errorText = this.shared.errorText
   readonly shakeError = this.shared.shakeError
+  readonly mobileViewportProfile = computed(
+    () => resolveWelcomeMobileViewportProfile(mobileLayoutViewportBlockSize()),
+    'welcome.mobileViewportProfile',
+  )
+  readonly mobileTabletViewportEligible = computed(
+    () => resolveWelcomeTabletViewportEligibility(mobileLayoutViewportBlockSize()),
+    'welcome.mobileTabletViewportEligible',
+  )
 
   connect(): void {
     this.setup.connect()

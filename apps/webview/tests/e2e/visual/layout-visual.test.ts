@@ -18,6 +18,7 @@ import {
   seedVisualFilesFixture,
   seedVisualNotesFixture,
   seedVisualPassmanagerFixture,
+  seedVisualPaymentCardEntryFixture,
   seedVisualPassmanagerTagSnippetFixture,
   selectFirstDesktopTableRow,
   selectFirstMobileFile,
@@ -114,6 +115,72 @@ async function settleResponsiveLayout(page: Page): Promise<void> {
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   )
+}
+
+async function openPasswordToolbarPopover(
+  page: Page,
+  selector: 'cv-popover.filters-popover' | 'cv-popover.sort-popover',
+): Promise<void> {
+  await page.evaluate((target) => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const popover = deepFind(document, target) as HTMLElement | null
+    const trigger = popover?.shadowRoot?.querySelector('[part="trigger"]') as HTMLElement | null
+    if (!trigger) throw new Error(`Password toolbar popover trigger not found: ${target}`)
+    trigger.click()
+  }, selector)
+
+  await waitForDeepSelector(page, `${selector}[open]`)
+  await settleResponsiveLayout(page)
+}
+
+async function openDesktopTagManager(page: Page): Promise<void> {
+  await openPasswordToolbarPopover(page, 'cv-popover.filters-popover')
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const manage = deepFind(document, '.tag-manage-button') as HTMLElement | null
+    if (!manage) throw new Error('Desktop tag manager action not found')
+    manage.click()
+  })
+  await page.waitForFunction(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const host = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
+    const drawer = host?.shadowRoot?.querySelector('cv-drawer') as {open?: boolean} | null
+    return drawer?.open === true
+  })
+  await settleResponsiveLayout(page)
 }
 
 async function syncMobileSafeAreaFallback(page: Page, platform: 'ios' | 'android'): Promise<void> {
@@ -242,7 +309,9 @@ async function setRootTheme(page: Page, theme: 'light' | 'dark'): Promise<void> 
     }
 
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      )
       const activeAnimations = [...collectFiniteAnimations(document)].filter(
         (animation) => animation.playState !== 'finished',
       )
@@ -262,7 +331,10 @@ async function openVisualMarkdownEditor(page: Page, width: number): Promise<void
   await settleResponsiveLayout(page)
 }
 
-async function configureCreateWebsiteEditor(page: Page, state: 'populated' | 'duplicate'): Promise<void> {
+async function configureCreateWebsiteEditor(
+  page: Page,
+  state: 'populated' | 'duplicate' | 'advanced',
+): Promise<void> {
   await page.evaluate((nextState) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -284,7 +356,7 @@ async function configureCreateWebsiteEditor(page: Page, state: 'populated' | 'du
       buildRules(): unknown
     }
 
-    const create = deepFind(document, 'pm-entry-create-desktop') as
+    const create = deepFind(document, 'pm-entry-create-desktop, pm-entry-create-mobile') as
       | (HTMLElement & {model?: {websiteEditor?: WebsiteEditorModel}})
       | null
     const editor = create?.model?.websiteEditor
@@ -297,7 +369,7 @@ async function configureCreateWebsiteEditor(page: Page, state: 'populated' | 'du
       secondRowId,
       nextState === 'duplicate' ? 'https://example.com/' : 'https://account.example.com/sign-in',
     )
-    editor.updateMatch(secondRowId, 'exact')
+    if (nextState === 'advanced') editor.updateMatch(secondRowId, 'exact')
     if (nextState === 'duplicate') editor.buildRules()
   }, state)
 
@@ -322,7 +394,7 @@ async function configureCreateWebsiteEditor(page: Page, state: 'populated' | 'du
     return Boolean(hasRows && hasExpectedError)
   }, state)
 
-  if (state === 'populated') {
+  if (state === 'advanced') {
     await page.evaluate(() => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
         const found = root.querySelector(selector)
@@ -337,8 +409,8 @@ async function configureCreateWebsiteEditor(page: Page, state: 'populated' | 'du
       }
 
       const editor = deepFind(document, 'pm-entry-website-editor') as HTMLElement | null
-      const details = editor?.shadowRoot?.querySelectorAll<HTMLDetailsElement>('details')[1]
-      if (!details) throw new Error('Secondary website settings were not available')
+      const details = editor?.shadowRoot?.querySelector<HTMLDetailsElement>('.advanced-settings')
+      if (!details) throw new Error('Advanced website settings were not available')
       details.open = true
     })
   }
@@ -348,8 +420,13 @@ async function configureCreateWebsiteEditor(page: Page, state: 'populated' | 'du
   )
 }
 
-async function showStructuredDesktopEntry(page: Page): Promise<void> {
-  await page.evaluate(() => {
+async function showVisualEntry(
+  page: Page,
+  layout: 'desktop' | 'mobile',
+  expectedUrlCount: number,
+  entryId = 'visual-github',
+): Promise<void> {
+  await page.evaluate((targetEntryId) => {
     const passmanager = (
       window as unknown as {
         passmanager?: {
@@ -358,31 +435,36 @@ async function showStructuredDesktopEntry(page: Page): Promise<void> {
         }
       }
     ).passmanager
-    const entry = passmanager?.entriesList?.().find((item) => item.id === 'visual-github')
-    if (!entry) throw new Error('Structured website visual entry was not available')
+    const entry = passmanager?.entriesList?.().find((item) => item.id === targetEntryId)
+    if (!entry) throw new Error(`Visual entry was not available: ${targetEntryId}`)
     passmanager?.showElement?.set(entry)
-  })
+  }, entryId)
 
-  await waitForDeepSelector(page, 'pm-entry')
-  await page.waitForFunction(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (element.shadowRoot) {
-          const inner = deepFind(element.shadowRoot, selector)
-          if (inner) return inner
+  const componentSelector = layout === 'desktop' ? 'pm-entry' : 'pm-entry-mobile'
+  const urlSelector = layout === 'desktop' ? '.url-link' : '.website-row'
+  await waitForDeepSelector(page, componentSelector)
+  await page.waitForFunction(
+    ({componentSelector, expectedUrlCount, urlSelector}) => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) {
+            const inner = deepFind(element.shadowRoot, selector)
+            if (inner) return inner
+          }
         }
+        return null
       }
-      return null
-    }
 
-    const entry = deepFind(document, 'pm-entry') as HTMLElement | null
-    return entry?.shadowRoot?.querySelectorAll('.url-link').length === 4
-  })
+      const entry = deepFind(document, componentSelector) as HTMLElement | null
+      return entry?.shadowRoot?.querySelectorAll(urlSelector).length === expectedUrlCount
+    },
+    {componentSelector, expectedUrlCount, urlSelector},
+  )
 }
 
-async function getCreateWebsiteFooterOverlap(page: Page): Promise<number> {
+async function getCreateWebsiteActionOverlap(page: Page): Promise<number> {
   return page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -397,12 +479,21 @@ async function getCreateWebsiteFooterOverlap(page: Page): Promise<number> {
     }
 
     const editor = deepFind(document, 'pm-entry-website-editor') as HTMLElement | null
-    const addButton = editor?.shadowRoot?.querySelector('fieldset > cv-button')
-    const footer = deepFind(document, '.create-footer')
+    const addButton = editor?.shadowRoot?.querySelector('.add-website')
+    const createAction = deepFind(document, '[data-create-entry-submit]')
     const buttonRect = addButton?.getBoundingClientRect()
-    const footerRect = footer?.getBoundingClientRect()
-    if (!buttonRect || !footerRect) return -1
-    return Math.max(0, Math.ceil(buttonRect.bottom - footerRect.top))
+    const actionRect = createAction?.getBoundingClientRect()
+    if (!buttonRect || !actionRect) return -1
+
+    const inlineOverlap = Math.max(
+      0,
+      Math.min(buttonRect.right, actionRect.right) - Math.max(buttonRect.left, actionRect.left),
+    )
+    const blockOverlap = Math.max(
+      0,
+      Math.min(buttonRect.bottom, actionRect.bottom) - Math.max(buttonRect.top, actionRect.top),
+    )
+    return Math.ceil(inlineOverlap * blockOverlap)
   })
 }
 
@@ -421,7 +512,7 @@ async function revealCreateWebsiteActions(page: Page): Promise<void> {
     }
 
     const editor = deepFind(document, 'pm-entry-website-editor') as HTMLElement | null
-    editor?.shadowRoot?.querySelector('fieldset > cv-button')?.scrollIntoView({block: 'center'})
+    editor?.shadowRoot?.querySelector('.add-website')?.scrollIntoView({block: 'center'})
   })
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
@@ -2617,11 +2708,12 @@ test('visual: desktop credentials populated workbench', async (ctx) => {
   if (!page) return
 
   await installFixedVisualClock(page)
-  await seedVisualPassmanagerFixture()
+  await seedVisualPassmanagerFixture({positiveCredentialRisks: true})
   await openPasswords(page, 'desktop')
   await waitForDeepSelector(page, 'password-manager-desktop-toolbar')
   await waitForDeepSelector(page, 'pm-group')
   await waitForDeepSelector(page, 'pm-entry-list-item')
+  await waitForDeepSelector(page, '.status-context-summary[data-security-status="ready"]')
 
   expect(await hasDeepSelector(page, 'password-manager-desktop-layout')).toBe(true)
   expect(await hasDeepSelector(page, '.sidebar')).toBe(true)
@@ -2629,10 +2721,12 @@ test('visual: desktop credentials populated workbench', async (ctx) => {
   expect(await hasDeepSelector(page, '.group-metrics-strip')).toBe(false)
   expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
   expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'status-bar')).toBe(false)
 
   await assertVisualSnapshot(page, 'desktop-password-manager-surface', {
     suite: 'password-manager',
     viewport: {width: 1280, height: 720},
+    maxDiffRatio: 0.0005,
   })
 })
 
@@ -2641,12 +2735,13 @@ test('visual: desktop credentials constrained workbench', async (ctx) => {
   if (!page) return
 
   await installFixedVisualClock(page)
-  await seedVisualPassmanagerFixture()
+  await seedVisualPassmanagerFixture({positiveCredentialRisks: true})
   await openPasswords(page, 'desktop')
   await page.setViewportSize({width: 960, height: 720})
   await waitForDeepSelector(page, 'password-manager-desktop-toolbar')
   await waitForDeepSelector(page, 'pm-group')
   await waitForDeepSelector(page, 'pm-entry-list-item')
+  await waitForDeepSelector(page, '.status-context-summary[data-security-status="ready"]')
   await settleResponsiveLayout(page)
 
   expect(await hasDeepSelector(page, '.sidebar')).toBe(true)
@@ -2654,11 +2749,173 @@ test('visual: desktop credentials constrained workbench', async (ctx) => {
   expect(await hasDeepSelector(page, '.group-metrics-strip')).toBe(false)
   expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
   expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'status-bar')).toBe(false)
 
   await assertVisualSnapshot(page, 'desktop-credentials-constrained-960', {
     suite: 'password-manager',
     viewport: {width: 960, height: 720},
+    maxDiffRatio: 0.0005,
   })
+})
+
+test('visual: desktop credentials filters popover dark constrained', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await page.setViewportSize({width: 960, height: 720})
+  await setRootTheme(page, 'dark')
+
+  try {
+    await waitForDeepSelector(page, 'password-manager-desktop-toolbar')
+    await openPasswordToolbarPopover(page, 'cv-popover.filters-popover')
+
+    expect(await hasDeepSelector(page, 'cv-popover.filters-popover[open]')).toBe(true)
+    expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+
+    await assertVisualSnapshot(page, 'desktop-credentials-filters-dark-960', {
+      suite: 'password-manager',
+      viewport: {width: 960, height: 720},
+      maxDiffRatio: 0,
+    })
+  } finally {
+    await setRootTheme(page, 'light')
+  }
+})
+
+test('visual: desktop tag manager drawer populated', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await page.setViewportSize({width: 1280, height: 800})
+  await page.evaluate(() => {
+    const passmanager = (window as any).passmanager
+    passmanager.credentialTags.set([
+      'Work',
+      'Personal',
+      'Production',
+      'Security Audit',
+      'Rotate Credentials Quarterly',
+    ])
+    passmanager.credentialTagMeta.set({
+      work: {colorId: 'orange'},
+      personal: {colorId: 'pink'},
+      production: {colorId: 'amber'},
+      'security-audit': {colorId: 'cyan'},
+      'rotate-credentials-quarterly': {colorId: 'violet'},
+    })
+  })
+  await openDesktopTagManager(page)
+
+  expect(await hasDeepSelector(page, 'cv-popover.filters-popover[open]')).toBe(false)
+  expect(await hasDeepSelector(page, 'pm-desktop-tag-manager-drawer')).toBe(true)
+  expect(await hasDeepSelector(page, 'pm-mobile-tag-filter-sheet')).toBe(false)
+  expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-tag-manager-drawer-populated-1280', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 800},
+    maxDiffRatio: 0,
+  })
+})
+
+test('visual: desktop tag manager drawer no results dark RTL', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await page.setViewportSize({width: 960, height: 720})
+  await page.evaluate(() => {
+    document.documentElement.dir = 'rtl'
+    const passmanager = (window as any).passmanager
+    passmanager.credentialTags.set(['Work', 'Personal', 'Security Audit'])
+  })
+  await setRootTheme(page, 'dark')
+
+  try {
+    await openDesktopTagManager(page)
+    await page.evaluate(() => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) {
+            const inner = deepFind(element.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const host = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
+      host?.shadowRoot?.querySelector('#pm-tag-catalog-search')?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {value: 'No matching tag'},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+    })
+    await page.waitForFunction(() => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (element.shadowRoot) {
+            const inner = deepFind(element.shadowRoot, selector)
+            if (inner) return inner
+          }
+        }
+        return null
+      }
+
+      const host = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
+      return Boolean(host?.shadowRoot?.querySelector('.no-results'))
+    })
+
+    expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+
+    await assertVisualSnapshot(page, 'desktop-tag-manager-drawer-no-results-dark-rtl-960', {
+      suite: 'password-manager',
+      viewport: {width: 960, height: 720},
+    })
+  } finally {
+    await page.evaluate(() => document.documentElement.removeAttribute('dir'))
+    await setRootTheme(page, 'light')
+  }
+})
+
+test('visual: desktop credentials sort popover dark', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await setRootTheme(page, 'dark')
+
+  try {
+    await waitForDeepSelector(page, 'password-manager-desktop-toolbar')
+    await openPasswordToolbarPopover(page, 'cv-popover.sort-popover')
+
+    expect(await hasDeepSelector(page, 'cv-popover.sort-popover[open]')).toBe(true)
+    expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
+
+    await assertVisualSnapshot(page, 'desktop-credentials-sort-dark', {
+      suite: 'password-manager',
+      viewport: {width: 1280, height: 720},
+      maxDiffRatio: 0,
+    })
+  } finally {
+    await setRootTheme(page, 'light')
+  }
 })
 
 test('visual: desktop credentials empty dark', async (ctx) => {
@@ -2915,7 +3172,7 @@ test('visual: wide desktop credential tag snippet overflow', async (ctx) => {
   })
 })
 
-test('visual: desktop create entry footer CTA', async (ctx) => {
+test('visual: desktop create entry workbench', async (ctx) => {
   const page = getPage(ctx)
   if (!page) return
 
@@ -2933,6 +3190,82 @@ test('visual: desktop create entry footer CTA', async (ctx) => {
   })
 })
 
+test('visual: desktop create entry dark workbench', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await showCreateEntry(page, 'desktop')
+  await setRootTheme(page, 'dark')
+
+  expect(await hasDeepSelector(page, 'pm-entry-create-desktop')).toBe(true)
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-create-entry-dark', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 720},
+  })
+})
+
+test('visual: desktop create entry compact workbench', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await showCreateEntry(page, 'desktop')
+  await page.setViewportSize({width: 960, height: 1000})
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-create-entry-compact-960', {
+    suite: 'password-manager',
+    viewport: {width: 960, height: 1000},
+  })
+})
+
+test('visual: desktop create entry payment card workbench', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await showCreateEntry(page, 'desktop')
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    deepFind(document, '.entry-type-switch')?.dispatchEvent(
+      new CustomEvent('cv-change', {
+        detail: {value: 'payment_card'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+  })
+  await waitForDeepSelector(page, 'cv-input[name="cardNumber"]')
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-create-entry-payment-card', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 720},
+  })
+})
+
 test('visual: desktop create entry structured websites', async (ctx) => {
   const page = getPage(ctx)
   if (!page) return
@@ -2945,7 +3278,7 @@ test('visual: desktop create entry structured websites', async (ctx) => {
   await configureCreateWebsiteEditor(page, 'populated')
 
   expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
-  expect(await page.locator('pm-entry-website-editor details[open]').count()).toBe(1)
+  expect(await page.locator('pm-entry-website-editor details').count()).toBe(0)
 
   await assertVisualSnapshot(page, 'desktop-create-entry-structured-websites-960', {
     suite: 'password-manager',
@@ -2953,7 +3286,28 @@ test('visual: desktop create entry structured websites', async (ctx) => {
     clipSelector: 'pm-entry-website-editor',
   })
   await revealCreateWebsiteActions(page)
-  expect(await getCreateWebsiteFooterOverlap(page)).toBe(0)
+  expect(await getCreateWebsiteActionOverlap(page)).toBe(0)
+})
+
+test('visual: desktop create entry advanced website matching compatibility', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await showCreateEntry(page, 'desktop')
+  await page.setViewportSize({width: 960, height: 1000})
+  await configureCreateWebsiteEditor(page, 'advanced')
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(await page.locator('pm-entry-website-editor details[open]').count()).toBe(1)
+
+  await assertVisualSnapshot(page, 'desktop-create-entry-advanced-website-matching', {
+    suite: 'password-manager',
+    viewport: {width: 960, height: 1000},
+    clipSelector: 'pm-entry-website-editor',
+  })
 })
 
 test('visual: desktop create entry duplicate website error', async (ctx) => {
@@ -2975,7 +3329,7 @@ test('visual: desktop create entry duplicate website error', async (ctx) => {
     clipSelector: 'pm-entry-website-editor',
   })
   await revealCreateWebsiteActions(page)
-  expect(await getCreateWebsiteFooterOverlap(page)).toBe(0)
+  expect(await getCreateWebsiteActionOverlap(page)).toBe(0)
 })
 
 test('visual: desktop entry structured website rules', async (ctx) => {
@@ -2985,7 +3339,7 @@ test('visual: desktop entry structured website rules', async (ctx) => {
   await installFixedVisualClock(page)
   await seedVisualPassmanagerFixture({structuredWebsites: true})
   await openPasswords(page, 'desktop')
-  await showStructuredDesktopEntry(page)
+  await showVisualEntry(page, 'desktop', 4)
 
   expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
   expect(await page.locator('pm-entry .website-primary-marker').count()).toBe(1)
@@ -2995,6 +3349,329 @@ test('visual: desktop entry structured website rules', async (ctx) => {
     suite: 'password-manager',
     viewport: {width: 1280, height: 720},
     clipSelector: 'pm-entry',
+  })
+})
+
+test('visual: desktop entry details workbench', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerTagSnippetFixture()
+  await openPasswords(page, 'desktop')
+  await showVisualEntry(page, 'desktop', 1, 'visual-tag-snippet')
+  await waitForDeepSelector(page, '.entry-inspector')
+  await waitForDeepSelector(page, '.password-input')
+  await setRootTheme(page, 'light')
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(await page.locator('pm-entry .credential-field').count()).toBe(3)
+  expect(await page.locator('pm-entry .entry-detail-row').count()).toBe(4)
+  expect(await page.locator('pm-entry .entry-status').count()).toBe(2)
+
+  await assertVisualSnapshot(page, 'desktop-entry-details-workbench-1280', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 720},
+    maxDiffRatio: 0.0005,
+  })
+})
+
+test('visual: desktop entry details workbench dark', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerTagSnippetFixture()
+  await openPasswords(page, 'desktop')
+  await showVisualEntry(page, 'desktop', 1, 'visual-tag-snippet')
+  await waitForDeepSelector(page, '.password-input')
+  await setRootTheme(page, 'dark')
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-entry-details-workbench-dark-1280', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 720},
+    maxDiffRatio: 0.0005,
+  })
+})
+
+test('visual: desktop entry edit workbench dark', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture({positiveCredentialRisks: true})
+  await openPasswords(page, 'desktop')
+  await page.setViewportSize({width: 1280, height: 1000})
+  await settleResponsiveLayout(page)
+  await showVisualEntry(page, 'desktop', 1, 'visual-vpn')
+  await waitForDeepSelector(page, '.password-input')
+  const readUsernameBox = await page
+    .locator('pm-entry .credential-field[data-field="username"] .field-value')
+    .boundingBox()
+  await page.locator("pm-entry .entry-primary-action[data-action='edit-entry']").click()
+  await waitForDeepSelector(page, '.entry-edit-save-action')
+  await waitForDeepSelector(page, "cv-input[name='inline-password']")
+  await waitForDeepSelector(page, 'pm-entry-website-editor[presentation="workbench"]')
+  await setRootTheme(page, 'dark')
+
+  const editUsernameBox = await page.locator('pm-entry cv-input[name="inline-username"]').boundingBox()
+  const editWebsiteBox = await page.locator('pm-entry-website-editor cv-input').first().boundingBox()
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(Math.abs((editUsernameBox?.x ?? 0) - (readUsernameBox?.x ?? 0))).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(
+      ((editUsernameBox?.x ?? 0) + (editUsernameBox?.width ?? 0)) -
+        ((editWebsiteBox?.x ?? 0) + (editWebsiteBox?.width ?? 0)),
+    ),
+  ).toBeLessThanOrEqual(1)
+  expect(await page.locator('pm-entry .credential-field-editing').count()).toBe(3)
+  expect(await page.locator('pm-entry [role="meter"]').count()).toBe(1)
+  expect(await page.locator('pm-entry .generator-toggle-button').getAttribute('aria-expanded')).toBe('false')
+
+  await assertVisualSnapshot(page, 'desktop-entry-edit-workbench-dark-1280', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 1000},
+    maxDiffRatio: 0,
+  })
+})
+
+test('visual: desktop entry edit workbench compact with generator', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture({positiveCredentialRisks: true})
+  await openPasswords(page, 'desktop')
+  await showVisualEntry(page, 'desktop', 1, 'visual-vpn')
+  await waitForDeepSelector(page, '.password-input')
+  await page.setViewportSize({width: 840, height: 1500})
+  await settleResponsiveLayout(page)
+  const readUsernameBox = await page
+    .locator('pm-entry .credential-field[data-field="username"] .field-value')
+    .boundingBox()
+  await page.locator("pm-entry .entry-primary-action[data-action='edit-entry']").click()
+  await waitForDeepSelector(page, '.entry-edit-save-action')
+  await page.locator('pm-entry .generator-toggle-button').click()
+  await waitForDeepSelector(page, '.password-generator-panel-shell')
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    type WebsiteEditorModel = {
+      add(): string
+      updateValue(rowId: string, value: string): void
+    }
+
+    const entry = deepFind(document, 'pm-entry') as
+      | (HTMLElement & {model?: {websiteEditor?: WebsiteEditorModel}})
+      | null
+    const websiteEditor = entry?.model?.websiteEditor
+    if (!websiteEditor) throw new Error('Entry website editor model was not available')
+
+    const rowId = websiteEditor.add()
+    websiteEditor.updateValue(rowId, 'https://backup.vpn.example.test')
+  })
+  await waitForDeepSelector(page, '.row.removable')
+  await settleResponsiveLayout(page)
+
+  const transitionWorkbenchWidth = await page
+    .locator('pm-entry .entry-edit-workbench')
+    .evaluate((workbench) => workbench.getBoundingClientRect().width)
+  const transitionUsernameBox = await page.locator('pm-entry cv-input[name="inline-username"]').boundingBox()
+  const transitionWebsiteBox = await page.locator('pm-entry-website-editor cv-input').first().boundingBox()
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(transitionWorkbenchWidth).toBeGreaterThanOrEqual(464)
+  expect(transitionWorkbenchWidth).toBeLessThan(520)
+  expect(Math.abs((transitionUsernameBox?.x ?? 0) - (readUsernameBox?.x ?? 0))).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(
+      ((transitionUsernameBox?.x ?? 0) + (transitionUsernameBox?.width ?? 0)) -
+        ((transitionWebsiteBox?.x ?? 0) + (transitionWebsiteBox?.width ?? 0)),
+    ),
+  ).toBeLessThanOrEqual(1)
+
+  await page.setViewportSize({width: 820, height: 1500})
+  await settleResponsiveLayout(page)
+
+  const stackedWorkbenchWidth = await page
+    .locator('pm-entry .entry-edit-workbench')
+    .evaluate((workbench) => workbench.getBoundingClientRect().width)
+  const stackedLabelBox = await page
+    .locator('pm-entry .credential-field[data-field="username"] .field-label')
+    .boundingBox()
+  const stackedUsernameBox = await page.locator('pm-entry cv-input[name="inline-username"]').boundingBox()
+  const stackedWebsiteBox = await page.locator('pm-entry-website-editor cv-input').first().boundingBox()
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(stackedWorkbenchWidth).toBeLessThan(466)
+  expect(Math.abs((stackedUsernameBox?.x ?? 0) - (stackedLabelBox?.x ?? 0))).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(
+      ((stackedUsernameBox?.x ?? 0) + (stackedUsernameBox?.width ?? 0)) -
+        ((stackedWebsiteBox?.x ?? 0) + (stackedWebsiteBox?.width ?? 0)),
+    ),
+  ).toBeLessThanOrEqual(1)
+  expect(await page.locator('pm-entry .generator-toggle-button').getAttribute('aria-expanded')).toBe('true')
+  expect(await page.locator('pm-entry-website-editor .row').count()).toBe(2)
+
+  await assertVisualSnapshot(page, 'desktop-entry-edit-workbench-compact-generator-820', {
+    suite: 'password-manager',
+    viewport: {width: 820, height: 1500},
+    maxDiffRatio: 0,
+  })
+})
+
+test('visual: desktop entry OTP label edit constrained', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture({positiveCredentialRisks: true})
+  await openPasswords(page, 'desktop')
+  await showVisualEntry(page, 'desktop', 1, 'visual-github')
+  await waitForDeepSelector(page, '.password-input')
+  await waitForDeepSelector(page, '.totp-digit')
+  await page.setViewportSize({width: 840, height: 1350})
+  await settleResponsiveLayout(page)
+  await page.locator("pm-entry .entry-primary-action[data-action='edit-entry']").click()
+  await waitForDeepSelector(page, "cv-input[data-otp-label-input='visual-github-otp']")
+  await setRootTheme(page, 'dark')
+  await settleResponsiveLayout(page)
+
+  const [rowBox, otpBox, labelBox, cardBox, timerBox] = await Promise.all([
+    page.locator('pm-entry .otp-label-edit-row').boundingBox(),
+    page.locator('pm-entry .otp-label-edit-row > pm-entry-otp-item').boundingBox(),
+    page.locator('pm-entry .otp-label-edit-row > cv-field').boundingBox(),
+    page.locator('pm-entry-totp-item .totp-card').boundingBox(),
+    page.locator('pm-entry-totp-item .totp-arc-timer').boundingBox(),
+  ])
+  if (!rowBox || !otpBox || !labelBox || !cardBox || !timerBox) {
+    throw new Error('Constrained OTP editor geometry was not available')
+  }
+
+  const digitBoxes = await page.locator('pm-entry-totp-item .totp-digit').evaluateAll((digits) =>
+    digits.map((digit) => {
+      const box = digit.getBoundingClientRect()
+      return {left: box.left, right: box.right}
+    }),
+  )
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(
+    await page
+      .locator("pm-entry cv-input[data-otp-label-input='visual-github-otp']")
+      .evaluate((input: HTMLElement & {value: string}) => input.value),
+  ).toBe('Primary')
+  expect(digitBoxes).toHaveLength(6)
+  expect(otpBox.y + otpBox.height).toBeLessThanOrEqual(labelBox.y + 1)
+  expect(Math.abs(otpBox.x - labelBox.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(otpBox.width - labelBox.width)).toBeLessThanOrEqual(1)
+  expect(otpBox.x).toBeGreaterThanOrEqual(rowBox.x - 1)
+  expect(otpBox.x + otpBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1)
+  for (const digitBox of digitBoxes) {
+    expect(digitBox.left).toBeGreaterThanOrEqual(cardBox.x - 1)
+    expect(digitBox.right).toBeLessThanOrEqual(timerBox.x + 1)
+  }
+  expect(timerBox.x + timerBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1)
+
+  await assertVisualSnapshot(page, 'desktop-entry-otp-label-edit-840', {
+    suite: 'password-manager',
+    viewport: {width: 840, height: 1350},
+    clipSelector: '.otp-label-edit-row',
+    maxDiffRatio: 0.001,
+  })
+})
+
+test('visual: desktop entry details workbench compact', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerTagSnippetFixture()
+  await openPasswords(page, 'desktop')
+  await showVisualEntry(page, 'desktop', 1, 'visual-tag-snippet')
+  await waitForDeepSelector(page, '.password-input')
+  await page.setViewportSize({width: 960, height: 1350})
+  await settleResponsiveLayout(page)
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+
+  await assertVisualSnapshot(page, 'desktop-entry-details-workbench-compact-960', {
+    suite: 'password-manager',
+    viewport: {width: 960, height: 1350},
+    maxDiffRatio: 0,
+  })
+})
+
+test('visual: desktop payment card details workbench', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPaymentCardEntryFixture()
+  await openPasswords(page, 'desktop')
+  await showVisualEntry(page, 'desktop', 0, 'visual-card-details')
+  await waitForDeepSelector(page, '.payment-card-face')
+  await waitForDeepSelector(page, '.entry-inspector')
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-desktop-layout')).toBe(false)
+  expect(await page.locator('pm-entry .entry-status').count()).toBe(1)
+
+  await assertVisualSnapshot(page, 'desktop-payment-card-details-workbench-1280', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 720},
+    maxDiffRatio: 0,
+  })
+})
+
+test('visual: desktop entry single website hides primary marker', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'desktop')
+  await showVisualEntry(page, 'desktop', 1)
+
+  expect(await page.locator('pm-entry .website-primary-marker').count()).toBe(0)
+
+  await assertVisualSnapshot(page, 'desktop-entry-single-website', {
+    suite: 'password-manager',
+    viewport: {width: 1280, height: 720},
+    clipSelector: '.urls-list',
+  })
+})
+
+test('visual: mobile entry single website hides primary marker', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'mobile', undefined, 390)
+  await showVisualEntry(page, 'mobile', 1)
+
+  expect(await page.locator('pm-entry-mobile .website-primary-marker').count()).toBe(0)
+  await page.locator('pm-entry-mobile .website-list').scrollIntoViewIfNeeded()
+  await settleResponsiveLayout(page)
+
+  await assertVisualSnapshot(page, 'mobile-entry-single-website-390', {
+    suite: 'password-manager',
+    viewport: {width: 390, height: 844},
+    clipSelector: '.website-list',
   })
 })
 
@@ -3017,6 +3694,48 @@ test('visual: mobile create entry footer CTA', async (ctx) => {
   await assertVisualSnapshot(page, 'mobile-create-entry-390', {
     suite: 'password-manager',
     viewport: {width: 390, height: 844},
+  })
+})
+
+test('visual: mobile create entry multiple websites', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'mobile', undefined, 390)
+  await showCreateEntry(page, 'mobile')
+  await configureCreateWebsiteEditor(page, 'populated')
+  await revealCreateWebsiteActions(page)
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-mobile-layout')).toBe(false)
+  expect(await page.locator('pm-entry-website-editor .remove-website').count()).toBe(1)
+  expect(await page.locator('pm-entry-website-editor details').count()).toBe(0)
+
+  await assertVisualSnapshot(page, 'mobile-create-entry-websites-390', {
+    suite: 'password-manager',
+    viewport: {width: 390, height: 844},
+    clipSelector: 'pm-entry-website-editor',
+  })
+})
+
+test('visual: mobile create entry advanced website matching compatibility', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualPassmanagerFixture()
+  await openPasswords(page, 'mobile', undefined, 390)
+  await showCreateEntry(page, 'mobile')
+  await configureCreateWebsiteEditor(page, 'advanced')
+
+  expect(await hasHorizontalOverflow(page, 'password-manager-mobile-layout')).toBe(false)
+  expect(await page.locator('pm-entry-website-editor details[open]').count()).toBe(1)
+
+  await assertVisualSnapshot(page, 'mobile-create-entry-advanced-website-matching-390', {
+    suite: 'password-manager',
+    viewport: {width: 390, height: 1200},
+    clipSelector: 'pm-entry-website-editor',
   })
 })
 
@@ -3281,7 +4000,9 @@ test('visual: desktop OTP quick view shared gutter', async (ctx) => {
   await waitForOtpRows(page, 3)
 
   expect(await hasDeepSelector(page, 'pm-otp-quick-view')).toBe(true)
+  expect(await hasDeepSelector(page, '.status-context-summary')).toBe(true)
   expect(await hasHorizontalOverflow(page, 'pm-otp-quick-view')).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'status-bar')).toBe(false)
 
   await assertVisualSnapshot(page, 'desktop-otp-quick-view', {
     suite: 'otp-quick-view',
@@ -3321,6 +4042,7 @@ test('visual: desktop notes quick view shared gutter', async (ctx) => {
   expect(await hasDeepSelector(page, 'status-bar')).toBe(true)
   expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
   expect(await hasHorizontalOverflow(page, 'notes-quick-view')).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'status-bar')).toBe(false)
 
   await assertVisualSnapshot(page, 'desktop-notes-quick-view', {
     suite: 'notes-quick-view',
@@ -3336,6 +4058,33 @@ test('visual: constrained desktop notes quick view', async (ctx) => {
   await seedVisualNotesFixture()
   await openNotes(page, 'desktop')
   await page.setViewportSize({width: 960, height: 720})
+  await page
+    .locator('workspace-dashboard-header[surface="notes"] cv-input.search-box')
+    .evaluate((search: HTMLElement & {value: string}) => {
+      search.value = 'Roadmap'
+      search.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {value: 'Roadmap'},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+    })
+  await page.waitForFunction(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) {
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    return deepFind(document, '[data-summary-id="count"]')?.textContent?.includes('1 of 3 notes')
+  })
   await settleResponsiveLayout(page)
 
   expect(await hasDeepSelector(page, 'notes-quick-view')).toBe(true)
@@ -3343,6 +4092,7 @@ test('visual: constrained desktop notes quick view', async (ctx) => {
   expect(await hasDeepSelector(page, 'status-bar')).toBe(true)
   expect(await hasDocumentHorizontalOverflow(page)).toBe(false)
   expect(await hasHorizontalOverflow(page, 'notes-quick-view')).toBe(false)
+  expect(await hasHorizontalOverflow(page, 'status-bar')).toBe(false)
 
   await assertVisualSnapshot(page, 'desktop-notes-quick-view-960', {
     suite: 'notes-quick-view',

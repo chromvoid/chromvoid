@@ -14,6 +14,7 @@ import {CVRadioGroup} from '@chromvoid/uikit/components/cv-radio-group'
 import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
+import {dashboardToolbarSearchStyles} from 'root/shared/ui/dashboard-toolbar-search.styles'
 import {animationStyles, sharedStyles} from 'root/shared/ui/shared-styles'
 import {
   beginMobileFilePickerSession,
@@ -287,6 +288,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
   static styles = [
     sharedStyles,
     animationStyles,
+    dashboardToolbarSearchStyles,
     css`
       :host {
         display: block;
@@ -2195,7 +2197,10 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     )
   }
 
-  private renderWorkspaceSearch(controls: WorkspaceDashboardHeaderControlsModel | null) {
+  private renderWorkspaceSearch(
+    controls: WorkspaceDashboardHeaderControlsModel | null,
+    desktopToolbar = false,
+  ) {
     const search = controls?.search
     if (!search) return nothing
 
@@ -2204,10 +2209,10 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
 
     return html`
       <cv-input
-        class="search-box workspace-search"
+        class="search-box workspace-search dashboard-toolbar-search"
         type="search"
-        variant="filled"
-        preset="search-mobile"
+        variant=${desktopToolbar ? 'outlined' : 'filled'}
+        preset=${desktopToolbar ? nothing : 'search-mobile'}
         clearable
         .value=${readModelValue(search.value)}
         placeholder=${placeholder || label}
@@ -2446,7 +2451,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
                 <slot name="subtitle" @slotchange=${this.handleSlotChange}></slot>
               </span>
             </div>
-            ${this.renderWorkspaceSearch(controls)}
+            ${this.renderWorkspaceSearch(controls, true)}
             ${this.renderWorkspaceFilterChips(controls)}
             ${this.renderWorkspaceSortControl(controls)}
             ${this.renderWorkspaceViewModeSwitch(controls)}

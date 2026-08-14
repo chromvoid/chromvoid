@@ -770,6 +770,7 @@ describe('PMEntryMobile', () => {
 
     const link = component.shadowRoot?.querySelector<HTMLAnchorElement>('.website-open')
     expect(link).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('.website-primary-marker')).toBeNull()
     const href = link?.getAttribute('href')
 
     const click = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
@@ -949,6 +950,46 @@ describe('PMEntryMobile', () => {
     expect(titleInput?.hasAttribute('autofocus')).toBe(false)
     expect(component.shadowRoot?.activeElement).not.toBe(titleInput)
     expect(titleInput?.shadowRoot?.activeElement).not.toBe(nativeTitleInput)
+  })
+
+  it('renders a blank title error inline and focuses the title after Save', async () => {
+    const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
+    const update = vi.spyOn(entry, 'update').mockResolvedValue(undefined)
+
+    window.passmanager = {
+      isReadOnly: () => false,
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry-mobile') as PMEntryMobile
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+    await activateEntryEditMode(component, entry)
+
+    getCvInput(component, 'inline-title')?.dispatchEvent(
+      new CustomEvent('cv-input', {
+        detail: {value: ''},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await settle(component)
+
+    component.shadowRoot?.querySelector<HTMLElement>('.entry-edit-save-action')?.click()
+    await settleFocus(component)
+
+    const titleInput = getCvInput(component, 'inline-title')
+    const nativeTitleInput = getNativeInput(component, 'inline-title')
+    const titleError = component.shadowRoot?.querySelector('.entry-title-error')
+
+    expect(update).not.toHaveBeenCalled()
+    expect(titleInput?.hasAttribute('required')).toBe(true)
+    expect(titleInput?.hasAttribute('invalid')).toBe(true)
+    expect(nativeTitleInput?.getAttribute('aria-required')).toBe('true')
+    expect(nativeTitleInput?.getAttribute('aria-label')).toContain('Title is required')
+    expect(titleError?.textContent).toContain('Title is required')
+    expect(component.shadowRoot?.querySelector('.entry-edit-error')).toBeNull()
+    expectFocusedInput(component, 'inline-title')
   })
 
   it('opens the shared mobile tag sheet and saves its entry selection', async () => {

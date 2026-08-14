@@ -35,6 +35,7 @@ const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3
 const HOST_LOCK_NOTIFICATION_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
 const MOBILE_USB_HOST_UNLOCK_CONFIRMED: &str = "mobile_usb:host_unlock_confirmed";
 const MOBILE_USB_HOST_LOCKED: &str = "mobile_usb:host_locked";
+const MOBILE_USB_SESSION_APPROVAL_EXPIRED: &str = "mobile_usb:session_approval_expired";
 const MOBILE_USB_SESSION_DISCONNECT: &str = "mobile_usb:session_disconnect";
 const CATALOG_DERIVATIVE_ENSURE: &str = "catalog:derivative:ensure";
 const RECENT_DERIVATIVE_ENSURE_IDS_LIMIT: usize = 64;
@@ -114,6 +115,17 @@ async fn send_mobile_usb_host_locked(
     server_msg_id: &mut u64,
 ) -> RemoteIoResult<()> {
     let request = RpcRequest::new(MOBILE_USB_HOST_LOCKED, serde_json::json!({}));
+    let frame = frame_from_push_request(*server_msg_id, &request)?;
+    *server_msg_id = server_msg_id.wrapping_add(1).max(1);
+    send_encrypted_frame_typed(transport, noise, frame).await
+}
+
+async fn send_mobile_usb_session_approval_expired(
+    transport: &mut dyn RemoteTransport,
+    noise: &mut NoiseTransport,
+    server_msg_id: &mut u64,
+) -> RemoteIoResult<()> {
+    let request = RpcRequest::new(MOBILE_USB_SESSION_APPROVAL_EXPIRED, serde_json::json!({}));
     let frame = frame_from_push_request(*server_msg_id, &request)?;
     *server_msg_id = server_msg_id.wrapping_add(1).max(1);
     send_encrypted_frame_typed(transport, noise, frame).await
@@ -537,12 +549,41 @@ async fn run_host_rpc_loop_inner(
                         ));
                     }
                     UsbSessionApprovalDecision::Expired => {
+                        super::notify_usb_session_approval_resolved(&attempt_id, "expired");
+                        match tokio::time::timeout(
+                            HOST_LOCK_NOTIFICATION_TIMEOUT,
+                            send_mobile_usb_session_approval_expired(
+                                transport.as_mut(),
+                                &mut noise,
+                                &mut server_msg_id,
+                            ),
+                        )
+                        .await
+                        {
+                            Ok(Ok(())) => info!(
+                                peer_id,
+                                attempt_id = %crate::mobile_usb::observability::redacted_identifier(Some(&attempt_id)),
+                                "mobile_acceptor: sent USB session approval expiry notification"
+                            ),
+                            Ok(Err(error)) => warn!(
+                                peer_id,
+                                attempt_id = %crate::mobile_usb::observability::redacted_identifier(Some(&attempt_id)),
+                                error = %error,
+                                "mobile_acceptor: failed to send USB session approval expiry notification"
+                            ),
+                            Err(_) => warn!(
+                                peer_id,
+                                attempt_id = %crate::mobile_usb::observability::redacted_identifier(Some(&attempt_id)),
+                                "mobile_acceptor: USB session approval expiry notification timed out"
+                            ),
+                        }
                         let _ = transport.close().await;
                         return Err(RemoteIoFailure::data_plane_error(
                             "USB session approval expired",
                         ));
                     }
                     UsbSessionApprovalDecision::Missing => {
+                        super::notify_usb_session_approval_resolved(&attempt_id, "not_active");
                         let _ = transport.close().await;
                         return Err(RemoteIoFailure::data_plane_error(
                             "USB session approval disappeared",

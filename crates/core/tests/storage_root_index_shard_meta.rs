@@ -27,7 +27,9 @@ fn test_root_index_includes_passmanager_meta_and_marks_deltas() {
         .as_slice()
         .try_into()
         .expect("salt must be 16 bytes");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::load(keystore.as_ref())
+        .expect("load pepper")
+        .expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     let root_chunk = root_index_chunk_name(&*vault_key, 0);

@@ -2,8 +2,6 @@ import {css} from 'lit'
 
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 import {walletPageMobileFormStyles} from './wallet-page-mobile-form.styles'
@@ -11,8 +9,6 @@ import {walletReceiveStyles} from './wallet-receive.styles'
 
 export const walletPageMobileStyles = [
   sharedStyles,
-  pageTransitionStyles,
-  pageFadeInStyles,
   hostLayoutPaintContainStyles,
   walletPageMobileFormStyles,
   walletReceiveStyles,

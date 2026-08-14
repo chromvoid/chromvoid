@@ -1,4 +1,4 @@
-import {afterEach, beforeAll, describe, expect, it} from 'vitest'
+import {afterEach, beforeAll, describe, expect, it, vi} from 'vitest'
 
 import {CVField} from '@chromvoid/uikit/components/cv-field'
 import {CVInput} from '@chromvoid/uikit/components/cv-input'
@@ -20,6 +20,7 @@ beforeAll(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   document.body.replaceChildren()
 })
 
@@ -38,25 +39,38 @@ describe('PMEntryWebsiteEditorModel', () => {
     expect(model.rowErrors()).toEqual({})
   })
 
-  it('adds, removes, and promotes openable rows without changing their match mode', () => {
+  it('keeps the first row and removes only additional rows', () => {
     const model = new PMEntryWebsiteEditorModel()
     model.reset([
       {value: '^https://first', match: 'regex'},
       {value: 'first.example', match: 'host'},
       {value: 'second.example', match: 'exact'},
     ])
+    const first = model.rows()[0]!
     const secondOpenable = model.rows()[2]
     expect(model.primaryRowId()).toBe(model.rows()[1]?.id)
+    expect(model.hasAdvancedMatching()).toBe(true)
 
-    model.makePrimary(secondOpenable!.id)
-    expect(model.rows()[0]).toMatchObject({value: 'second.example', match: 'exact'})
-    expect(model.primaryRowId()).toBe(secondOpenable!.id)
+    expect(model.remove(first.id)).toBeUndefined()
+    expect(model.rows()).toHaveLength(3)
 
-    model.remove(secondOpenable!.id)
+    expect(model.remove(secondOpenable!.id)).toBe(model.rows()[1]?.id)
     expect(model.primaryValue()).toBe('first.example')
 
     const addedId = model.add()
     expect(model.rows().at(-1)).toMatchObject({id: addedId, value: '', match: 'base_domain'})
+  })
+
+  it('keeps compatibility matching available for an imported entry after resetting its rules', () => {
+    const model = new PMEntryWebsiteEditorModel()
+    model.reset([{value: 'admin.example.com', match: 'exact'}])
+    const firstId = model.rows()[0]!.id
+
+    model.updateMatch(firstId, 'base_domain')
+    expect(model.hasAdvancedMatching()).toBe(true)
+
+    model.reset([{value: 'admin.example.com', match: 'base_domain'}])
+    expect(model.hasAdvancedMatching()).toBe(false)
   })
 
   it('keeps commas in one URL and expands multiline paste into base-domain rows', () => {
@@ -124,14 +138,82 @@ describe('PMEntryWebsiteEditor', () => {
     return editor
   }
 
-  it('renders a persistent description, example-only placeholder, and native disclosure', async () => {
+  it('renders one compact default website row without remove or matching controls', async () => {
     const editor = await renderEditor()
     const root = editor.shadowRoot!
 
-    expect(root.querySelector('.description')?.textContent).toContain('paste one address per line')
+    expect(root.querySelectorAll('.row')).toHaveLength(1)
     expect(root.querySelector<CVInput>('cv-input')?.placeholder).toBe('example.com')
-    expect(root.querySelector('details > summary')?.textContent).toContain('Match settings')
-    expect(root.querySelectorAll('cv-select-option')).toHaveLength(6)
+    expect(root.querySelector('.remove-website')).toBeNull()
+    expect(root.querySelector('.advanced-settings')).toBeNull()
+    expect(root.querySelectorAll('cv-select-option')).toHaveLength(0)
+    expect(root.querySelector('.add-website')?.textContent).toContain('Add another website')
+  })
+
+  it('keeps a contextual warning associated with the website group', async () => {
+    const editor = await renderEditor()
+    editor.contextDescription = 'Review this website before importing the login.'
+    await editor.updateComplete
+
+    const fieldset = editor.shadowRoot!.querySelector('fieldset')
+    expect(fieldset?.getAttribute('aria-describedby')).toBe('entry-websites-description')
+    expect(editor.shadowRoot!.querySelector('.context-description')?.textContent).toContain(
+      'Review this website before importing the login.',
+    )
+  })
+
+  it('shows one advanced matching disclosure only for compatibility rules', async () => {
+    const model = new PMEntryWebsiteEditorModel()
+    model.reset([
+      {value: 'example.com', match: 'base_domain'},
+      {value: 'admin.example.com', match: 'exact'},
+    ])
+    const editor = await renderEditor(model)
+    const root = editor.shadowRoot!
+
+    expect(root.querySelectorAll('.remove-website')).toHaveLength(1)
+    expect(root.querySelector('.row.removable > .remove-website')).not.toBeNull()
+    expect(root.querySelector('cv-input .remove-website')).toBeNull()
+    expect(root.querySelector('.advanced-settings > summary')?.textContent).toContain('Match settings')
+    expect(root.querySelectorAll('.match-rule')).toHaveLength(2)
+    expect(root.querySelectorAll('.match-rule-website')[1]?.textContent).toContain('admin.example.com')
+    expect(root.querySelectorAll('cv-select')).toHaveLength(2)
+    expect(root.querySelectorAll('cv-select-option')).toHaveLength(12)
+  })
+
+  it('focuses an added row and returns focus after removing it', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    const editor = await renderEditor()
+    const root = editor.shadowRoot!
+
+    root
+      .querySelector('.add-website')
+      ?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    await Promise.resolve()
+    await editor.updateComplete
+
+    const inputs = root.querySelectorAll<CVInput>('cv-input')
+    await inputs[1]?.updateComplete
+    await Promise.resolve()
+    frames.splice(0).forEach((callback) => callback(0))
+    expect(inputs).toHaveLength(2)
+    expect(inputs[1]?.shadowRoot?.activeElement?.getAttribute('part')).toBe('input')
+
+    root
+      .querySelector('.remove-website')
+      ?.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
+    await Promise.resolve()
+    await editor.updateComplete
+    await inputs[0]?.updateComplete
+    await Promise.resolve()
+    frames.splice(0).forEach((callback) => callback(0))
+
+    expect(root.querySelectorAll('cv-input')).toHaveLength(1)
+    expect(inputs[0]?.shadowRoot?.activeElement?.getAttribute('part')).toBe('input')
   })
 
   it('associates an inline error and focuses the real invalid input', async () => {

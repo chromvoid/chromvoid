@@ -74,6 +74,7 @@ describe('status-bar media mini controls', () => {
     const mini = element.shadowRoot?.querySelector('media-mini-player') as MediaMiniPlayer | null
     await mini?.updateComplete
 
+    expect(element.shadowRoot?.querySelector('.status-bar')?.hasAttribute('data-expanded')).toBe(true)
     expect(mini?.variant).toBe('statusbar')
     expect(mini?.shadowRoot?.querySelector('.media-mini-title')?.textContent).toContain('track.mp3')
     expect(mini?.shadowRoot?.querySelector('.media-mini-time')?.textContent).toContain('0:04 / 1:05')

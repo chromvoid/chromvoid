@@ -1,12 +1,5 @@
-import {
-  KEYBOARD_FALLBACK_SETTLE_MS,
-  MIN_SCROLL_ADJUSTMENT_PX,
-} from './constants'
-import {
-  getVisualViewportKeyboardInset,
-  isLikelyVisualViewportKeyboardInset,
-  readRootCssPx,
-} from './geometry'
+import {KEYBOARD_FALLBACK_SETTLE_MS, MIN_SCROLL_ADJUSTMENT_PX} from './constants'
+import {getVisualViewportKeyboardInset, isLikelyVisualViewportKeyboardInset, readRootCssPx} from './geometry'
 import {nowMs} from './text-field-targets'
 import {
   ANDROID_KEYBOARD_INSETS_EVENT,
@@ -69,13 +62,12 @@ const normalizeKeyboardPayload = (detail: unknown): NormalizedKeyboardPayload | 
     record['source'] === 'tauri-visibility'
       ? record['source']
       : 'tauri-visibility'
-  const phase = record['phase'] === 'progress' || record['phase'] === 'settled'
-    ? record['phase']
-    : 'settled'
+  const phase = record['phase'] === 'progress' || record['phase'] === 'settled' ? record['phase'] : 'settled'
   const viewportMode = record['viewportMode'] === 'native-resize' ? 'native-resize' : 'overlay'
-  const bottomInset = typeof record['bottomInset'] === 'number' && Number.isFinite(record['bottomInset'])
-    ? Math.max(0, Math.round(record['bottomInset']))
-    : 0
+  const bottomInset =
+    typeof record['bottomInset'] === 'number' && Number.isFinite(record['bottomInset'])
+      ? Math.max(0, Math.round(record['bottomInset']))
+      : 0
 
   return {
     visible: record['visible'],
@@ -91,6 +83,15 @@ const snapshotFromPayload = (
   previous: MobileKeyboardStateSnapshot | null,
 ): MobileKeyboardStateSnapshot => {
   const visible = payload.visible || payload.bottomInset > 0
+  if (!visible && payload.phase === 'progress' && previous && previous.status !== 'closed') {
+    return {
+      ...previous,
+      source: payload.source,
+      phase: payload.phase,
+      viewportMode: payload.viewportMode,
+    }
+  }
+
   // 'progress' on an already open keyboard is an in-place resize (IME suggestion
   // bar toggling while typing), not a new open transition — stay 'open' so the
   // typing preserve protection does not drop out mid-episode.
@@ -197,10 +198,7 @@ const closedSnapshot = (previous: MobileKeyboardStateSnapshot | null): MobileKey
     previous,
   )
 
-const snapshotsEqual = (
-  a: MobileKeyboardStateSnapshot,
-  b: MobileKeyboardStateSnapshot,
-): boolean =>
+const snapshotsEqual = (a: MobileKeyboardStateSnapshot, b: MobileKeyboardStateSnapshot): boolean =>
   a.status === b.status &&
   a.source === b.source &&
   a.phase === b.phase &&

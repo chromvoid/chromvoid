@@ -23,6 +23,7 @@ export type PMEntryCredentialEditField = 'username' | 'password'
 export type PMEntryEditFocusField = PMEntryCredentialEditField | 'title' | 'note'
 export type PMEntrySectionSnippet = 'note' | 'otp' | 'tags' | 'payment-card'
 export type PMEntryMobilePasswordCharset = 'lowercase' | 'uppercase' | 'digits' | 'symbols'
+export type PMEntryTagSelectionPresentation = 'inline' | 'sheet'
 export type PMEntryEditFocusRequest = {
   field: PMEntryEditFocusField
   token: number
@@ -125,6 +126,13 @@ export class PMEntryEditModel extends PMEntryModel {
   private entryEditTap: PMEntryEditTap | null = null
   private lastEntryEditTap: PMEntryEditLastTap | null = null
   private nextEntryEditFocusToken = 1
+  private readonly tagSelectionPresentation: PMEntryTagSelectionPresentation
+  private tagSelectionSessionActive = false
+
+  constructor(options: {tagSelectionPresentation?: PMEntryTagSelectionPresentation} = {}) {
+    super()
+    this.tagSelectionPresentation = options.tagSelectionPresentation ?? 'sheet'
+  }
 
   readonly editIntent = atom<PMEntryMobileEditIntent | null>(null, 'passmanager.entryMobile.editIntent')
   readonly entryEditFocusRequest = atom<PMEntryEditFocusRequest | null>(
@@ -151,6 +159,7 @@ export class PMEntryEditModel extends PMEntryModel {
   readonly inlinePasswordGenSymbols = atom(false, 'passmanager.entryMobile.inlinePasswordGenSymbols')
   readonly websiteEditor = new PMEntryWebsiteEditorModel({onChange: () => this.publishEntryEditDirty()})
   readonly inlineIconRef = atom<string | undefined>(undefined, 'passmanager.entryMobile.inlineIconRef')
+  readonly inlineTitleError = atom('', 'passmanager.entryMobile.inlineTitleError')
   readonly inlineError = atom('', 'passmanager.entryMobile.inlineError')
   readonly inlineSaving = atom(false, 'passmanager.entryMobile.inlineSaving')
   readonly sectionSnippet = atom<PMEntrySectionSnippet | null>(null, 'passmanager.entryMobile.sectionSnippet')
@@ -495,14 +504,24 @@ export class PMEntryEditModel extends PMEntryModel {
     this.tagError.set('')
     this.tagSaving.set(false)
     this.publishEntryEditDirty()
+
+    if (this.tagSelectionPresentation === 'inline') return
+
+    this.tagSelectionSessionActive = true
     pmCredentialTagsModel.openEntryTagSelection(this.tagDraft(), {
       onConfirm: async (tags) => {
         this.setTagDraft(tags)
-        if (await this.saveTagEdit(entry)) return
+        if (await this.saveTagEdit(entry)) {
+          this.tagSelectionSessionActive = false
+          return
+        }
 
         throw new Error(this.tagError() || i18n('error:save'))
       },
-      onCancel: () => this.cancelTagEdit(),
+      onCancel: () => {
+        this.tagSelectionSessionActive = false
+        this.cancelTagEdit()
+      },
     })
   }
 
@@ -514,6 +533,13 @@ export class PMEntryEditModel extends PMEntryModel {
 
   setTagDraftFromKeys(keys: readonly string[]): void {
     this.setTagDraft(pmCredentialTagsModel.resolveLabelsFromTagKeys(keys, this.tagDraft()))
+  }
+
+  openTagCatalogManager(): void {
+    pmCredentialTagsModel.openCatalogManager({
+      getSelectedTags: () => this.tagDraft(),
+      onSelectedTagsChange: (tags) => this.setTagDraft(tags),
+    })
   }
 
   async saveTagEdit(entry: Entry): Promise<boolean> {
@@ -536,6 +562,11 @@ export class PMEntryEditModel extends PMEntryModel {
   }
 
   cancelTagEdit(): void {
+    if (this.tagSelectionSessionActive) {
+      pmCredentialTagsModel.cancelEntryTagSelection()
+      return
+    }
+
     this.finishTagEdit(true)
   }
 
@@ -923,6 +954,7 @@ export class PMEntryEditModel extends PMEntryModel {
 
     pmEntryEditorModel.openSurface(entry.id, 'entry')
     this.inlineField.set(null)
+    this.inlineTitleError.set('')
     this.inlineError.set('')
     this.inlineSaving.set(false)
     this.seedEntryEditDrafts(entry)
@@ -984,6 +1016,7 @@ export class PMEntryEditModel extends PMEntryModel {
     this.inlineIconRef.set(undefined)
     this.inlinePasswordGeneratorOpen.set(false)
     this.inlinePasswordStrengthScore.set(null)
+    this.inlineTitleError.set('')
     this.inlineError.set('')
     this.inlineSaving.set(false)
   }
@@ -1013,6 +1046,9 @@ export class PMEntryEditModel extends PMEntryModel {
     switch (field) {
       case 'title':
         this.inlineTitle.set(value)
+        if (this.inlineTitleError()) {
+          this.inlineTitleError.set(value.trim() ? '' : i18n('error:title_required'))
+        }
         break
       case 'username':
         this.inlineUsername.set(value)
@@ -1209,9 +1245,11 @@ export class PMEntryEditModel extends PMEntryModel {
     if (this.inlineSaving()) return false
 
     if (!this.inlineTitle().trim()) {
-      this.inlineError.set(i18n('error:title_required'))
+      this.inlineTitleError.set(i18n('error:title_required'))
       return false
     }
+
+    this.inlineTitleError.set('')
 
     const nextUrls = this.resolveNextUrls()
     if (!nextUrls) {
@@ -1279,6 +1317,7 @@ export class PMEntryEditModel extends PMEntryModel {
     this.entryEditDraftEntryId = entry.id
     this.entryEditTitleBaseline = entry.title ?? ''
     this.inlineTitle.set(entry.title ?? '')
+    this.inlineTitleError.set('')
     this.entryEditUsernameBaseline = entry.username ?? ''
     this.inlineUsername.set(entry.username ?? '')
     const passwordResource = this.state.passwordResource()
@@ -1398,7 +1437,6 @@ export class PMEntryEditModel extends PMEntryModel {
     this.otpLabelErrors.set(errors)
     const firstError = Object.values(errors)[0]
     if (firstError) {
-      this.inlineError.set(firstError)
       return false
     }
 

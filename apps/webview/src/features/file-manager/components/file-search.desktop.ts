@@ -4,6 +4,7 @@ import {CVInput, type CVInputInputEvent} from '@chromvoid/uikit/components/cv-in
 import {CVPopover} from '@chromvoid/uikit/components/cv-popover'
 
 import {i18n} from 'root/i18n'
+import {dashboardToolbarSearchStyles} from 'root/shared/ui/dashboard-toolbar-search.styles'
 import {sharedStyles} from 'root/shared/ui/shared-styles'
 
 import {hasContentFiltering} from '../models/file-search-filters.model'
@@ -31,6 +32,7 @@ export class FileSearch extends FileSearchBase {
 
   static styles = [
     sharedStyles,
+    dashboardToolbarSearchStyles,
     css`
       :host {
         display: block;
@@ -58,14 +60,6 @@ export class FileSearch extends FileSearchBase {
         flex: 1 1 min(320px, 45vw);
         inline-size: 100%;
         min-inline-size: min(180px, 100%);
-        --cv-input-height: var(--file-search-control-block-size, 32px);
-        --cv-input-padding-inline: var(--cv-space-3);
-        --cv-input-border-radius: var(--file-search-control-radius, var(--cv-radius-2));
-        --cv-input-background: var(--cv-color-surface-2);
-        --cv-input-border-color: var(--cv-color-border-muted);
-        --cv-input-color: var(--cv-color-text);
-        --cv-input-placeholder-color: var(--cv-color-text-muted);
-        --cv-input-font-size: var(--file-search-control-font-size, var(--cv-font-size-sm));
       }
 
       .search-input::part(form-control-label) {
@@ -528,11 +522,14 @@ export class FileSearch extends FileSearchBase {
 
   render() {
     const {filters} = this
+    const searchClass = this.hasAttribute('toolbar-only')
+      ? 'search-input dashboard-toolbar-search'
+      : 'search-input'
 
     return html`
       <div class="bar">
         <cv-input
-          class="search-input"
+          class=${searchClass}
           type="search"
           size="small"
           .value=${filters.query}

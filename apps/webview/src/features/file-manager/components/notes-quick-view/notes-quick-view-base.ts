@@ -18,6 +18,7 @@ import {
   type NotesQuickViewTreeDirectory,
   type NotesQuickViewTreeItem,
 } from './notes-quick-view.model'
+import {getNotesQuickViewSortLabel} from './notes-quick-view.presentation'
 
 type EmptyStateKind = 'unavailable' | 'error' | 'empty' | 'filtered'
 type RenderRowOptions = {
@@ -33,16 +34,6 @@ const renderTechnicalMetadataParts = (parts: string[]): TemplateResult[] =>
       <span class="note-card__detail" title=${isolateLtrText(part)}><bdi dir="ltr">${part}</bdi></span>
     `,
   )
-
-export function getNotesQuickViewSortLabel(sortMode: string): string {
-  if (sortMode === 'recent') {
-    return i18n('notes:quick_view:sort:recent' as never)
-  }
-  if (sortMode === 'size') {
-    return i18n('notes:quick_view:sort:size' as never)
-  }
-  return i18n('notes:quick_view:sort:name' as never)
-}
 
 export function getNotesQuickViewDisplayModeOptions(): WorkspaceDashboardHeaderViewModeOption[] {
   return [

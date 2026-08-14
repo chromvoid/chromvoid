@@ -21,7 +21,6 @@ import type {PMDesktopToolbarActionSpec} from '../desktop-toolbar'
 import {PMGroupModel} from '../group/group/group.model'
 import {groupBy, sortDirection, sortField} from '../list/sort-controls'
 import {pmSshKeysViewModel} from '../ssh-keys-view/ssh-keys-view.model'
-import {envRuntimeI18n} from '../env-runtime/env-runtime.i18n'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'pm-sidebar-width'
 export const PM_SIDEBAR_MIN_WIDTH = 232
@@ -84,7 +83,6 @@ export type PMDesktopToolbarContext = {
   readOnly: boolean
   canCreateGroup: boolean
   canCreateEntry: boolean
-  canOpenOtpView: boolean
   showSshKeysView: boolean
   canOpenSshView: boolean
   showEnvRuntimeView: boolean
@@ -95,7 +93,6 @@ export type PMDesktopToolbarActionId =
   | 'pm-import'
   | 'pm-export'
   | 'pm-clean'
-  | 'pm-otp-view'
   | 'pm-ssh-view'
   | 'pm-env-runtime-view'
   | 'pm-create-group'
@@ -113,7 +110,6 @@ function describeDesktopToolbarContext(context: PMDesktopToolbarContext) {
     readOnly: context.readOnly,
     canCreateGroup: context.canCreateGroup,
     canCreateEntry: context.canCreateEntry,
-    canOpenOtpView: context.canOpenOtpView,
     showSshKeysView: context.showSshKeysView,
     canOpenSshView: context.canOpenSshView,
     showEnvRuntimeView: context.showEnvRuntimeView,
@@ -236,10 +232,6 @@ export class PasswordManagerLayoutModel {
     void pmModel.onImport()
   }
 
-  openOtpView(): void {
-    pmModel.openOtpView()
-  }
-
   openSshView(): void {
     if (!isSshKeysEnabled()) return
     pmModel.openSshView()
@@ -260,7 +252,6 @@ export class PasswordManagerLayoutModel {
       value === 'pm-import' ||
       value === 'pm-export' ||
       value === 'pm-clean' ||
-      value === 'pm-otp-view' ||
       value === 'pm-ssh-view' ||
       value === 'pm-env-runtime-view' ||
       value === 'pm-create-group' ||
@@ -285,9 +276,6 @@ export class PasswordManagerLayoutModel {
         return
       case 'pm-clean':
         this.fullClean()
-        return
-      case 'pm-otp-view':
-        this.openOtpView()
         return
       case 'pm-ssh-view':
         this.openSshView()
@@ -424,7 +412,6 @@ export class PasswordManagerLayoutModel {
       readOnly,
       canCreateGroup: this.canCreateGroup(),
       canCreateEntry: !readOnly,
-      canOpenOtpView: Boolean(getPassmanagerRoot()) && !this.isLoading(),
       showSshKeysView,
       canOpenSshView: showSshKeysView && Boolean(getPassmanagerRoot()) && !this.isLoading(),
       showEnvRuntimeView,
@@ -451,32 +438,6 @@ export class PasswordManagerLayoutModel {
         actions: [
           {id: 'pm-import', icon: 'cloud-upload', label: i18n('import')},
           {id: 'pm-export', icon: 'cloud-download', label: i18n('export')},
-          {
-            id: 'pm-otp-view',
-            icon: 'shield-check',
-            label: i18n('otp:quick_view:title' as never),
-            disabled: !context.canOpenOtpView,
-          },
-          ...(context.showSshKeysView
-            ? [
-                {
-                  id: 'pm-ssh-view' as const,
-                  icon: 'key',
-                  label: i18n('ssh:keys_view:title' as never),
-                  disabled: !context.canOpenSshView,
-                },
-              ]
-            : []),
-          ...(context.showEnvRuntimeView
-            ? [
-                {
-                  id: 'pm-env-runtime-view' as const,
-                  icon: 'terminal',
-                  label: envRuntimeI18n('title'),
-                  disabled: !context.canOpenEnvRuntimeView,
-                },
-              ]
-            : []),
           {id: 'pm-clean', icon: 'trash', label: i18n('clean'), danger: true},
         ],
       },
@@ -492,7 +453,7 @@ export class PasswordManagerLayoutModel {
           {
             id: 'pm-create-entry',
             icon: 'plus-lg',
-            label: i18n('enrty:create'),
+            label: i18n('button:create_entry'),
             disabled: !context.canCreateEntry,
           },
           ...(this.getCurrentShowElement() === 'sshView'

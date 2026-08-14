@@ -164,19 +164,17 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     vi.restoreAllMocks()
   })
 
-  it('keeps the quick-filter single-row contract opt-in and reflected', async () => {
+  it('renders quick filters as one accessible popover with independent choices', async () => {
     ensureDefined()
     const quickFilters = document.createElement('pm-quick-filters') as PMQuickFilters
     document.body.appendChild(quickFilters)
     await flush(quickFilters)
 
-    expect(quickFilters.singleRow).toBe(false)
+    const root = quickFilters.shadowRoot
+    expect(root?.querySelector('cv-popover.filters-popover')).not.toBeNull()
+    expect(root?.querySelector('cv-popover')?.getAttribute('aria-label')).toBe('Filters')
+    expect(root?.querySelectorAll('cv-checkbox[data-quick-filter]')).toHaveLength(4)
     expect(quickFilters.hasAttribute('single-row')).toBe(false)
-
-    quickFilters.singleRow = true
-    await flush(quickFilters)
-
-    expect(quickFilters.hasAttribute('single-row')).toBe(true)
   })
 
   it('renders one ordered workbench row with Create entry and an ellipsis menu', async () => {
@@ -186,11 +184,10 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     const onFullClean = vi.spyOn(pmModel, 'onFullClean').mockImplementation(() => {})
     const onCreateGroup = vi.spyOn(pmModel, 'onCreateGroup').mockImplementation(() => {})
     const onCreateEntry = vi.spyOn(pmModel, 'onCreateEntry').mockImplementation(() => {})
-    const openOtpView = vi.spyOn(pmModel, 'openOtpView').mockImplementation(() => {})
 
     const toolbar = await renderToolbar(createPassmanager(new ManagerRoot({} as any)))
 
-    const menuActions = ['pm-import', 'pm-export', 'pm-clean', 'pm-otp-view']
+    const menuActions = ['pm-import', 'pm-export', 'pm-clean']
     const removedMenuActions = ['pm-back', 'pm-edit', 'pm-delete', 'pm-move']
 
     expect(menuActions.map((action) => getToolbarMenuItem(toolbar, action))).toSatisfy(
@@ -207,7 +204,7 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     const search = toolbarRoot?.querySelector('pm-search.toolbar-password-search')
     const controls = toolbarRoot?.querySelector('.toolbar-controls')
     const quickFilters = controls?.querySelector('pm-quick-filters.toolbar-quick-filters') as
-      | (HTMLElement & {singleRow: boolean; updateComplete?: Promise<unknown>})
+      | (HTMLElement & {updateComplete?: Promise<unknown>})
       | null
     const sortControls = controls?.querySelector('pm-sort-controls.toolbar-sort-controls') as
       | (HTMLElement & {updateComplete?: Promise<unknown>})
@@ -216,6 +213,7 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
 
     expect(getToolbarButton(toolbar, 'pm-create-entry')).toBeInstanceOf(HTMLElement)
     expect(getToolbarButton(toolbar, 'pm-create-entry')?.getAttribute('variant')).toBe('primary')
+    expect(getToolbarButton(toolbar, 'pm-create-entry')?.textContent).toContain('Create entry')
     expect(getToolbarButton(toolbar, 'pm-create-group')).toBeNull()
     expect(shellToolbar?.hasAttribute('single-row')).toBe(true)
     expect(toolbarRoot?.querySelector('[slot="title"]')?.textContent?.trim()).toBe('Credentials')
@@ -225,15 +223,15 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     expect(search).toBeInstanceOf(HTMLElement)
     expect(quickFilters).toBeInstanceOf(HTMLElement)
     expect(sortControls).toBeInstanceOf(HTMLElement)
-    expect(quickFilters?.singleRow).toBe(true)
-    expect(quickFilters?.hasAttribute('single-row')).toBe(true)
-    expect(sortControls?.hasAttribute('single-row')).toBe(true)
+    expect(quickFilters?.hasAttribute('single-row')).toBe(false)
+    expect(sortControls?.hasAttribute('single-row')).toBe(false)
     expect(search?.shadowRoot?.querySelector('.quick-filters')).toBeNull()
     expect(passwordManagerDesktopLayoutModel.getDesktopToolbarSearchElement()).toBe(search)
     expect(getToolbarMenuItem(toolbar, 'pm-create-entry')).toBeNull()
     expect(getToolbarMenuItem(toolbar, 'pm-create-group')).toBeNull()
-    expect(getToolbarMenuItem(toolbar, 'pm-otp-view')).not.toBeNull()
-    expect(getToolbarMenuItem(toolbar, 'pm-ssh-view')).not.toBeNull()
+    expect(getToolbarMenuItem(toolbar, 'pm-otp-view')).toBeNull()
+    expect(getToolbarMenuItem(toolbar, 'pm-ssh-view')).toBeNull()
+    expect(getToolbarMenuItem(toolbar, 'pm-env-runtime-view')).toBeNull()
     expect(
       Array.from(getToolbar(toolbar)?.querySelectorAll<HTMLElement>('cv-button[data-action]') ?? []).map(
         (button) => button.dataset['action'],
@@ -256,37 +254,24 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     ).toEqual(['pm-search', 'pm-quick-filters', 'pm-sort-controls', 'pm-create-entry', 'cv-menu-button'])
 
     await flush(quickFilters ?? {})
-    const quickFilterButtons = Array.from(
-      quickFilters?.shadowRoot?.querySelectorAll<HTMLElement>('.quick-filter-button') ?? [],
+    const quickFilterChoices = Array.from(
+      quickFilters?.shadowRoot?.querySelectorAll<HTMLElement>('cv-checkbox[data-quick-filter]') ?? [],
     )
-    expect(quickFilterButtons.length).toBeGreaterThan(0)
-    expect(
-      quickFilterButtons.every(
-        (button) =>
-          Boolean(button.getAttribute('aria-label')) &&
-          button.getAttribute('aria-label') === button.getAttribute('title'),
-      ),
-    ).toBe(true)
+    expect(quickFilterChoices).toHaveLength(4)
+    expect(quickFilterChoices.every((choice) => Boolean(choice.getAttribute('aria-label')))).toBe(true)
 
     await flush(sortControls ?? {})
-    expect(
-      Array.from(
-        sortControls?.shadowRoot?.querySelectorAll(
-          '.direction-button, .sort-field-select, .group-by-select',
-        ) ?? [],
-      ).map((element) => element.className),
-    ).toEqual(['direction-button', 'control-select sort-field-select', 'control-select group-by-select'])
+    expect(sortControls?.shadowRoot?.querySelectorAll('cv-popover.control-popover')).toHaveLength(2)
+    expect(sortControls?.shadowRoot?.querySelectorAll('cv-radio-group')).toHaveLength(3)
 
     getToolbarItem(toolbar, 'pm-import')?.click()
     getToolbarItem(toolbar, 'pm-export')?.click()
     getToolbarItem(toolbar, 'pm-clean')?.click()
-    getToolbarItem(toolbar, 'pm-otp-view')?.click()
     getToolbarItem(toolbar, 'pm-create-entry')?.click()
 
     expect(onImport).toHaveBeenCalledTimes(1)
     expect(onExport).toHaveBeenCalledTimes(1)
     expect(onFullClean).toHaveBeenCalledTimes(1)
-    expect(openOtpView).toHaveBeenCalledTimes(1)
     expect(onCreateGroup).toHaveBeenCalledTimes(0)
     expect(onCreateEntry).toHaveBeenCalledTimes(1)
     expect(goBackSpy).toHaveBeenCalledTimes(0)
@@ -356,13 +341,13 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     expect(toolbarRoot?.querySelector('pm-otp-quick-view-search')).toBeNull()
     const createButton = getToolbarButton(toolbar, 'pm-create-ssh-key')
     expect(createButton).not.toBeNull()
-    expect(getToolbarMenuItem(toolbar, 'pm-ssh-view')).not.toBeNull()
+    expect(getToolbarMenuItem(toolbar, 'pm-ssh-view')).toBeNull()
 
     createButton?.click()
     expect(pmSshKeysViewModel.createOpen()).toBe(true)
   })
 
-  it('renders the macOS Env Runtime title and keeps its desktop action in the vault menu', async () => {
+  it('renders the macOS Env Runtime title without an action in the vault menu', async () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
     moduleAccessModel.rawStates.set([
       {feature_key: 'env-runtime', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
@@ -381,7 +366,7 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     expect(toolbarRoot?.querySelector('pm-quick-filters')).toBeNull()
     expect(toolbarRoot?.querySelector('pm-sort-controls')).toBeNull()
     expect(toolbarRoot?.querySelector('pm-otp-quick-view-search')).toBeNull()
-    expect(getToolbarMenuItem(toolbar, 'pm-env-runtime-view')).not.toBeNull()
+    expect(getToolbarMenuItem(toolbar, 'pm-env-runtime-view')).toBeNull()
   })
 
   it('renders Env Runtime as a full-width desktop view without the credentials sidebar', async () => {
@@ -448,9 +433,21 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     const moveSpy = vi.spyOn(PMEntryModel.prototype, 'moveEntryCard').mockResolvedValue(undefined)
     const deleteSpy = vi.spyOn(PMEntryModel.prototype, 'deleteEntryCard').mockImplementation(() => {})
 
-    clickToolbarItem(getComponentToolbarItem(entryElement, 'edit-entry'))
-    clickToolbarItem(getComponentToolbarItem(entryElement, 'delete-entry'))
-    clickToolbarItem(getComponentToolbarItem(entryElement, 'move-entry'))
+    const editAction = entryElement.shadowRoot?.querySelector(
+      '.entry-primary-action[data-action="edit-entry"]',
+    ) as HTMLElement | null
+    const actionMenu = entryElement.shadowRoot?.querySelector('.entry-actions-menu') as HTMLElement | null
+
+    editAction?.click()
+    for (const action of ['delete-entry', 'move-entry']) {
+      actionMenu?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {value: action, open: false},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+    }
 
     expect(entryElement.showHeaderActions).toBe(true)
     expect(entryElement.showBackButton).toBe(true)

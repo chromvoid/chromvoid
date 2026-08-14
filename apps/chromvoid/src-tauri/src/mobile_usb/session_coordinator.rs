@@ -67,6 +67,9 @@ impl MobileUsbSessionEventTarget for tauri::AppHandle {
 fn mobile_usb_terminal_lock_reason(event: &MobileUsbSessionEvent) -> Option<&'static str> {
     match event {
         MobileUsbSessionEvent::HostLocked { .. } => Some("remote_usb_host_locked"),
+        MobileUsbSessionEvent::SessionApprovalExpired { .. } => {
+            Some("remote_usb_session_approval_expired")
+        }
         MobileUsbSessionEvent::RemoteIoStopped { .. } => Some("remote_usb_transport_stopped"),
         MobileUsbSessionEvent::CableDisconnected { .. } => Some("remote_usb_cable_disconnected"),
         MobileUsbSessionEvent::HostUnlockConfirmed { .. } => None,
@@ -278,6 +281,12 @@ mod tests {
                 session_id: "session-1".to_string(),
             }),
             Some("remote_usb_cable_disconnected"),
+        );
+        assert_eq!(
+            mobile_usb_terminal_lock_reason(&MobileUsbSessionEvent::SessionApprovalExpired {
+                session_id: "session-1".to_string(),
+            }),
+            Some("remote_usb_session_approval_expired"),
         );
         assert_eq!(
             mobile_usb_terminal_lock_reason(&MobileUsbSessionEvent::RemoteIoStopped {
@@ -520,6 +529,27 @@ impl MobileUsbSessionStarter for TauriMobileUsbSessionStarter {
             bridge_kind: Some(bridge_kind),
             ..MobileUsbTimelineEvent::default()
         });
+
+        if host_unlocked {
+            let app = self.app.clone();
+            let watchdog_session_id = session_id.clone();
+            tokio::spawn(async move {
+                const WATCHDOG_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+                tokio::time::sleep(
+                    crate::mobile_usb::MOBILE_USB_SESSION_APPROVAL_TIMEOUT + WATCHDOG_GRACE,
+                )
+                .await;
+                tracing::info!(
+                    session_id = %super::observability::redacted_identifier(Some(&watchdog_session_id)),
+                    "mobile_usb: session approval watchdog elapsed"
+                );
+                app.handle_mobile_usb_session_event(
+                    MobileUsbSessionEvent::SessionApprovalExpired {
+                        session_id: watchdog_session_id,
+                    },
+                );
+            });
+        }
 
         Ok(MobileUsbSessionHandle {
             session_id,

@@ -1,6 +1,10 @@
 import {nothing, type PropertyValues} from 'lit'
 import {createAfterRenderScheduler, html} from '@chromvoid/uikit/reatom-lit'
+import {CVButton} from '@chromvoid/uikit/components/cv-button'
+import {CVMenuButton, type CVMenuButtonInputEvent} from '@chromvoid/uikit/components/cv-menu-button'
+import {CVMenuItem} from '@chromvoid/uikit/components/cv-menu-item'
 import {motionPrimitiveStyles} from 'root/shared/ui/shared-styles'
+import {i18n as appI18n} from 'root/i18n'
 
 import {Entry, OTP} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
@@ -12,11 +16,7 @@ import {
   scheduleInlineEditorFocus,
   scheduleSectionSnippetFocus,
 } from './mobile/focus'
-import {
-  renderInlinePasswordGeneratorPanel,
-  renderInlinePasswordStrength,
-  renderSectionSnippetButtons,
-} from './mobile/shared'
+import {renderInlinePasswordGeneratorPanel, renderSectionSnippetButtons} from './mobile/shared'
 import {
   PMEntryEditModel,
   type PMEntryEditData,
@@ -47,7 +47,14 @@ export class PMEntry extends PMEntryBase {
     entryDesktopStyles,
   ]
 
-  protected override readonly model = new PMEntryEditModel()
+  protected override readonly model = new PMEntryEditModel({tagSelectionPresentation: 'inline'})
+
+  static override define(): void {
+    super.define()
+    CVButton.define()
+    CVMenuButton.define()
+    CVMenuItem.define()
+  }
 
   private readonly afterRenderScheduler = createAfterRenderScheduler(this)
   private renderedInlineField: PMEntryInlineField | null = null
@@ -94,20 +101,26 @@ export class PMEntry extends PMEntryBase {
     super.disconnectedCallback()
   }
 
-  private renderHeaderBadges(badges: readonly PMEntryHeaderBadge[]) {
+  private renderSecuritySummary(badges: readonly PMEntryHeaderBadge[]) {
     if (!badges.length) return nothing
 
     return html`
-      <div slot="context-end" class="entry-meta-badges entry-header-summary">
-        ${badges.map(
-          (badge) => html`
-            <cv-badge size="small" variant=${badge.variant}>
-              <cv-icon name=${badge.icon} slot="prefix" size="xs"></cv-icon>
-              ${badge.text}
-            </cv-badge>
-          `,
-        )}
-      </div>
+      <section
+        class="entry-inspector-section entry-security-section"
+        aria-labelledby="entry-security-heading"
+      >
+        <h2 class="entry-inspector-heading" id="entry-security-heading">${i18n('group:security-short')}</h2>
+        <div class="entry-status-list">
+          ${badges.map(
+            (badge) => html`
+              <div class="entry-status" data-variant=${badge.variant}>
+                <cv-icon name=${badge.icon} size="xs" aria-hidden="true"></cv-icon>
+                <span>${badge.text}</span>
+              </div>
+            `,
+          )}
+        </div>
+      </section>
     `
   }
 
@@ -159,7 +172,89 @@ export class PMEntry extends PMEntryBase {
       return nothing
     }
 
-    return super.renderHeaderActions()
+    const actions = this.model.getDesktopToolbarActions()
+    const editAction = actions.find((action) => action.id === 'edit-entry')
+    const overflowActions = actions.filter((action) => action.id !== 'edit-entry')
+    const overflowDisabled = overflowActions.every((action) => action.disabled)
+
+    return html`
+      <div
+        slot="actions"
+        class="header-actions entry-view-actions"
+        role="toolbar"
+        aria-label=${i18n('button:more_actions')}
+      >
+        ${editAction
+          ? html`
+              <cv-button
+                class="entry-primary-action"
+                type="button"
+                variant="default"
+                size="small"
+                data-action=${editAction.id}
+                ?disabled=${editAction.disabled ?? false}
+                @click=${this.handleHeaderPrimaryAction}
+              >
+                <cv-icon slot="prefix" name=${editAction.icon} aria-hidden="true"></cv-icon>
+                <span>${editAction.label}</span>
+              </cv-button>
+            `
+          : nothing}
+        ${overflowActions.length
+          ? html`
+              <cv-menu-button
+                class="entry-actions-menu"
+                variant="ghost"
+                preset="icon-overflow"
+                aria-label=${i18n('button:more_actions')}
+                ?disabled=${overflowDisabled}
+                close-on-select
+                @cv-input=${this.handleHeaderActionsMenuInput}
+              >
+                <cv-icon slot="prefix" name="three-dots" aria-hidden="true"></cv-icon>
+                ${overflowActions.map(
+                  (action) => html`
+                    <cv-menu-item
+                      slot="menu"
+                      value=${action.id}
+                      data-action=${action.id}
+                      data-danger=${action.danger ? 'true' : 'false'}
+                      ?disabled=${action.disabled ?? false}
+                    >
+                      <cv-icon slot="prefix" name=${action.icon} aria-hidden="true"></cv-icon>
+                      ${action.label}
+                    </cv-menu-item>
+                  `,
+                )}
+              </cv-menu-button>
+            `
+          : nothing}
+      </div>
+    `
+  }
+
+  private handleHeaderPrimaryAction(event: Event): void {
+    const action = (event.currentTarget as HTMLElement | null)?.dataset['action']
+    const card = this.entry
+    if (!(card instanceof Entry) || !this.model.isDesktopToolbarAction(action)) return
+
+    this.model.executeDesktopToolbarAction(action, card)
+  }
+
+  private handleHeaderActionsMenuInput(event: CVMenuButtonInputEvent): void {
+    const menu = event.currentTarget as HTMLElementTagNameMap['cv-menu-button']
+    if (event.detail.open) return
+
+    const action = event.detail.value ?? undefined
+    menu.value = ''
+    for (const item of menu.querySelectorAll<HTMLElementTagNameMap['cv-menu-item']>('cv-menu-item')) {
+      item.selected = false
+      item.active = false
+    }
+
+    const card = this.entry
+    if (!(card instanceof Entry) || !this.model.isDesktopToolbarAction(action)) return
+    this.model.executeDesktopToolbarAction(action, card)
   }
 
   private handleInlineEditInput(event: Event) {
@@ -182,6 +277,14 @@ export class PMEntry extends PMEntryBase {
     if (Number.isFinite(value)) {
       this.model.setInlinePasswordGenLength(value)
     }
+  }
+
+  private handleInlinePasswordGenerate() {
+    this.model.generateInlinePassword()
+  }
+
+  private handleInlinePasswordGeneratorToggle() {
+    this.model.toggleInlinePasswordGenerator()
   }
 
   private isPlainEscapeKey(event: KeyboardEvent) {
@@ -267,7 +370,12 @@ export class PMEntry extends PMEntryBase {
 
   private handleManageTags(event: Event) {
     event.preventDefault()
-    pmCredentialTagsModel.openManageSheet()
+    this.model.openTagCatalogManager()
+  }
+
+  private handleStartTagEdit() {
+    if (!(this.entry instanceof Entry)) return
+    this.model.startTagEdit(this.entry)
   }
 
   private handleSaveTags() {
@@ -300,11 +408,32 @@ export class PMEntry extends PMEntryBase {
     if (!(this.entry instanceof Entry)) return
     void this.model.saveEntryEdit(this.entry).then((saved) => {
       if (!saved) {
-        this.shadowRoot
-          ?.querySelector<PMEntryWebsiteEditor>('pm-entry-website-editor')
-          ?.focusFirstInvalid()
+        this.afterRenderScheduler.schedule(() => this.focusFirstInvalidEntryField())
       }
     })
+  }
+
+  private focusFirstInvalidEntryField() {
+    if (this.model.inlineTitleError()) {
+      this.shadowRoot
+        ?.querySelector<HTMLElement & {focusTitleInput(): void}>('pm-workspace-header')
+        ?.focusTitleInput()
+      return
+    }
+
+    if (
+      this.shadowRoot?.querySelector<PMEntryWebsiteEditor>('pm-entry-website-editor')?.focusFirstInvalid()
+    ) {
+      return
+    }
+
+    const firstOtpId = Object.keys(this.model.otpLabelErrors())[0]
+    if (!firstOtpId) return
+
+    const input = Array.from(
+      this.shadowRoot?.querySelectorAll<HTMLElement>('cv-input[data-otp-label-input]') ?? [],
+    ).find((candidate) => candidate.dataset['otpLabelInput'] === firstOtpId)
+    input?.focus()
   }
 
   private handleStartNoteEntryEdit(event: Event) {
@@ -330,38 +459,29 @@ export class PMEntry extends PMEntryBase {
     void this.model.removeOtp(otp)
   }
 
-  private renderTitleField(card: Entry, data: PMEntryEditData) {
-    return html`
-      <div class="credential-field">
-        <div class="field-content">
-          <span class="field-label">${i18n('title')}</span>
-          <span class="field-value ${card.title ? '' : 'empty'}"><bdi dir="auto">${data.title}</bdi></span>
-        </div>
-      </div>
-    `
-  }
-
   protected override renderUsernameField(card: Entry) {
     const data = this.model.contracts.getEntryData(card) as PMEntryEditData
 
     return html`
-      <div class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}">
+      <div
+        class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}"
+        data-field="username"
+      >
         ${data.canEditFields && data.isEditingEntry
           ? html`
               <div class="field-editor">
-                <cv-field>
-                  <span slot="label">${i18n('username')}</span>
-                  <cv-input
-                    class="inline-field-input"
-                    dir="ltr"
-                    name="inline-username"
-                    data-inline-field="username"
-                    .value=${this.model.inlineUsername()}
-                    @cv-input=${this.handleInlineEditInput}
-                    @keydown=${this.handleInlineEditorKeyDown}
-                    size="small"
-                  ></cv-input>
-                </cv-field>
+                <span class="field-label">${i18n('username')}</span>
+                <cv-input
+                  class="inline-field-input entry-workbench-control-full"
+                  aria-label=${i18n('username')}
+                  dir="ltr"
+                  name="inline-username"
+                  data-inline-field="username"
+                  .value=${this.model.inlineUsername()}
+                  @cv-input=${this.handleInlineEditInput}
+                  @keydown=${this.handleInlineEditorKeyDown}
+                  size="medium"
+                ></cv-input>
               </div>
             `
           : html`
@@ -384,54 +504,69 @@ export class PMEntry extends PMEntryBase {
     const isReady = passwordResource.status === 'ready'
 
     return html`
-      <div class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}">
+      <div
+        class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}"
+        data-field="password"
+      >
         ${data.canEditFields && data.isEditingEntry
           ? html`
               <div class="field-editor">
-                <div class="password-inline-stack">
-                  <cv-field>
-                    <span slot="label">${i18n('password')}</span>
-                    <cv-input
-                      class="inline-field-input"
-                      dir="ltr"
-                      type="password"
-                      password-toggle
-                      name="inline-password"
-                      data-inline-field="password"
-                      .value=${this.model.inlinePassword()}
-                      @cv-input=${this.handleInlineEditInput}
-                      @keydown=${this.handleInlineEditorKeyDown}
-                      size="small"
-                    ></cv-input>
-                  </cv-field>
-                  <div class="password-inline-tools">
-                    <cv-button
-                      unstyled
-                      class="generator-toggle-button"
-                      type="button"
-                      aria-label=${i18n('password:generator_settings')}
-                      aria-pressed=${String(this.model.inlinePasswordGeneratorOpen())}
-                      title=${i18n('password:generator_settings')}
-                      @click=${() => this.model.toggleInlinePasswordGenerator()}
-                    >
-                      <cv-icon name="gear" aria-hidden="true"></cv-icon>
-                    </cv-button>
-                    <cv-button
-                      class="generate-action-button"
-                      type="button"
-                      variant="primary"
-                      size="small"
-                      @click=${() => this.model.generateInlinePassword()}
-                    >
-                      <cv-icon slot="prefix" name="arrow-clockwise" aria-hidden="true"></cv-icon>
-                      <span>${i18n('button:generate')}</span>
-                    </cv-button>
-                  </div>
-                  ${renderInlinePasswordStrength(this.model)}
-                  ${renderInlinePasswordGeneratorPanel(this.model, (event) =>
-                    this.handleInlinePasswordLengthInput(event),
-                  )}
+                <span class="field-label">${i18n('password')}</span>
+                <div class="password-workbench-value">
+                  <cv-input
+                    class="inline-field-input"
+                    aria-label=${i18n('password')}
+                    dir="ltr"
+                    type="password"
+                    password-toggle
+                    name="inline-password"
+                    data-inline-field="password"
+                    .value=${this.model.inlinePassword()}
+                    @cv-input=${this.handleInlineEditInput}
+                    @keydown=${this.handleInlineEditorKeyDown}
+                    size="medium"
+                  ></cv-input>
+                  ${this.renderDesktopPasswordStrength()}
                 </div>
+                <div
+                  class="password-inline-tools"
+                  role="group"
+                  aria-label=${i18n('password:generator_settings')}
+                >
+                  <cv-button
+                    class="generate-action-button"
+                    type="button"
+                    preset="action-primary-subtle"
+                    size="medium"
+                    @click=${this.handleInlinePasswordGenerate}
+                  >
+                    <cv-icon slot="prefix" name="arrow-clockwise" aria-hidden="true"></cv-icon>
+                    <span>${i18n('button:generate')}</span>
+                  </cv-button>
+                  <cv-button
+                    class="generator-toggle-button"
+                    type="button"
+                    variant="default"
+                    size="medium"
+                    outline
+                    aria-label=${i18n('password:generator_settings')}
+                    aria-expanded=${String(this.model.inlinePasswordGeneratorOpen())}
+                    title=${i18n('password:generator_settings')}
+                    @click=${this.handleInlinePasswordGeneratorToggle}
+                  >
+                    <cv-icon name="gear" aria-hidden="true"></cv-icon>
+                  </cv-button>
+                </div>
+                ${this.model.inlinePasswordGeneratorOpen()
+                  ? html`
+                      <div class="password-generator-panel-shell">
+                        ${renderInlinePasswordGeneratorPanel(
+                          this.model,
+                          this.handleInlinePasswordLengthInput,
+                        )}
+                      </div>
+                    `
+                  : nothing}
               </div>
             `
           : html`
@@ -472,12 +607,16 @@ export class PMEntry extends PMEntryBase {
 
   private renderWebsiteField(_card: Entry, data: PMEntryEditData) {
     return html`
-      <div class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}">
+      <div
+        class="credential-field ${data.isEditingEntry ? 'credential-field-editing' : ''}"
+        data-field="website"
+      >
         ${data.canEditWebsite && data.isEditingEntry
           ? html`
               <div class="field-editor">
                 <pm-entry-website-editor
                   .model=${this.model.websiteEditor}
+                  .presentation=${'workbench'}
                   @keydown=${this.handleInlineEditorKeyDown}
                 ></pm-entry-website-editor>
               </div>
@@ -493,6 +632,31 @@ export class PMEntry extends PMEntryBase {
               </div>
               <div class="field-actions"></div>
             `}
+      </div>
+    `
+  }
+
+  private renderDesktopPasswordStrength() {
+    const score = this.model.inlinePasswordStrengthScore()
+    if (score === null) return nothing
+
+    const label = this.model.inlinePasswordStrengthLabel()
+    const description = i18n('password:strength', {label})
+
+    return html`
+      <div
+        class="entry-password-strength"
+        role="meter"
+        aria-label=${i18n('password:strength_indicator')}
+        aria-valuemin="0"
+        aria-valuemax="4"
+        aria-valuenow=${score}
+        aria-valuetext=${description}
+      >
+        <span class="entry-password-strength-segments" aria-hidden="true">
+          ${[0, 1, 2, 3, 4].map((index) => html`<span data-active=${String(index <= score)}></span>`)}
+        </span>
+        <span class="entry-password-strength-label">${description}</span>
       </div>
     `
   }
@@ -805,7 +969,7 @@ export class PMEntry extends PMEntryBase {
     if (isEditing) {
       return html`
         <section
-          class="inline-section-card"
+          class="inline-section-card entry-tags-section"
           aria-label=${i18n('tags:title')}
           @keydown=${this.handleSectionSnippetKeyDown}
         >
@@ -837,7 +1001,7 @@ export class PMEntry extends PMEntryBase {
     }
 
     return html`
-      <section class="inline-section-card" aria-label=${i18n('tags:title')}>
+      <section class="inline-section-card entry-tags-section" aria-label=${i18n('tags:title')}>
         <div class="section-head">
           <div class="section-title">
             <cv-icon name="tag"></cv-icon>
@@ -857,7 +1021,7 @@ export class PMEntry extends PMEntryBase {
                   variant="default"
                   size="small"
                   data-snippet-section="tags"
-                  @click=${() => this.model.startTagEdit(card)}
+                  @click=${this.handleStartTagEdit}
                   aria-label=${i18n('tags:add')}
                 >
                   <cv-icon
@@ -948,6 +1112,80 @@ export class PMEntry extends PMEntryBase {
     `
   }
 
+  private getEntryTypeLabel(entryType: PMEntryEditData['entryType']): string {
+    return entryType === 'payment_card' ? i18n('entry:type:payment_card') : i18n('entry:type:login')
+  }
+
+  private getHeaderSupportText(data: PMEntryEditData): string {
+    const primaryWebsite = data.entryType === 'login' ? data.visibleUrls[0]?.value : undefined
+
+    return [this.getEntryTypeLabel(data.entryType), primaryWebsite].filter(Boolean).join(' • ')
+  }
+
+  private renderInspectorDetails(card: Entry, data: PMEntryEditData) {
+    return html`
+      <section class="entry-inspector-section entry-details-section" aria-labelledby="entry-details-heading">
+        <h2 class="entry-inspector-heading" id="entry-details-heading">${i18n('entry:details')}</h2>
+        <dl class="entry-details-list">
+          <div class="entry-detail-row">
+            <dt>${appI18n('details:location')}</dt>
+            <dd><bdi dir="auto">${data.contextLabel}</bdi></dd>
+          </div>
+          <div class="entry-detail-row">
+            <dt>${i18n('entry:type')}</dt>
+            <dd>${this.getEntryTypeLabel(data.entryType)}</dd>
+          </div>
+          <div class="entry-detail-row">
+            <dt>${i18n('ts:modified')}</dt>
+            <dd>${card.updatedFormatted}</dd>
+          </div>
+          <div class="entry-detail-row">
+            <dt>${i18n('ts:created')}</dt>
+            <dd>${card.createdFormatted}</dd>
+          </div>
+        </dl>
+      </section>
+    `
+  }
+
+  private renderInspector(card: Entry, data: PMEntryEditData) {
+    return html`
+      <aside class="entry-inspector" aria-label=${i18n('entry:details')}>
+        ${this.renderInspectorDetails(card, data)} ${this.renderTagsSection(card, data)}
+        ${this.renderSecuritySummary(data.securityBadges)}
+      </aside>
+    `
+  }
+
+  private renderLoginPrimary(card: Entry, data: PMEntryEditData) {
+    return html`
+      <section class="entry-primary-section" aria-labelledby="entry-credentials-heading">
+        <div class="entry-section-heading">
+          <h2 id="entry-credentials-heading">${i18n('entry:credentials')}</h2>
+        </div>
+        <div class="fields-card ${data.isEditingEntry ? 'entry-edit-workbench' : ''}">
+          ${this.renderUsernameField(card)} ${this.renderPasswordField(card)}
+          ${this.renderWebsiteField(card, data)}
+        </div>
+      </section>
+      <section class="secondary-section">
+        ${this.renderOtpSection(card, data)} ${this.renderSshSection(card, data)} ${this.renderNoteDetails()}
+      </section>
+    `
+  }
+
+  private renderPaymentCardPrimary(card: Entry, data: PMEntryEditData) {
+    return html`
+      <section class="entry-primary-section" aria-labelledby="entry-payment-card-heading">
+        <div class="entry-section-heading">
+          <h2 id="entry-payment-card-heading">${i18n('entry:type:payment_card')}</h2>
+        </div>
+        <div class="fields-card">${this.renderPaymentCardSection(card, data)}</div>
+      </section>
+      <section class="secondary-section">${this.renderNoteDetails()}</section>
+    `
+  }
+
   private renderMainView(card: Entry) {
     const data = this.model.contracts.getEntryData(card) as PMEntryEditData
     const editLoginIdentity = data.canEditFields && data.isEditingEntry && card.entryType !== 'payment_card'
@@ -957,44 +1195,35 @@ export class PMEntry extends PMEntryBase {
     return html`
       <article class="wrapper" role="main" aria-label=${data.entryTitleText}>
         <pm-workspace-header
+          .density=${'compact'}
           .item=${card}
           .contextLabel=${data.contextLabel}
           .contextItems=${data.contextItems}
           .title=${editLoginIdentity ? this.model.inlineTitle() : data.entryTitleText}
+          .titleLabel=${i18n('title')}
+          .supportText=${this.getHeaderSupportText(data)}
           .avatarLetter=${data.entryAvatarLetter}
           .avatarFallbackBg=${data.avatarBg}
           .avatarIconRef=${data.isEditingEntry ? this.model.inlineIconRef() : card.iconRef}
           .avatarInteractive=${data.canEditFields && data.isEditingEntry}
           .editableTitle=${editLoginIdentity}
+          .titleError=${editLoginIdentity ? this.model.inlineTitleError() : ''}
           .titlePlaceholder=${i18n('title_or_url:placeholder')}
-          .updatedFormatted=${card.updatedFormatted}
-          .createdFormatted=${card.createdFormatted}
           @pm-workspace-header-navigate=${this.onWorkspaceHeaderNavigate}
           @pm-workspace-header-title-input=${this.handleHeaderTitleInput}
           @pm-icon-change=${this.handleInlineIconChange}
           @keydown=${this.handleInlineEditorKeyDown}
         >
-          ${this.renderHeaderBadges(data.headerBadges)} ${this.renderHeaderActions()}
+          ${this.renderHeaderActions()}
         </pm-workspace-header>
-        ${card.entryType === 'payment_card'
-          ? html`
-              <div class="fields-card">${this.renderPaymentCardSection(card, data)}</div>
-              <section class="secondary-section">
-                ${this.renderTagsSection(card, data)} ${this.renderNoteDetails()}
-              </section>
-            `
-          : html`
-              <div class="fields-card">
-                ${data.isEditingEntry ? nothing : this.renderTitleField(card, data)}
-                ${this.renderUsernameField(card)} ${this.renderPasswordField(card)}
-                ${this.renderWebsiteField(card, data)}
-              </div>
-
-              <section class="secondary-section">
-                ${this.renderTagsSection(card, data)} ${this.renderOtpSection(card, data)}
-                ${this.renderSshSection(card, data)} ${this.renderNoteDetails()}
-              </section>
-            `}
+        <div class="entry-workspace">
+          <div class="entry-main">
+            ${card.entryType === 'payment_card'
+              ? this.renderPaymentCardPrimary(card, data)
+              : this.renderLoginPrimary(card, data)}
+          </div>
+          ${this.renderInspector(card, data)}
+        </div>
       </article>
     `
   }

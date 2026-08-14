@@ -26,7 +26,9 @@ fn test_delta_chunk_exists_after_catalog_change_and_save() {
         .as_slice()
         .try_into()
         .expect("salt must be 16 bytes");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::load(keystore.as_ref())
+        .expect("load pepper")
+        .expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     // ADR-003: delta chunk naming context = "delta:{shard_id}", index = seq.
@@ -54,7 +56,9 @@ fn test_delta_chunk_decrypts_and_matches_schema() {
         .as_slice()
         .try_into()
         .expect("salt must be 16 bytes");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::load(keystore.as_ref())
+        .expect("load pepper")
+        .expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     let delta1 = delta_chunk_name(&*vault_key, "docs", 1);

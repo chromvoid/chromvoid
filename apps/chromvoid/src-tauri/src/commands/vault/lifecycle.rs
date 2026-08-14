@@ -154,6 +154,11 @@ pub(crate) async fn storage_set_root(
     state: tauri::State<'_, AppState>,
     storage_root: String,
 ) -> TauriRpcResult<LocalStorageInfo> {
+    if let Err((error, code)) = ensure_ios_storage_root_selection_supported(cfg!(target_os = "ios"))
+    {
+        return Ok(rpc_err(error, Some(code.to_string())));
+    }
+
     info!(
         "storage_set_root called with storage_root = '{}'",
         storage_root
@@ -276,6 +281,19 @@ pub(crate) async fn storage_set_root(
             storage_root: root.to_string_lossy().to_string(),
         },
     })
+}
+
+fn ensure_ios_storage_root_selection_supported(
+    is_ios: bool,
+) -> Result<(), (&'static str, &'static str)> {
+    if is_ios {
+        Err((
+            "Storage root selection is unavailable on iOS",
+            "UNSUPPORTED",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 async fn prepare_storage_root_adapter(
@@ -484,6 +502,18 @@ mod tests {
             }
             RpcResult::Success { .. } => panic!("expected setup error"),
         }
+    }
+
+    #[test]
+    fn storage_root_selection_is_rejected_on_ios_before_work_starts() {
+        assert_eq!(
+            ensure_ios_storage_root_selection_supported(true),
+            Err((
+                "Storage root selection is unavailable on iOS",
+                "UNSUPPORTED"
+            ))
+        );
+        assert_eq!(ensure_ios_storage_root_selection_supported(false), Ok(()));
     }
 
     #[test]

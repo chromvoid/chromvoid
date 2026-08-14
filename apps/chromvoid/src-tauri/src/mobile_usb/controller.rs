@@ -376,6 +376,33 @@ impl MobileUsbController {
                 };
                 ("host_locked", session_id, result, stop_active_session)
             }
+            MobileUsbSessionEvent::SessionApprovalExpired { session_id } => {
+                let result = self.with_state(|state| {
+                    let state_from = state.session_state();
+                    let matched = state.expire_session_approval(&session_id);
+                    let result = if matched {
+                        Ok(())
+                    } else {
+                        Err(MobileUsbError::new(
+                            MobileUsbErrorCode::UnlockNotAuthenticated,
+                            "session approval expiry does not match the active pending session",
+                        ))
+                    };
+                    (state_from, state.session_state(), result, matched)
+                });
+                let (result, stop_active_session) = match result {
+                    Ok((state_from, state_to, result, matched)) => {
+                        (Ok((state_from, state_to, result)), matched)
+                    }
+                    Err(error) => (Err(error), false),
+                };
+                (
+                    "session_approval_expired",
+                    session_id,
+                    result,
+                    stop_active_session,
+                )
+            }
             MobileUsbSessionEvent::RemoteIoStopped { session_id, reason } => {
                 let result = self.with_state(|state| {
                     let state_from = state.session_state();

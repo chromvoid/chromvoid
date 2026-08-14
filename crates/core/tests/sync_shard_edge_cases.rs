@@ -55,7 +55,9 @@ fn test_sync_shard_requires_full_load_on_missing_delta_chunk() {
         .as_slice()
         .try_into()
         .expect("salt must be 16 bytes");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::load(keystore.as_ref())
+        .expect("load pepper")
+        .expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
     let storage = Storage::new(temp_dir.path()).expect("storage");
 

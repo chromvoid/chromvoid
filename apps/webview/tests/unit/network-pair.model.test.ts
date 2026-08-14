@@ -974,6 +974,70 @@ describe('RemoteHostsFlowModel', () => {
     expect(resetRemoteSession).not.toHaveBeenCalled()
   })
 
+  it('uses bounded mobile USB disconnect when leaving the pre-approval wait flow', async () => {
+    setRuntimeCapabilities({
+      platform: 'macos',
+      desktop: true,
+      supports_mobile_usb_remote: true,
+    })
+    const resetRemoteSession = vi.fn()
+    initAppContext(
+      createMockAppContext({
+        store: {resetRemoteSession} as never,
+      }),
+    )
+    tauriInvoke.mockImplementation(async (command: string) => {
+      if (command === 'mode_status') {
+        return {
+          mode: {
+            remote: {
+              host: {
+                type: 'mobile_usb',
+                host_id: 'usb-host',
+                label: 'Pixel',
+                platform: 'android',
+              },
+            },
+          },
+          connection_state: 'ready',
+          transport_type: 'usb_mobile',
+          remote_core_features: [],
+        }
+      }
+      if (command === 'mobile_usb_disconnect') {
+        return {
+          transport_family: 'usb_mobile',
+          available_transports: ['usb_mobile'],
+          selected_transport: null,
+          session_state: 'disconnected',
+          fallback_allowed: false,
+          active_host: null,
+          paired_hosts: [],
+          in_flight: null,
+          pairing_approval: null,
+          error_code: null,
+        }
+      }
+      throw new Error(`unexpected command: ${command}`)
+    })
+
+    const model = new RemoteHostsFlowModel()
+    model.view.set('wait')
+    model.transportConnectedHost.set({
+      type: 'mobile_usb',
+      host_id: 'usb-host',
+      label: 'Pixel',
+      platform: 'android',
+    })
+
+    await expect(model.disconnectTransport()).resolves.toBe(true)
+
+    expect(tauriInvoke).toHaveBeenCalledWith('mobile_usb_disconnect')
+    expect(tauriInvoke).not.toHaveBeenCalledWith('mode_switch', expect.anything())
+    expect(model.transportConnectedHost()).toBeNull()
+    expect(resetRemoteSession).toHaveBeenCalledOnce()
+  })
+
   it('preserves the wait flow and reports a status error when local-mode restore cannot read mode', async () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true, supports_network_remote: true})
     const resetRemoteSession = vi.fn()

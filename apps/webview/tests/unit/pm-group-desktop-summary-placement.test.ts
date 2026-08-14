@@ -149,7 +149,7 @@ describe('PMGroup desktop summary placement', () => {
     expect(element.shadowRoot?.querySelector('pm-summary-rail.group-metrics-strip')).toBeNull()
   })
 
-  it('keeps the local comfortable metrics rail on mobile', async () => {
+  it('keeps the local metrics rail on mobile', async () => {
     const parent = createGroup('mobile-summary-parent', 'Mobile Summary')
     const child = createGroup('mobile-summary-child', 'Mobile Summary/Child')
     const root = createPassmanagerRoot(parent, [parent, child])
@@ -163,12 +163,11 @@ describe('PMGroup desktop summary placement', () => {
     await element.updateComplete
 
     const summaryRail = element.shadowRoot?.querySelector('pm-summary-rail.group-metrics-strip') as
-      | (HTMLElement & {density?: string; updateComplete?: Promise<unknown>})
+      | (HTMLElement & {updateComplete?: Promise<unknown>})
       | null
     await summaryRail?.updateComplete
 
     expect(summaryRail).not.toBeNull()
-    expect(summaryRail?.density).toBe('comfortable')
     expect(summaryRail?.shadowRoot?.querySelector('[data-summary-id="entries"]')).not.toBeNull()
   })
 })

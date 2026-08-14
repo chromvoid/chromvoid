@@ -176,7 +176,8 @@ fn test_unlock_errors_when_passmanager_deltas_exceed_limit_without_writing() {
 
     let storage = Storage::new(temp_dir.path()).expect("storage");
     let vault_salt = storage.get_or_create_salt().expect("vault salt");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::generate().expect("generate pepper");
+    StoragePepper::store(keystore.as_ref(), pepper).expect("store pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     write_inconsistent_passmanager_fixture(&storage, &*vault_key, delta_count);
@@ -215,7 +216,8 @@ fn test_overflow_unlock_does_not_fall_back_to_legacy_catalog_or_enable_mutation(
 
     let storage = Storage::new(temp_dir.path()).expect("storage");
     let vault_salt = storage.get_or_create_salt().expect("vault salt");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::generate().expect("generate pepper");
+    StoragePepper::store(keystore.as_ref(), pepper).expect("store pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     write_inconsistent_passmanager_fixture(&storage, &*vault_key, delta_count);
@@ -251,7 +253,8 @@ fn test_lazy_user_shard_overflow_repairs_via_repair_rpc_and_unlocks() {
 
     let storage = Storage::new(temp_dir.path()).expect("storage");
     let vault_salt = storage.get_or_create_salt().expect("vault salt");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::generate().expect("generate pepper");
+    StoragePepper::store(keystore.as_ref(), pepper).expect("store pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     write_overlong_lazy_work_fixture(&storage, &*vault_key, delta_count);
@@ -366,7 +369,9 @@ fn test_passmanager_deltas_do_not_accumulate_on_non_passmanager_writes() {
 
     let storage = Storage::new(temp_dir.path()).expect("storage");
     let vault_salt = storage.get_or_create_salt().expect("vault salt");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::load(keystore.as_ref())
+        .expect("load pepper")
+        .expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     let index = read_root_index(&storage, &*vault_key);
@@ -407,7 +412,9 @@ fn test_auto_compacts_passmanager_when_delta_chain_reaches_threshold() {
 
     let storage = Storage::new(temp_dir.path()).expect("storage");
     let vault_salt = storage.get_or_create_salt().expect("vault salt");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::load(keystore.as_ref())
+        .expect("load pepper")
+        .expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     let index = read_root_index(&storage, &*vault_key);
@@ -453,7 +460,9 @@ fn test_auto_compacts_lazy_user_shard_when_delta_chain_reaches_threshold() {
 
     let storage = Storage::new(temp_dir.path()).expect("storage");
     let vault_salt = storage.get_or_create_salt().expect("vault salt");
-    let pepper = StoragePepper::get_or_create(keystore.as_ref()).expect("pepper");
+    let pepper = StoragePepper::load(keystore.as_ref())
+        .expect("load pepper")
+        .expect("pepper");
     let vault_key = derive_vault_key_v2(password, &vault_salt, &pepper).expect("derive v2 key");
 
     let index = read_root_index(&storage, &*vault_key);

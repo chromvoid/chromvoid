@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {html, render} from 'lit'
+import {html} from 'lit'
 import {Group, ManagerRoot} from '@project/passmanager'
 import {PMGroupMobile} from '../../src/features/passmanager/components/group/group/group-mobile'
 import type {PMGroupListItemMobile} from '../../src/features/passmanager/components/group/group/group-list-item-mobile'
@@ -137,7 +137,7 @@ describe('PMGroupMobile selection mode', () => {
     expect(pmSelectionModeModel.isGroupSelected(child.id)).toBe(true)
   })
 
-  it('keeps the same virtualizer instance when mobile selection changes', async () => {
+  it('keeps the same mobile list window instance when selection changes', async () => {
     const parent = createGroup('selection-identity-parent', 'Selection Identity Parent')
     const child = createGroup('selection-identity-child', 'Selection Identity Parent/Child')
     const root = createPassmanagerRoot(parent, [parent, child])
@@ -148,28 +148,51 @@ describe('PMGroupMobile selection mode', () => {
     document.body.append(element)
     await flushGroupMobile(element)
 
-    const virtualizerBefore = element.shadowRoot?.querySelector('lit-virtualizer')
-    expect(virtualizerBefore).not.toBeNull()
+    const scrollerBefore = element.shadowRoot?.querySelector('.group-virtual-list')
+    const windowBefore = element.shadowRoot?.querySelector('.pm-mobile-virtual-window')
+    expect(scrollerBefore).not.toBeNull()
+    expect(windowBefore).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('lit-virtualizer')).toBeNull()
 
     pmSelectionModeModel.enterWithGroup(child.id)
     await flushGroupMobile(element)
 
-    const virtualizerAfter = element.shadowRoot?.querySelector('lit-virtualizer') as
-      | (HTMLElement & {
-          items?: PMGroupRow[]
-          renderItem?: (row: PMGroupRow) => unknown
-        })
-      | null
-    expect(virtualizerAfter).toBe(virtualizerBefore)
-
-    const renderedRow = document.createElement('div')
-    const row = virtualizerAfter?.items?.[0]
-    if (row && virtualizerAfter?.renderItem) render(virtualizerAfter.renderItem(row), renderedRow)
-    await Promise.resolve()
+    const scrollerAfter = element.shadowRoot?.querySelector('.group-virtual-list')
+    const windowAfter = element.shadowRoot?.querySelector('.pm-mobile-virtual-window')
+    expect(scrollerAfter).toBe(scrollerBefore)
+    expect(windowAfter).toBe(windowBefore)
     expect(
-      renderedRow.querySelector<PMGroupListItemMobile>('pm-group-list-item-mobile')
+      element.shadowRoot?.querySelector<PMGroupListItemMobile>('pm-group-list-item-mobile')
         ?.selectedInSelectionMode,
     ).toBe(true)
+  })
+
+  it('renders a bounded mobile window without a Lit virtualizer', async () => {
+    const parent = createGroup('window-parent', 'Window Parent')
+    const children = Array.from({length: 20}, (_value, index) =>
+      createGroup(`window-child-${index}`, `Window Parent/Child ${index}`),
+    )
+    const root = createPassmanagerRoot(parent, [parent, ...children])
+    window.passmanager = root as typeof window.passmanager
+    setPassmanagerRoot(root)
+
+    const element = document.createElement('pm-group-mobile') as PMGroupMobile
+    document.body.append(element)
+    await flushGroupMobile(element)
+
+    const scroller = element.shadowRoot?.querySelector('.group-virtual-list')
+    const spacer = scroller?.querySelector('.pm-mobile-virtual-spacer')
+    const mobileWindow = spacer?.querySelector('.pm-mobile-virtual-window')
+
+    expect(element.shadowRoot?.querySelector('lit-virtualizer')).toBeNull()
+    expect(scroller).not.toBeNull()
+    expect(spacer).not.toBeNull()
+    expect(mobileWindow).not.toBeNull()
+    expect(spacer?.parentElement).toBe(scroller)
+    expect(mobileWindow?.parentElement).toBe(spacer)
+    expect(mobileWindow?.children.length).toBeGreaterThan(0)
+    expect(mobileWindow?.children.length).toBeLessThan(children.length)
+    expect(element.shadowRoot?.querySelectorAll('.pm-mobile-virtual-window')).toHaveLength(1)
   })
 
   it('toggles group selection on tap during selection mode without navigating into the group', async () => {

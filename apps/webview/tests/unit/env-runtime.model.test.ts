@@ -306,7 +306,7 @@ describe('EnvRuntimeModel', () => {
     expect(model.accessDescription()).toBe('')
   })
 
-  it('keeps the desktop Env Runtime toolbar route visible for every access state', () => {
+  it('keeps desktop Env Runtime access available without exposing a toolbar menu action', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true, mobile: false})
     const layoutModel = new PasswordManagerLayoutModel()
 
@@ -318,7 +318,7 @@ describe('EnvRuntimeModel', () => {
           .getDesktopToolbarSections()
           .flatMap((section) => section.actions)
           .some((action) => action.id === 'pm-env-runtime-view'),
-      ).toBe(true)
+      ).toBe(false)
     }
   })
 

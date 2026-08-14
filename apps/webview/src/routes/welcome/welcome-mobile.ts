@@ -33,6 +33,8 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
         width: 100%;
         min-height: 100%;
         gap: var(--app-spacing-4);
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
       }
 
       .container.first-run-container {
@@ -87,20 +89,22 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
       .main-card.first-run-card + welcome-tools-section {
         padding-inline: clamp(22px, 6vw, 32px);
         padding-block-end: calc(
-          var(
-              --app-runtime-safe-area-block-end-active,
-              var(--app-runtime-safe-area-block-end, 0px)
-            ) +
+          var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px)) +
             var(--app-spacing-4)
         );
       }
 
-      @media (max-height: 700px) {
-        .main-card.first-run-card {
-          padding-block-start: clamp(20px, 4svh, 28px);
-          padding-block-end: clamp(16px, 3svh, 24px);
-          gap: clamp(18px, 3svh, 24px);
-        }
+      .welcome-task {
+        display: grid;
+        gap: var(--app-spacing-5);
+        min-inline-size: 0;
+      }
+
+      .container[data-viewport-profile='compact'] .main-card.first-run-card,
+      .container[data-viewport-profile='condensed'] .main-card.first-run-card {
+        padding-block-start: clamp(20px, 4svh, 28px);
+        padding-block-end: clamp(16px, 3svh, 24px);
+        gap: clamp(18px, 3svh, 24px);
       }
 
       .locked-vault {
@@ -109,8 +113,10 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
         box-sizing: border-box;
         inline-size: auto;
         block-size: calc(
-          var(--app-runtime-visual-viewport-block-size, 100dvh) -
-            var(--app-runtime-safe-area-block-start, 0px)
+          var(--app-runtime-visual-viewport-block-size, 100dvh) - var(
+              --app-runtime-safe-area-block-start,
+              0px
+            )
         );
         min-block-size: 0;
         padding: var(--app-spacing-1) var(--app-spacing-6) var(--app-spacing-6);
@@ -213,6 +219,73 @@ export class WelcomePageMobileLayout extends WelcomePageLayoutBase {
 
       .locked-vault .main-card::before {
         content: none;
+      }
+
+      @media (min-width: 700px) {
+        .container.first-run-container[data-tablet-viewport] {
+          grid-template-rows: max-content max-content;
+          align-content: center;
+          gap: clamp(20px, 3svh, 32px);
+          padding: clamp(48px, 8svh, 88px) clamp(48px, 8vw, 96px)
+            calc(
+              var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px)) +
+                clamp(48px, 8svh, 88px)
+            );
+        }
+
+        .container[data-tablet-viewport] .main-card.first-run-card,
+        .locked-vault[data-tablet-viewport] .main-card {
+          inline-size: min(560px, 100%);
+          justify-self: center;
+          grid-template-columns: minmax(0, 1fr);
+          gap: clamp(28px, 4svh, 40px);
+        }
+
+        .container[data-tablet-viewport] .main-card.first-run-card {
+          padding: 0;
+        }
+
+        .container[data-tablet-viewport] .main-card.first-run-card + welcome-tools-section {
+          inline-size: min(560px, 100%);
+          justify-self: center;
+          padding-inline: 0;
+          padding-block-end: 0;
+        }
+
+        .locked-vault[data-tablet-viewport] {
+          grid-template-rows: max-content minmax(min-content, 1fr) max-content;
+          align-content: stretch;
+          gap: clamp(20px, 3svh, 32px);
+          padding: max(var(--app-spacing-3), var(--app-runtime-safe-area-block-start, 0px))
+            clamp(32px, 6vw, 72px)
+            calc(
+              var(--app-runtime-safe-area-block-end-active, var(--app-runtime-safe-area-block-end, 0px)) +
+                var(--app-spacing-5)
+            );
+        }
+
+        .locked-vault[data-tablet-viewport] .lockscreen-header,
+        .locked-vault[data-tablet-viewport] > welcome-tools-section {
+          inline-size: min(560px, 100%);
+          justify-self: center;
+        }
+
+        .locked-vault[data-tablet-viewport] .lockscreen-header {
+          margin-block-end: 0;
+        }
+
+        .locked-vault[data-tablet-viewport] .main-card {
+          align-self: center;
+          padding: clamp(28px, 4vw, 40px);
+          border: 1px solid var(--welcome-lockscreen-border-muted);
+          border-radius: 22px;
+          background: var(--welcome-lockscreen-surface);
+          box-shadow: var(--cv-shadow-2);
+        }
+
+        .locked-vault[data-tablet-viewport] .welcome-task {
+          padding: 0;
+        }
       }
 
       @media (prefers-reduced-motion: reduce) {

@@ -2,8 +2,6 @@ import type {CVTextareaInputEvent} from '@chromvoid/uikit/components/cv-textarea
 import {createAfterRenderScheduler, html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {nothing, type PropertyValues} from 'lit'
 
-import '@lit-labs/virtualizer'
-
 import {Entry, Group, type ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {getPMDesktopToolbarKey, renderPMDesktopToolbarItems} from '../../desktop-toolbar'
@@ -62,12 +60,18 @@ type PMGroupEmptyStatePresentation = {
   ariaLabel: string
 }
 
-type PMVirtualRange = {first: number; last: number}
+type PMListRange = {first: number; last: number}
 
-type PMVirtualizerElement = HTMLElement & {
+type PMListScrollerElement = HTMLElement & {
   element?: (index: number) => {scrollIntoView(options?: ScrollIntoViewOptions): void} | undefined
   updateComplete?: Promise<unknown>
   layoutComplete?: Promise<void>
+}
+
+type PMListScrollerRenderState = {
+  rows: PMListMutationRow[]
+  activeId: string | null
+  dropTargetId: string | undefined
 }
 
 type PMPendingGroupingAnchor = {
@@ -90,17 +94,17 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   private dropTargetEl: HTMLElement | null = null
   private pointerDrag: PMPointerDragState | null = null
   private renderedEditMode = false
-  private rangeVirtualizer: PMVirtualizerElement | null = null
-  private rangeVirtualizerContextKey: string | null = null
+  private listScroller: PMListScrollerElement | null = null
+  private listScrollerContextKey: string | null = null
   private renderedListContextKey: string | null = null
   private renderedGroupBy: GroupBy | null = null
   private scrollSaveFrame: number | null = null
   private pendingScrollSnapshot: {contextKey: string; scrollTop: number} | null = null
   private viewportRestoreGeneration = 0
   private restoringScrollContextKey: string | null = null
-  private lastVirtualRows: PMListMutationRow[] = []
-  private lastVirtualRange: PMVirtualRange | null = null
-  private lastVisibleRange: PMVirtualRange | null = null
+  private lastListRows: PMListMutationRow[] = []
+  private lastRenderedRange: PMListRange | null = null
+  private lastVisibleRange: PMListRange | null = null
   private pendingGroupingAnchor: PMPendingGroupingAnchor | null = null
   private currentMutationScopeId: string | null = null
   private readonly ownedMutationScopes = new Set<string>()
@@ -183,6 +187,48 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
   protected renderListHeader(_group: Group | ManagerRoot, _items: PMGroupRow[]): unknown {
     return nothing
+  }
+
+  protected renderListScroller({rows, activeId, dropTargetId}: PMListScrollerRenderState): unknown {
+    return html`
+      <lit-virtualizer
+        class="group-virtual-list scroll-edge-scroller"
+        tabindex="-1"
+        data-drop-target-id=${dropTargetId ?? nothing}
+        data-mobile-dnd-target-id=${dropTargetId ?? nothing}
+        scroller
+        .items=${rows}
+        .keyFunction=${(item: PMListMutationRow) => item.id}
+        .renderItem=${(item: PMListMutationRow) =>
+          this.renderRow(item, item.deleteExiting === true ? false : item.id === activeId)}
+        @rangeChanged=${this.onVirtualRangeChanged}
+        @visibilityChanged=${this.onVirtualVisibilityChanged}
+        @dragover=${this.onDragOverContentArea}
+        @dragenter=${this.onDragOverContentArea}
+        @drop=${this.onDropContentArea}
+        @dragleave=${this.onContentDragLeave}
+      ></lit-virtualizer>
+    `
+  }
+
+  protected syncListScrollPosition(
+    _rows: readonly PMListMutationRow[],
+    _scrollTop: number,
+    _force: boolean,
+  ): void {}
+
+  protected getListScrollTopForIndex(
+    _rows: readonly PMListMutationRow[],
+    _index: number,
+    _block: 'nearest' | 'center',
+    _currentScrollTop: number,
+  ): number | null {
+    return null
+  }
+
+  protected publishListRanges(rendered: PMListRange | null, visible: PMListRange | null): void {
+    this.lastRenderedRange = rendered
+    this.lastVisibleRange = visible
   }
 
   protected isManagerRoot(item: unknown): item is ManagerRoot {
@@ -294,7 +340,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
 
   protected override updated(changedProperties: PropertyValues): void {
     super.updated(changedProperties)
-    this.syncVirtualizerViewport()
+    this.syncListViewport()
     this.scrollEdge.scheduleMeasure()
     this.finishReducedMotionRows()
     this.scheduleStagedEnterReveal()
@@ -343,8 +389,8 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       pmListMutationMotionModel.resetScope(scopeId)
     }
     this.ownedMutationScopes.clear()
-    this.flushScheduledVirtualizerScrollSave()
-    this.cancelVirtualizerViewportRestore()
+    this.flushScheduledListScrollSave()
+    this.cancelListViewportRestore()
     this.afterRenderScheduler.cancel()
     this.model.exitEditMode()
     super.disconnectedCallback()
@@ -354,10 +400,10 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     }
     this.pointerDrag = null
     this.cleanupPointerListeners()
-    if (this.rangeVirtualizer) {
-      this.rangeVirtualizer.removeEventListener('scroll', this)
-      this.rangeVirtualizer = null
-      this.rangeVirtualizerContextKey = null
+    if (this.listScroller) {
+      this.listScroller.removeEventListener('scroll', this)
+      this.listScroller = null
+      this.listScrollerContextKey = null
     }
     this.scrollEdge.dispose()
   }
@@ -379,48 +425,51 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     }
 
     if (event.type === 'scroll') {
-      this.scheduleVirtualizerScrollSave()
+      if (this.listScroller) {
+        this.syncListScrollPosition(this.lastListRows, this.listScroller.scrollTop, false)
+      }
+      this.scheduleListScrollSave()
     }
   }
 
-  private syncVirtualizerViewport(): void {
-    const next = this.renderRoot.querySelector('lit-virtualizer') as PMVirtualizerElement | null
+  private syncListViewport(): void {
+    const next = this.renderRoot.querySelector('.group-virtual-list') as PMListScrollerElement | null
     const nextContextKey = this.renderedListContextKey
-    const nodeChanged = next !== this.rangeVirtualizer
-    const contextChanged = nextContextKey !== this.rangeVirtualizerContextKey
+    const nodeChanged = next !== this.listScroller
+    const contextChanged = nextContextKey !== this.listScrollerContextKey
     if (!nodeChanged && !contextChanged) return
 
-    this.flushScheduledVirtualizerScrollSave()
-    this.cancelVirtualizerViewportRestore()
+    this.flushScheduledListScrollSave()
+    this.cancelListViewportRestore()
     if (nodeChanged) {
-      this.rangeVirtualizer?.removeEventListener('scroll', this)
+      this.listScroller?.removeEventListener('scroll', this)
     }
-    this.rangeVirtualizer = next
-    this.rangeVirtualizerContextKey = nextContextKey
+    this.listScroller = next
+    this.listScrollerContextKey = nextContextKey
     if (nodeChanged) {
-      this.rangeVirtualizer?.addEventListener('scroll', this, {passive: true})
-      this.scrollEdge.bindScroller(this.rangeVirtualizer)
+      this.listScroller?.addEventListener('scroll', this, {passive: true})
+      this.scrollEdge.bindScroller(this.listScroller)
     }
 
     if (next && nextContextKey) {
-      this.restoreVirtualizerViewport(next, nextContextKey)
+      this.restoreListViewport(next, nextContextKey)
     }
   }
 
-  private saveVirtualizerScroll(): void {
-    if (!this.rangeVirtualizer || !this.rangeVirtualizerContextKey) return
-    if (this.rangeVirtualizerContextKey === this.restoringScrollContextKey) return
+  private saveListScroll(): void {
+    if (!this.listScroller || !this.listScrollerContextKey) return
+    if (this.listScrollerContextKey === this.restoringScrollContextKey) return
 
-    pmListViewportModel.saveScrollTop(this.rangeVirtualizerContextKey, this.rangeVirtualizer.scrollTop)
+    pmListViewportModel.saveScrollTop(this.listScrollerContextKey, this.listScroller.scrollTop)
   }
 
-  private scheduleVirtualizerScrollSave(): void {
-    if (!this.rangeVirtualizer || !this.rangeVirtualizerContextKey) return
-    if (this.rangeVirtualizerContextKey === this.restoringScrollContextKey) return
+  private scheduleListScrollSave(): void {
+    if (!this.listScroller || !this.listScrollerContextKey) return
+    if (this.listScrollerContextKey === this.restoringScrollContextKey) return
 
     this.pendingScrollSnapshot = {
-      contextKey: this.rangeVirtualizerContextKey,
-      scrollTop: this.rangeVirtualizer.scrollTop,
+      contextKey: this.listScrollerContextKey,
+      scrollTop: this.listScroller.scrollTop,
     }
     if (this.scrollSaveFrame !== null) return
 
@@ -434,7 +483,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     })
   }
 
-  private flushScheduledVirtualizerScrollSave(): void {
+  private flushScheduledListScrollSave(): void {
     if (this.scrollSaveFrame !== null) {
       cancelAnimationFrame(this.scrollSaveFrame)
       this.scrollSaveFrame = null
@@ -446,35 +495,36 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     }
   }
 
-  private restoreVirtualizerViewport(virtualizer: PMVirtualizerElement, contextKey: string): void {
+  private restoreListViewport(scroller: PMListScrollerElement, contextKey: string): void {
     const generation = ++this.viewportRestoreGeneration
     this.restoringScrollContextKey = contextKey
-    void this.applyVirtualizerViewportRestore(virtualizer, contextKey, generation)
+    void this.applyListViewportRestore(scroller, contextKey, generation)
   }
 
-  private cancelVirtualizerViewportRestore(): void {
+  private cancelListViewportRestore(): void {
     this.viewportRestoreGeneration += 1
     this.restoringScrollContextKey = null
   }
 
-  private async applyVirtualizerViewportRestore(
-    virtualizer: PMVirtualizerElement,
+  private async applyListViewportRestore(
+    scroller: PMListScrollerElement,
     contextKey: string,
     generation: number,
   ): Promise<void> {
     await this.updateComplete
-    await this.waitForVirtualizerLayout(virtualizer)
-    if (!this.isCurrentViewportRestore(virtualizer, contextKey, generation)) return
+    await this.waitForListLayout(scroller)
+    if (!this.isCurrentViewportRestore(scroller, contextKey, generation)) return
 
     const groupingAnchor =
       this.pendingGroupingAnchor?.contextKey === contextKey ? this.pendingGroupingAnchor : null
     if (groupingAnchor) {
-      const rows = this.lastVirtualRows
+      const rows = this.lastListRows
       const index = this.model.resolveGroupingAnchorIndex(rows, groupingAnchor.entryId)
       if (index !== null) {
-        virtualizer.element?.(index)?.scrollIntoView({block: 'center'})
-        await this.waitForVirtualizerLayout(virtualizer)
-        if (!this.isCurrentViewportRestore(virtualizer, contextKey, generation)) return
+        this.scrollListIndexIntoView(scroller, rows, index, 'center')
+        await this.updateComplete
+        await this.waitForListLayout(scroller)
+        if (!this.isCurrentViewportRestore(scroller, contextKey, generation)) return
 
         if (groupingAnchor.shouldFocus) {
           const rowId = rows[index]?.id
@@ -485,25 +535,29 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         this.pendingGroupingAnchor = null
       }
     } else {
-      virtualizer.scrollTop = pmListViewportModel.getScrollTop(contextKey) ?? 0
+      const scrollTop = pmListViewportModel.getScrollTop(contextKey) ?? 0
+      scroller.scrollTop = scrollTop
+      this.syncListScrollPosition(this.lastListRows, scrollTop, true)
+      await this.updateComplete
+      await this.waitForListLayout(scroller)
     }
 
-    if (!this.isCurrentViewportRestore(virtualizer, contextKey, generation)) return
+    if (!this.isCurrentViewportRestore(scroller, contextKey, generation)) return
     this.restoringScrollContextKey = null
     this.scrollEdge.scheduleMeasure()
-    this.saveVirtualizerScroll()
+    this.saveListScroll()
   }
 
   private isCurrentViewportRestore(
-    virtualizer: PMVirtualizerElement,
+    scroller: PMListScrollerElement,
     contextKey: string,
     generation: number,
   ): boolean {
     return (
       generation === this.viewportRestoreGeneration &&
-      virtualizer === this.rangeVirtualizer &&
-      contextKey === this.rangeVirtualizerContextKey &&
-      virtualizer.isConnected
+      scroller === this.listScroller &&
+      contextKey === this.listScrollerContextKey &&
+      scroller.isConnected
     )
   }
 
@@ -576,28 +630,45 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     const itemId = this.model.getKeyboardItemIdByIndex(index)
     if (!contextKey || !itemId || this.pendingGroupingAnchor?.contextKey === contextKey) return
 
-    void this.scrollVirtualItemIntoView(index, itemId, contextKey, shouldFocus)
+    void this.scrollListItemIntoView(index, itemId, contextKey, shouldFocus)
   }
 
-  private async scrollVirtualItemIntoView(
+  private async scrollListItemIntoView(
     index: number,
     itemId: string,
     contextKey: string,
     shouldFocus: boolean,
   ): Promise<void> {
     await this.updateComplete
-    const virtualizer = this.rangeVirtualizer
-    if (!virtualizer || contextKey !== this.rangeVirtualizerContextKey) return
+    const scroller = this.listScroller
+    if (!scroller || contextKey !== this.listScrollerContextKey) return
 
-    await this.waitForVirtualizerLayout(virtualizer)
-    if (virtualizer !== this.rangeVirtualizer || contextKey !== this.rangeVirtualizerContextKey) return
+    await this.waitForListLayout(scroller)
+    if (scroller !== this.listScroller || contextKey !== this.listScrollerContextKey) return
 
-    virtualizer.element?.(index)?.scrollIntoView({block: 'nearest'})
+    this.scrollListIndexIntoView(scroller, this.lastListRows, index, 'nearest')
     if (!shouldFocus) return
 
-    await this.waitForVirtualizerLayout(virtualizer)
-    if (virtualizer !== this.rangeVirtualizer || contextKey !== this.rangeVirtualizerContextKey) return
+    await this.updateComplete
+    await this.waitForListLayout(scroller)
+    if (scroller !== this.listScroller || contextKey !== this.listScrollerContextKey) return
     this.focusRowElement(this.getRenderedRowById(itemId))
+  }
+
+  private scrollListIndexIntoView(
+    scroller: PMListScrollerElement,
+    rows: readonly PMListMutationRow[],
+    index: number,
+    block: 'nearest' | 'center',
+  ): void {
+    const scrollTop = this.getListScrollTopForIndex(rows, index, block, scroller.scrollTop)
+    if (scrollTop === null) {
+      scroller.element?.(index)?.scrollIntoView({block})
+      return
+    }
+
+    scroller.scrollTop = scrollTop
+    this.syncListScrollPosition(rows, scrollTop, true)
   }
 
   private focusListContainer(): void {
@@ -828,7 +899,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     void pmEntryMoveModel.dropToTarget(targetId, dragPayload)
   }
 
-  private onDragOverContentArea(event: DragEvent): void {
+  protected onDragOverContentArea(event: DragEvent): void {
     this.clearDropHighlight()
     const group = this.getCurrentGroup()
     if (!group) return
@@ -848,7 +919,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     pmEntryMoveModel.setDropTarget(targetId)
   }
 
-  private onDropContentArea(event: DragEvent): void {
+  protected onDropContentArea(event: DragEvent): void {
     this.clearDropHighlight()
     const group = this.getCurrentGroup()
     if (!group) return
@@ -908,7 +979,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     pmEntryMoveModel.setDropTarget(null)
   }
 
-  private onContentDragLeave(event: DragEvent): void {
+  protected onContentDragLeave(event: DragEvent): void {
     const related = event.relatedTarget
     if (
       related instanceof Node &&
@@ -1312,15 +1383,15 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   }
 
   private getPreviousVisibleRows(): PMListMutationVisibleRow[] {
-    if (this.lastVirtualRows.length === 0) return []
+    if (this.lastListRows.length === 0) return []
 
-    const fallbackLast = Math.min(this.lastVirtualRows.length - 1, 39)
-    const range = this.lastVirtualRange ?? {first: 0, last: fallbackLast}
+    const fallbackLast = Math.min(this.lastListRows.length - 1, 39)
+    const range = this.lastRenderedRange ?? {first: 0, last: fallbackLast}
     const first = Math.max(0, range.first)
-    const last = Math.min(this.lastVirtualRows.length - 1, range.last)
+    const last = Math.min(this.lastListRows.length - 1, range.last)
     const rows: PMListMutationVisibleRow[] = []
     for (let index = first; index <= last; index += 1) {
-      const row = this.lastVirtualRows[index]
+      const row = this.lastListRows[index]
       if (row) rows.push({row, index})
     }
     return rows
@@ -1329,7 +1400,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   private onVirtualRangeChanged(event: Event): void {
     const detail = event as Event & {first?: number; last?: number}
     if (typeof detail.first !== 'number' || typeof detail.last !== 'number') return
-    this.lastVirtualRange = {
+    this.lastRenderedRange = {
       first: Math.max(0, Math.floor(detail.first)),
       last: Math.max(0, Math.floor(detail.last)),
     }
@@ -1369,10 +1440,10 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
   private finishReducedMotionRows(): void {
     if (!prefersReducedMotion() || !this.currentMutationScopeId) return
 
-    const exitingIds = this.lastVirtualRows
+    const exitingIds = this.lastListRows
       .filter((row) => row.deleteExiting === true)
       .map((row) => row.id)
-    const enteringIds = this.lastVirtualRows.filter((row) => row.entering).map((row) => row.id)
+    const enteringIds = this.lastListRows.filter((row) => row.entering).map((row) => row.id)
     const stagedIds = pmListMutationMotionModel.getStagedEnterIds(this.currentMutationScopeId)
     if (exitingIds.length > 0) {
       pmListMutationMotionModel.completeExitBatch(this.currentMutationScopeId, exitingIds)
@@ -1410,7 +1481,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       update,
       settle: async () => {
         await this.updateComplete
-        await this.waitForVirtualizerLayout()
+        await this.waitForListLayout()
       },
     })
     if (scope) delete scope.dataset['pmListTransition']
@@ -1480,14 +1551,12 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
     return fallback
   }
 
-  private async waitForVirtualizerLayout(
-    virtualizer: PMVirtualizerElement | null = this.rangeVirtualizer,
-  ): Promise<void> {
-    await virtualizer?.updateComplete
+  private async waitForListLayout(scroller: PMListScrollerElement | null = this.listScroller): Promise<void> {
+    await scroller?.updateComplete
     const frameFallback = new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     })
-    const layoutComplete = virtualizer?.layoutComplete
+    const layoutComplete = scroller?.layoutComplete
     await (layoutComplete ? Promise.race([layoutComplete.catch(() => {}), frameFallback]) : frameFallback)
   }
 
@@ -1560,8 +1629,8 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       const entryId =
         this.pendingGroupingAnchor?.entryId ??
         this.model.getGroupingAnchorEntryId(
-          this.lastVirtualRows,
-          this.lastVisibleRange ?? this.lastVirtualRange,
+          this.lastListRows,
+          this.lastVisibleRange ?? this.lastRenderedRange,
           this.model.getActiveItemId(),
         )
       this.pendingGroupingAnchor = {
@@ -1582,15 +1651,15 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       mutationScopeId,
       items,
       previousVisibleRows,
-      this.lastVirtualRange,
+      this.lastRenderedRange,
     )
     const renderItems = pmListMutationMotionModel.decorateProjection(mutationScopeId, items)
     this.renderedListContextKey = contextKey
 
     if (!items.length && !renderItems.length) {
       this.model.resetKeyboardState()
-      this.lastVirtualRows = []
-      this.lastVirtualRange = null
+      this.lastListRows = []
+      this.lastRenderedRange = null
       this.lastVisibleRange = null
       this.pendingGroupingAnchor = null
       return this.renderEmptyState()
@@ -1613,11 +1682,11 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
       this.ensureActiveItemVisible(activeIndex, true)
     }
 
-    const activeId = this.model.getActiveItemId()
+    const activeId = this.model.getActiveItemId() ?? null
     const currentGroupId = this.getDropTargetId(group)
     const hasScrollBlockStart = this.usesBlockStartScrollEdge() && this.scrollEdge.hasBlockStartOverflow()
     const hasScrollBlockEnd = this.scrollEdge.hasBlockEndOverflow()
-    this.lastVirtualRows = renderItems
+    this.lastListRows = renderItems
 
     return html`
       <div
@@ -1627,23 +1696,7 @@ export abstract class PMGroupBase extends ReatomLitElement implements EventListe
         data-scroll-block-end=${String(hasScrollBlockEnd)}
       >
         ${this.renderListHeader(group, items)}
-        <lit-virtualizer
-          class="group-virtual-list scroll-edge-scroller"
-          tabindex="-1"
-          data-drop-target-id=${currentGroupId ?? nothing}
-          data-mobile-dnd-target-id=${currentGroupId ?? nothing}
-          scroller
-          .items=${renderItems}
-          .keyFunction=${(item: PMListMutationRow) => item.id}
-          .renderItem=${(item: PMListMutationRow) =>
-            this.renderRow(item, item.deleteExiting === true ? false : item.id === activeId)}
-          @rangeChanged=${this.onVirtualRangeChanged}
-          @visibilityChanged=${this.onVirtualVisibilityChanged}
-          @dragover=${this.onDragOverContentArea}
-          @dragenter=${this.onDragOverContentArea}
-          @drop=${this.onDropContentArea}
-          @dragleave=${this.onContentDragLeave}
-        ></lit-virtualizer>
+        ${this.renderListScroller({rows: renderItems, activeId, dropTargetId: currentGroupId})}
       </div>
     `
   }

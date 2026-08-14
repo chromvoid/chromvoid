@@ -6,8 +6,6 @@ import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 
@@ -35,8 +33,6 @@ export class NoConnection extends ReatomLitElement {
 
   static styles = [
     sharedStyles,
-    pageTransitionStyles,
-    pageFadeInStyles,
     hostLayoutPaintContainStyles,
     css`
       :host {

@@ -56,6 +56,8 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
 
   private renderMobileLayout() {
     const setupStep = this.model.setup.effectiveStep()
+    const viewportProfile = this.model.mobileViewportProfile()
+    const tabletViewportEligible = this.model.mobileTabletViewportEligible()
     const isRemoteFlow = this.isRemoteSetupStep(setupStep)
     const isMobileLockedVault =
       this.layoutVariant === 'mobile' && !this.model.setup.isNeedInit() && setupStep === null
@@ -72,7 +74,12 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
     const mainCardClass = isMobileFirstRun ? 'main-card first-run-card' : 'main-card'
 
     return html`
-      <div class=${containerClass} aria-busy=${unlockInProgress ? 'true' : nothing}>
+      <div
+        class=${containerClass}
+        aria-busy=${unlockInProgress ? 'true' : nothing}
+        data-viewport-profile=${viewportProfile}
+        ?data-tablet-viewport=${tabletViewportEligible}
+      >
         ${unlockInProgress
           ? html`
               <div class="unlock-loading-scrim" role="status" aria-live="polite" aria-atomic="true">
@@ -100,22 +107,30 @@ export abstract class WelcomePageLayoutBase extends ReatomLitElement {
                 <welcome-hero-section
                   .model=${this.model.setup}
                   layout=${this.layoutVariant}
+                  viewport-profile=${viewportProfile}
+                  ?tablet-viewport=${tabletViewportEligible}
                 ></welcome-hero-section>
               `}
-          ${this.model.errorText()
-            ? html`<cv-callout variant="danger" class="${this.model.shakeError() ? 'animate-shake' : ''}">
-                ${this.model.errorText()}
-              </cv-callout>`
-            : nothing}
-          <welcome-setup-section
-            .model=${this.model.setup}
-            layout=${this.layoutVariant}
-          ></welcome-setup-section>
+          <div class="welcome-task">
+            ${this.model.errorText()
+              ? html`<cv-callout variant="danger" class="${this.model.shakeError() ? 'animate-shake' : ''}">
+                  ${this.model.errorText()}
+                </cv-callout>`
+              : nothing}
+            <welcome-setup-section
+              .model=${this.model.setup}
+              layout=${this.layoutVariant}
+              viewport-profile=${viewportProfile}
+              ?tablet-viewport=${tabletViewportEligible}
+            ></welcome-setup-section>
+          </div>
         </div>
 
         <welcome-tools-section
           .model=${this.model.tools}
           layout=${this.layoutVariant}
+          viewport-profile=${viewportProfile}
+          ?tablet-viewport=${tabletViewportEligible}
         ></welcome-tools-section>
       </div>
     `

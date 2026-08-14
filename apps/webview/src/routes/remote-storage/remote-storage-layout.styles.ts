@@ -1,12 +1,11 @@
 import {css} from 'lit'
-import {hostLayoutPaintContainStyles, motionPrimitiveStyles, sharedStyles} from 'root/shared/ui/shared-styles'
+import {hostLayoutPaintContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
 import {routeCardStyles} from 'root/shared/ui/route-card.styles'
 import {routeCalloutStyles} from 'root/shared/ui/route-callout.styles'
 
 export const remoteStorageLayoutStyles = [
   sharedStyles,
   hostLayoutPaintContainStyles,
-  motionPrimitiveStyles,
   routeCardStyles,
   routeCalloutStyles,
   css`
@@ -15,8 +14,6 @@ export const remoteStorageLayoutStyles = [
       min-height: 100%;
       box-sizing: border-box;
       background: var(--cv-color-bg, var(--cv-color-surface));
-      --app-motion-reveal-start-transform: translateY(8px);
-      --app-motion-reveal-end-transform: translateY(0);
       --app-route-card-radius: var(--cv-radius-3);
       --app-route-card-header-align-items: center;
       --app-route-card-header-background: var(--cv-gradient-surface);
@@ -41,13 +38,6 @@ export const remoteStorageLayoutStyles = [
       --app-route-callout-title-display: flex;
       --app-route-callout-title-gap: var(--app-spacing-2);
       --app-route-callout-text-line-height: 1.55;
-      animation: var(--app-motion-page-reveal-animation, reveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) both);
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      :host {
-        animation: none;
-      }
     }
 
     /* ========== PAGE LAYOUT ========== */

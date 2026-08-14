@@ -331,6 +331,15 @@ cv-theme-provider[theme='light'] {
   }
 }
 
+@keyframes vt-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 ::view-transition-old(route-content) {
   animation: var(--cv-duration-normal) var(--cv-easing-standard) both vt-fade-out;
 }

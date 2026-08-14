@@ -11,7 +11,9 @@ const settle = async (component: HTMLElement & {updateComplete: Promise<unknown>
 }
 
 const getTypeSwitchIcons = (component: HTMLElement) =>
-  Array.from(component.shadowRoot?.querySelectorAll('.entry-type-option cv-icon') ?? []).map((icon) => icon.getAttribute('name'))
+  Array.from(component.shadowRoot?.querySelectorAll('.entry-type-option cv-icon') ?? []).map((icon) =>
+    icon.getAttribute('name'),
+  )
 
 const getTypeSwitch = (component: HTMLElement) =>
   component.shadowRoot?.querySelector('cv-radio-group.entry-type-switch') as CVRadioGroup | null
@@ -25,6 +27,10 @@ describe('PMEntryCreate entry type switch', () => {
   beforeEach(() => {
     previousPassmanager = window.passmanager
     window.passmanager = {
+      id: 'root',
+      name: 'Vault',
+      entriesList: vi.fn(() => []),
+      getGroup: vi.fn(() => undefined),
       isReadOnly: vi.fn(() => false),
       showElement: () => null,
     } as unknown as typeof window.passmanager
@@ -112,7 +118,10 @@ describe('PMEntryCreate entry type switch', () => {
     await settle(component)
 
     expect(getTypeSwitch(component)?.value).toBe('payment_card')
-    expect(getTypeOptions(component).map((option) => option.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+    expect(getTypeOptions(component).map((option) => option.getAttribute('aria-checked'))).toEqual([
+      'false',
+      'true',
+    ])
   })
 
   it('uses the shared mobile tag picker in the Details hub', async () => {
@@ -122,9 +131,11 @@ describe('PMEntryCreate entry type switch', () => {
     document.body.append(component)
     await settle(component)
 
-    const model = (component as unknown as {
-      model: {openDetailsSheet(): void; openDetailsEditor(detail: 'tags'): void}
-    }).model
+    const model = (
+      component as unknown as {
+        model: {openDetailsSheet(): void; openDetailsEditor(detail: 'tags'): void}
+      }
+    ).model
     model.openDetailsSheet()
     model.openDetailsEditor('tags')
     await settle(component)

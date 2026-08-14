@@ -55,11 +55,13 @@ describe('status-bar error dismiss', () => {
 
     const callout = element.shadowRoot?.querySelector('cv-callout.status-error-callout')
     expect(callout).not.toBeNull()
+    expect(element.shadowRoot?.querySelector('.status-bar')?.hasAttribute('data-expanded')).toBe(true)
 
     callout?.dispatchEvent(new CustomEvent('cv-close', {bubbles: true, composed: true}))
     await element.updateComplete
     await Promise.resolve()
 
     expect(element.shadowRoot?.querySelector('cv-callout.status-error-callout')).toBeNull()
+    expect(element.shadowRoot?.querySelector('.status-bar')).toBeNull()
   })
 })

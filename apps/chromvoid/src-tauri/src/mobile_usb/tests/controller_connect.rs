@@ -172,6 +172,47 @@ async fn mobile_usb_controller_connect_waits_for_current_session_approval_when_s
 }
 
 #[tokio::test]
+async fn mobile_usb_controller_session_approval_expiry_stops_only_the_pending_session() {
+    let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
+    let store = Arc::new(InMemoryMobileUsbPairingStore::default());
+    let secrets = Arc::new(InMemoryMobileUsbSecretStore::default());
+    let client_keys = noise_keypair();
+    let key_ref = secrets
+        .save_client_key(&"host-1".to_string(), &client_keys.private)
+        .expect("save client key");
+    store
+        .commit_pairing(record("host-1", &key_ref, bridge.host_public_key()))
+        .expect("paired record");
+    let starter = Arc::new(FakeSessionStarter::default());
+    starter.set_host_unlocked(true);
+    let controller = MobileUsbController::new(bridge, store, secrets, starter.clone());
+    controller
+        .connect("host-1".to_string())
+        .await
+        .expect("connect");
+
+    let status = controller
+        .handle_session_event(MobileUsbSessionEvent::SessionApprovalExpired {
+            session_id: "session-1".to_string(),
+        })
+        .expect("expire current pending approval");
+    assert_eq!(status.session_state, MobileUsbSessionState::Disconnected);
+    assert_eq!(
+        status.error_code,
+        Some(MobileUsbErrorCode::SessionApprovalExpired)
+    );
+    assert_eq!(starter.stop_count(), 1);
+
+    let error = controller
+        .handle_session_event(MobileUsbSessionEvent::SessionApprovalExpired {
+            session_id: "session-1".to_string(),
+        })
+        .expect_err("duplicate expiry is stale");
+    assert_eq!(error.code, MobileUsbErrorCode::UnlockNotAuthenticated);
+    assert_eq!(starter.stop_count(), 1);
+}
+
+#[tokio::test]
 async fn mobile_usb_controller_connect_reuses_active_session_without_reopening_usb() {
     let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
     let store = Arc::new(InMemoryMobileUsbPairingStore::default());

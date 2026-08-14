@@ -206,7 +206,7 @@ export class UploadProgressMobile extends UploadProgressBase {
       }
 
       cv-bottom-sheet::part(handle) {
-        min-block-size: 28px;
+        min-block-size: 48px;
         padding-block: 10px 6px;
       }
 

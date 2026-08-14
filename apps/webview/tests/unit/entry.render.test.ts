@@ -236,6 +236,7 @@ describe('PMEntry', () => {
     delete (globalThis as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
     resetRuntimeCapabilities()
     pmCredentialTagsModel.closeSheet()
+    pmCredentialTagsModel.closeCatalogManager()
     pmEntryEditorModel.reset()
     setPasswordManagerLang('en')
     vi.restoreAllMocks()
@@ -260,7 +261,7 @@ describe('PMEntry', () => {
     document.body.append(component)
     await settle(component)
 
-    const passwordField = component.shadowRoot?.querySelectorAll('.credential-field')[2] as
+    const passwordField = component.shadowRoot?.querySelector('[data-field="password"]') as
       | HTMLElement
       | undefined
     expect(passwordField?.querySelector('.secret-skeleton')).not.toBeNull()
@@ -271,7 +272,7 @@ describe('PMEntry', () => {
     note.resolve('')
     await settle(component)
 
-    const updatedPasswordField = component.shadowRoot?.querySelectorAll('.credential-field')[2] as
+    const updatedPasswordField = component.shadowRoot?.querySelector('[data-field="password"]') as
       | HTMLElement
       | undefined
     const passwordInput = updatedPasswordField?.querySelector('.password-input') as HTMLElement & {
@@ -280,7 +281,8 @@ describe('PMEntry', () => {
     expect(passwordInput?.value).toBe('secret')
     expect(passwordInput?.getAttribute('dir')).toBe('ltr')
     expect(component.shadowRoot?.querySelector('.field-value[dir="ltr"]')?.textContent).toContain('alice')
-    expect(component.shadowRoot?.querySelector('.field-value bdi[dir="auto"]')?.textContent).toBe('Entry')
+    expect(component.shadowRoot?.querySelectorAll('.credential-field')).toHaveLength(3)
+    expect(component.shadowRoot?.querySelector('[data-field="title"]')).toBeNull()
   })
 
   it('copies the loaded password from the detail copy icon without re-reading the entry secret', async () => {
@@ -306,7 +308,7 @@ describe('PMEntry', () => {
     document.body.append(component)
     await settle(component)
 
-    const passwordField = component.shadowRoot?.querySelectorAll('.credential-field')[2] as
+    const passwordField = component.shadowRoot?.querySelector('[data-field="password"]') as
       | HTMLElement
       | undefined
     const passwordInput = passwordField?.querySelector('.password-input') as HTMLElement & {value?: string}
@@ -356,7 +358,7 @@ describe('PMEntry', () => {
 
     await settle(component)
 
-    const passwordField = component.shadowRoot?.querySelectorAll('.credential-field')[2] as
+    const passwordField = component.shadowRoot?.querySelector('[data-field="password"]') as
       | HTMLElement
       | undefined
     const passwordInput = passwordField?.querySelector('.password-input') as HTMLElement & {value?: string}
@@ -423,6 +425,7 @@ describe('PMEntry', () => {
     expect(link?.getAttribute('target')).toBe('_blank')
     expect(link?.getAttribute('rel')).toBe('noopener noreferrer')
     expect(link?.querySelector('.website-name[dir="ltr"]')?.textContent).toBe('https://example.com')
+    expect(link?.querySelector('.website-primary-marker')).toBeNull()
 
     const click = new MouseEvent('click', {bubbles: true, cancelable: true, composed: true})
     link?.dispatchEvent(click)
@@ -478,18 +481,24 @@ describe('PMEntry', () => {
     await settle(component)
 
     const getAction = (action: string) =>
-      component.shadowRoot?.querySelector(`cv-toolbar-item[data-action="${action}"]`) as HTMLElement | null
+      component.shadowRoot?.querySelector(`[data-action="${action}"]`) as HTMLElement | null
+    const actionMenu = component.shadowRoot?.querySelector('.entry-actions-menu') as HTMLElement | null
 
-    expect(getAction('edit-entry')).not.toBeNull()
-    expect(getAction('move-entry')).not.toBeNull()
-    expect(getAction('delete-entry')).not.toBeNull()
-    expect(getAction('edit-entry')?.getAttribute('data-appearance')).toBe('ghost')
-    expect(getAction('move-entry')?.getAttribute('data-appearance')).toBe('default')
-    expect(getAction('delete-entry')?.getAttribute('data-appearance')).toBe('default')
+    expect(component.shadowRoot?.querySelector('.entry-view-actions[role="toolbar"]')).not.toBeNull()
+    expect(getAction('edit-entry')?.tagName).toBe('CV-BUTTON')
+    expect(getAction('move-entry')?.tagName).toBe('CV-MENU-ITEM')
+    expect(getAction('delete-entry')?.tagName).toBe('CV-MENU-ITEM')
 
     getAction('edit-entry')?.click()
-    getAction('move-entry')?.click()
-    getAction('delete-entry')?.click()
+    for (const action of ['move-entry', 'delete-entry']) {
+      actionMenu?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {value: action, open: false},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+    }
 
     expect(editSpy).toHaveBeenCalledTimes(1)
     expect(moveSpy).toHaveBeenCalledTimes(1)
@@ -583,7 +592,7 @@ describe('PMEntry', () => {
     expect(component.shadowRoot?.textContent).toContain('Срок действия')
   })
 
-  it('renders the shared workspace header with root fallback and lets the header render shared metadata internally', async () => {
+  it('renders a compact workspace header and separates entry data into primary and inspector regions', async () => {
     const entry = createEntry()
 
     window.passmanager = {
@@ -598,18 +607,39 @@ describe('PMEntry', () => {
 
     const header = component.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
     const headerShadow = header?.shadowRoot
-    const badges = Array.from(header?.querySelectorAll('[slot="context-end"] cv-badge') ?? [])
     const breadcrumbItems = Array.from(headerShadow?.querySelectorAll('cv-breadcrumb-item') ?? [])
+    const fields = Array.from(component.shadowRoot?.querySelectorAll('.credential-field') ?? [])
+    const details = Array.from(component.shadowRoot?.querySelectorAll('.entry-detail-row') ?? [])
+    const statuses = Array.from(component.shadowRoot?.querySelectorAll('.entry-status') ?? [])
 
     expect(component.shadowRoot?.querySelector('pm-card-header')).toBeNull()
     expect(header).not.toBeNull()
+    expect((header as HTMLElement & {density?: string})?.density).toBe('compact')
     expect(breadcrumbItems.map((item) => item.textContent?.trim() ?? '')).toEqual(['Root', 'Entry'])
     expect(breadcrumbItems.map((item) => item.hasAttribute('current'))).toEqual([false, true])
-    expect(badges.length).toBe(2)
-    expect(badges[0]?.textContent).toContain('Encrypted')
-    expect(headerShadow?.querySelector('.workspace-meta')).not.toBeNull()
-    expect(headerShadow?.querySelectorAll('.workspace-meta-item').length).toBe(2)
+    expect(headerShadow?.querySelector('.title-summary')?.textContent).toContain('Login')
+    expect(headerShadow?.querySelector('.title-summary')?.textContent).toContain('https://example.com')
+    expect(headerShadow?.querySelector('.workspace-meta')).toBeNull()
     expect(header?.querySelector('[slot="meta"]')).toBeNull()
+    expect(component.shadowRoot?.querySelector('.entry-main')).not.toBeNull()
+    expect(component.shadowRoot?.querySelector('aside.entry-inspector')).not.toBeNull()
+    expect(fields.map((field) => field.getAttribute('data-field'))).toEqual([
+      'username',
+      'password',
+      'website',
+    ])
+    expect(details).toHaveLength(4)
+    expect(details.map((detail) => detail.textContent)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Location'),
+        expect.stringContaining('Entry type'),
+        expect.stringContaining('Last modified'),
+        expect.stringContaining('Created'),
+      ]),
+    )
+    expect(statuses).toHaveLength(1)
+    expect(statuses[0]?.textContent).toContain('Encrypted')
+    expect(statuses[0]?.textContent).not.toContain('1')
     expect(component.shadowRoot?.querySelector('article > .metadata-footer')).toBeNull()
   })
 
@@ -667,6 +697,8 @@ describe('PMEntry', () => {
     expect(editButton).not.toBeNull()
     editButton?.click()
     await settle(component)
+
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
 
     const combobox = component.shadowRoot?.querySelector('cv-combobox.entry-tags-combobox') as
       | (HTMLElement & {shadowRoot?: ShadowRoot; updateComplete?: Promise<unknown>})
@@ -915,9 +947,16 @@ describe('PMEntry', () => {
     document.body.append(component)
     await settle(component)
 
-    const items = Array.from(component.shadowRoot?.querySelectorAll('cv-toolbar-item') ?? [])
-    expect(items.length).toBe(3)
-    expect(items.every((item) => item.hasAttribute('disabled'))).toBe(true)
+    const editAction = component.shadowRoot?.querySelector('.entry-primary-action[data-action="edit-entry"]')
+    const actionMenu = component.shadowRoot?.querySelector('.entry-actions-menu')
+    const menuItems = Array.from(
+      component.shadowRoot?.querySelectorAll('.entry-actions-menu cv-menu-item') ?? [],
+    )
+
+    expect(editAction?.hasAttribute('disabled')).toBe(true)
+    expect(actionMenu?.hasAttribute('disabled')).toBe(true)
+    expect(menuItems).toHaveLength(2)
+    expect(menuItems.every((item) => item.hasAttribute('disabled'))).toBe(true)
   })
 
   it('renders full-entry edit controls instead of per-field edit affordances', async () => {
@@ -949,13 +988,103 @@ describe('PMEntry', () => {
     expect(getCvTextarea(component, 'inline-note')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.entry-edit-save-action')).not.toBeNull()
     expect(component.shadowRoot?.querySelector('.entry-edit-cancel-action')).not.toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-toolbar-item[data-action="edit-entry"]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-toolbar-item[data-action="move-entry"]')).toBeNull()
-    expect(component.shadowRoot?.querySelector('cv-toolbar-item[data-action="delete-entry"]')).toBeNull()
+    expect(component.shadowRoot?.querySelector('[data-action="edit-entry"]')).toBeNull()
+    expect(component.shadowRoot?.querySelector('[data-action="move-entry"]')).toBeNull()
+    expect(component.shadowRoot?.querySelector('[data-action="delete-entry"]')).toBeNull()
     expect(
       component.shadowRoot?.querySelector('.section-action-button[data-snippet-section="otp"]'),
     ).toBeNull()
     expect(component.shadowRoot?.querySelector('pm-entry-otp-create[data-snippet="otp"]')).toBeNull()
+
+    const usernameField = component.shadowRoot?.querySelector('cv-input[name="inline-username"]')
+    const websiteEditor = component.shadowRoot?.querySelector('pm-entry-website-editor') as
+      | (HTMLElement & {presentation?: string})
+      | null
+    const generatorToggle = component.shadowRoot?.querySelector<HTMLElement>('.generator-toggle-button')
+
+    expect(usernameField?.getAttribute('aria-label')).toBe('User name')
+    expect(component.shadowRoot?.querySelectorAll('.field-editor > .field-label')).toHaveLength(2)
+    expect(websiteEditor?.presentation).toBe('workbench')
+    expect(generatorToggle?.getAttribute('aria-expanded')).toBe('false')
+
+    generatorToggle?.click()
+    await settle(component)
+
+    expect(generatorToggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(component.shadowRoot?.querySelector('.password-generator-panel-shell')).not.toBeNull()
+
+    component.shadowRoot?.querySelector<HTMLElement>('.generate-action-button')?.click()
+    await settle(component)
+
+    const strength = component.shadowRoot?.querySelector<HTMLElement>('[role="meter"]')
+    expect(strength?.getAttribute('aria-valuemin')).toBe('0')
+    expect(strength?.getAttribute('aria-valuemax')).toBe('4')
+    expect(strength?.getAttribute('aria-valuetext')).toContain('Strength:')
+  })
+
+  it('renders an empty title error inline and focuses the title before other invalid fields', async () => {
+    const entry = createEntry()
+    const update = vi.spyOn(entry, 'update').mockResolvedValue(undefined)
+
+    window.passmanager = {
+      isReadOnly: () => false,
+      isEditMode: {set: vi.fn()},
+    } as unknown as typeof window.passmanager
+
+    const component = document.createElement('pm-entry') as PMEntry
+    component.entry = entry
+    document.body.append(component)
+    await settle(component)
+
+    pmEntryEditorModel.openSurface(entry.id, 'entry')
+    await settle(component)
+
+    const header = component.shadowRoot?.querySelector('pm-workspace-header') as
+      | (HTMLElement & {titleError?: string})
+      | null
+    header?.dispatchEvent(
+      new CustomEvent('pm-workspace-header-title-input', {
+        detail: {value: ''},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await settle(component)
+
+    const save = component.shadowRoot?.querySelector<HTMLElement>('.entry-edit-save-action')
+    expect(save?.hasAttribute('disabled')).toBe(false)
+    save?.click()
+    await settleFocus(component)
+
+    const titleControl = header?.shadowRoot?.querySelector('cv-input.title-input') as
+      | (HTMLElement & {shadowRoot?: ShadowRoot})
+      | null
+    const nativeTitle = titleControl?.shadowRoot?.querySelector('input')
+
+    expect(update).not.toHaveBeenCalled()
+    expect(header?.titleError).toBe('Title is required')
+    expect(titleControl?.hasAttribute('required')).toBe(true)
+    expect(nativeTitle?.getAttribute('aria-required')).toBe('true')
+    expect(nativeTitle?.getAttribute('aria-label')).toContain('Title is required')
+    expect(header?.shadowRoot?.activeElement).toBe(titleControl)
+    expect(titleControl?.shadowRoot?.activeElement).toBe(nativeTitle)
+    expect(component.shadowRoot?.querySelector('.entry-edit-error')).toBeNull()
+
+    const usernameInput = getNativeInput(component, 'inline-username')
+    usernameInput!.value = 'still editing'
+    usernameInput!.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
+    await settle(component)
+    expect(header?.titleError).toBe('Title is required')
+
+    header?.dispatchEvent(
+      new CustomEvent('pm-workspace-header-title-input', {
+        detail: {value: 'Recovered title'},
+        bubbles: true,
+        composed: true,
+      }),
+    )
+    await settle(component)
+    expect(header?.titleError).toBe('')
   })
 
   it('saves changed desktop full-entry fields together', async () => {

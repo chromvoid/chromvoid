@@ -24,9 +24,10 @@ export const pmIconPickerBaseStyles = css`
     border: 1px solid var(--pm-icon-picker-trigger-border, var(--cv-color-border-strong));
     border-radius: var(--pm-icon-picker-trigger-radius, var(--cv-radius-3, 14px));
     background: var(--pm-icon-picker-trigger-background, var(--cv-gradient-surface));
-    box-shadow:
-      inset 0 1px 0 var(--cv-alpha-white-22),
-      0 14px 30px var(--cv-alpha-black-20);
+    box-shadow: var(
+      --pm-icon-picker-trigger-shadow,
+      inset 0 1px 0 var(--cv-alpha-white-22), 0 14px 30px var(--cv-alpha-black-20)
+    );
     cursor: pointer;
     transition:
       transform var(--cv-duration-fast),

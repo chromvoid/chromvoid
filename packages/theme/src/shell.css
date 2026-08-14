@@ -32,11 +32,16 @@
   --app-dashboard-header-control-font-size: var(--app-toolbar-control-font-size);
   --app-dashboard-header-control-font-weight: var(--app-toolbar-control-font-weight);
   --app-dashboard-header-control-gap: var(--app-toolbar-control-gap);
+  --app-dashboard-header-search-block-size: 32px;
+  --app-dashboard-header-search-radius: var(--cv-radius-2);
+  --app-dashboard-header-search-padding-inline: 11px;
+  --app-dashboard-header-search-font-size: var(--cv-font-size-xs);
+  --app-dashboard-header-search-font-weight: var(--cv-font-weight-medium);
+  --app-dashboard-header-search-icon-size: 16px;
+  --app-dashboard-header-search-gap: var(--cv-space-2);
   --app-mobile-action-bar-control-size: 36px;
   --app-mobile-action-bar-icon-size: 18px;
   --app-mobile-action-bar-control-radius: 8px;
-  --app-motion-fade-up-animation: fadeInUp 0.35s var(--cv-easing-standard) both;
-  --app-motion-page-reveal-animation: reveal 0.4s var(--cv-easing-spring) both;
   --app-motion-spin-duration: 1s;
   --app-mobile-topbar-block-size: 56px;
   --app-mobile-tabbar-block-size: 64px;

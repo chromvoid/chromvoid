@@ -51,6 +51,58 @@ impl CoreAdapter for LockingSessionApprovalAdapter {
 }
 
 #[tokio::test]
+async fn expired_usb_session_approval_notifies_client_before_transport_close() {
+    let (mut client_noise, host_noise) = noise_pair();
+    let (mut client_transport, host_transport) = ChannelTransport::pair(TransportType::UsbMobile);
+    let runtime = Arc::new(MobileAcceptorRuntimeState::new());
+    let attempt_id = "test-expired-session-approval".to_string();
+    runtime
+        .register_usb_session_approval(crate::mobile_usb::MobileUsbHostSessionApprovalView {
+            attempt_id: attempt_id.clone(),
+            peer_id: "peer-usb-expired-approval-test".to_string(),
+            peer_label: "USB expired peer".to_string(),
+            transport_type: "usb_mobile".to_string(),
+            decision: crate::mobile_usb::MobileUsbHostApprovalDecision::Pending,
+            expires_at_ms: 0,
+        })
+        .expect("register expired session approval");
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let host_task = tokio::spawn(run_host_rpc_loop(
+        None,
+        Box::new(host_transport),
+        host_noise,
+        TransportType::UsbMobile,
+        temp.path().to_path_buf(),
+        "peer-usb-expired-approval-test".to_string(),
+        shutdown_rx,
+        Some(UsbHostSessionApproval {
+            runtime: runtime.clone(),
+            attempt_id: attempt_id.clone(),
+        }),
+    ));
+
+    let push_frame = recv_test_frame(&mut client_transport, &mut client_noise).await;
+    assert_eq!(push_frame.frame_type, FrameType::RpcRequest);
+    let push: RpcRequest = serde_json::from_slice(&push_frame.payload).expect("expiry push json");
+    assert_eq!(push.command, "mobile_usb:session_approval_expired");
+
+    let error = tokio::time::timeout(std::time::Duration::from_secs(1), host_task)
+        .await
+        .expect("host loop timeout")
+        .expect("host loop join")
+        .expect_err("expired approval closes host loop");
+    assert!(error.to_string().contains("USB session approval expired"));
+    assert!(runtime
+        .pending_usb_session_approval()
+        .expect("pending session approval")
+        .is_none());
+    runtime
+        .approve_usb_session(&attempt_id)
+        .expect("late approval after host cleanup is idempotent");
+}
+
+#[tokio::test]
 async fn usb_pre_approval_rejects_derivative_ensure_without_closing_loop() {
     let (mut client_noise, host_noise) = noise_pair();
     let (mut client_transport, host_transport) = ChannelTransport::pair(TransportType::UsbMobile);

@@ -1,4 +1,4 @@
-import {atom, computed, wrap} from '@reatom/core'
+import {action, atom, computed, isAbort, sleep, withAbort, wrap} from '@reatom/core'
 
 import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
 import {subscribeToSignalChanges} from 'root/shared/services/subscribed-signal'
@@ -28,7 +28,7 @@ function visiblePairingApproval(
 function visibleSessionApproval(
   approval: MobileUsbHostSessionApprovalView | null,
 ): MobileUsbHostSessionApprovalView | null {
-  if (approval?.decision !== 'pending') return null
+  if (approval?.decision !== 'pending' || approval.expires_at_ms <= Date.now()) return null
   return approval
 }
 
@@ -61,6 +61,11 @@ export class MobileUsbHostApprovalModel {
   private refreshEpoch = 0
   private eventUnlisteners: Array<() => void> = []
   private unsubscribeRuntimeCapabilities?: () => void
+  private readonly expireSessionApproval = action(async (approval: MobileUsbHostSessionApprovalView) => {
+    await wrap(sleep(Math.max(0, approval.expires_at_ms - Date.now())))
+    if (!this.nativeBridgeConnected || this.sessionApproval()?.attempt_id !== approval.attempt_id) return
+    this.sessionApproval.set(null)
+  }, 'mobileUsbHostApproval.expireSessionApproval').extend(withAbort())
 
   connect(): void {
     if (this.connected) return
@@ -97,6 +102,14 @@ export class MobileUsbHostApprovalModel {
         : visibleSessionApproval(sessionApproval)
       this.pairingApproval.set(nextPairingApproval)
       this.sessionApproval.set(nextSessionApproval)
+      this.expireSessionApproval.abort()
+      if (nextSessionApproval) {
+        void this.expireSessionApproval(nextSessionApproval).catch((error) => {
+          if (!isAbort(error)) {
+            console.warn('[mobile-usb-host] session approval expiry task failed', error)
+          }
+        })
+      }
       if (nextPairingApproval || nextSessionApproval) {
         this.errorText.set(null)
       }
@@ -149,6 +162,7 @@ export class MobileUsbHostApprovalModel {
     }
     this.nativeBridgeConnected = false
     this.teardownNativeListeners()
+    this.expireSessionApproval.abort()
 
     if (clearState) {
       this.pairingApproval.set(null)
@@ -234,6 +248,7 @@ export class MobileUsbHostApprovalModel {
 
       if (this.sessionApproval()?.attempt_id === approval.attempt_id) {
         this.sessionApproval.set(null)
+        this.expireSessionApproval.abort()
       }
       await this.refreshPendingApprovals()
     } catch (error) {

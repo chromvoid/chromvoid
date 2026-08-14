@@ -1,15 +1,11 @@
 import {css} from 'lit'
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 
 export const welcomeStyles = [
   sharedStyles,
-  pageTransitionStyles,
-  pageFadeInStyles,
   hostLayoutPaintContainStyles,
   css`
     :host {

@@ -9,6 +9,7 @@ import {
   normalizeCredentialTags,
   type CredentialTagCatalogMeta,
 } from '@project/passmanager/tags'
+import {pmQuickFiltersModel} from '../../src/features/passmanager/components/list/quick-filters.model'
 import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {clearPassmanagerRoot, setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 
@@ -68,13 +69,17 @@ function setupRoot({
 describe('pmCredentialTagsModel', () => {
   beforeEach(() => {
     selectedCredentialTagFilters.set([])
+    pmQuickFiltersModel.setPopoverOpen(false)
     pmCredentialTagsModel.closeSheet()
+    pmCredentialTagsModel.closeCatalogManager()
   })
 
   afterEach(() => {
     clearPassmanagerRoot()
     selectedCredentialTagFilters.set([])
+    pmQuickFiltersModel.setPopoverOpen(false)
     pmCredentialTagsModel.closeSheet()
+    pmCredentialTagsModel.closeCatalogManager()
   })
 
   it('builds options from catalog and entries, including zero-use tags', () => {
@@ -87,6 +92,16 @@ describe('pmCredentialTagsModel', () => {
       {key: 'work', label: 'Work', colorId: fallbackCredentialTagColorId('work'), count: 2},
       {key: 'zero-use', label: 'Zero Use', colorId: fallbackCredentialTagColorId('zero-use'), count: 0},
     ])
+  })
+
+  it('closes the quick-filter popover before opening the desktop catalog manager', () => {
+    setupRoot({catalog: ['Work']})
+    pmQuickFiltersModel.setPopoverOpen(true)
+
+    pmQuickFiltersModel.openTagManage()
+
+    expect(pmQuickFiltersModel.popoverOpen()).toBe(false)
+    expect(pmCredentialTagsModel.catalogManagerOpen()).toBe(true)
   })
 
   it('reads stored colors from catalog metadata', () => {
@@ -139,6 +154,61 @@ describe('pmCredentialTagsModel', () => {
 
     pmCredentialTagsModel.cancelTagMutation()
     expect(pmCredentialTagsModel.sheetMode()).toBe('manage')
+  })
+
+  it('opens the desktop catalog manager without opening the mobile sheet or changing filters', () => {
+    setupRoot({catalog: ['Work', 'Personal']})
+    selectedCredentialTagFilters.set(['work'])
+
+    pmCredentialTagsModel.openCatalogManager()
+    pmCredentialTagsModel.setCatalogQuery('pers')
+
+    expect(pmCredentialTagsModel.catalogManagerOpen()).toBe(true)
+    expect(pmCredentialTagsModel.filterSheetOpen()).toBe(false)
+    expect(pmCredentialTagsModel.filteredCatalogTags().map((option) => option.key)).toEqual(['personal'])
+    expect(selectedCredentialTagFilters()).toEqual(['work'])
+
+    pmCredentialTagsModel.closeCatalogManager()
+    expect(pmCredentialTagsModel.catalogManagerOpen()).toBe(false)
+    expect(pmCredentialTagsModel.catalogQuery()).toBe('')
+  })
+
+  it('creates a desktop catalog tag without selecting it in filters or the caller draft', async () => {
+    setupRoot({catalog: ['Work']})
+    selectedCredentialTagFilters.set(['work'])
+    let draft = ['Work']
+
+    pmCredentialTagsModel.openCatalogManager({
+      getSelectedTags: () => draft,
+      onSelectedTagsChange: (tags) => {
+        draft = [...tags]
+      },
+    })
+    pmCredentialTagsModel.openCreateTag()
+
+    await expect(pmCredentialTagsModel.createTag('Client A')).resolves.toBe(true)
+
+    expect(selectedCredentialTagFilters()).toEqual(['work'])
+    expect(draft).toEqual(['Work'])
+    expect(pmCredentialTagsModel.catalogManagerOpen()).toBe(true)
+  })
+
+  it('propagates successful rename and delete mutations to the active desktop draft context', async () => {
+    setupRoot({catalog: ['Work', 'Personal']})
+    let draft = ['Work', 'Personal']
+
+    pmCredentialTagsModel.openCatalogManager({
+      getSelectedTags: () => draft,
+      onSelectedTagsChange: (tags) => {
+        draft = [...tags]
+      },
+    })
+
+    await expect(pmCredentialTagsModel.renameTag('work', 'Client')).resolves.toBe(true)
+    expect(draft).toEqual(['Client', 'Personal'])
+
+    await expect(pmCredentialTagsModel.deleteTag('personal')).resolves.toBe(true)
+    expect(draft).toEqual(['Client'])
   })
 
   it('uses chip taps for selection until edit mode is enabled', () => {

@@ -87,12 +87,31 @@ mod native {
             #[unsafe(method(onKeyboardWillShow:))]
             fn on_keyboard_will_show(&self, notification: &NSObject) {
                 let bottom_inset = keyboard_bottom_inset(notification);
-                self.emit_payload(keyboard_payload(bottom_inset, safe_area_insets()));
+                self.emit_payload(keyboard_payload(
+                    bottom_inset,
+                    safe_area_insets(),
+                    "progress",
+                ));
+            }
+
+            #[unsafe(method(onKeyboardDidShow:))]
+            fn on_keyboard_did_show(&self, notification: &NSObject) {
+                let bottom_inset = keyboard_bottom_inset(notification);
+                self.emit_payload(keyboard_payload(
+                    bottom_inset,
+                    safe_area_insets(),
+                    "settled",
+                ));
             }
 
             #[unsafe(method(onKeyboardWillHide:))]
             fn on_keyboard_will_hide(&self, _notification: &NSObject) {
-                self.emit_payload(keyboard_payload(0.0, safe_area_insets()));
+                self.emit_payload(keyboard_payload(0.0, safe_area_insets(), "progress"));
+            }
+
+            #[unsafe(method(onKeyboardDidHide:))]
+            fn on_keyboard_did_hide(&self, _notification: &NSObject) {
+                self.emit_payload(keyboard_payload(0.0, safe_area_insets(), "settled"));
             }
         }
 
@@ -145,7 +164,11 @@ mod native {
         }
     }
 
-    fn keyboard_payload(bottom_inset: f64, safe_area: SafeAreaInsets) -> KeyboardInsetsPayload {
+    fn keyboard_payload(
+        bottom_inset: f64,
+        safe_area: SafeAreaInsets,
+        phase: &'static str,
+    ) -> KeyboardInsetsPayload {
         let normalized_bottom = normalize_non_negative(bottom_inset);
 
         KeyboardInsetsPayload {
@@ -153,7 +176,7 @@ mod native {
             bottom_inset: normalized_bottom,
             safe_area_top_inset: safe_area.top,
             safe_area_bottom_inset: safe_area.bottom,
-            phase: "settled",
+            phase,
             source: "ios-native",
             viewport_mode: "native-resize",
         }
@@ -274,7 +297,9 @@ mod native {
 
     extern "C" {
         static UIKeyboardWillShowNotification: *const AnyObject;
+        static UIKeyboardDidShowNotification: *const AnyObject;
         static UIKeyboardWillHideNotification: *const AnyObject;
+        static UIKeyboardDidHideNotification: *const AnyObject;
         static UIKeyboardFrameEndUserInfoKey: *const AnyObject;
     }
 
@@ -296,7 +321,7 @@ mod native {
         let observer = KeyboardObserver::new_with(app, mtm);
 
         // SAFETY: defaultCenter is a +0 singleton; observer is retained for the app lifetime via
-        // std::mem::forget below; UIKeyboardWill*Notification globals are 'static NSStrings provided by
+        // std::mem::forget below; UIKeyboard*Notification globals are 'static NSStrings provided by
         // UIKit.
         unsafe {
             let center: *const AnyObject =
@@ -313,8 +338,24 @@ mod native {
             let _: () = msg_send![
                 center,
                 addObserver: &*observer,
+                selector: sel!(onKeyboardDidShow:),
+                name: UIKeyboardDidShowNotification,
+                object: std::ptr::null::<AnyObject>(),
+            ];
+
+            let _: () = msg_send![
+                center,
+                addObserver: &*observer,
                 selector: sel!(onKeyboardWillHide:),
                 name: UIKeyboardWillHideNotification,
+                object: std::ptr::null::<AnyObject>(),
+            ];
+
+            let _: () = msg_send![
+                center,
+                addObserver: &*observer,
+                selector: sel!(onKeyboardDidHide:),
+                name: UIKeyboardDidHideNotification,
                 object: std::ptr::null::<AnyObject>(),
             ];
         }

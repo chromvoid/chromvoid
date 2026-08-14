@@ -83,6 +83,7 @@ describe('password-manager layout selection', () => {
     groupBy.set('none')
     localStorage.removeItem('pm-sidebar-width')
     pmCredentialTagsModel.closeSheet()
+    pmCredentialTagsModel.closeCatalogManager()
     clearAppContext()
     pmModel.disposeSession()
     vi.restoreAllMocks()
@@ -268,33 +269,47 @@ describe('password-manager layout selection', () => {
     })
   })
 
-  describe('tag management sheet host', () => {
+  describe('tag management host', () => {
     it.each([
       {
         name: 'desktop create entry',
         tagName: 'password-manager-desktop-layout',
         define: () => PasswordManagerDesktopLayout.define(),
         resolveShowElement: (_fixture: ReturnType<typeof createRootFixture>) => 'createEntry' as const,
+        expectedHost: 'pm-desktop-tag-manager-drawer',
+        excludedHost: 'pm-mobile-tag-filter-sheet',
       },
       {
         name: 'desktop entry',
         tagName: 'password-manager-desktop-layout',
         define: () => PasswordManagerDesktopLayout.define(),
         resolveShowElement: (fixture: ReturnType<typeof createRootFixture>) => fixture.entry,
+        expectedHost: 'pm-desktop-tag-manager-drawer',
+        excludedHost: 'pm-mobile-tag-filter-sheet',
       },
       {
         name: 'mobile create entry',
         tagName: 'password-manager-mobile-layout',
         define: () => PasswordManagerMobileLayout.define(),
         resolveShowElement: (_fixture: ReturnType<typeof createRootFixture>) => 'createEntry' as const,
+        expectedHost: 'pm-mobile-tag-filter-sheet',
+        excludedHost: 'pm-desktop-tag-manager-drawer',
       },
       {
         name: 'mobile entry',
         tagName: 'password-manager-mobile-layout',
         define: () => PasswordManagerMobileLayout.define(),
         resolveShowElement: (fixture: ReturnType<typeof createRootFixture>) => fixture.entry,
+        expectedHost: 'pm-mobile-tag-filter-sheet',
+        excludedHost: 'pm-desktop-tag-manager-drawer',
       },
-    ])('renders one tag management sheet host for $name', async ({tagName, define, resolveShowElement}) => {
+    ])('renders the platform tag management host for $name', async ({
+      tagName,
+      define,
+      resolveShowElement,
+      expectedHost,
+      excludedHost,
+    }) => {
       const fixture = createRootFixture(['Work'])
       fixture.root.showElement.set(resolveShowElement(fixture) as never)
       setPassmanagerRoot(fixture.root)
@@ -306,7 +321,8 @@ describe('password-manager layout selection', () => {
 
       const shadowRoot = element.shadowRoot
       expect(shadowRoot).not.toBeNull()
-      expect(shadowRoot!.querySelectorAll('pm-mobile-tag-filter-sheet')).toHaveLength(1)
+      expect(shadowRoot!.querySelectorAll(expectedHost)).toHaveLength(1)
+      expect(shadowRoot!.querySelector(excludedHost)).toBeNull()
     })
 
     it('keeps mobile create entry tag sheet outside search and opens it from the tag model', async () => {
@@ -592,6 +608,62 @@ describe('password-manager layout selection', () => {
 
       createButton?.click()
       expect(createGroup).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores input and change events bubbling from splitter pane content', async () => {
+      const root = new ManagerRoot({} as any)
+      root.entries.set([])
+      root.showElement.set('createEntry')
+      setPassmanagerRoot(root)
+      PasswordManagerDesktopLayout.define()
+
+      const element = document.createElement(
+        'password-manager-desktop-layout',
+      ) as PasswordManagerDesktopLayout
+      document.body.appendChild(element)
+      await settle(element)
+
+      const splitter = element.shadowRoot?.querySelector('cv-window-splitter')
+      const content = splitter?.querySelector('.content')
+      const initialWidth = passwordManagerDesktopLayoutModel.sidebarWidth()
+
+      content?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {value: 'A'},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+      content?.dispatchEvent(
+        new CustomEvent('cv-change', {
+          detail: {value: 'A'},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+
+      expect(passwordManagerDesktopLayoutModel.sidebarWidth()).toBe(initialWidth)
+      expect(localStorage.getItem('pm-sidebar-width')).toBeNull()
+
+      const resizedWidth = PM_SIDEBAR_MIN_WIDTH + PM_SIDEBAR_WIDTH_STEP
+      splitter?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {position: resizedWidth},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+      expect(passwordManagerDesktopLayoutModel.sidebarWidth()).toBe(resizedWidth)
+      expect(localStorage.getItem('pm-sidebar-width')).toBeNull()
+
+      splitter?.dispatchEvent(
+        new CustomEvent('cv-change', {
+          detail: {position: resizedWidth},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+      expect(localStorage.getItem('pm-sidebar-width')).toBe(String(resizedWidth))
     })
 
     it('toggles the group tree bottom edge when the sidebar tree reaches the end', async () => {

@@ -187,8 +187,14 @@ export const applyMobileKeyboardInsetsPayload = (
   const safeAreaBottomInset = usesNativeKeyboardInsets ? getSafeAreaBottomInset(payload) : null
   if (usesNativeKeyboardInsets) {
     root.toggleAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR, safeAreaBottomInset !== null)
-    root.toggleAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR, usesAndroidNativeInsets && safeAreaBottomInset !== null)
-    root.toggleAttribute(IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR, usesIOSNativeInsets && safeAreaBottomInset !== null)
+    root.toggleAttribute(
+      ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR,
+      usesAndroidNativeInsets && safeAreaBottomInset !== null,
+    )
+    root.toggleAttribute(
+      IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR,
+      usesIOSNativeInsets && safeAreaBottomInset !== null,
+    )
     if (safeAreaBottomInset !== null) {
       root.style.setProperty('--app-runtime-safe-area-block-end-native', `${safeAreaBottomInset}px`)
     } else {
@@ -218,8 +224,14 @@ export const applyMobileKeyboardVisibilityPayload = (
 ): void => {
   const source = payload.source ?? 'tauri-visibility'
   if (source === 'ios-native') {
-    if (payload.phase === 'progress') return
     if (payload.viewportMode !== 'native-resize') return
+    applyIOSKeyboardInsetsPayload(root, {
+      ...payload,
+      phase: payload.phase ?? 'settled',
+      source,
+      viewportMode: 'native-resize',
+    })
+    return
   }
 
   applyMobileKeyboardInsetsPayload(root, {
@@ -256,7 +268,7 @@ const normalizeIOSKeyboardInsetsPayload = (detail: unknown): MobileKeyboardInset
   if (typeof record['visible'] !== 'boolean') return null
   if (record['source'] !== 'ios-native') return null
   if (record['viewportMode'] !== 'native-resize') return null
-  if (record['phase'] === 'progress') return null
+  const phase = record['phase'] === 'progress' ? 'progress' : 'settled'
 
   return {
     visible: record['visible'],
@@ -264,10 +276,19 @@ const normalizeIOSKeyboardInsetsPayload = (detail: unknown): MobileKeyboardInset
     safeAreaTopInset: typeof record['safeAreaTopInset'] === 'number' ? record['safeAreaTopInset'] : null,
     safeAreaBottomInset:
       typeof record['safeAreaBottomInset'] === 'number' ? record['safeAreaBottomInset'] : null,
-    phase: 'settled',
+    phase,
     source: 'ios-native',
     viewportMode: 'native-resize',
   }
+}
+
+const applyIOSKeyboardInsetsPayload = (root: HTMLElement, payload: MobileKeyboardInsetsPayload): void => {
+  if (payload.phase === 'progress') {
+    setMobileKeyboardOccluding(true)
+    return
+  }
+
+  applyMobileKeyboardInsetsPayload(root, payload)
 }
 
 export const getAndroidKeyboardInsetsEventPayload = (event: Event): MobileKeyboardInsetsPayload | null => {
@@ -308,14 +329,14 @@ export const setupIOSKeyboardInsetsEventListener = (root: HTMLElement): (() => v
     const payload = getIOSKeyboardInsetsEventPayload(event)
     if (!payload) return
 
-    applyMobileKeyboardInsetsPayload(root, payload)
+    applyIOSKeyboardInsetsPayload(root, payload)
   }
 
   const pendingPayload = normalizeIOSKeyboardInsetsPayload(
     (window as WindowWithNativeKeyboardInsets).__chromvoidIosKeyboardInsets,
   )
   if (pendingPayload) {
-    applyMobileKeyboardInsetsPayload(root, pendingPayload)
+    applyIOSKeyboardInsetsPayload(root, pendingPayload)
   }
 
   window.addEventListener(IOS_KEYBOARD_INSETS_EVENT, handleIOSKeyboardInsetsEvent)

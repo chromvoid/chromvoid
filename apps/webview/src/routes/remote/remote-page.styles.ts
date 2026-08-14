@@ -2,8 +2,6 @@ import {css} from 'lit'
 
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   sharedStyles,
   spinIndicatorStyles,
   routeHostStyles,
@@ -18,8 +16,6 @@ import {remoteUsbSessionStyles} from './remote-usb-session.styles'
 
 export const remotePageStyles = [
   sharedStyles,
-  pageTransitionStyles,
-  pageFadeInStyles,
   hostLayoutPaintContainStyles,
   routeHostStyles,
   routePageStyles,

@@ -67,7 +67,7 @@ async function seedScrollablePassmanagerFixture(): Promise<void> {
   })
 }
 
-async function seedGroupingVirtualizerFixture(): Promise<void> {
+async function seedGroupingWindowFixture(): Promise<void> {
   const baseTimestamp = Date.UTC(2026, 0, 20, 12)
   const entries = Array.from({length: 36}, (_, index) => {
     const id = `grouping-entry-${String(index).padStart(2, '0')}`
@@ -253,6 +253,113 @@ async function deepClick(page: Page, selector: string): Promise<boolean> {
     target.click()
     return true
   }, selector)
+}
+
+type DeepMatchExpectation = {
+  selector: string
+  count?: number
+  textIncludes?: string
+  absent?: boolean
+}
+
+async function waitForDeepMatch(page: Page, expectation: DeepMatchExpectation): Promise<void> {
+  await page.waitForFunction(({selector, count, textIncludes, absent}) => {
+    function deepCollect(root: Document | ShadowRoot, target: string, result: Element[] = []): Element[] {
+      result.push(...root.querySelectorAll(target))
+      for (const element of root.querySelectorAll('*')) {
+        if (element.shadowRoot) deepCollect(element.shadowRoot, target, result)
+      }
+      return result
+    }
+
+    const matches = deepCollect(document, selector)
+    if (absent) return matches.length === 0
+    if (count !== undefined && matches.length !== count) return false
+    return textIncludes === undefined || matches.some((match) => match.textContent?.includes(textIncludes))
+  }, expectation)
+}
+
+async function dispatchDeepInput(page: Page, selector: string, value: string): Promise<void> {
+  await page.evaluate(
+    ({targetSelector, nextValue}) => {
+      function deepFind(root: Document | ShadowRoot, target: string): Element | null {
+        const found = root.querySelector(target)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (!element.shadowRoot) continue
+          const inner = deepFind(element.shadowRoot, target)
+          if (inner) return inner
+        }
+        return null
+      }
+
+      deepFind(document, targetSelector)?.dispatchEvent(
+        new CustomEvent('cv-input', {
+          detail: {value: nextValue},
+          bubbles: true,
+          composed: true,
+        }),
+      )
+    },
+    {targetSelector: selector, nextValue: value},
+  )
+}
+
+async function submitDeepForm(page: Page, selector: string): Promise<void> {
+  await page.evaluate((targetSelector) => {
+    function deepFind(root: Document | ShadowRoot, target: string): Element | null {
+      const found = root.querySelector(target)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, target)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    deepFind(document, targetSelector)?.dispatchEvent(
+      new Event('submit', {bubbles: true, cancelable: true}),
+    )
+  }, selector)
+}
+
+async function waitForDesktopTagDrawerState(page: Page, open: boolean): Promise<void> {
+  await page.waitForFunction((expectedOpen) => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    const host = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
+    const drawer = host?.shadowRoot?.querySelector('cv-drawer') as {open?: boolean} | null
+    return drawer?.open === expectedOpen
+  }, open)
+}
+
+async function closeDesktopTagDrawer(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    const host = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
+    const drawer = host?.shadowRoot?.querySelector('cv-drawer') as HTMLElement | null
+    ;(drawer?.shadowRoot?.querySelector('[part="header-close"]') as HTMLElement | null)?.click()
+  })
 }
 
 async function getDeepRect(
@@ -1560,7 +1667,7 @@ test('desktop security summary is rendered once in the compact status bar', asyn
       const statusBar = deepFind(document, 'status-bar') as HTMLElement | null
       return Boolean(
         statusBar?.shadowRoot?.querySelector(
-          'pm-summary-rail.status-context-summary[data-summary-context="passwords-group"]',
+          '.status-content.status-context-summary[data-summary-context="passwords-group"]',
         ),
       )
     },
@@ -1595,24 +1702,22 @@ test('desktop security summary is rendered once in the compact status bar', asyn
     const group = layout?.shadowRoot?.querySelector('pm-group') as HTMLElement | null
     const localRail = group?.shadowRoot?.querySelector('pm-summary-rail.group-metrics-strip')
     const statusBar = deepFind(document, 'status-bar') as HTMLElement | null
-    const statusRail = statusBar?.shadowRoot?.querySelector(
-      'pm-summary-rail.status-context-summary',
+    const statusSummary = statusBar?.shadowRoot?.querySelector(
+      '.status-content.status-context-summary',
     ) as HTMLElement | null
-    const allRails = deepCollect(document, 'pm-summary-rail')
+    const allSummaries = deepCollect(document, '.status-content.status-context-summary')
     return {
-      railCount: allRails.length,
-      contexts: allRails.map((rail) => rail.getAttribute('data-summary-context')),
+      summaryCount: allSummaries.length,
+      contexts: allSummaries.map((summary) => summary.getAttribute('data-summary-context')),
       hasLocalRail: Boolean(localRail),
-      statusDensity: statusRail?.getAttribute('density') ?? null,
-      statusContext: statusRail?.getAttribute('data-summary-context') ?? null,
+      statusContext: statusSummary?.getAttribute('data-summary-context') ?? null,
     }
   })
 
   expect(placement).toEqual({
-    railCount: 1,
+    summaryCount: 1,
     contexts: ['passwords-group'],
     hasLocalRail: false,
-    statusDensity: 'compact',
     statusContext: 'passwords-group',
   })
 })
@@ -1660,15 +1765,52 @@ test('desktop toolbar keeps the entry action visible and secondary actions in th
   })
 
   expect(state.visibleButtonActions).toEqual(['pm-create-entry'])
-  expect(state.menuItemActions).toEqual(
-    expect.arrayContaining(['pm-otp-view', 'pm-import', 'pm-export', 'pm-clean']),
-  )
+  expect(state.menuItemActions).toEqual(expect.arrayContaining(['pm-import', 'pm-export', 'pm-clean']))
+  expect(state.menuItemActions).not.toContain('pm-otp-view')
+  expect(state.menuItemActions).not.toContain('pm-ssh-view')
+  expect(state.menuItemActions).not.toContain('pm-env-runtime-view')
   expect(state.menuItemActions).not.toContain('pm-create-entry')
   expect(state.menuItemActions).not.toContain('pm-create-group')
   expect(state.hasLegacyHeader).toBe(false)
   expect(state.singleRow).toBe(true)
   expect(state.hasRightmostActionsMenu).toBe(true)
   expect(state.actionsMenuLabel).toBe('More actions')
+})
+
+test('desktop entry keeps its inspector alongside the primary content in a narrow two-column container', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop&e2eWidth=1180&e2eHeight=800`, () =>
+    seedLayoutPassmanagerFixture(LONG_LAYOUT_PASSWORD),
+  )
+
+  const entryId = await findFirstLoginEntryId(page)
+  expect(entryId).not.toBeNull()
+
+  await page.evaluate((id) => {
+    const passmanager = (window as any).passmanager
+    const entry = passmanager?.getCardByID?.(id)
+    if (entry) passmanager.showElement.set(entry)
+  }, entryId)
+
+  const entry = page.locator('pm-entry').first()
+  const main = entry.locator('.entry-main')
+  const inspector = entry.locator('.entry-inspector')
+  await inspector.waitFor({state: 'visible', timeout: 10_000})
+
+  const [entryBox, mainBox, inspectorBox, hasHorizontalOverflow] = await Promise.all([
+    entry.boundingBox(),
+    main.boundingBox(),
+    inspector.boundingBox(),
+    page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth),
+  ])
+  if (!entryBox || !mainBox || !inspectorBox) throw new Error('Desktop entry layout is unavailable')
+
+  expect(entryBox.width).toBeGreaterThanOrEqual(720)
+  expect(entryBox.width).toBeLessThan(880)
+  expect(inspectorBox.x).toBeGreaterThan(mainBox.x + mainBox.width)
+  expect(inspectorBox.x + inspectorBox.width).toBeLessThanOrEqual(entryBox.x + entryBox.width)
+  expect(Math.abs(inspectorBox.y - mainBox.y)).toBeLessThan(1)
+  expect(hasHorizontalOverflow).toBe(false)
 })
 
 test('desktop filtered empty clears only content filters and reveals the existing rows', async () => {
@@ -1806,8 +1948,9 @@ test('desktop workbench stays compact without page overflow at supported viewpor
       const contextHeader = group?.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
       const statusBar = deepFind(document, 'status-bar') as HTMLElement | null
       const quickFilters = toolbar?.shadowRoot?.querySelector('pm-quick-filters') as HTMLElement | null
-      const quickFilterRail = quickFilters?.shadowRoot?.querySelector('.quick-filters') as HTMLElement | null
-      const quickFilterStyle = quickFilterRail ? getComputedStyle(quickFilterRail) : null
+      const quickFilterPopover = quickFilters?.shadowRoot?.querySelector('cv-popover.filters-popover')
+      const sortControls = toolbar?.shadowRoot?.querySelector('pm-sort-controls') as HTMLElement | null
+      const toolbarRect = toolbar?.getBoundingClientRect()
       const horizontalScrollOwners = [
         ...(toolbar?.shadowRoot ? collectScrollableOwners(toolbar.shadowRoot) : []),
         ...(layout?.shadowRoot ? collectScrollableOwners(layout.shadowRoot) : []),
@@ -1824,11 +1967,10 @@ test('desktop workbench stays compact without page overflow at supported viewpor
         layoutOverflow: layout ? layout.scrollWidth > layout.clientWidth + 1 : null,
         pageSurfaceOverflow: pageSurface ? pageSurface.scrollWidth > pageSurface.clientWidth + 1 : null,
         horizontalScrollOwners,
-        quickFilterOverflowX: quickFilterStyle?.overflowX ?? null,
-        quickFilterFlexWrap: quickFilterStyle?.flexWrap ?? null,
-        quickFilterOverflowing: quickFilterRail
-          ? quickFilterRail.scrollWidth > quickFilterRail.clientWidth + 1
-          : null,
+        hasQuickFilterPopover: Boolean(quickFilterPopover),
+        sortPopoverCount:
+          sortControls?.shadowRoot?.querySelectorAll('cv-popover.control-popover').length ?? 0,
+        toolbarWithinViewport: toolbarRect ? toolbarRect.right <= window.innerWidth + 1 : null,
       }
     })
 
@@ -1846,18 +1988,315 @@ test('desktop workbench stays compact without page overflow at supported viewpor
     expect(geometry.documentOverflow).toBe(false)
     expect(geometry.layoutOverflow).toBe(false)
     expect(geometry.pageSurfaceOverflow).toBe(false)
-    expect(geometry.horizontalScrollOwners.every((owner) => owner === 'quick-filter-rail')).toBe(true)
-    expect(geometry.quickFilterOverflowX).toBe('auto')
-    expect(geometry.quickFilterFlexWrap).toBe('nowrap')
-
-    if (viewport.width === 960) {
-      expect(geometry.quickFilterOverflowing).toBe(true)
-      expect(geometry.horizontalScrollOwners).toContain('quick-filter-rail')
-    }
+    expect(geometry.horizontalScrollOwners).toEqual([])
+    expect(geometry.hasQuickFilterPopover).toBe(true)
+    expect(geometry.sortPopoverCount).toBe(2)
+    expect(geometry.toolbarWithinViewport).toBe(true)
   }
 })
 
-test('desktop group and entry expose visible component-level actions', async () => {
+test('desktop toolbar popovers keep intrinsic content height', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop&e2eWidth=1112&e2eHeight=1620`)
+
+  const selectors = [
+    'cv-popover.filters-popover',
+    'cv-popover.sort-popover',
+    'cv-popover.group-popover',
+  ] as const
+
+  for (const selector of selectors) {
+    const geometry = await page.evaluate(async (targetSelector) => {
+      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+        const found = root.querySelector(selector)
+        if (found) return found
+        for (const element of root.querySelectorAll('*')) {
+          if (!element.shadowRoot) continue
+          const inner = deepFind(element.shadowRoot, selector)
+          if (inner) return inner
+        }
+        return null
+      }
+
+      const popover = deepFind(document, targetSelector) as
+        | (HTMLElement & {
+            show(): void
+            hide(): void
+            updateComplete: Promise<boolean>
+          })
+        | null
+      if (!popover) throw new Error(`Desktop toolbar popover not found: ${targetSelector}`)
+
+      popover.show()
+      await popover.updateComplete
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      )
+
+      const content = popover.shadowRoot?.querySelector('[part="content"]') as HTMLElement | null
+      if (!content) throw new Error(`Desktop toolbar popover content not found: ${targetSelector}`)
+
+      const rect = content.getBoundingClientRect()
+      const result = {
+        height: rect.height,
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportHeight: window.innerHeight,
+      }
+
+      popover.hide()
+      await popover.updateComplete
+      return result
+    }, selector)
+
+    expect(geometry.height).toBeGreaterThan(0)
+    expect(geometry.height).toBeLessThan(geometry.viewportHeight - 80)
+    expect(geometry.top).toBeGreaterThanOrEqual(0)
+    expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight + 1)
+  }
+})
+
+test('desktop tag manager uses a non-modal utility drawer and persists catalog CRUD', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop&e2eWidth=1280&e2eHeight=800`)
+
+  const layoutBefore = await getDeepRect(page, 'password-manager-desktop-layout')
+  await page.evaluate(async () => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    const passmanager = (window as any).passmanager
+    passmanager.credentialTags.set(['Work', 'Personal'])
+    const popover = deepFind(document, 'cv-popover.filters-popover') as
+      | (HTMLElement & {updateComplete: Promise<boolean>})
+      | null
+    if (!popover) throw new Error('Desktop tag filter popover is unavailable')
+    const trigger = popover.shadowRoot?.querySelector('[part="trigger"]') as HTMLElement | null
+    if (!trigger) throw new Error('Desktop tag filter trigger is unavailable')
+    trigger.click()
+    await popover.updateComplete
+    const manage = deepFind(document, '.tag-manage-button') as HTMLElement | null
+    if (!manage) throw new Error('Desktop tag manage action is unavailable')
+    manage.focus()
+    manage.click()
+  })
+
+  await page.waitForFunction(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    const host = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
+    const drawer = host?.shadowRoot?.querySelector('cv-drawer') as {open?: boolean} | null
+    return drawer?.open === true
+  })
+  await page.waitForTimeout(300)
+
+  const initialDrawerState = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    const host = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
+    const drawer = host?.shadowRoot?.querySelector('cv-drawer') as
+      | (HTMLElement & {
+          open?: boolean
+          modal?: boolean
+          closeOnOutsidePointer?: boolean
+          closeOnOutsideFocus?: boolean
+        })
+      | null
+    const overlay = drawer?.shadowRoot?.querySelector('[part="overlay"]') as HTMLElement | null
+    const panel = drawer?.shadowRoot?.querySelector('[part="panel"]') as HTMLElement | null
+    const panelRect = panel?.getBoundingClientRect()
+    const filtersPopover = deepFind(document, 'cv-popover.filters-popover') as {open?: boolean} | null
+    return {
+      open: drawer?.open ?? false,
+      modal: drawer?.modal ?? true,
+      closeOnOutsidePointer: drawer?.closeOnOutsidePointer ?? true,
+      closeOnOutsideFocus: drawer?.closeOnOutsideFocus ?? true,
+      overlayPointerEvents: overlay ? getComputedStyle(overlay).pointerEvents : '',
+      panelWidth: panelRect?.width ?? 0,
+      panelLeft: panelRect?.left ?? 0,
+      panelRight: panelRect?.right ?? 0,
+      viewportWidth: window.innerWidth,
+      direction: getComputedStyle(drawer ?? document.documentElement).direction,
+      mobileSheetPresent: Boolean(deepFind(document, 'pm-mobile-tag-filter-sheet')),
+      filtersPopoverOpen: filtersPopover?.open ?? false,
+    }
+  })
+
+  expect(initialDrawerState).toMatchObject({
+    open: true,
+    modal: false,
+    closeOnOutsidePointer: false,
+    closeOnOutsideFocus: false,
+    overlayPointerEvents: 'none',
+    mobileSheetPresent: false,
+    filtersPopoverOpen: false,
+  })
+  expect(initialDrawerState.panelWidth).toBeGreaterThanOrEqual(400)
+  expect(initialDrawerState.panelWidth).toBeLessThanOrEqual(441)
+  if (initialDrawerState.direction === 'rtl') {
+    expect(Math.abs(initialDrawerState.panelLeft)).toBeLessThanOrEqual(1)
+  } else {
+    expect(Math.abs(initialDrawerState.panelRight - initialDrawerState.viewportWidth)).toBeLessThanOrEqual(1)
+  }
+
+  const backgroundTriggerRect = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    const popover = deepFind(document, 'cv-popover.filters-popover') as HTMLElement | null
+    const trigger = popover?.shadowRoot?.querySelector('[part="trigger"]') as HTMLElement | null
+    const rect = trigger?.getBoundingClientRect()
+    return rect ? {x: rect.x, y: rect.y, width: rect.width, height: rect.height} : null
+  })
+  expect(backgroundTriggerRect).not.toBeNull()
+  expect(backgroundTriggerRect!.x + backgroundTriggerRect!.width / 2).toBeLessThan(
+    initialDrawerState.panelLeft,
+  )
+  await page.evaluate(() => {
+    ;(window as any).__tagManagerBackgroundPointerObserved = false
+    document.addEventListener(
+      'pointerdown',
+      (event) => {
+        const layout = document.querySelector('password-manager-desktop-layout')
+        const drawerHost = layout?.shadowRoot?.querySelector('pm-desktop-tag-manager-drawer')
+        ;(window as any).__tagManagerBackgroundPointerObserved = !event
+          .composedPath()
+          .includes(drawerHost as EventTarget)
+      },
+      {once: true, capture: true},
+    )
+  })
+  await page.mouse.click(
+    backgroundTriggerRect!.x + backgroundTriggerRect!.width / 2,
+    backgroundTriggerRect!.y + backgroundTriggerRect!.height / 2,
+  )
+  await page.waitForTimeout(100)
+  const backgroundInteractionState = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+    const drawerHost = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
+    const drawer = drawerHost?.shadowRoot?.querySelector('cv-drawer') as {open?: boolean} | null
+    return {
+      backgroundPointerObserved: (window as any).__tagManagerBackgroundPointerObserved === true,
+      drawerOpen: drawer?.open === true,
+    }
+  })
+  expect(backgroundInteractionState).toEqual({backgroundPointerObserved: true, drawerOpen: true})
+
+  await dispatchDeepInput(page, '#pm-tag-catalog-search', 'pers')
+  await waitForDeepMatch(page, {selector: '.tag-row', count: 1, textIncludes: 'Personal'})
+  await dispatchDeepInput(page, '#pm-tag-catalog-search', '')
+
+  expect(await deepClick(page, '.toolbar cv-button[variant="primary"]')).toBe(true)
+  await waitForDeepMatch(page, {selector: 'form.tag-form'})
+  await submitDeepForm(page, 'form.tag-form')
+  await waitForDeepMatch(page, {selector: '[slot="error"]', textIncludes: 'Enter a tag name'})
+
+  await dispatchDeepInput(page, '#pm-tag-catalog-draft', 'Client A')
+  await submitDeepForm(page, 'form.tag-form')
+  await waitForDeepMatch(page, {selector: '.tag-row', textIncludes: 'Client A'})
+
+  expect(await deepClick(page, '[data-tag-primary="work"]')).toBe(true)
+  await dispatchDeepInput(page, '#pm-tag-catalog-draft', 'Work Team')
+  await submitDeepForm(page, 'form.tag-form')
+  await waitForDeepMatch(page, {selector: '.tag-row', textIncludes: 'Work Team'})
+
+  expect(
+    await deepClick(page, '[data-tag-row-key="personal"] cv-button:last-child'),
+  ).toBe(true)
+  expect(await deepClick(page, '.delete-actions cv-button[variant="danger"]')).toBe(true)
+  await waitForDeepMatch(page, {selector: '[data-tag-row-key="personal"]', absent: true})
+
+  const layoutAfter = await getDeepRect(page, 'password-manager-desktop-layout')
+  expect(layoutAfter?.x).toBe(layoutBefore?.x)
+  expect(layoutAfter?.width).toBe(layoutBefore?.width)
+
+  await closeDesktopTagDrawer(page)
+  await waitForDesktopTagDrawerState(page, false)
+})
+
+test('desktop compact create action centers its icon', async () => {
+  const page = globalThis.__E2E_PAGE__!
+  await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop&e2eWidth=960&e2eHeight=720`)
+
+  const geometry = await page.evaluate(() => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const element of root.querySelectorAll('*')) {
+        if (!element.shadowRoot) continue
+        const inner = deepFind(element.shadowRoot, selector)
+        if (inner) return inner
+      }
+      return null
+    }
+
+    const toolbar = deepFind(document, 'password-manager-desktop-toolbar') as HTMLElement | null
+    const button = toolbar?.shadowRoot?.querySelector(
+      'cv-button[data-action="pm-create-entry"]',
+    ) as HTMLElement | null
+    const base = button?.shadowRoot?.querySelector('[part="base"]') as HTMLElement | null
+    const icon = button?.querySelector('cv-icon[slot="prefix"]') as HTMLElement | null
+    if (!base || !icon) throw new Error('Desktop compact create action geometry is unavailable')
+
+    const baseRect = base.getBoundingClientRect()
+    const iconRect = icon.getBoundingClientRect()
+    return {
+      baseWidth: baseRect.width,
+      baseHeight: baseRect.height,
+      inlineOffset: iconRect.left + iconRect.width / 2 - (baseRect.left + baseRect.width / 2),
+      blockOffset: iconRect.top + iconRect.height / 2 - (baseRect.top + baseRect.height / 2),
+    }
+  })
+
+  expect(geometry.baseWidth).toBe(geometry.baseHeight)
+  expect(Math.abs(geometry.inlineOffset)).toBeLessThanOrEqual(0.5)
+  expect(Math.abs(geometry.blockOffset)).toBeLessThanOrEqual(0.5)
+})
+
+test('desktop group and entry expose component-level actions', async () => {
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop`)
 
@@ -1882,7 +2321,9 @@ test('desktop group and entry expose visible component-level actions', async () 
 
     function collectActions(host: HTMLElement | null) {
       const items = Array.from(
-        host?.shadowRoot?.querySelectorAll<HTMLElement>('cv-toolbar-item[data-action]') ?? [],
+        host?.shadowRoot?.querySelectorAll<HTMLElement>(
+          'cv-toolbar-item[data-action], cv-button[data-action], cv-menu-item[data-action]',
+        ) ?? [],
       )
       return items.map((item) => {
         const rect = item.getBoundingClientRect()
@@ -1943,8 +2384,8 @@ test('desktop group and entry expose visible component-level actions', async () 
   expect(state.entryActions).toEqual(
     expect.arrayContaining([
       expect.objectContaining({id: 'edit-entry', visible: true, inViewport: true}),
-      expect.objectContaining({id: 'move-entry', visible: true, inViewport: true}),
-      expect.objectContaining({id: 'delete-entry', visible: true, inViewport: true}),
+      expect.objectContaining({id: 'move-entry'}),
+      expect.objectContaining({id: 'delete-entry'}),
     ]),
   )
 })
@@ -2199,26 +2640,27 @@ test('mobile credentials restores list scroll after returning from a group', asy
     }
 
     const originalGroupHost = deepFind(document, 'pm-group-mobile') as HTMLElement | null
-    const originalVirtualizer = originalGroupHost?.shadowRoot?.querySelector(
-      'lit-virtualizer',
+    const originalScroller = originalGroupHost?.shadowRoot?.querySelector(
+      '.group-virtual-list',
     ) as HTMLElement | null
-    if (!originalGroupHost || !originalVirtualizer) {
+    if (!originalGroupHost || !originalScroller) {
       return {before: 0, after: 0, remounted: false, restoredRoot: false}
     }
 
-    originalVirtualizer.scrollTop = Math.min(
+    originalScroller.scrollTop = Math.min(
       760,
-      originalVirtualizer.scrollHeight - originalVirtualizer.clientHeight,
+      originalScroller.scrollHeight - originalScroller.clientHeight,
     )
+    originalScroller.dispatchEvent(new Event('scroll'))
     await nextFrame()
     await nextFrame()
-    const before = originalVirtualizer.scrollTop
+    const before = originalScroller.scrollTop
 
     const visibleRow = Array.from(
       originalGroupHost.shadowRoot?.querySelectorAll<HTMLElement>('.group-row-wrap[data-row-id]') ?? [],
     ).find((row) => {
       const rowRect = row.getBoundingClientRect()
-      const listRect = originalVirtualizer.getBoundingClientRect()
+      const listRect = originalScroller.getBoundingClientRect()
       return rowRect.top >= listRect.top && rowRect.bottom <= listRect.bottom
     })
     const group = visibleRow?.dataset['rowId']
@@ -2243,14 +2685,14 @@ test('mobile credentials restores list scroll after returning from a group', asy
     }
 
     const restoredGroupHost = deepFind(document, 'pm-group-mobile') as HTMLElement | null
-    const restoredVirtualizer = restoredGroupHost?.shadowRoot?.querySelector(
-      'lit-virtualizer',
+    const restoredScroller = restoredGroupHost?.shadowRoot?.querySelector(
+      '.group-virtual-list',
     ) as HTMLElement | null
     await nextFrame()
     await nextFrame()
     return {
       before,
-      after: restoredVirtualizer?.scrollTop ?? 0,
+      after: restoredScroller?.scrollTop ?? 0,
       remounted: restoredGroupHost !== originalGroupHost,
       restoredRoot: (window as any).passmanager?.showElement?.()?.isRoot === true,
     }
@@ -2262,12 +2704,12 @@ test('mobile credentials restores list scroll after returning from a group', asy
   expect(Math.abs(result.after - result.before)).toBeLessThanOrEqual(2)
 })
 
-test('mobile credentials keeps virtualizer geometry stable while grouping', async () => {
+test('mobile credentials keeps window geometry stable while grouping', async () => {
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(
     page,
     `${BASE_URL}?layout=mobile&e2eWidth=390&e2eHeight=844`,
-    seedGroupingVirtualizerFixture,
+    seedGroupingWindowFixture,
   )
 
   const result = await page.evaluate(async () => {
@@ -2287,39 +2729,34 @@ test('mobile credentials keeps virtualizer geometry stable while grouping', asyn
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     }
 
-    type TestVirtualizer = HTMLElement & {
-      updateComplete?: Promise<unknown>
-      layoutComplete?: Promise<void>
-    }
     type TestGroupHost = HTMLElement & {updateComplete?: Promise<unknown>}
 
-    async function settleVirtualizer(virtualizer: TestVirtualizer | null): Promise<void> {
-      await virtualizer?.updateComplete
-      const frameFallback = nextFrame().then(nextFrame)
-      const layoutComplete = virtualizer?.layoutComplete
-      await (layoutComplete
-        ? Promise.race([layoutComplete.catch(() => {}), frameFallback])
-        : frameFallback)
+    async function settleWindow(groupHost: TestGroupHost): Promise<void> {
+      await groupHost.updateComplete
+      await nextFrame()
+      await nextFrame()
       await nextFrame()
     }
 
     const groupHost = deepFind(document, 'pm-group-mobile') as TestGroupHost | null
     const root = groupHost?.shadowRoot
-    const initialVirtualizer = root?.querySelector('lit-virtualizer') as TestVirtualizer | null
-    if (!groupHost || !root || !initialVirtualizer) {
-      throw new Error('mobile credential virtualizer was not found')
+    const initialScroller = root?.querySelector('.group-virtual-list') as HTMLElement | null
+    const initialWindow = root?.querySelector('.pm-mobile-virtual-window') as HTMLElement | null
+    if (!groupHost || !root || !initialScroller || !initialWindow) {
+      throw new Error('mobile credential list window was not found')
     }
+    if (root.querySelector('lit-virtualizer')) throw new Error('mobile credential virtualizer is still rendered')
 
-    await settleVirtualizer(initialVirtualizer)
-    initialVirtualizer.scrollTop = Math.min(
+    await settleWindow(groupHost)
+    initialScroller.scrollTop = Math.min(
       900,
-      initialVirtualizer.scrollHeight - initialVirtualizer.clientHeight,
+      initialScroller.scrollHeight - initialScroller.clientHeight,
     )
-    initialVirtualizer.dispatchEvent(new Event('scroll'))
+    initialScroller.dispatchEvent(new Event('scroll'))
     await nextFrame()
-    await settleVirtualizer(initialVirtualizer)
+    await settleWindow(groupHost)
 
-    const listRect = initialVirtualizer.getBoundingClientRect()
+    const listRect = initialScroller.getBoundingClientRect()
     const visibleEntries = Array.from(root.querySelectorAll<HTMLElement>('.entry-row[data-row-id]')).filter(
       (row) => {
         const rect = row.getBoundingClientRect()
@@ -2341,23 +2778,28 @@ test('mobile credentials keeps virtualizer geometry stable while grouping', asyn
 
     const snapshots: Array<{
       mode: string
-      sameVirtualizer: boolean
+      sameScroller: boolean
+      sameWindow: boolean
       anchorVisible: boolean
       rowCount: number
       headerCount: number
       nonZeroRows: boolean
       overlaps: boolean
+      boundedWindow: boolean
+      normalFlowRows: boolean
+      translationLayerCount: number
     }> = []
 
     async function capture(mode: 'none' | 'website' | 'modified' | 'security') {
       groupBy.set(mode)
-      await groupHost.updateComplete
-      const virtualizer = root.querySelector('lit-virtualizer') as TestVirtualizer | null
-      await settleVirtualizer(virtualizer)
-      await settleVirtualizer(virtualizer)
-      if (!virtualizer) throw new Error(`virtualizer missing after grouping by ${mode}`)
+      await settleWindow(groupHost)
+      await settleWindow(groupHost)
+      const scroller = root.querySelector('.group-virtual-list') as HTMLElement | null
+      const window = root.querySelector('.pm-mobile-virtual-window') as HTMLElement | null
+      if (!scroller || !window) throw new Error(`list window missing after grouping by ${mode}`)
+      if (root.querySelector('lit-virtualizer')) throw new Error(`virtualizer rendered after grouping by ${mode}`)
 
-      const viewport = virtualizer.getBoundingClientRect()
+      const viewport = scroller.getBoundingClientRect()
       const renderedRows = Array.from(
         root.querySelectorAll<HTMLElement>(
           '.entry-row[data-row-id], .group-row-wrap[data-row-id], .group-header-row[data-row-id]',
@@ -2372,7 +2814,8 @@ test('mobile credentials keeps virtualizer geometry stable while grouping', asyn
 
       snapshots.push({
         mode,
-        sameVirtualizer: virtualizer === initialVirtualizer,
+        sameScroller: scroller === initialScroller,
+        sameWindow: window === initialWindow,
         anchorVisible: Boolean(
           anchorRect && anchorRect.height > 0 && anchorRect.bottom > viewport.top && anchorRect.top < viewport.bottom,
         ),
@@ -2383,6 +2826,14 @@ test('mobile credentials keeps virtualizer geometry stable while grouping', asyn
           const next = rows[index + 1]?.rect
           return Boolean(next && rect.bottom > next.top + 0.5)
         }),
+        boundedWindow: renderedRows.length < 36,
+        normalFlowRows: renderedRows.every((row) => {
+          const position = getComputedStyle(row).position
+          return position !== 'absolute' && position !== 'fixed'
+        }),
+        translationLayerCount: root.querySelectorAll(
+          '.group-virtual-list > .pm-mobile-virtual-spacer > .pm-mobile-virtual-window',
+        ).length,
       })
     }
 
@@ -2398,14 +2849,15 @@ test('mobile credentials keeps virtualizer geometry stable while grouping', asyn
     await capture('security')
 
     pmMobileSelectionModel.enterWithEntry(anchorId)
-    await groupHost.updateComplete
-    const selectionVirtualizer = root.querySelector('lit-virtualizer') as TestVirtualizer | null
-    await settleVirtualizer(selectionVirtualizer)
+    await settleWindow(groupHost)
+    const selectionScroller = root.querySelector('.group-virtual-list') as HTMLElement | null
+    const selectionWindow = root.querySelector('.pm-mobile-virtual-window') as HTMLElement | null
     const selectedEntry = root.querySelector<HTMLElement & {selectedInSelectionMode?: boolean}>(
       `.entry-row[data-row-id="${anchorId}"] pm-entry-list-item-mobile`,
     )
     const selection = {
-      sameVirtualizer: selectionVirtualizer === initialVirtualizer,
+      sameScroller: selectionScroller === initialScroller,
+      sameWindow: selectionWindow === initialWindow,
       selected: selectedEntry?.selectedInSelectionMode === true,
     }
     pmMobileSelectionModel.exit()
@@ -2416,14 +2868,20 @@ test('mobile credentials keeps virtualizer geometry stable while grouping', asyn
   expect(result.anchorId).toBeTruthy()
   expect(result.snapshots).toHaveLength(21)
   for (const snapshot of result.snapshots) {
-    expect(snapshot.sameVirtualizer, snapshot.mode).toBe(true)
+    expect(snapshot.sameScroller, snapshot.mode).toBe(true)
+    expect(snapshot.sameWindow, snapshot.mode).toBe(true)
     expect(snapshot.anchorVisible, snapshot.mode).toBe(true)
     expect(snapshot.rowCount, snapshot.mode).toBeGreaterThan(1)
     expect(snapshot.nonZeroRows, snapshot.mode).toBe(true)
     expect(snapshot.overlaps, snapshot.mode).toBe(false)
-    if (snapshot.mode !== 'none') expect(snapshot.headerCount, snapshot.mode).toBeGreaterThan(0)
+    expect(snapshot.boundedWindow, snapshot.mode).toBe(true)
+    expect(snapshot.normalFlowRows, snapshot.mode).toBe(true)
+    expect(snapshot.translationLayerCount, snapshot.mode).toBe(1)
   }
-  expect(result.selection).toEqual({sameVirtualizer: true, selected: true})
+  expect(
+    result.snapshots.some((snapshot) => snapshot.mode !== 'none' && snapshot.headerCount > 0),
+  ).toBe(true)
+  expect(result.selection).toEqual({sameScroller: true, sameWindow: true, selected: true})
 })
 
 test('mobile selection delete confirmation stays inside viewport', async () => {

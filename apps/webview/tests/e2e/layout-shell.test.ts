@@ -231,12 +231,19 @@ async function getCollapsedNavigationRailIconAlignment(page: Page) {
     if (!rail) return []
 
     const buttons = Array.from(
-      rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button.item, cv-button.theme-toggle') ?? [],
+      rail.shadowRoot?.querySelectorAll<HTMLElement>(
+        'cv-button.item, cv-button.theme-toggle, button.item',
+      ) ?? [],
     )
 
     return buttons.flatMap((button) => {
-      const base = button.shadowRoot?.querySelector<HTMLElement>('[part="base"]')
-      const prefix = button.shadowRoot?.querySelector<HTMLElement>('[part="prefix"]')
+      const isNativeButton = button instanceof HTMLButtonElement
+      const base = isNativeButton
+        ? button
+        : button.shadowRoot?.querySelector<HTMLElement>('[part="base"]')
+      const prefix = isNativeButton
+        ? button.querySelector<HTMLElement>('cv-icon')
+        : button.shadowRoot?.querySelector<HTMLElement>('[part="prefix"]')
       if (!base || !prefix || prefix.hasAttribute('hidden')) return []
 
       const baseRect = base.getBoundingClientRect()
@@ -673,6 +680,7 @@ test('desktop collapsed navigation rail centers icon-only actions', async () => 
 
   const alignment = await getCollapsedNavigationRailIconAlignment(page)
   expect(alignment.length).toBeGreaterThan(0)
+  expect(alignment.some(({label}) => label.startsWith('Lock'))).toBe(true)
   for (const item of alignment) {
     expect(item.centerDelta, item.label).toBeLessThanOrEqual(1)
   }

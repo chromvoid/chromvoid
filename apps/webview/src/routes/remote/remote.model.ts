@@ -144,6 +144,7 @@ export type MobileUsbErrorCode =
   | 'ERR_USB_MOBILE_PAIRING_APPROVAL_REQUIRED'
   | 'ERR_USB_MOBILE_PAIRING_APPROVAL_REJECTED'
   | 'ERR_USB_MOBILE_PAIRING_APPROVAL_EXPIRED'
+  | 'ERR_USB_MOBILE_SESSION_APPROVAL_EXPIRED'
   | 'ERR_USB_MOBILE_RECORD_LAYER_FAILED'
   | 'ERR_USB_MOBILE_CABLE_DISCONNECTED'
   | 'ERR_USB_MOBILE_HOST_LOCKED'
@@ -217,6 +218,7 @@ export interface MobileUsbHostSessionApprovalView {
 
 export interface MobileUsbHostApprovalEvent {
   attempt_id: string
+  outcome?: 'approved' | 'rejected' | 'expired' | 'not_active'
 }
 
 export interface MobileUsbScanResult {

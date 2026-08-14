@@ -89,7 +89,7 @@ pub use types::{
     MobileUsbPairRequest, MobileUsbPairedHostRecord, MobileUsbPairingApprovalView,
     MobileUsbPlatform, MobileUsbRecoveryAction, MobileUsbScanClassification, MobileUsbScanResult,
     MobileUsbScannedHost, MobileUsbSessionEvent, MobileUsbSessionState, MobileUsbStateMachine,
-    MobileUsbStatus, RemoteIoStopReason, SessionId, UsbHint,
+    MobileUsbStatus, RemoteIoStopReason, SessionId, UsbHint, MOBILE_USB_SESSION_APPROVAL_TIMEOUT,
 };
 
 #[cfg(test)]

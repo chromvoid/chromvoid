@@ -619,6 +619,16 @@ pub fn run() {
         if let RunEvent::Opened { urls } = &event {
             otp_import_handoff::handle_opened_urls(app_handle, urls);
         }
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } = &event
+        {
+            if !has_visible_windows {
+                helpers::show_main_window(app_handle);
+            }
+        }
         #[cfg(desktop)]
         if let RunEvent::ExitRequested { api, .. } = event {
             otp_import_handoff::clear_pending_otp_import();

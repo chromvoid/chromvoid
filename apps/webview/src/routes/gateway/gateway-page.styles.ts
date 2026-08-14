@@ -2,8 +2,6 @@ import {css} from 'lit'
 
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   routeHostStyles,
   routePageStyles,
   sharedStyles,
@@ -14,8 +12,6 @@ import {routeEmptyStateStyles} from 'root/shared/ui/route-empty-state.styles'
 
 export const gatewayPageStyles = [
   sharedStyles,
-  pageTransitionStyles,
-  pageFadeInStyles,
   hostLayoutPaintContainStyles,
   routeHostStyles,
   routePageStyles,

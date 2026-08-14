@@ -18,8 +18,6 @@ import {
 } from 'root/shared/services/mobile-file-picker-session'
 import {
   hostLayoutPaintContainStyles,
-  pageFadeInStyles,
-  pageTransitionStyles,
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 import {CvEmptyState} from 'root/shared/ui/empty-state'
@@ -90,8 +88,6 @@ export class FileManager extends ReatomLitElement {
 
   static styles = [
     sharedStyles,
-    pageTransitionStyles,
-    pageFadeInStyles,
     hostLayoutPaintContainStyles,
     css`
       :host {

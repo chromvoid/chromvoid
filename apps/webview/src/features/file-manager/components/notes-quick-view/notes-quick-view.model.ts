@@ -9,6 +9,7 @@ import {tryGetAppContext} from 'root/shared/services/app-context'
 import {subscribeCallbackAfterInitial, subscribeToSignalChanges} from 'root/shared/services/subscribed-signal'
 import {normalizeCatalogNotesResponse, type CatalogMarkdownNote} from '../../services/catalog-notes'
 import {formatDate, formatFileSize} from '../virtual-file-list/virtual-file-list.model-helpers'
+import {formatNotesQuickViewSummary} from './notes-quick-view.presentation'
 
 const NOTES_FILTER_CHIP_LIMIT = 6
 const NOTES_FILTER_ALL_KEY = 'all'
@@ -353,14 +354,7 @@ export class NotesQuickViewModel {
     const rows = this.rows()
     const visibleRows = this.visibleRows()
 
-    return {
-      total: rows.length,
-      visible: visibleRows.length,
-      label:
-        rows.length === visibleRows.length
-          ? `${visibleRows.length} notes`
-          : `${visibleRows.length} of ${rows.length} notes`,
-    } satisfies NotesQuickViewSummary
+    return formatNotesQuickViewSummary(rows.length, visibleRows.length)
   }, 'notes.quickView.summary')
 
   readonly hasActiveFilters = computed(

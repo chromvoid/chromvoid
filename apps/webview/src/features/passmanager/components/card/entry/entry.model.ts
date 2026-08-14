@@ -62,6 +62,7 @@ export type PMEntryRenderData = {
   entryAvatarLetter: string
   avatarBg: string
   headerBadges: PMEntryHeaderBadge[]
+  securityBadges: PMEntryHeaderBadge[]
   hasOtps: boolean
   visibleUrls: PMEntryActionUrl[]
   hasUrls: boolean
@@ -483,18 +484,18 @@ export class PMEntryModel implements PMEntrySessionController {
       return {
         value,
         match: rule.match,
-        isPrimary: rule === primaryUrlRule,
+        isPrimary: card.urls.length > 1 && rule === primaryUrlRule,
         openable,
         href: openable ? formatLink(value) : '',
       }
     })
-    const headerBadges: PMEntryHeaderBadge[] = [
-      {
-        variant: 'success',
-        icon: 'lock',
-        text: i18n('entry:badge:encrypted'),
-      },
-    ]
+    const encryptedBadge: PMEntryHeaderBadge = {
+      variant: 'success',
+      icon: 'lock',
+      text: i18n('entry:badge:encrypted'),
+    }
+    const headerBadges: PMEntryHeaderBadge[] = [encryptedBadge]
+    const securityBadges: PMEntryHeaderBadge[] = [encryptedBadge]
 
     if (card.entryType === 'payment_card') {
       headerBadges.push({
@@ -512,11 +513,13 @@ export class PMEntryModel implements PMEntrySessionController {
       }
     } else {
       if (card.otps().length > 0) {
-        headerBadges.push({
+        const twoFactorBadge: PMEntryHeaderBadge = {
           variant: 'primary',
           icon: 'shield-check',
           text: i18n('entry:badge:two_factor'),
-        })
+        }
+        headerBadges.push(twoFactorBadge)
+        securityBadges.push(twoFactorBadge)
       }
 
       if (card.sshKeys.length > 0) {
@@ -551,6 +554,7 @@ export class PMEntryModel implements PMEntrySessionController {
       entryAvatarLetter: (entryTitleText.trim().charAt(0) || '?').toUpperCase(),
       avatarBg: this.getAvatarBg(entryTitleText),
       headerBadges,
+      securityBadges,
       hasOtps: card.otps().length > 0,
       visibleUrls,
       hasUrls: visibleUrls.length > 0,

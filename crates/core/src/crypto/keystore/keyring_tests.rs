@@ -37,3 +37,11 @@ fn keyring_keystore_corrupted_len_is_typed_error() {
         .expect_err("must reject invalid length");
     assert!(matches!(err, KeystoreError::Corrupted));
 }
+
+#[test]
+fn ios_storage_pepper_locator_is_stable_and_path_independent() {
+    let locator = ios_storage_pepper_locator();
+
+    assert_eq!(locator.service, "com.chromvoid.storage-pepper");
+    assert_eq!(locator.account, "primary:v1");
+}

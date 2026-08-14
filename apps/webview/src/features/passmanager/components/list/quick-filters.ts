@@ -1,30 +1,29 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {CVButton} from '@chromvoid/uikit/components/cv-button'
+import {CVCheckbox} from '@chromvoid/uikit/components/cv-checkbox'
 import {CVCombobox} from '@chromvoid/uikit/components/cv-combobox'
 import {CVComboboxOption} from '@chromvoid/uikit/components/cv-combobox-option'
 import {CVIcon} from '@chromvoid/uikit/components/cv-icon'
+import {CVPopover} from '@chromvoid/uikit/components/cv-popover'
 import {css, nothing, type TemplateResult} from 'lit'
 
 import {i18n} from '@project/passmanager/i18n'
 import {type PMToolbarQuickFilter, pmQuickFiltersModel} from './quick-filters.model'
 
+type QuickFilterOption = {
+  value: PMToolbarQuickFilter
+  icon: string
+  label: string
+}
+
 export class PMQuickFilters extends ReatomLitElement {
-  static properties = {
-    singleRow: {type: Boolean, attribute: 'single-row', reflect: true},
-  }
-
-  declare singleRow: boolean
-
-  constructor() {
-    super()
-    this.singleRow = false
-  }
-
   static define() {
     CVButton.define()
+    CVCheckbox.define()
     CVCombobox.define()
     CVComboboxOption.define()
     CVIcon.define()
+    CVPopover.define()
     if (!customElements.get('pm-quick-filters')) {
       customElements.define('pm-quick-filters', this)
     }
@@ -32,139 +31,185 @@ export class PMQuickFilters extends ReatomLitElement {
 
   static styles = css`
     :host {
-      display: block;
+      display: inline-block;
       min-inline-size: 0;
-      contain: layout style;
-      container-type: inline-size;
+      contain: style;
     }
 
-    .quick-filters {
-      display: flex;
-      flex-wrap: nowrap;
-      align-items: center;
+    .filters-popover {
+      --cv-popover-min-inline-size: 296px;
+      --cv-popover-max-inline-size: min(336px, calc(100vw - var(--cv-space-6)));
+      --cv-popover-padding: 0;
+      --cv-popover-gap: 0;
+      --cv-popover-border-radius: var(--cv-radius-3);
+      --cv-popover-z-index: var(--cv-z-overlay, 300);
+    }
+
+    .filters-popover::part(trigger) {
+      min-block-size: var(--pm-toolbar-control-block-size);
+      padding: 0 var(--pm-toolbar-control-padding-inline);
       gap: var(--pm-toolbar-control-gap);
-      inline-size: 100%;
-      min-inline-size: 0;
-      max-inline-size: 100%;
-      padding: 0;
-      overflow-x: auto;
-      overflow-y: hidden;
-      scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    .quick-filters::-webkit-scrollbar {
-      display: none;
-    }
-
-    .quick-filters cv-button {
-      --cv-button-min-height: var(--pm-toolbar-control-block-size);
-      --cv-button-border-radius: var(--pm-toolbar-control-radius);
-      --cv-button-padding-block: 0;
-      --cv-button-padding-inline: var(--pm-toolbar-control-padding-inline);
-      --cv-button-font-size: var(--pm-toolbar-control-font-size);
-      --cv-button-font-weight: var(--pm-toolbar-control-font-weight);
-      --cv-button-gap: var(--pm-toolbar-control-gap);
-      flex: 0 0 auto;
-      white-space: nowrap;
-    }
-
-    .quick-filters cv-button.quick-filter-button {
-      --cv-button-min-height: var(--pm-quick-filter-block-size);
-      --cv-button-border-radius: var(--cv-radius-pill, 999px);
-      --cv-button-padding-inline: var(--pm-quick-filter-padding-inline);
-      --cv-button-font-size: var(--pm-quick-filter-font-size);
-      --cv-button-gap: var(--pm-quick-filter-gap);
-    }
-
-    .quick-filters cv-button::part(base) {
-      min-block-size: var(--pm-toolbar-control-block-size);
-    }
-
-    .quick-filters cv-button.quick-filter-button::part(base) {
-      min-block-size: var(--pm-quick-filter-block-size);
-    }
-
-    .quick-filters cv-button.quick-filter-button::part(label) {
-      line-height: 1;
-    }
-
-    .quick-filters cv-button cv-icon {
-      inline-size: 14px;
-      block-size: 14px;
-    }
-
-    .quick-filters cv-button.quick-filter-button cv-icon {
-      inline-size: var(--pm-quick-filter-icon-size);
-      block-size: var(--pm-quick-filter-icon-size);
-    }
-
-    .quick-filters .quick-filter-button.active cv-icon {
-      color: var(--cv-color-primary);
-    }
-
-    .quick-filters cv-button:active {
-      transform: translateY(0) scale(0.98);
-    }
-
-    .quick-filters .quick-filter-button.active::part(base) {
-      background: var(--cv-color-primary-surface-strong);
-      border-color: var(--cv-color-primary-border-strong);
-      box-shadow: 0 0 0 1px var(--cv-color-primary-ring);
-    }
-
-    .quick-filters .quick-filter-button.active::part(label) {
-      color: var(--cv-color-primary);
-      font-weight: 600;
-    }
-
-    .quick-filters .quick-filter-button.active:hover::part(base) {
-      background: var(--cv-color-primary-surface);
-    }
-
-    .tag-filter-row {
-      display: flex;
-      align-items: center;
-      gap: var(--cv-space-1);
-      min-inline-size: 0;
-      max-inline-size: 100%;
-    }
-
-    .tag-filter-combobox {
-      --cv-combobox-min-width: 170px;
-      --cv-combobox-border-radius: var(--pm-toolbar-control-radius);
-      --cv-combobox-background: var(--cv-color-surface-2);
-      flex: 1 1 170px;
-      inline-size: min(100%, 240px);
-      min-inline-size: 160px;
-      max-inline-size: 260px;
-    }
-
-    .tag-filter-combobox::part(input-wrapper) {
-      min-block-size: var(--pm-toolbar-control-block-size);
-      padding-inline: var(--pm-toolbar-control-padding-inline);
       border-color: var(--cv-color-border);
       border-radius: var(--pm-toolbar-control-radius);
       background: var(--cv-color-surface-2);
+      color: var(--cv-color-text);
+      font-size: var(--pm-toolbar-control-font-size);
+      font-weight: var(--pm-toolbar-control-font-weight);
+      line-height: 1;
+      box-shadow:
+        inset 0 1px 0 var(--cv-alpha-white-4),
+        0 1px 2px var(--cv-alpha-black-10);
+      transition:
+        border-color var(--cv-duration-fast) var(--cv-easing-standard),
+        background-color var(--cv-duration-fast) var(--cv-easing-standard),
+        color var(--cv-duration-fast) var(--cv-easing-standard),
+        box-shadow var(--cv-duration-fast) var(--cv-easing-standard);
     }
 
-    .tag-filter-combobox:focus-within::part(input-wrapper),
-    .tag-filter-combobox[open]::part(input-wrapper) {
+    .filters-popover::part(trigger):hover,
+    .filters-popover[open]::part(trigger) {
+      border-color: var(--cv-color-primary-border);
+      background: var(--cv-color-primary-surface);
+    }
+
+    .filters-popover.active::part(trigger) {
       border-color: var(--cv-color-primary-border-strong);
-      box-shadow: 0 0 0 1px var(--cv-color-primary-ring);
+      background: var(--cv-color-primary-surface-strong);
+      color: var(--cv-color-primary);
+    }
+
+    .trigger-icon,
+    .trigger-chevron {
+      inline-size: 14px;
+      block-size: 14px;
+      color: var(--cv-color-text-muted);
+    }
+
+    .active .trigger-icon,
+    .active .trigger-chevron {
+      color: currentColor;
+    }
+
+    .trigger-count {
+      display: inline-grid;
+      place-items: center;
+      min-inline-size: 18px;
+      block-size: 18px;
+      padding-inline: var(--cv-space-1);
+      border-radius: var(--cv-radius-pill, 999px);
+      background: var(--cv-color-primary);
+      color: var(--cv-color-on-primary);
+      font-size: 0.6875rem;
+      line-height: 1;
+    }
+
+    .filter-panel {
+      display: grid;
+      min-inline-size: 0;
+    }
+
+    .panel-header,
+    .panel-section {
+      padding: var(--cv-space-3);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--cv-space-3);
+      padding-block-end: var(--cv-space-2);
+    }
+
+    .panel-title,
+    .section-title {
+      color: var(--cv-color-text);
+      font-weight: var(--cv-font-weight-semibold);
+    }
+
+    .panel-title {
+      font-size: var(--cv-font-size-sm);
+    }
+
+    .section-title {
+      font-size: var(--cv-font-size-xs);
+      color: var(--cv-color-text-muted);
+    }
+
+    .clear-button {
+      color: var(--cv-color-primary);
+      font-size: var(--cv-font-size-xs);
+    }
+
+    .panel-divider {
+      block-size: 1px;
+      margin-inline: var(--cv-space-3);
+      background: var(--cv-color-border);
+    }
+
+    .quick-filter-list {
+      display: grid;
+      gap: var(--cv-space-1);
+      margin-block-start: var(--cv-space-2);
+    }
+
+    .quick-filter-checkbox {
+      inline-size: 100%;
+    }
+
+    .quick-filter-checkbox::part(base) {
+      inline-size: 100%;
+      min-block-size: 34px;
+      padding-inline: var(--cv-space-2);
+      border-radius: var(--cv-radius-2);
+    }
+
+    .quick-filter-checkbox:hover::part(base) {
+      background: var(--cv-color-surface-3);
+    }
+
+    .filter-label {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--cv-space-2);
+      min-inline-size: 0;
+      font-size: var(--cv-font-size-sm);
+    }
+
+    .filter-label cv-icon {
+      inline-size: 15px;
+      block-size: 15px;
+      color: var(--cv-color-text-muted);
+    }
+
+    .tag-filter-controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) max-content;
+      align-items: center;
+      gap: var(--cv-space-2);
+      margin-block-start: var(--cv-space-2);
+    }
+
+    .tag-filter-combobox {
+      --cv-combobox-min-width: 0;
+      --cv-combobox-border-radius: var(--cv-radius-2);
+      --cv-combobox-background: var(--cv-color-surface-2);
+      inline-size: 100%;
+      min-inline-size: 0;
+    }
+
+    .tag-filter-combobox::part(input-wrapper) {
+      min-block-size: 34px;
+      padding-inline: var(--cv-space-2);
+      border-color: var(--cv-color-border);
+      border-radius: var(--cv-radius-2);
+      background: var(--cv-color-surface-2);
     }
 
     .tag-filter-combobox::part(input) {
-      min-inline-size: 52px;
-      min-block-size: calc(var(--pm-toolbar-control-block-size) - 2px);
-      font-size: var(--pm-toolbar-control-font-size);
-    }
-
-    .tag-filter-combobox::part(tag) {
-      border: 1px solid var(--cv-color-primary-border);
-      background: var(--cv-color-primary-surface);
-      color: var(--cv-color-primary);
-      font-size: 0.7rem;
+      min-inline-size: 44px;
+      min-block-size: 32px;
+      font-size: var(--cv-font-size-xs);
     }
 
     .tag-filter-combobox::part(tag-label) {
@@ -173,85 +218,35 @@ export class PMQuickFilters extends ReatomLitElement {
       text-overflow: ellipsis;
     }
 
-    .tag-filter-combobox::part(tag-overflow) {
-      color: var(--cv-color-text-muted);
-      font-size: 0.7rem;
-    }
-
     .tag-filter-combobox::part(listbox) {
       max-block-size: min(260px, 52vh);
     }
 
     .tag-manage-button {
-      flex: 0 0 auto;
-      color: var(--cv-color-text-muted);
+      --cv-button-min-height: 34px;
+      --cv-button-border-radius: var(--cv-radius-2);
+      --cv-button-padding-inline: var(--cv-space-2);
     }
 
-    .tag-manage-button::part(base) {
-      min-block-size: var(--pm-toolbar-control-block-size);
-      padding: 0 var(--pm-toolbar-control-padding-inline);
-      border-radius: var(--pm-toolbar-control-radius);
+    .tag-manage-button cv-icon {
+      inline-size: 15px;
+      block-size: 15px;
     }
 
-    .tag-manage-button:hover {
-      color: var(--cv-color-primary);
+    .tag-filter-controls.no-options {
+      grid-template-columns: minmax(0, 1fr);
     }
 
-    @container (width < 480px) {
-      .quick-filters {
-        justify-content: flex-start;
-        gap: 3px;
-        flex-wrap: nowrap;
-      }
-
-      .quick-filters:has(.tag-filter-combobox) {
-        overflow: visible;
-        flex-wrap: wrap;
-      }
-
-      .tag-filter-combobox {
-        flex: 0 0 190px;
-        min-inline-size: 190px;
-      }
-
-      .quick-filters:has(.tag-filter-combobox) .tag-filter-row,
-      .quick-filters:has(.tag-filter-combobox) .tag-filter-combobox {
-        flex: 1 1 100%;
-        inline-size: 100%;
-        min-inline-size: 0;
-        max-inline-size: 100%;
-      }
+    .no-options .tag-manage-button {
+      inline-size: 100%;
     }
 
-    @container (width < 320px) {
-      .quick-filter-button span {
-        display: none;
-      }
+    .no-options .tag-manage-button::part(base) {
+      justify-content: flex-start;
     }
 
-    :host([single-row]) .quick-filters,
-    :host([single-row]) .quick-filters:has(.tag-filter-combobox) {
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      overflow-y: hidden;
-    }
-
-    :host([single-row]) .quick-filters:has(.tag-filter-combobox) .tag-filter-row {
-      flex: 0 0 auto;
-      inline-size: auto;
-      min-inline-size: 0;
-      max-inline-size: none;
-    }
-
-    :host([single-row]) .quick-filters:has(.tag-filter-combobox) .tag-filter-combobox {
-      flex: 0 0 190px;
-      inline-size: 190px;
-      min-inline-size: 190px;
-      max-inline-size: 260px;
-    }
-
-    :host([single-row]) .quick-filter-button span {
-      display: inline;
+    .no-options .tag-manage-button::part(label) {
+      text-align: start;
     }
   `
 
@@ -271,6 +266,10 @@ export class PMQuickFilters extends ReatomLitElement {
     pmQuickFiltersModel.toggleQuickFilter('card')
   }
 
+  private handleClearFilters(): void {
+    pmQuickFiltersModel.clearFilters()
+  }
+
   private handleTagFilterChange(event: Event): void {
     pmQuickFiltersModel.setSelectedTagsFromComboboxEvent(event)
   }
@@ -279,29 +278,29 @@ export class PMQuickFilters extends ReatomLitElement {
     pmQuickFiltersModel.openTagManage()
   }
 
-  private renderQuickFilterButton(
-    filter: PMToolbarQuickFilter,
-    icon: string,
-    label: string,
+  private handlePopoverToggle(event: CustomEvent<{open?: boolean}>): void {
+    pmQuickFiltersModel.setPopoverOpen(event.detail.open === true)
+  }
+
+  private renderQuickFilter(
+    option: QuickFilterOption,
     selected: boolean,
-    onClick: () => void,
+    onChange: () => void,
   ): TemplateResult {
     return html`
-      <cv-button
-        class=${selected ? 'quick-filter-button active' : 'quick-filter-button'}
-        data-quick-filter=${filter}
-        size="small"
-        pill
-        variant=${selected ? 'brand' : 'neutral'}
-        appearance=${selected ? 'filled' : 'outlined'}
-        aria-pressed=${String(selected)}
-        aria-label=${label}
-        title=${label}
-        @click=${onClick}
+      <cv-checkbox
+        class="quick-filter-checkbox"
+        data-quick-filter=${option.value}
+        value=${option.value}
+        .checked=${selected}
+        aria-label=${option.label}
+        @cv-change=${onChange}
       >
-        <cv-icon name=${icon} slot="prefix"></cv-icon>
-        <span>${label}</span>
-      </cv-button>
+        <span class="filter-label">
+          <cv-icon name=${option.icon} aria-hidden="true"></cv-icon>
+          <span>${option.label}</span>
+        </span>
+      </cv-checkbox>
     `
   }
 
@@ -309,79 +308,107 @@ export class PMQuickFilters extends ReatomLitElement {
     const options = pmQuickFiltersModel.getAvailableTagOptions()
 
     return html`
-      <span class="tag-filter-row">
-        ${options.length > 0
-          ? html`
-              <cv-combobox
-                class="tag-filter-combobox"
-                size="small"
-                multiple
-                clearable
-                max-tags-visible="2"
-                aria-label=${i18n('tags:title')}
-                placeholder=${i18n('tags:filter_placeholder')}
-                .value=${pmQuickFiltersModel.getSelectedTagComboboxValue()}
-                @cv-change=${this.handleTagFilterChange}
-              >
-                ${options.map(
-                  (option) => html`
-                    <cv-combobox-option value=${option.key}
-                      >${option.label} (${option.count})</cv-combobox-option
-                    >
-                  `,
-                )}
-              </cv-combobox>
-            `
-          : nothing}
-        <cv-button
-          unstyled
-          class="tag-manage-button"
-          type="button"
-          title=${i18n('tags:manage_open' as never)}
-          aria-label=${i18n('tags:manage_open' as never)}
-          @click=${this.handleOpenTagManage}
-        >
-          <cv-icon name="sliders" aria-hidden="true"></cv-icon>
-        </cv-button>
-      </span>
+      <section class="panel-section" aria-labelledby="pm-filter-tags-title">
+        <span id="pm-filter-tags-title" class="section-title">${i18n('tags:title')}</span>
+        <div class=${options.length > 0 ? 'tag-filter-controls' : 'tag-filter-controls no-options'}>
+          ${options.length > 0
+            ? html`
+                <cv-combobox
+                  class="tag-filter-combobox"
+                  size="small"
+                  multiple
+                  clearable
+                  max-tags-visible="1"
+                  aria-label=${i18n('tags:title')}
+                  placeholder=${i18n('tags:filter_placeholder')}
+                  .value=${pmQuickFiltersModel.getSelectedTagComboboxValue()}
+                  @cv-change=${this.handleTagFilterChange}
+                >
+                  ${options.map(
+                    (option) => html`
+                      <cv-combobox-option value=${option.key}>
+                        ${option.label} (${option.count})
+                      </cv-combobox-option>
+                    `,
+                  )}
+                </cv-combobox>
+              `
+            : nothing}
+          <cv-button
+            class="tag-manage-button"
+            type="button"
+            size="small"
+            variant="default"
+            title=${i18n('tags:manage_open' as never)}
+            aria-label=${i18n('tags:manage_open' as never)}
+            ?disabled=${!pmQuickFiltersModel.canManageTags()}
+            @click=${this.handleOpenTagManage}
+          >
+            <cv-icon slot="prefix" name="sliders" aria-hidden="true"></cv-icon>
+            ${options.length === 0 ? html`<span>${i18n('tags:manage_open' as never)}</span>` : nothing}
+          </cv-button>
+        </div>
+      </section>
     `
   }
 
   protected render() {
-    const filters = pmQuickFiltersModel.selectedQuickFilters()
-
+    const selectedFilters = pmQuickFiltersModel.selectedQuickFilters()
+    const activeFilterCount = pmQuickFiltersModel.activeFilterCount()
     return html`
-      <div class="quick-filters">
-        ${this.renderTagFilterControl()}
-        ${this.renderQuickFilterButton(
-          'recent',
-          'clock-history',
-          i18n('quick:recent'),
-          filters.includes('recent'),
-          this.handleToggleRecent,
-        )}
-        ${this.renderQuickFilterButton(
-          'otp',
-          'shield-check',
-          i18n('otp'),
-          filters.includes('otp'),
-          this.handleToggleOTP,
-        )}
-        ${this.renderQuickFilterButton(
-          'ssh',
-          'key',
-          i18n('quick:ssh'),
-          filters.includes('ssh'),
-          this.handleToggleSsh,
-        )}
-        ${this.renderQuickFilterButton(
-          'card',
-          'credit-card',
-          i18n('quick:card'),
-          filters.includes('card'),
-          this.handleToggleCard,
-        )}
-      </div>
+      <cv-popover
+        class=${activeFilterCount > 0 ? 'filters-popover active' : 'filters-popover'}
+        .open=${pmQuickFiltersModel.popoverOpen()}
+        placement="bottom-start"
+        aria-label=${i18n('filters:title' as never)}
+        @toggle=${this.handlePopoverToggle}
+      >
+        <cv-icon class="trigger-icon" slot="trigger" name="sliders" aria-hidden="true"></cv-icon>
+        <span slot="trigger">${i18n('filters:title' as never)}</span>
+        ${activeFilterCount > 0
+          ? html`<span class="trigger-count" slot="trigger">${activeFilterCount}</span>`
+          : nothing}
+        <cv-icon class="trigger-chevron" slot="trigger" name="chevron-down" aria-hidden="true"></cv-icon>
+
+        <div class="filter-panel">
+          <header class="panel-header">
+            <span class="panel-title">${i18n('filters:title' as never)}</span>
+            ${activeFilterCount > 0
+              ? html`
+                  <cv-button unstyled class="clear-button" type="button" @click=${this.handleClearFilters}>
+                    ${i18n('credentials:clear_filters' as never)}
+                  </cv-button>
+                `
+              : nothing}
+          </header>
+          <section class="panel-section" aria-label=${i18n('filters:title' as never)}>
+            <div class="quick-filter-list">
+              ${this.renderQuickFilter(
+                {value: 'recent', icon: 'clock-history', label: i18n('quick:recent')},
+                selectedFilters.includes('recent'),
+                this.handleToggleRecent,
+              )}
+              ${this.renderQuickFilter(
+                {value: 'otp', icon: 'shield-check', label: i18n('otp')},
+                selectedFilters.includes('otp'),
+                this.handleToggleOTP,
+              )}
+              ${this.renderQuickFilter(
+                {value: 'ssh', icon: 'key', label: i18n('quick:ssh')},
+                selectedFilters.includes('ssh'),
+                this.handleToggleSsh,
+              )}
+              ${this.renderQuickFilter(
+                {value: 'card', icon: 'credit-card', label: i18n('quick:card')},
+                selectedFilters.includes('card'),
+                this.handleToggleCard,
+              )}
+            </div>
+          </section>
+          <span class="panel-divider" aria-hidden="true"></span>
+          ${this.renderTagFilterControl()}
+        </div>
+      </cv-popover>
     `
   }
 }

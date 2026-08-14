@@ -39,7 +39,7 @@ if (process.platform === 'darwin') {
   }
 }
 
-const tauriArgs = ['dev', '--config', 'src-tauri/tauri.dev.conf.json', '--no-watch', '--port', '4410']
+const tauriArgs = ['dev', '--config', 'src-tauri/tauri.dev.conf.json', '--no-watch', '--no-dev-server']
 const child = spawn('tauri', tauriArgs, {
   cwd: appRoot,
   env: childEnv,

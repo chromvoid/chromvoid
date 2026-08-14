@@ -39,6 +39,21 @@ mod ios;
 #[cfg(target_os = "ios")]
 pub use ios::IosKeystore;
 
+#[cfg(any(target_os = "ios", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct IosStoragePepperLocator {
+    service: &'static str,
+    account: &'static str,
+}
+
+#[cfg(any(target_os = "ios", test))]
+const fn ios_storage_pepper_locator() -> IosStoragePepperLocator {
+    IosStoragePepperLocator {
+        service: "com.chromvoid.storage-pepper",
+        account: "primary:v1",
+    }
+}
+
 #[cfg(any(target_os = "android", test))]
 mod android;
 #[cfg(target_os = "android")]
@@ -101,6 +116,7 @@ impl KeyringKeystore {
     /// Construct a keystore scoped to a storage root path.
     ///
     /// Note: the path is hashed to avoid leaking it into keystore metadata.
+    #[cfg(not(target_os = "ios"))]
     pub fn for_storage_path(
         storage_root: impl AsRef<std::path::Path>,
     ) -> Result<Self, KeystoreError> {
@@ -166,7 +182,6 @@ impl Keystore for KeyringKeystore {
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",
-    target_os = "ios",
     all(target_os = "linux", not(target_env = "musl"))
 ))]
 fn storage_scoped_user(storage_root: &std::path::Path) -> String {
@@ -185,7 +200,6 @@ fn storage_scoped_user(storage_root: &std::path::Path) -> String {
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",
-    target_os = "ios",
     all(target_os = "linux", not(target_env = "musl"))
 ))]
 fn hex_encode(data: &[u8]) -> String {

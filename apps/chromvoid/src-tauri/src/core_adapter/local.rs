@@ -5,14 +5,15 @@ use std::sync::{Arc, Mutex, OnceLock};
 use chromvoid_core::catalog::CatalogMediaInfo;
 #[cfg(target_os = "android")]
 use chromvoid_core::crypto::keystore::AndroidKeystore;
+use chromvoid_core::crypto::keystore::InMemoryKeystore;
+#[cfg(target_os = "ios")]
+use chromvoid_core::crypto::keystore::IosKeystore;
 #[cfg(any(
     target_os = "macos",
     target_os = "windows",
-    target_os = "ios",
     all(target_os = "linux", not(target_env = "musl"))
 ))]
 use chromvoid_core::crypto::keystore::KeyringKeystore;
-use chromvoid_core::crypto::keystore::{InMemoryKeystore, Keystore};
 use chromvoid_core::license::{BuildPolicy, LicenseStore};
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use chromvoid_core::rpc::{
@@ -63,31 +64,6 @@ fn test_keystore_for_storage(
         .clone())
 }
 
-#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
-fn clear_orphaned_storage_if_pepper_missing(
-    storage: &Storage,
-    keystore: &dyn Keystore,
-) -> Result<bool, String> {
-    let has_chunks = storage.has_any_chunk().map_err(|e| e.to_string())?;
-    if !has_chunks {
-        return Ok(false);
-    }
-
-    let has_pepper = keystore
-        .load_storage_pepper()
-        .map_err(|e| format!("keystore check failed: {e}"))?
-        .is_some();
-    if has_pepper {
-        return Ok(false);
-    }
-
-    storage
-        .erase_all()
-        .map_err(|e| format!("failed to erase orphaned storage: {e}"))?;
-    let _ = keystore.delete_storage_pepper();
-    Ok(true)
-}
-
 impl LocalCoreAdapter {
     pub fn new(storage_root: PathBuf) -> Result<Self, String> {
         let license_root = storage_root.join(".device-license");
@@ -131,21 +107,18 @@ impl LocalCoreAdapter {
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
-                target_os = "ios",
                 all(target_os = "linux", not(target_env = "musl"))
             ))]
             {
                 let ks = KeyringKeystore::for_storage_path(&storage_root)
                     .map_err(|e| format!("keystore init failed: {e}"))?;
-                #[cfg(target_os = "ios")]
-                {
-                    if clear_orphaned_storage_if_pepper_missing(&storage, &ks)? {
-                        eprintln!(
-                            "[chromvoid] iOS storage reset: chunks existed without storage pepper; \
-                             local storage was erased"
-                        );
-                    }
-                }
+                RpcRouter::new(storage)
+                    .with_keystore(Arc::new(ks))
+                    .with_license_store(license_store)
+            }
+            #[cfg(target_os = "ios")]
+            {
+                let ks = IosKeystore::new().map_err(|e| format!("keystore init failed: {e}"))?;
                 RpcRouter::new(storage)
                     .with_keystore(Arc::new(ks))
                     .with_license_store(license_store)
@@ -532,31 +505,27 @@ mod tests {
     }
 
     #[test]
-    fn clears_orphaned_storage_when_pepper_missing() {
+    fn adapter_startup_preserves_existing_chunks() {
         let tmp = TempDir::new().expect("temp dir");
-        let storage = Storage::new(tmp.path()).expect("storage");
+        let storage_root = tmp.path().join("storage");
+        let storage = Storage::new(&storage_root).expect("storage");
         storage
             .write_chunk(sample_chunk_name(), b"test")
             .expect("chunk write");
-        let ks = InMemoryKeystore::new();
+        drop(storage);
 
-        let erased = clear_orphaned_storage_if_pepper_missing(&storage, &ks).expect("clear");
-        assert!(erased);
-        assert!(!storage.has_any_chunk().expect("has_any_chunk"));
-    }
+        let license_store = LicenseStore::new(tmp.path().join("license"), BuildPolicy::Bypass);
+        let _adapter =
+            LocalCoreAdapter::new_with_test_license_store(storage_root.clone(), license_store)
+                .expect("adapter startup");
 
-    #[test]
-    fn keeps_storage_when_pepper_exists() {
-        let tmp = TempDir::new().expect("temp dir");
-        let storage = Storage::new(tmp.path()).expect("storage");
-        storage
-            .write_chunk(sample_chunk_name(), b"test")
-            .expect("chunk write");
-        let ks = InMemoryKeystore::new();
-        ks.store_storage_pepper([7u8; 32]).expect("store pepper");
-
-        let erased = clear_orphaned_storage_if_pepper_missing(&storage, &ks).expect("clear");
-        assert!(!erased);
-        assert!(storage.has_any_chunk().expect("has_any_chunk"));
+        let reopened = Storage::new(storage_root).expect("reopen storage");
+        assert!(reopened.has_any_chunk().expect("has_any_chunk"));
+        assert_eq!(
+            reopened
+                .read_chunk(sample_chunk_name())
+                .expect("read preserved chunk"),
+            b"test"
+        );
     }
 }
