@@ -133,9 +133,14 @@ export class PMGroupMobile extends PMGroupBase {
   private groupTapToken: number | null = null
   private groupTapTokenId: string | null = null
   private listResizeObserver: ResizeObserver | null = null
+  private observedListScroller: HTMLElement | null = null
   private listScrollFrame: number | null = null
   private pendingListScrollTop = 0
   private currentWindowRows: readonly PMListMutationRow[] = []
+  private pendingListTotalBlockSize = 0
+  private pendingListOffsetBlock = 0
+  private appliedListTotalBlockSize = Number.NaN
+  private appliedListOffsetBlock = Number.NaN
 
   static define() {
     CvEmptyState.define()
@@ -172,10 +177,11 @@ export class PMGroupMobile extends PMGroupBase {
     passwordManagerMobileLayoutModel.getSelectionSnapshot()
     this.currentWindowRows = rows
     const window = this.listWindowModel.getWindow(rows)
+    this.pendingListTotalBlockSize = window.totalBlockSize
+    this.pendingListOffsetBlock = window.offsetBlock
     this.publishListRanges(window.renderedRange, window.visibleRange)
 
     return html`
-      ${this.renderMobileVirtualMetricsStyle(window.totalBlockSize, window.offsetBlock)}
       <div
         class="group-virtual-list scroll-edge-scroller"
         tabindex="-1"
@@ -234,7 +240,8 @@ export class PMGroupMobile extends PMGroupBase {
 
   protected override updated(changedProperties: PropertyValues): void {
     super.updated(changedProperties)
-    this.syncListMeasurements()
+    this.syncVirtualMetricsStyle()
+    this.syncListScrollerMeasurement()
   }
 
   override disconnectedCallback(): void {
@@ -242,30 +249,39 @@ export class PMGroupMobile extends PMGroupBase {
     this.listScrollFrame = null
     this.listResizeObserver?.disconnect()
     this.listResizeObserver = null
+    this.observedListScroller = null
     passwordManagerMobileLayoutModel.cancelLongPress()
     this.clearGroupTapToken()
     super.disconnectedCallback()
   }
 
-  private renderMobileVirtualMetricsStyle(totalBlockSize: number, offsetBlock: number) {
-    const nonce = this.getStyleNonce()
-    return html`
-      <style nonce=${nonce ?? nothing}>
-        :host {
-          --_pm-mobile-list-total-block-size: ${this.toCssPx(totalBlockSize)};
-          --_pm-mobile-list-offset-block: ${this.toCssPx(offsetBlock)};
-        }
-      </style>
-    `
+  private syncVirtualMetricsStyle(): void {
+    if (this.pendingListTotalBlockSize !== this.appliedListTotalBlockSize) {
+      this.appliedListTotalBlockSize = this.pendingListTotalBlockSize
+      this.style.setProperty(
+        '--_pm-mobile-list-total-block-size',
+        this.toCssPx(this.pendingListTotalBlockSize),
+      )
+    }
+    if (this.pendingListOffsetBlock !== this.appliedListOffsetBlock) {
+      this.appliedListOffsetBlock = this.pendingListOffsetBlock
+      this.style.setProperty(
+        '--_pm-mobile-list-offset-block',
+        this.toCssPx(this.pendingListOffsetBlock),
+      )
+    }
   }
 
-  private syncListMeasurements(): void {
+  private syncListScrollerMeasurement(): void {
     const scroller = this.renderRoot.querySelector<HTMLElement>('.group-virtual-list')
     if (!scroller) {
       this.listResizeObserver?.disconnect()
+      this.observedListScroller = null
       return
     }
+    if (scroller === this.observedListScroller) return
 
+    this.observedListScroller = scroller
     this.listWindowModel.setViewportBlockSize(scroller.clientHeight)
     this.listWindowModel.syncScrollTop(this.currentWindowRows, scroller.scrollTop, true)
     const normalizedScrollTop = this.listWindowModel.scrollTop()
@@ -274,66 +290,22 @@ export class PMGroupMobile extends PMGroupBase {
     }
 
     if (typeof ResizeObserver === 'undefined') return
-    this.listResizeObserver ??= new ResizeObserver((entries) => this.handleListResize(entries))
+    this.listResizeObserver ??= new ResizeObserver(() => this.handleListResize())
     this.listResizeObserver.disconnect()
     this.listResizeObserver.observe(scroller)
-    for (const row of this.renderRoot.querySelectorAll<HTMLElement>(
-      '.pm-mobile-virtual-window > :is(.entry-row, .group-row-wrap, .group-header-row)',
-    )) {
-      this.listResizeObserver.observe(row)
-    }
   }
 
-  private handleListResize(entries: readonly ResizeObserverEntry[]): void {
-    const scroller = this.renderRoot.querySelector<HTMLElement>('.group-virtual-list')
+  private handleListResize(): void {
+    const scroller = this.observedListScroller
     if (!scroller) return
 
-    const blockSizes = new Map<PMListMutationRow['kind'], number>()
-    for (const entry of entries) {
-      if (entry.target === scroller) {
-        this.listWindowModel.setViewportBlockSize(scroller.clientHeight)
-        continue
-      }
-
-      const target = entry.target
-      if (!(target instanceof HTMLElement)) continue
-      const kind = this.getObservedRowKind(target)
-      const blockSize = entry.borderBoxSize[0]?.blockSize ?? target.offsetHeight
-      if (!kind || !Number.isFinite(blockSize) || blockSize <= 0) continue
-      blockSizes.set(kind, Math.max(blockSizes.get(kind) ?? 0, blockSize))
-    }
-
-    let correctedScrollTop = scroller.scrollTop
-    for (const [kind, blockSize] of blockSizes) {
-      correctedScrollTop =
-        this.listWindowModel.syncMeasuredRowBlockSize(
-          kind,
-          blockSize,
-          this.currentWindowRows,
-          correctedScrollTop,
-        ) ?? correctedScrollTop
-    }
-    this.listWindowModel.syncScrollTop(this.currentWindowRows, correctedScrollTop, true)
-    if (Math.abs(correctedScrollTop - scroller.scrollTop) >= 0.5) {
-      scroller.scrollTop = correctedScrollTop
-    }
-  }
-
-  private getObservedRowKind(element: HTMLElement): PMListMutationRow['kind'] | null {
-    if (element.classList.contains('entry-row')) return 'entry'
-    if (element.classList.contains('group-row-wrap')) return 'group'
-    if (element.classList.contains('group-header-row')) return 'header'
-    return null
+    this.listWindowModel.setViewportBlockSize(scroller.clientHeight)
+    this.listWindowModel.syncScrollTop(this.currentWindowRows, scroller.scrollTop, true)
   }
 
   private toCssPx(value: number): string {
     const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0
     return `${Math.round(safeValue * 1000) / 1000}px`
-  }
-
-  private getStyleNonce(): string | null {
-    const nonce = (globalThis as typeof globalThis & {litNonce?: unknown}).litNonce
-    return typeof nonce === 'string' && nonce.length > 0 ? nonce : null
   }
 
   protected override renderEntryItem(

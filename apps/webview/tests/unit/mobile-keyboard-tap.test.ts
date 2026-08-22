@@ -10,6 +10,7 @@ import {
   IOS_NATIVE_KEYBOARD_INSETS_ATTR,
   IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR,
   MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
+  NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR,
   NATIVE_KEYBOARD_INSETS_ATTR,
   NATIVE_SAFE_AREA_BOTTOM_ATTR,
   applyMobileKeyboardInsetsPayload,
@@ -60,6 +61,7 @@ describe('mobile keyboard visibility payload', () => {
     delete (window as WindowWithNativeKeyboardInsets).__chromvoidAndroidKeyboardInsets
     delete (window as WindowWithNativeKeyboardInsets).__chromvoidIosKeyboardInsets
     document.documentElement.removeAttribute('data-mobile-keyboard-expanded')
+    document.documentElement.removeAttribute(NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR)
     document.documentElement.removeAttribute(NATIVE_KEYBOARD_INSETS_ATTR)
     document.documentElement.removeAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)
     document.documentElement.removeAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)
@@ -122,6 +124,8 @@ describe('mobile keyboard visibility payload', () => {
 
   it('applies android native safe-area custom events when the keyboard is hidden', () => {
     const cleanup = setupAndroidKeyboardInsetsEventListener(document.documentElement)
+    document.documentElement.setAttribute('data-visual-viewport-shrunken', '')
+    setMobileKeyboardOccluding(true)
 
     window.dispatchEvent(
       new CustomEvent(ANDROID_KEYBOARD_INSETS_EVENT, {
@@ -137,7 +141,9 @@ describe('mobile keyboard visibility payload', () => {
     cleanup()
 
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
+    expect(document.documentElement.hasAttribute('data-visual-viewport-shrunken')).toBe(false)
     expect(mobileKeyboardOccluding()).toBe(false)
+    expect(document.documentElement.hasAttribute(NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR)).toBe(true)
     expect(document.documentElement.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
     expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
     expect(document.documentElement.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)

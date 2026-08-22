@@ -88,6 +88,29 @@ class AndroidKeyboardInsetsBridgeTest {
     }
 
     @Test
+    fun dispatcherReplacesCachedKeyboardStateWithCurrentInsets() {
+        val emitter = RecordingEmitter()
+        val dispatcher = AndroidKeyboardInsetsEventDispatcher(emitter)
+        val webView = WebView(context)
+        val openPayload =
+            AndroidKeyboardInsetsPayload(
+                visible = true,
+                bottomInset = 286,
+                safeAreaTopInset = 50,
+                safeAreaBottomInset = 18,
+                phase = AndroidKeyboardInsetsPhase.SETTLED,
+            )
+        val closedPayload = openPayload.copy(visible = false, bottomInset = 0)
+
+        assertTrue(dispatcher.dispatch(webView, openPayload))
+        assertTrue(dispatcher.replayPayload(webView, closedPayload))
+        assertFalse(dispatcher.dispatch(webView, closedPayload))
+        assertTrue(dispatcher.replayLastPayload(webView))
+
+        assertEquals(listOf(openPayload, closedPayload, closedPayload), emitter.payloads)
+    }
+
+    @Test
     fun webViewEmitterDispatchesCustomEventWithPayloadDetail() {
         val evaluator = RecordingEvaluator()
         val emitter = AndroidKeyboardInsetsWebViewEmitter(evaluator)

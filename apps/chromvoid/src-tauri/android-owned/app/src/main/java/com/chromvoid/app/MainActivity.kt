@@ -132,6 +132,9 @@ class MainActivity : TauriActivity() {
         MobileUsbAccessoryForegroundRuntime.handleCurrentAccessory(applicationContext)
         coordinator.dispatchPendingPasswordSaveToWebView(webView)
         AndroidShareImportNativeShell.dispatchPending(webView)
+        webView?.post {
+            keyboardInsetsBridge.replayCurrentInsets(webView)
+        }
     }
 
     override fun onPause() {

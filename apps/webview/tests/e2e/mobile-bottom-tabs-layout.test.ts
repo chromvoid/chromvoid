@@ -1,6 +1,7 @@
 import {expect, test} from 'vitest'
 
 import type {Page} from 'playwright'
+import type * as MobileKeyboardInsetsModule from '../../src/app/bootstrap/mobile-keyboard-insets'
 import {
   installFixedVisualClock,
   openFiles,
@@ -182,6 +183,72 @@ test('mobile Notes uses surface-owned bottom-tab layout', async (ctx) => {
   await openNotes(page, 'mobile', 390)
 
   expectBottomTabLayout(await readBottomTabLayout(page, 'notes'))
+})
+
+test('mobile bottom tabs recover when Android reports that the keyboard is closed', async (ctx) => {
+  const page = getPage(ctx)
+  if (!page) return
+
+  await installFixedVisualClock(page)
+  await seedVisualNotesFixture()
+  await openNotes(page, 'mobile', 390)
+
+  const state = await page.evaluate(async () => {
+    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
+      const found = root.querySelector(selector)
+      if (found) return found
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind(el.shadowRoot, selector)
+          if (inner) return inner
+        }
+      }
+      return null
+    }
+
+    const root = document.documentElement
+    const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
+    if (!tabBar) return null
+
+    root.setAttribute('data-mobile-keyboard-expanded', '')
+    root.setAttribute('data-visual-viewport-shrunken', '')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const hiddenDisplay = getComputedStyle(tabBar).display
+
+    const dynamicImport = new Function('path', 'return import(path)') as (
+      path: string,
+    ) => Promise<typeof MobileKeyboardInsetsModule>
+    const {applyMobileKeyboardInsetsPayload} = await dynamicImport(
+      '/app/bootstrap/mobile-keyboard-insets.ts',
+    )
+    applyMobileKeyboardInsetsPayload(root, {
+      visible: false,
+      bottomInset: 0,
+      safeAreaTopInset: 40,
+      safeAreaBottomInset: 16,
+      phase: 'settled',
+      source: 'android-native',
+      viewportMode: 'overlay',
+    })
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+
+    return {
+      hiddenDisplay,
+      recoveredDisplay: getComputedStyle(tabBar).display,
+      recoveredHeight: tabBar.getBoundingClientRect().height,
+      keyboardExpanded: root.hasAttribute('data-mobile-keyboard-expanded'),
+      visualViewportShrunken: root.hasAttribute('data-visual-viewport-shrunken'),
+      nativeInsetsAvailable: root.hasAttribute('data-native-keyboard-insets-available'),
+    }
+  })
+
+  expect(state).not.toBeNull()
+  expect(state!.hiddenDisplay).toBe('none')
+  expect(state!.recoveredDisplay).not.toBe('none')
+  expect(state!.recoveredHeight).toBeGreaterThan(0)
+  expect(state!.keyboardExpanded).toBe(false)
+  expect(state!.visualViewportShrunken).toBe(false)
+  expect(state!.nativeInsetsAvailable).toBe(true)
 })
 
 test('mobile Passwords uses surface-owned bottom-tab layout', async (ctx) => {

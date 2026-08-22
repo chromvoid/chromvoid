@@ -8,6 +8,7 @@ import {
 export const ANDROID_KEYBOARD_INSETS_EVENT = 'chromvoid:android-keyboard-insets-changed'
 export const IOS_KEYBOARD_INSETS_EVENT = 'chromvoid:ios-keyboard-insets-changed'
 export const MOBILE_KEYBOARD_BEFORE_INSETS_APPLY_EVENT = 'chromvoid:mobile-keyboard-before-insets-apply'
+export const NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR = 'data-native-keyboard-insets-available'
 export const NATIVE_KEYBOARD_INSETS_ATTR = 'data-native-keyboard-insets'
 export const ANDROID_NATIVE_KEYBOARD_INSETS_ATTR = 'data-android-native-keyboard-insets'
 export const IOS_NATIVE_KEYBOARD_INSETS_ATTR = 'data-ios-native-keyboard-insets'
@@ -156,6 +157,11 @@ export const applyMobileKeyboardInsetsPayload = (
   const usesNativeResize = usesNativeKeyboardInsets && viewportMode === 'native-resize'
   const keyboardVisible = payload.visible || bottomInset > 0
   const previousBottomInset = getCurrentKeyboardLayoutInset(root)
+
+  if (usesNativeKeyboardInsets) {
+    root.setAttribute(NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR, '')
+    root.removeAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR)
+  }
 
   if (typeof window !== 'undefined' && previousBottomInset > 0 && bottomInset === 0) {
     window.dispatchEvent(

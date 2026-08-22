@@ -11,6 +11,7 @@ import {
 import {
   applyMobileKeyboardCssOffsets,
   MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
+  NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR,
   NATIVE_KEYBOARD_INSETS_ATTR,
   NATIVE_SAFE_AREA_BOTTOM_ATTR,
 } from './mobile-keyboard-insets'
@@ -135,7 +136,7 @@ export const resolveEffectiveKeyboardInset = ({
   const normalizedNativeInset =
     Number.isFinite(nativeKeyboardInset) && nativeKeyboardInset > 0 ? Math.round(nativeKeyboardInset) : 0
 
-  if (preferNativeKeyboardInset && normalizedNativeInset > 0) return normalizedNativeInset
+  if (preferNativeKeyboardInset) return normalizedNativeInset
 
   return Math.max(normalizedVisualInset, normalizedNativeInset)
 }
@@ -208,7 +209,9 @@ export const setupMobileVisualViewportSync = () => {
       getComputedStyle(root).getPropertyValue('--app-runtime-keyboard-native-inset-block-end'),
     )
     const usesNativeResize = root.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)
-    const preferNativeKeyboardInset = root.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)
+    const preferNativeKeyboardInset =
+      root.hasAttribute(NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR) ||
+      root.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)
     const effectiveKeyboardInset = resolveEffectiveKeyboardInset({
       visualViewportKeyboardInset: keyboardInset,
       nativeKeyboardInset,

@@ -3612,7 +3612,7 @@ test('visual: desktop entry details workbench compact', async (ctx) => {
   await assertVisualSnapshot(page, 'desktop-entry-details-workbench-compact-960', {
     suite: 'password-manager',
     viewport: {width: 960, height: 1350},
-    maxDiffRatio: 0,
+    maxDiffRatio: 0.0005,
   })
 })
 

@@ -101,8 +101,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 1.0.6
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: 1.0.8
+        CFBundleVersion: "10"
         ChromVoidSharedKeychainAccessGroup: $(AppIdentifierPrefix)com.chromvoid.app.shared
         NSCameraUsageDescription: ChromVoid uses the camera to scan OTP setup QR codes.
         NSPhotoLibraryAddUsageDescription: ChromVoid saves selected images to your photo library when you choose Save to Photos.
@@ -202,8 +202,8 @@ targets:
       path: chromvoid_CredentialProviderExtension/Info.plist
       properties:
         CFBundleDisplayName: ChromVoid
-        CFBundleShortVersionString: 1.0.6
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: 1.0.8
+        CFBundleVersion: "10"
         ChromVoidSharedKeychainAccessGroup: $(AppIdentifierPrefix)com.chromvoid.app.shared
         NSExtension:
           NSExtensionAttributes:
@@ -246,8 +246,8 @@ targets:
       path: chromvoid_ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: ChromVoid
-        CFBundleShortVersionString: 1.0.6
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: 1.0.8
+        CFBundleVersion: "10"
         NSExtension:
           NSExtensionAttributes:
             NSExtensionActivationRule:

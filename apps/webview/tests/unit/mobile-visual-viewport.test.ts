@@ -285,6 +285,16 @@ describe('resolveEffectiveKeyboardInset', () => {
     ).toBe(286)
   })
 
+  it('keeps a native closed-keyboard payload authoritative over visual viewport noise', () => {
+    expect(
+      resolveEffectiveKeyboardInset({
+        visualViewportKeyboardInset: 96,
+        nativeKeyboardInset: 0,
+        preferNativeKeyboardInset: true,
+      }),
+    ).toBe(0)
+  })
+
   it('ignores invalid native keyboard inset values instead of inventing fallback height', () => {
     expect(
       resolveEffectiveKeyboardInset({

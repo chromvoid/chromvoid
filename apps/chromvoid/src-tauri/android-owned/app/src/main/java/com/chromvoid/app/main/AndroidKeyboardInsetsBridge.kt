@@ -102,15 +102,22 @@ internal class AndroidKeyboardInsetsEventDispatcher(
         payload: AndroidKeyboardInsetsPayload,
     ): Boolean {
         if (payload == lastPayload) return false
-        if (!emitter.emit(webView, payload)) return false
-
-        lastPayload = payload
-        return true
+        return replayPayload(webView, payload)
     }
 
     fun replayLastPayload(webView: WebView): Boolean {
         val payload = lastPayload ?: return false
-        return emitter.emit(webView, payload)
+        return replayPayload(webView, payload)
+    }
+
+    fun replayPayload(
+        webView: WebView,
+        payload: AndroidKeyboardInsetsPayload,
+    ): Boolean {
+        if (!emitter.emit(webView, payload)) return false
+
+        lastPayload = payload
+        return true
     }
 
     fun reset() {
@@ -133,8 +140,13 @@ internal class AndroidKeyboardInsetsBridge(
 
     fun replayCurrentInsets(webView: WebView?) {
         if (webView == null) return
-        if (dispatcher.replayLastPayload(webView)) return
 
+        val currentInsets = ViewCompat.getRootWindowInsets(webView)
+        if (currentInsets != null) {
+            dispatcher.replayPayload(webView, payloadFromInsets(webView, currentInsets))
+        } else {
+            dispatcher.replayLastPayload(webView)
+        }
         ViewCompat.requestApplyInsets(webView)
     }
 

@@ -18,30 +18,24 @@ export type PMMobileListWindow = {
   offsetBlock: number
 }
 
-type PMMobileListRowKind = PMListMutationRow['kind']
-type PMMobileListRowBlockSizes = Record<PMMobileListRowKind, number>
-
-const OVERSCAN_ROWS = 2
+const MIN_OVERSCAN_ROWS = 6
 const MIN_BLOCK_SIZE = 1
 const RANGE_EDGE_EPSILON = 0.001
-const MEASUREMENT_EPSILON = 0.5
 
-const FALLBACK_ROW_BLOCK_SIZES: PMMobileListRowBlockSizes = {
+// Mobile credential rows have stable product-owned geometry: actionable rows are
+// 60px surfaces inside 2px block padding, while grouped headers are 42px tall.
+const ROW_BLOCK_SIZES: Record<PMListMutationRow['kind'], number> = {
   entry: 64,
   group: 64,
   header: 42,
 }
 
-const normalizeBlockSize = (value: number, fallback = 0): number =>
-  Number.isFinite(value) && value > 0 ? value : fallback
+const normalizeBlockSize = (value: number): number =>
+  Number.isFinite(value) && value > 0 ? value : 0
 
 export class PMMobileListWindowModel {
   readonly scrollTop = atom(0, 'passmanager.mobileListWindow.scrollTop')
   readonly viewportBlockSize = atom(0, 'passmanager.mobileListWindow.viewportBlockSize')
-  readonly rowBlockSizes = atom<PMMobileListRowBlockSizes>(
-    {...FALLBACK_ROW_BLOCK_SIZES},
-    'passmanager.mobileListWindow.rowBlockSizes',
-  )
 
   setViewportBlockSize(value: number): void {
     const next = normalizeBlockSize(value)
@@ -62,38 +56,6 @@ export class PMMobileListWindowModel {
     return true
   }
 
-  syncMeasuredRowBlockSize(
-    kind: PMMobileListRowKind,
-    value: number,
-    rows: readonly PMListMutationRow[],
-    currentScrollTop: number,
-  ): number | null {
-    const nextBlockSize = normalizeBlockSize(value)
-    const currentBlockSize = this.rowBlockSizes()[kind]
-    if (nextBlockSize === 0 || Math.abs(nextBlockSize - currentBlockSize) < MEASUREMENT_EPSILON) return null
-
-    const currentOffsets = this.buildOffsets(rows)
-    const anchorIndex = this.findIndexAtOffset(currentOffsets, currentScrollTop)
-    const anchorOffset =
-      anchorIndex === null ? 0 : Math.max(0, currentScrollTop - (currentOffsets[anchorIndex] ?? 0))
-
-    this.rowBlockSizes.set({...this.rowBlockSizes(), [kind]: nextBlockSize})
-
-    const nextOffsets = this.buildOffsets(rows)
-    const correctedScrollTop =
-      anchorIndex === null
-        ? 0
-        : this.clampScrollTop(
-            rows,
-            (nextOffsets[anchorIndex] ?? 0) + Math.min(anchorOffset, nextBlockSize - RANGE_EDGE_EPSILON),
-          )
-    this.scrollTop.set(correctedScrollTop)
-
-    return Math.abs(correctedScrollTop - currentScrollTop) >= MEASUREMENT_EPSILON
-      ? correctedScrollTop
-      : null
-  }
-
   getWindow(rows: readonly PMListMutationRow[]): PMMobileListWindow {
     if (rows.length === 0) {
       return {
@@ -107,9 +69,11 @@ export class PMMobileListWindowModel {
 
     const offsets = this.buildOffsets(rows)
     const visibleRange = this.getVisibleRangeFromOffsets(offsets, this.scrollTop())
+    const visibleRowCount = visibleRange.last - visibleRange.first + 1
+    const overscanRows = Math.max(MIN_OVERSCAN_ROWS, visibleRowCount)
     const renderedRange = {
-      first: Math.max(0, visibleRange.first - OVERSCAN_ROWS),
-      last: Math.min(rows.length - 1, visibleRange.last + OVERSCAN_ROWS),
+      first: Math.max(0, visibleRange.first - overscanRows),
+      last: Math.min(rows.length - 1, visibleRange.last + overscanRows),
     }
 
     return {
@@ -159,10 +123,6 @@ export class PMMobileListWindowModel {
     return {first, last}
   }
 
-  private clampScrollTop(rows: readonly PMListMutationRow[], value: number): number {
-    return this.clampScrollTopFromOffsets(this.buildOffsets(rows), value)
-  }
-
   private clampScrollTopFromOffsets(offsets: readonly number[], value: number): number {
     const totalBlockSize = offsets.at(-1) ?? 0
     const maxScrollTop = Math.max(0, totalBlockSize - this.viewportBlockSize())
@@ -171,12 +131,12 @@ export class PMMobileListWindowModel {
   }
 
   private buildOffsets(rows: readonly PMListMutationRow[]): number[] {
-    const sizes = this.rowBlockSizes()
     const offsets = new Array<number>(rows.length + 1)
     offsets[0] = 0
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index]
-      offsets[index + 1] = (offsets[index] ?? 0) + (row ? sizes[row.kind] : MIN_BLOCK_SIZE)
+      offsets[index + 1] =
+        (offsets[index] ?? 0) + (row ? ROW_BLOCK_SIZES[row.kind] : MIN_BLOCK_SIZE)
     }
     return offsets
   }
