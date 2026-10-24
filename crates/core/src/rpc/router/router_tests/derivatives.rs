@@ -1,6 +1,33 @@
 use super::fixtures::*;
 use super::*;
 
+#[test]
+fn save_derivative_access_marks_does_not_publish_catalog_events() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_test_router(&mut router);
+    let (node_id, source_revision) =
+        prepare_test_file_with_chunk_size(&mut router, "photo.jpg", b"source", 2);
+    write_test_derivative(&mut router, node_id, source_revision, b"preview");
+    assert!(router
+        .handle(&RpcRequest::new("catalog:subscribe", serde_json::json!({})))
+        .is_ok());
+    let _ = router.take_events();
+
+    assert_eq!(
+        read_test_derivative(&mut router, node_id, source_revision),
+        Some(b"preview".to_vec())
+    );
+    assert!(!router.session_mut().expect("unlocked session").is_dirty());
+
+    router.save().expect("flush derivative access marks");
+
+    let events = router.take_events();
+    assert!(
+        events.is_empty(),
+        "derivative access marks emitted catalog events: {events:?}"
+    );
+}
+
 fn derivative_write_request(node_id: u64, source_version: u64) -> CatalogDerivativeWriteRequest {
     CatalogDerivativeWriteRequest {
         node_id,

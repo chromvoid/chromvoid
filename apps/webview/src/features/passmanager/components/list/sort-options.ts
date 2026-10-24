@@ -1,6 +1,6 @@
 import {i18n} from '@project/passmanager/i18n'
 
-import type {GroupBy, SortField} from './sort-controls'
+import type {GroupBy, SortField} from './sort-controls.model'
 
 export type SortFieldOption = {
   value: SortField

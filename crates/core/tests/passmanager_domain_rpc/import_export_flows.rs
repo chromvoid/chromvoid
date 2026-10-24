@@ -643,3 +643,97 @@ fn test_passmanager_root_import_accepts_folders_meta_payload() {
         Some("Imported folder description")
     );
 }
+
+#[test]
+fn credential_clear_uses_confirmed_replacement_and_preserves_files_after_reopen() {
+    use chromvoid_core::rpc::types::PassmanagerRootImportRequest;
+    use serde_json::json;
+    let (mut router, tmp, keystore) = create_test_router_with_keystore();
+    assert_rpc_ok(&unlock_vault(&mut router, "clear-fixture"));
+    let file = crate::test_helpers::upload_file(
+        &mut router,
+        None,
+        "kept.txt",
+        b"keep this file".to_vec(),
+        Some("text/plain"),
+    );
+    assert_rpc_ok(&router.handle(&RpcRequest::new("passmanager:root:import",json!({
+        "entries":[{"id":"login","title":"Login","folderPath":"/Nested/Group","password":"synthetic"}],
+        "folders":["/Nested/Group"],"tags":["A tag"]
+    }))));
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "passmanager:ssh:keygen",
+        json!({"key_type":"ed25519","name":"Disposable SSH key"}),
+    )));
+    let mut request = PassmanagerRootImportRequest {
+        entries: json!([]),
+        folders: json!([]),
+        folders_meta: None,
+        ssh_keys: None,
+        icons: None,
+        tags: None,
+        tag_meta: None,
+        mode: Some("replace".into()),
+        allow_destructive: Some(false),
+        expected_revision: None,
+    };
+    assert_rpc_error(
+        &router.handle(&RpcRequest::new(
+            "passmanager:root:import",
+            serde_json::to_value(&request).unwrap(),
+        )),
+        "ACCESS_DENIED",
+    );
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "passmanager:entry:read",
+        json!({"entry_id":"login"}),
+    )));
+    request.allow_destructive = Some(true);
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "passmanager:root:import",
+        serde_json::to_value(request).unwrap(),
+    )));
+    drop(router);
+    let storage = chromvoid_core::storage::Storage::new(tmp.path()).unwrap();
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore);
+    assert_rpc_ok(&unlock_vault(&mut reopened, "clear-fixture"));
+    let export = reopened.handle(&RpcRequest::new("passmanager:root:export", json!({})));
+    assert_rpc_ok(&export);
+    let root = &export.result().unwrap()["root"];
+    for field in ["entries", "folders", "tags", "sshKeys"] {
+        assert_eq!(root[field], json!([]), "{field}");
+    }
+    let reply = reopened.handle_with_stream(
+        &RpcRequest::new("catalog:download", json!({"node_id":file})),
+        None,
+    );
+    let chromvoid_core::rpc::RpcReply::Stream(mut stream) = reply else {
+        panic!("Expected file stream")
+    };
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut stream.reader, &mut bytes).unwrap();
+    assert_eq!(bytes, b"keep this file");
+}
+
+#[test]
+fn root_import_typed_contract_preserves_existing_modes_and_metadata_aliases() {
+    use chromvoid_core::rpc::types::{PassmanagerRootImportRequest, RpcCommand};
+    use serde_json::json;
+    let payload = json!({"entries":[],"folders":[],"foldersMeta":[],"sshKeys":[],"tags":["Tag"],
+        "tagMeta":{"tag":{"colorId":"cyan"}},"mode":"restore","allowDestructive":true});
+    let request: PassmanagerRootImportRequest = serde_json::from_value(payload.clone()).unwrap();
+    let value = serde_json::to_value(request).unwrap();
+    assert_eq!(value["allow_destructive"], true);
+    assert_eq!(value["mode"], "restore");
+    for (canonical, alias) in [
+        ("folders_meta", "foldersMeta"),
+        ("ssh_keys", "sshKeys"),
+        ("tag_meta", "tagMeta"),
+    ] {
+        assert_eq!(value[canonical], payload[alias]);
+    }
+    let command: RpcCommand =
+        serde_json::from_value(json!({"command":"passmanager:root:import","data":payload}))
+            .unwrap();
+    assert_eq!(serde_json::to_value(command).unwrap()["data"], value);
+}

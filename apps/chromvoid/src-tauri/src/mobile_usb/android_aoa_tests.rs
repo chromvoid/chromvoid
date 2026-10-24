@@ -93,6 +93,91 @@ async fn android_aoa_scan_negotiates_and_maps_reenumerated_accessory() {
 }
 
 #[tokio::test]
+async fn android_aoa_scan_dedupe_reenumerated_accessory() {
+    let accessory = accessory_device("serial-1");
+    let backend = Arc::new(FakeBackend::new(vec![
+        vec![plain_android_device()],
+        vec![accessory.clone(), accessory.clone()],
+    ]));
+    let bridge = AndroidAoaMobileUsbBridge::new_for_tests(backend.clone());
+
+    let scans = bridge.scan().await.expect("deduplicated reenumerated scan");
+
+    assert_eq!(backend.control_count(), 8);
+    assert_eq!(backend.list_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(scans.len(), 1);
+    assert_eq!(
+        scans[0],
+        scan_result_from_device(&accessory, &bridge.identity)
+    );
+}
+
+#[tokio::test]
+async fn android_aoa_scan_dedupe_initial_accessories_by_bus_and_address_preserves_order() {
+    let first = accessory_device("serial-z");
+    let mut other_bus = accessory_device("serial-a");
+    other_bus.id.bus_number = 2;
+    let mut other_address = first.clone();
+    other_address.id.address = 3;
+    let mut duplicate = first.clone();
+    duplicate.product = Some("Later duplicate descriptor".to_string());
+    let backend = Arc::new(FakeBackend::new(vec![vec![
+        first.clone(),
+        other_bus.clone(),
+        duplicate,
+        other_address.clone(),
+        other_bus.clone(),
+    ]]));
+    let bridge = AndroidAoaMobileUsbBridge::new_for_tests(backend.clone());
+
+    let scans = bridge.scan().await.expect("deduplicated initial scan");
+
+    assert_eq!(
+        scans,
+        [&first, &other_bus, &other_address]
+            .into_iter()
+            .map(|device| scan_result_from_device(device, &bridge.identity))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(backend.control_count(), 0);
+    assert_eq!(backend.list_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn android_aoa_detect_dedupe_preserves_order_without_control_transfers() {
+    let accessory = accessory_device("serial-1");
+    let plain = plain_android_device();
+    let mut other_bus = accessory.clone();
+    other_bus.id.bus_number = 2;
+    let backend = Arc::new(FakeBackend::new(vec![vec![
+        accessory.clone(),
+        plain.clone(),
+        accessory.clone(),
+        other_bus.clone(),
+        plain.clone(),
+    ]]));
+    let bridge = AndroidAoaMobileUsbBridge::new_for_tests(backend.clone());
+
+    let detected = bridge
+        .detect()
+        .await
+        .expect("deduplicated passive inventory");
+
+    assert_eq!(
+        detected,
+        [(&accessory, true), (&plain, false), (&other_bus, true)]
+            .into_iter()
+            .map(|(device, accessory_mode)| MobileUsbDetectCandidate {
+                scan: scan_result_from_device(device, &bridge.identity),
+                accessory_mode,
+            })
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(backend.control_count(), 0);
+    assert_eq!(backend.list_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn android_aoa_scan_waits_for_slow_reenumerated_accessory() {
     let backend = Arc::new(FakeBackend::new(vec![
         vec![plain_android_device()],
@@ -146,9 +231,11 @@ async fn android_aoa_scan_returns_empty_list_when_probe_is_unsupported() {
 
 #[tokio::test]
 async fn android_aoa_open_stream_rejects_ambiguous_matches() {
+    let mut other_device = accessory_device("serial-1");
+    other_device.id.address = 3;
     let backend = Arc::new(FakeBackend::new(vec![vec![
         accessory_device("serial-1"),
-        accessory_device("serial-1"),
+        other_device,
     ]]));
     let bridge = AndroidAoaMobileUsbBridge::new_for_tests(backend);
     let request = MobileUsbPairRequest {

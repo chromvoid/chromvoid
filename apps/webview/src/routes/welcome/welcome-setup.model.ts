@@ -1,3 +1,4 @@
+import {BRAND_MARK_TIMING} from '@project/brand-mark'
 import {atom, computed, wrap} from '@reatom/core'
 
 import {isTauriRuntime} from 'root/core/runtime/runtime'
@@ -5,6 +6,7 @@ import {guidanceCompletionBridge} from 'root/core/guidance'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
+import {legalDocumentsModel} from 'root/shared/services/legal-documents.model'
 import {dialogService} from 'root/shared/services/dialog'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 import {markPerformance} from 'root/shared/services/performance-measurement'
@@ -58,6 +60,7 @@ const WELCOME_UNLOCK_PERFORMANCE_SCOPE = 'welcome.unlock.inline-form'
 export class WelcomeSetupModel {
   readonly shared: WelcomeSharedModel
   readonly remote: WelcomeRemoteModel
+  readonly legalDocuments = legalDocumentsModel
   readonly isNeedInit!: ReturnType<typeof computed<boolean>>
   readonly isDesktopRemoteSupported!: ReturnType<typeof computed<boolean>>
   readonly effectiveStep!: ReturnType<typeof computed<WelcomeSetupStep>>
@@ -85,6 +88,8 @@ export class WelcomeSetupModel {
   private remoteUsbRecoveryUnsubscribe: (() => void) | null = null
   private previousRemoteSessionState: RemoteSessionState = 'inactive'
   private passwordStrengthRequestId = 0
+  private unlockRequestId = 0
+  private releaseUnlockTransition: (() => void) | null = null
 
   constructor(options: WelcomeSetupModelOptions = {}) {
     this.shared = options.shared ?? new WelcomeSharedModel()
@@ -193,13 +198,23 @@ export class WelcomeSetupModel {
   }
 
   disconnect = () => {
+    this.cancelUnlock()
     this.remote.disconnect()
     this.remoteSessionUnsubscribe?.()
     this.remoteSessionUnsubscribe = null
     this.remoteUsbRecoveryUnsubscribe?.()
     this.remoteUsbRecoveryUnsubscribe = null
     this.previousRemoteSessionState = 'inactive'
-    this.resetUnlockForm()
+    this.clearUnlockFields()
+  }
+
+  private cancelUnlock(): void {
+    this.unlockRequestId += 1
+    this.releaseUnlockTransition?.()
+    this.releaseUnlockTransition = null
+    this.icon.idle()
+    this.setupInProgress.set(false)
+    this.shared.setBusy(false)
   }
 
   handleMasterPasswordInput = (event: Event) => {
@@ -268,34 +283,54 @@ export class WelcomeSetupModel {
     })
     writeAndroidUnlockDebug('welcome', 'unlock:form submitted', {empty})
     this.shared.clearError()
+    const requestId = ++this.unlockRequestId
+    const {state, router} = getAppContext()
+    const releaseRoute = router.beginWelcomeUnlock()
+    let wasOpened = Boolean(state.data().StorageOpened)
+    const unsubscribe = state.data.subscribe(
+      wrap((snapshot) => {
+        const opened = Boolean(snapshot.StorageOpened)
+        // A native lock during feedback must cancel the stale success, never reopen its UI.
+        if (wasOpened && !opened && requestId === this.unlockRequestId) this.cancelUnlock()
+        wasOpened = opened
+      }),
+    )
+    const releaseTransition = () => {
+      unsubscribe()
+      releaseRoute()
+    }
+    this.releaseUnlockTransition = releaseTransition
 
     try {
       this.setupInProgress.set(true)
       this.shared.setBusy(true)
-      this.icon.active()
+      this.icon.startDerivation()
       writeAndroidUnlockDebug('welcome', 'unlock:vault:unlock start')
       await wrap(tauriRpc('vault:unlock', {password: pwd}))
+      if (requestId !== this.unlockRequestId) return
       writeAndroidUnlockDebug('welcome', 'unlock:vault:unlock success')
       this.clearUnlockFields()
-      this.markStorageOpened()
+      await wrap(this.markStorageOpened(requestId))
     } catch (error) {
+      if (requestId !== this.unlockRequestId) return
+      this.icon.idle()
       console.error(error)
       writeAndroidUnlockDebug('welcome', 'unlock:error', {
         code: error instanceof RpcError ? error.code : null,
       })
       if (error instanceof RpcError && error.code === 'CATALOG_REPAIR_REQUIRED') {
         try {
-          const repaired = await this.tryRepairAndUnlock(pwd)
+          const repaired = await wrap(this.tryRepairAndUnlock(pwd))
+          if (requestId !== this.unlockRequestId) return
           if (repaired) {
             this.clearUnlockFields()
-            this.markStorageOpened()
+            await wrap(this.markStorageOpened(requestId))
             return
           }
-          this.icon.idle()
           return
         } catch (repairError) {
+          if (requestId !== this.unlockRequestId) return
           console.error(repairError)
-          this.icon.idle()
           const errorMessage =
             repairError instanceof RpcError
               ? mapVaultUnlockError(repairError.code, i18n('welcome:unable-access-vault'))
@@ -308,11 +343,14 @@ export class WelcomeSetupModel {
         error instanceof RpcError
           ? mapVaultUnlockError(error.code, i18n('welcome:unable-access-vault'))
           : i18n('welcome:unable-access-vault')
-      this.icon.idle()
       this.shared.setBusy(false, errorMessage)
     } finally {
-      this.setupInProgress.set(false)
-      this.shared.setBusy(false, this.shared.errorText())
+      releaseTransition()
+      if (requestId === this.unlockRequestId) {
+        this.releaseUnlockTransition = null
+        this.setupInProgress.set(false)
+        this.shared.setBusy(false, this.shared.errorText())
+      }
     }
   }
 
@@ -368,7 +406,15 @@ export class WelcomeSetupModel {
     })
   }
 
-  private markStorageOpened(): void {
+  private async markStorageOpened(requestId: number): Promise<void> {
+    await wrap(this.icon.finishDerivation())
+    if (requestId !== this.unlockRequestId) return
+    this.icon.opened()
+    await wrap(
+      new Promise<void>((resolve) => window.setTimeout(resolve, BRAND_MARK_TIMING.openedNavigationDelay)),
+    )
+    if (requestId !== this.unlockRequestId) return
+
     getAppContext().state.update({StorageOpened: true})
     writeAndroidUnlockDebug('welcome', 'unlock:state updated', {
       storageOpened: true,

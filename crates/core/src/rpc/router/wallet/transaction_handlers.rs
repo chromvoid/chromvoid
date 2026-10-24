@@ -1,3 +1,4 @@
+use super::secrets::ensure_english_wordlist;
 use super::*;
 
 impl RpcRouter {
@@ -56,6 +57,7 @@ impl RpcRouter {
             }
             let wallet = load_wallet(session, storage, account.wallet_id())?;
             let secret = load_secret(session, storage, &wallet.secret_ref)?.payload;
+            ensure_english_wordlist(&secret)?;
             let wallet_accounts = load_accounts(session, storage, Some(account.wallet_id()))?;
             let mut allocated_addresses = Vec::new();
             for wallet_account in &wallet_accounts {
@@ -188,6 +190,7 @@ impl RpcRouter {
             }
             let wallet = load_wallet(session, storage, account.wallet_id())?;
             let secret = load_secret(session, storage, &wallet.secret_ref)?;
+            ensure_english_wordlist(&secret.payload)?;
             let wallet_accounts = load_accounts(session, storage, Some(account.wallet_id()))?;
             let mut allocated_addresses = Vec::new();
             for wallet_account in &wallet_accounts {
@@ -238,6 +241,7 @@ impl RpcRouter {
                     provider_snapshot: prepared.provider_snapshot,
                     preview: prepared.preview.clone(),
                     materializations: prepared.materializations,
+                    valid_until: prepared.valid_until,
                     now,
                 },
             )?;
@@ -362,9 +366,13 @@ impl RpcRouter {
                 Ok(secret) => secret,
                 Err(error) => return error.into_rpc_response(),
             };
-            let signing_secret = match ensure_ton_native_secret_words_for_account(
+            if let Err(error) = ensure_english_wordlist(&signing_secret_blob.payload) {
+                return error.into_rpc_response();
+            }
+            let signing_secret = match super::secrets::reconcile_wallet_secret(
                 session,
                 &storage,
+                &profile,
                 &account,
                 signing_secret_blob,
             ) {
@@ -657,10 +665,14 @@ impl RpcRouter {
             let profile = registry
                 .enabled_profile(&entry.network, &config)
                 .map_err(WalletCommandError::from)?;
+            let submit_metadata = entry.broadcast_artifact_ref.as_deref().and_then(|tx_ref| {
+                load_broadcast_artifact_submit_metadata(session, storage, tx_ref)
+            });
             let output = profile
                 .refresh(crate::wallet::WalletRefreshInput {
                     account,
                     transaction: entry.clone(),
+                    submit_metadata,
                     now: now_ms(),
                 })
                 .map_err(WalletCommandError::from)?;
@@ -813,6 +825,25 @@ fn parse_tx_list_cursor(cursor: &str) -> WalletResult<(u64, String)> {
         .parse::<u64>()
         .map_err(|_| WalletCommandError::invalid_input("invalid transactions cursor"))?;
     Ok((created_at, tx_ref.to_string()))
+}
+
+/// Chain-specific submit metadata (e.g. the Solana blockhash validity window) recorded with the
+/// write-ahead broadcast artifact. Absent for artifacts written without metadata.
+fn load_broadcast_artifact_submit_metadata(
+    session: &VaultSession,
+    storage: &Storage,
+    tx_ref: &str,
+) -> Option<Value> {
+    let artifact = load_broadcast_artifact(session, storage, tx_ref).ok()?;
+    match load_secret(session, storage, &artifact.artifact_ref)
+        .ok()?
+        .payload
+    {
+        SecretPayloadV1::BroadcastArtifact {
+            submit_metadata, ..
+        } => submit_metadata,
+        _ => None,
+    }
 }
 
 fn ton_valid_until_ms(record: &PreparationRecordV1) -> Option<u64> {
@@ -1067,6 +1098,7 @@ mod tests {
                 warnings: Vec::new(),
                 ton: None,
                 ethereum: None,
+                solana: None,
             },
             state: PreparationStateV1::InFlight,
             consumed_at: Some(1),

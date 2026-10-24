@@ -7,7 +7,7 @@ import {PMGroupModel, type PMGroupRow} from '../../src/features/passmanager/comp
 import {pmEntryMoveModel} from '../../src/features/passmanager/models/pm-entry-move-model'
 import {pmCredentialSecurityAuditModel} from '../../src/features/passmanager/models/pm-credential-security-audit.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
-import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls.model'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
 
 function createGroup(name: string, entries: Entry[] = []) {

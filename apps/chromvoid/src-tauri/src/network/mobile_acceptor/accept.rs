@@ -25,8 +25,6 @@ use crate::core_adapter::CoreAdapter;
 use crate::mobile_usb::{MobileUsbHostApprovalDecision, MobileUsbHostSessionApprovalView};
 #[cfg(test)]
 use crate::network::paired_peers::PairedPeerStore;
-#[cfg(target_os = "android")]
-use tauri::Emitter as _;
 mod handshake;
 mod pairing;
 mod peer_store;
@@ -55,7 +53,7 @@ enum PeerTaskMode {
 
 pub(super) struct AcceptedTransportConnection {
     pub(super) peer_id: String,
-    #[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) stop_reason: Option<DirectTransportStopReason>,
 }
 
@@ -624,18 +622,6 @@ fn hex_nibble(byte: u8) -> Option<u8> {
 }
 
 fn emit_usb_session_approval_required(attempt_id: &str) {
-    #[cfg(target_os = "android")]
-    {
-        if let Some(app) = crate::mobile::android::app_handle() {
-            let _ = app.emit(
-                "mobile_usb_host_session_approval_required",
-                serde_json::json!({ "attempt_id": attempt_id }),
-            );
-        }
-        crate::mobile::android::notify_mobile_usb_approval_required("session", attempt_id);
-    }
-
-    #[cfg(not(target_os = "android"))]
     let _ = attempt_id;
 }
 

@@ -92,7 +92,7 @@ describe('file-details-panel open action', () => {
     expect(preparingButtons.every((button) => button.disabled)).toBe(true)
   })
 
-  it('renders platform-specific open-external shortcut labels and hides them on Android', async () => {
+  it('renders platform-specific open-external shortcut labels and hides them on mobile', async () => {
     ensureDefined()
 
     const element = document.createElement('file-details-panel') as FileDetailsPanel
@@ -123,7 +123,7 @@ describe('file-details-panel open action', () => {
     await settle(element)
     expect(getShortcutLabel()).toBe('Ctrl+O')
 
-    setRuntimeCapabilities({platform: 'android', mobile: true, supports_open_external: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true, supports_open_external: true})
     element.requestUpdate()
     await settle(element)
     expect(element.shadowRoot?.querySelector('cv-shortcut.action-shortcut')).toBeNull()

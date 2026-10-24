@@ -196,6 +196,7 @@ pub struct AgentConnectionStatusV1 {
 pub struct AgentEnvStatusV1 {
     pub platform_supported: bool,
     pub vault_unlocked: bool,
+    /// Env Runtime module access: `unsupported`, `disabled_by_rollout` or `enabled`.
     pub module_state: String,
     pub active_runs: u32,
     pub pending_approvals: u32,

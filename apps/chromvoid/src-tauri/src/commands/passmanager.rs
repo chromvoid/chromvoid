@@ -241,50 +241,6 @@ fn passmanager_json_reply(reply: RpcReply) -> RpcResult<Value> {
     }
 }
 
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) fn android_otp_qr_scan_start(
-    app: tauri::AppHandle,
-    scan_id: String,
-) -> RpcResult<Value> {
-    if scan_id.trim().is_empty() {
-        return rpc_err(
-            "OTP QR scan id is required",
-            Some("BAD_REQUEST".to_string()),
-        );
-    }
-
-    match crate::mobile::android::start_otp_qr_scan(app, &scan_id) {
-        Ok(()) => rpc_ok(Value::Null),
-        Err(error) => rpc_err(error, Some("OTP_QR_SCAN_UNAVAILABLE".to_string())),
-    }
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-pub(crate) fn android_otp_qr_scan_start(
-    app: tauri::AppHandle,
-    scan_id: String,
-) -> RpcResult<Value> {
-    if scan_id.trim().is_empty() {
-        return rpc_err(
-            "OTP QR scan id is required",
-            Some("BAD_REQUEST".to_string()),
-        );
-    }
-
-    match crate::mobile::ios::native_bridge::start_otp_qr_scan(app, &scan_id) {
-        Ok(()) => rpc_ok(Value::Null),
-        Err(error) => rpc_err(error, Some("OTP_QR_SCAN_UNAVAILABLE".to_string())),
-    }
-}
-
-#[cfg(all(any(mobile, test), not(any(target_os = "android", target_os = "ios"))))]
-#[tauri::command]
-pub(crate) fn android_otp_qr_scan_start(_scan_id: String) -> RpcResult<Value> {
-    android_otp_qr_scan_unavailable()
-}
-
 #[cfg(test)]
 mod stream_reply_tests {
     use super::*;
@@ -368,22 +324,31 @@ mod stream_reply_tests {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(target_os = "ios")]
 #[tauri::command]
-pub(crate) fn android_otp_qr_scan_cancel(scan_id: String) -> RpcResult<Value> {
-    if crate::mobile::android::cancel_otp_qr_scan(&scan_id) {
-        rpc_ok(Value::Null)
-    } else {
-        rpc_err(
-            "OTP QR scan session not found",
-            Some("OTP_QR_SCAN_NOT_FOUND".to_string()),
-        )
+pub(crate) fn native_otp_qr_scan_start(app: tauri::AppHandle, scan_id: String) -> RpcResult<Value> {
+    if scan_id.trim().is_empty() {
+        return rpc_err(
+            "OTP QR scan id is required",
+            Some("BAD_REQUEST".to_string()),
+        );
     }
+
+    match crate::mobile::ios::native_bridge::start_otp_qr_scan(app, &scan_id) {
+        Ok(()) => rpc_ok(Value::Null),
+        Err(error) => rpc_err(error, Some("OTP_QR_SCAN_UNAVAILABLE".to_string())),
+    }
+}
+
+#[cfg(all(any(mobile, test), not(target_os = "ios")))]
+#[tauri::command]
+pub(crate) fn native_otp_qr_scan_start(_scan_id: String) -> RpcResult<Value> {
+    otp_qr_scan_unavailable()
 }
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
-pub(crate) fn android_otp_qr_scan_cancel(scan_id: String) -> RpcResult<Value> {
+pub(crate) fn native_otp_qr_scan_cancel(scan_id: String) -> RpcResult<Value> {
     if crate::mobile::ios::native_bridge::cancel_otp_qr_scan(&scan_id) {
         rpc_ok(Value::Null)
     } else {
@@ -394,38 +359,14 @@ pub(crate) fn android_otp_qr_scan_cancel(scan_id: String) -> RpcResult<Value> {
     }
 }
 
-#[cfg(all(any(mobile, test), not(any(target_os = "android", target_os = "ios"))))]
-#[tauri::command]
-pub(crate) fn android_otp_qr_scan_cancel(_scan_id: String) -> RpcResult<Value> {
-    android_otp_qr_scan_unavailable()
-}
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-#[tauri::command]
-pub(crate) fn native_otp_qr_scan_start(app: tauri::AppHandle, scan_id: String) -> RpcResult<Value> {
-    android_otp_qr_scan_start(app, scan_id)
-}
-
-#[cfg(all(any(mobile, test), not(any(target_os = "android", target_os = "ios"))))]
-#[tauri::command]
-pub(crate) fn native_otp_qr_scan_start(_scan_id: String) -> RpcResult<Value> {
-    android_otp_qr_scan_unavailable()
-}
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-#[tauri::command]
-pub(crate) fn native_otp_qr_scan_cancel(scan_id: String) -> RpcResult<Value> {
-    android_otp_qr_scan_cancel(scan_id)
-}
-
-#[cfg(all(any(mobile, test), not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(any(mobile, test), not(target_os = "ios")))]
 #[tauri::command]
 pub(crate) fn native_otp_qr_scan_cancel(_scan_id: String) -> RpcResult<Value> {
-    android_otp_qr_scan_unavailable()
+    otp_qr_scan_unavailable()
 }
 
-#[cfg(all(any(mobile, test), not(any(target_os = "android", target_os = "ios"))))]
-fn android_otp_qr_scan_unavailable() -> RpcResult<Value> {
+#[cfg(all(any(mobile, test), not(target_os = "ios")))]
+fn otp_qr_scan_unavailable() -> RpcResult<Value> {
     rpc_err(
         "Native OTP QR scanner is not available on this platform",
         Some("OTP_QR_SCAN_UNAVAILABLE".to_string()),
@@ -436,23 +377,9 @@ fn android_otp_qr_scan_unavailable() -> RpcResult<Value> {
 mod tests {
     use super::*;
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
     #[test]
     fn otp_qr_scan_start_returns_unavailable_on_unsupported_targets() {
-        match android_otp_qr_scan_start("scan-1".to_string()) {
-            RpcResult::Error { code, .. } => {
-                assert_eq!(code.as_deref(), Some("OTP_QR_SCAN_UNAVAILABLE"));
-            }
-            RpcResult::Success { .. } => panic!("expected unavailable error"),
-        }
-
-        match android_otp_qr_scan_cancel("scan-1".to_string()) {
-            RpcResult::Error { code, .. } => {
-                assert_eq!(code.as_deref(), Some("OTP_QR_SCAN_UNAVAILABLE"));
-            }
-            RpcResult::Success { .. } => panic!("expected unavailable error"),
-        }
-
         match native_otp_qr_scan_start("scan-1".to_string()) {
             RpcResult::Error { code, .. } => {
                 assert_eq!(code.as_deref(), Some("OTP_QR_SCAN_UNAVAILABLE"));

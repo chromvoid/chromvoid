@@ -1,15 +1,31 @@
-import {expect, test} from 'vitest'
+import {afterAll, beforeEach, expect, test} from 'vitest'
 
-import {waitForAuthenticated} from './utils'
+import {clearMockPassmanagerState, waitForAuthenticated} from './utils'
 
 import type {Page} from 'playwright'
 
 declare global {
   var __E2E_PAGE__: Page | undefined
+
+  interface Window {
+    __credentialsAnimationSample?: Promise<{animationNames: string[]; elementScoped: boolean}>
+  }
 }
 
+// Icon fixtures persist in the mock backend; isolate them from other cases and repeated runs.
+beforeEach(clearMockPassmanagerState)
+afterAll(clearMockPassmanagerState)
+
+// Chromium 149 can collect evaluate results during Lit/Reatom updates; use trusted input for navigation.
 async function openNavigationItem(page: Page, label: string): Promise<void> {
-  await page.evaluate((nextLabel) => {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+  // Forced mobile layout keeps a desktop viewport here; open the rail drawer before real input.
+  if (await page.getByTestId('shell-mobile').count()) {
+    await page.getByTestId('mobile-toolbar').getByRole('button', {name: 'Open menu', exact: true}).click()
+  }
+  const handle = await page.evaluateHandle((nextLabel) => {
     function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
       acc.push(...root.querySelectorAll(selector))
       for (const element of root.querySelectorAll('*')) {
@@ -24,8 +40,13 @@ async function openNavigationItem(page: Page, label: string): Promise<void> {
         candidate.textContent?.trim().includes(nextLabel),
     ) as HTMLElement | undefined
     if (!button) throw new Error(`Navigation item not found: ${nextLabel}`)
-    button.click()
+    return button
   }, label)
+  try {
+    await handle.asElement()!.click()
+  } finally {
+    await handle.dispose()
+  }
 }
 
 async function sampleNavigationCssAnimations(
@@ -33,8 +54,8 @@ async function sampleNavigationCssAnimations(
   label: string,
   durationMs = 700,
 ): Promise<{animationNames: string[]; elementScoped: boolean}> {
-  return page.evaluate(
-    async ({nextLabel, sampleDurationMs}) => {
+  await page.evaluate(
+    ({nextLabel, sampleDurationMs}) => {
       function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
         acc.push(...root.querySelectorAll(selector))
         for (const element of root.querySelectorAll('*')) {
@@ -43,13 +64,22 @@ async function sampleNavigationCssAnimations(
         return acc
       }
 
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
+      function deepFind<T extends Element = Element>(
+        root: Document | ShadowRoot | Element | null | undefined,
+        selector: string,
+      ): T | null {
+        if (!root) return null
+        const found = root.querySelector<T>(selector)
         if (found) return found
-        for (const element of root.querySelectorAll('*')) {
-          if (!element.shadowRoot) continue
-          const nested = deepFind(element.shadowRoot, selector)
-          if (nested) return nested
+        if (root instanceof Element && root.shadowRoot) {
+          const inner = deepFind<T>(root.shadowRoot, selector)
+          if (inner) return inner
+        }
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) {
+            const inner = deepFind<T>(el.shadowRoot, selector)
+            if (inner) return inner
+          }
         }
         return null
       }
@@ -61,36 +91,40 @@ async function sampleNavigationCssAnimations(
       ) as HTMLElement | undefined
       if (!button) throw new Error(`Navigation item not found: ${nextLabel}`)
 
-      const desktopLayout = deepFind(document, 'file-app-shell-desktop-layout')
-      const surfaceContent = desktopLayout?.shadowRoot?.querySelector('.content') as
-        | (HTMLElement & {startViewTransition?: unknown})
-        | null
+      const desktopLayout = deepFind(document, '[data-testid="shell-desktop"]')
+      const surfaceContent = deepFind(desktopLayout, '[data-testid="shell-content"]') as
+        (HTMLElement & {startViewTransition?: unknown}) | null
       const animationNames = new Set<string>()
       const recordAnimations = (root: Document | ShadowRoot | HTMLElement | null | undefined) => {
         for (const animation of root?.getAnimations({subtree: true}) ?? []) {
           if (animation instanceof CSSAnimation) animationNames.add(animation.animationName)
         }
       }
-      const startedAt = performance.now()
-      const sampler = (async () => {
-        while (performance.now() - startedAt < sampleDurationMs) {
-          recordAnimations(document)
-          recordAnimations(surfaceContent)
-          const group = deepFind(document, 'pm-group')
-          recordAnimations(group?.shadowRoot)
-          await new Promise(requestAnimationFrame)
-        }
-      })()
-
-      button.click()
-      await sampler
-      return {
-        animationNames: [...animationNames].sort(),
-        elementScoped: typeof surfaceContent?.startViewTransition === 'function',
-      }
+      window.__credentialsAnimationSample = new Promise((resolve) => {
+        button.addEventListener(
+          'click',
+          async () => {
+            const startedAt = performance.now()
+            while (performance.now() - startedAt < sampleDurationMs) {
+              recordAnimations(document)
+              recordAnimations(surfaceContent)
+              const group = deepFind(document, 'pm-group')
+              recordAnimations(group?.shadowRoot)
+              await new Promise(requestAnimationFrame)
+            }
+            resolve({
+              animationNames: [...animationNames].sort(),
+              elementScoped: typeof surfaceContent?.startViewTransition === 'function',
+            })
+          },
+          {capture: true, once: true},
+        )
+      })
     },
     {nextLabel: label, sampleDurationMs: durationMs},
   )
+  await openNavigationItem(page, label)
+  return page.evaluate(() => window.__credentialsAnimationSample!)
 }
 
 async function installTransitionProbe(page: Page): Promise<void> {
@@ -103,20 +137,28 @@ async function installTransitionProbe(page: Page): Promise<void> {
       return acc
     }
 
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (element.shadowRoot) {
-          const nested = deepFind(element.shadowRoot, selector)
-          if (nested) return nested
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind<T>(el.shadowRoot, selector)
+          if (inner) return inner
         }
       }
       return null
     }
 
-    const desktopLayout = deepFind(document, 'file-app-shell-desktop-layout')
-    const surfaceContent = desktopLayout?.shadowRoot?.querySelector('.content') as
+    const desktopLayout = deepFind(document, '[data-testid="shell-desktop"]')
+    const surfaceContent = deepFind(desktopLayout, '[data-testid="shell-content"]') as
       | (HTMLElement & {
           startViewTransition?: (options: Record<string, any>) => {
             ready: Promise<void>
@@ -248,7 +290,11 @@ test.each(transitionCases)(
     await expect(
       page.evaluate(() => new URL(window.location.href).searchParams.get('surface')),
     ).resolves.toBe('files')
-    await page.evaluate(() => (window as any).__releaseCredentialsPrewarm())
+    // Releasing this fixture gate resumes route updates; cross a frame before returning the result.
+    await page.evaluate(async () => {
+      ;(window as any).__releaseCredentialsPrewarm()
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
     await page.waitForURL(
       (url) => url.searchParams.get('surface') === 'passwords' && url.searchParams.get('pm') === pmRoute,
     )
@@ -333,6 +379,7 @@ test.each(['desktop', 'mobile'] as const)(
     await waitForAuthenticated(page)
     await installTransitionProbe(page)
 
+    // Seed an icon-bearing entry without entering Credentials; yield after the fixture's model updates.
     await page.evaluate(async (title) => {
       const importModule = Function('path', 'return import(path)') as (
         path: string,
@@ -377,6 +424,7 @@ test.each(['desktop', 'mobile'] as const)(
 
       const {pmIconStore} = await importModule('/features/passmanager/models/pm-icon-store.ts')
       ;(window as any).__readCredentialsExpectedIconSrc = () => pmIconStore.getCachedUrl(iconRef)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     }, entryTitle)
 
     await openNavigationItem(page, 'Credentials')

@@ -3,7 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import {
   normalizeStoredGroupBy,
   normalizeStoredViewMode,
-} from '../../src/features/passmanager/components/list/sort-controls'
+} from '../../src/features/passmanager/components/list/sort-controls.model'
 
 function persistedData(key: string): unknown {
   const value = localStorage.getItem(key)
@@ -68,7 +68,7 @@ describe('sort controls group storage', () => {
     localStorage.setItem('pm_group_by', 'security')
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    const {groupBy} = await import('../../src/features/passmanager/components/list/sort-controls')
+    const {groupBy} = await import('../../src/features/passmanager/components/list/sort-controls.model')
 
     expect(groupBy()).toBe('security')
     expect(warn).not.toHaveBeenCalledWith('Error in storage withLocalStorage')

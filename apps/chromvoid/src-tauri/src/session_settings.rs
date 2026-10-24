@@ -21,12 +21,6 @@ pub struct SessionSettings {
     /// Keep the iPhone screen awake while the vault is open in foreground (opt-in, default off).
     #[serde(default)]
     pub keep_screen_awake_when_unlocked: bool,
-    /// Show an Android ongoing notification while the vault is unlocked.
-    #[serde(default = "default_android_vault_status_notification_enabled")]
-    pub android_vault_status_notification_enabled: bool,
-    /// Enable Android Quick Settings tile integration for quick vault locking.
-    #[serde(default = "default_android_quick_lock_tile_enabled")]
-    pub android_quick_lock_tile_enabled: bool,
     /// Ask for confirmation before deleting files or folders in Files.
     #[serde(default = "default_confirm_file_deletion")]
     pub confirm_file_deletion: bool,
@@ -48,22 +42,11 @@ impl Default for SessionSettings {
             auto_mount_after_unlock: false,
             auto_start_ssh_agent_after_unlock: false,
             keep_screen_awake_when_unlocked: false,
-            android_vault_status_notification_enabled:
-                default_android_vault_status_notification_enabled(),
-            android_quick_lock_tile_enabled: default_android_quick_lock_tile_enabled(),
             confirm_file_deletion: default_confirm_file_deletion(),
             show_hidden_files: false,
             markdown_attachment_folder_path: default_markdown_attachment_folder_path(),
         }
     }
-}
-
-const fn default_android_vault_status_notification_enabled() -> bool {
-    true
-}
-
-const fn default_android_quick_lock_tile_enabled() -> bool {
-    true
 }
 
 const fn default_confirm_file_deletion() -> bool {

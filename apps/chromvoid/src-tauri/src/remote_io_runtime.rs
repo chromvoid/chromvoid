@@ -10,6 +10,7 @@ use tracing::warn;
 
 const REMOTE_IO_RUNTIME_POISONED: &str = "Remote IO runtime mutex poisoned";
 const MOBILE_USB_SESSION_DISCONNECT: &str = "mobile_usb:session_disconnect";
+const MOBILE_USB_EXIT_DISCONNECT_TIMEOUT: Duration = Duration::from_millis(300);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RemoteIoRuntimeEvent {
@@ -177,23 +178,9 @@ impl RemoteIoRuntimeState {
         }
 
         let generation = active.generation;
-        tracing::info!(
-            generation,
-            timeout_ms = acknowledgement_timeout.as_millis() as u64,
-            "remote_io: graceful mobile USB disconnect request"
-        );
-        let acknowledgement =
-            request_mobile_usb_disconnect(&active.req_tx, acknowledgement_timeout).await;
-        match &acknowledgement {
-            Ok(()) => tracing::info!(
-                generation,
-                "remote_io: graceful mobile USB disconnect acknowledged"
-            ),
-            Err(error) => warn!(
-                generation,
-                error, "remote_io: graceful mobile USB disconnect falling back to local teardown"
-            ),
-        }
+        let acknowledgement = active
+            .request_mobile_usb_disconnect(acknowledgement_timeout)
+            .await;
 
         let ended_gracefully = join_session_with_grace(active, task_grace).await;
         if !ended_gracefully {
@@ -216,25 +203,30 @@ impl RemoteIoRuntimeState {
         grace: Duration,
     ) -> Result<(), String> {
         let active = self.take_active_after_invalidate()?;
-        let handles = abort_session_for_join(active, reason);
-        if handles.is_empty() {
-            return Ok(());
-        }
+        shutdown_session_with_grace(active, reason, grace).await;
+        Ok(())
+    }
 
-        let join_result = tokio::time::timeout(grace, async move {
-            for handle in handles {
-                let _ = handle.await;
+    pub(crate) async fn shutdown_mobile_usb_for_app_exit(
+        &self,
+        grace: Duration,
+    ) -> Result<(), String> {
+        let active = {
+            let mut inner = self
+                .inner
+                .lock()
+                .map_err(|_| REMOTE_IO_RUNTIME_POISONED.to_string())?;
+            if !inner
+                .active
+                .as_ref()
+                .is_some_and(|session| session.kind == RemoteIoSessionKind::MobileUsb)
+            {
+                return Ok(());
             }
-        })
-        .await;
-
-        if join_result.is_err() {
-            warn!(
-                "remote_io: shutdown timed out after {:?} reason={}",
-                grace,
-                reason.label()
-            );
-        }
+            self.next_active_generation();
+            inner.active.take()
+        };
+        shutdown_session_with_grace(active, RemoteIoStopReason::AppShutdown, grace).await;
         Ok(())
     }
 
@@ -319,7 +311,7 @@ impl RemoteIoRuntimeState {
     }
 
     #[cfg(test)]
-    fn store_test_mobile_usb_session(
+    pub(crate) fn store_test_mobile_usb_session(
         &self,
         req_tx: mpsc::Sender<crate::remote_data_plane::RemoteIoRequest>,
         io_task: JoinHandle<()>,
@@ -347,6 +339,27 @@ pub(crate) enum MobileUsbDisconnectOutcome {
 }
 
 impl ActiveRemoteIoSession {
+    async fn request_mobile_usb_disconnect(&self, timeout: Duration) -> Result<(), String> {
+        let generation = self.generation;
+        tracing::info!(
+            generation,
+            timeout_ms = timeout.as_millis() as u64,
+            "remote_io: graceful mobile USB disconnect request"
+        );
+        let acknowledgement = request_mobile_usb_disconnect(&self.req_tx, timeout).await;
+        match &acknowledgement {
+            Ok(()) => tracing::info!(
+                generation,
+                "remote_io: graceful mobile USB disconnect acknowledged"
+            ),
+            Err(error) => warn!(
+                generation,
+                error, "remote_io: graceful mobile USB disconnect falling back to local teardown"
+            ),
+        }
+        acknowledgement
+    }
+
     #[cfg(test)]
     fn task_count(&self) -> usize {
         1 + usize::from(self.event_task.is_some())
@@ -356,6 +369,41 @@ impl ActiveRemoteIoSession {
 fn abort_session(session: Option<ActiveRemoteIoSession>, reason: RemoteIoStopReason) {
     for handle in abort_session_for_join(session, reason) {
         drop(handle);
+    }
+}
+
+async fn shutdown_session_with_grace(
+    active: Option<ActiveRemoteIoSession>,
+    reason: RemoteIoStopReason,
+    grace: Duration,
+) {
+    if let Some(session) = active.as_ref() {
+        if reason == RemoteIoStopReason::AppShutdown
+            && session.kind == RemoteIoSessionKind::MobileUsb
+        {
+            let _ = session
+                .request_mobile_usb_disconnect(MOBILE_USB_EXIT_DISCONNECT_TIMEOUT)
+                .await;
+        }
+    }
+    let handles = abort_session_for_join(active, reason);
+    if handles.is_empty() {
+        return;
+    }
+
+    let join_result = tokio::time::timeout(grace, async move {
+        for handle in handles {
+            let _ = handle.await;
+        }
+    })
+    .await;
+
+    if join_result.is_err() {
+        warn!(
+            "remote_io: shutdown timed out after {:?} reason={}",
+            grace,
+            reason.label()
+        );
     }
 }
 
@@ -598,9 +646,18 @@ mod tests {
             })
         };
         ready_rx.await.expect("event task ready");
-        runtime
+        let generation = runtime
             .store_test_session(RemoteIoSessionKind::RemoteTransport, Some(event_task))
             .expect("session");
+
+        runtime
+            .shutdown_mobile_usb_for_app_exit(Duration::from_secs(1))
+            .await
+            .expect("early USB shutdown");
+        assert_eq!(runtime.active_generation_for_test(), Some(generation));
+        assert!(runtime.is_generation_current(generation));
+        assert_eq!(runtime.active_task_count_for_test(), 2);
+        assert!(!event_dropped.load(Ordering::Acquire));
 
         runtime
             .shutdown_with_grace(RemoteIoStopReason::Test, Duration::from_secs(1))
@@ -609,6 +666,162 @@ mod tests {
 
         assert_eq!(runtime.active_generation_for_test(), None);
         assert!(event_dropped.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn app_shutdown_disconnects_mobile_usb_before_closing_stream() {
+        let runtime = RemoteIoRuntimeState::new();
+        let (req_tx, mut req_rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(1);
+        let (request_tx, request_rx) = tokio::sync::oneshot::channel();
+        let stream_closed = Arc::new(AtomicBool::new(false));
+        let io_task = {
+            let stream_closed = stream_closed.clone();
+            tokio::spawn(async move {
+                let _stream = DropFlag(stream_closed);
+                let request = req_rx.recv().await.expect("disconnect request");
+                let _ = request_tx.send((request.request, request.priority));
+                let _ = request.reply_tx.send(RpcReply::Json(
+                    chromvoid_core::rpc::types::RpcResponse::success(serde_json::Value::Null),
+                ));
+                std::future::pending::<()>().await;
+            })
+        };
+        let generation = runtime
+            .store_test_mobile_usb_session(req_tx, io_task)
+            .expect("mobile USB session");
+
+        runtime
+            .shutdown_mobile_usb_for_app_exit(Duration::from_secs(1))
+            .await
+            .expect("early USB shutdown");
+        runtime
+            .shutdown_with_grace(RemoteIoStopReason::AppShutdown, Duration::from_secs(1))
+            .await
+            .expect("app shutdown");
+
+        let (request, priority) = request_rx.await.expect("observed disconnect request");
+        assert_eq!(request.command, MOBILE_USB_SESSION_DISCONNECT);
+        assert_eq!(request.data, serde_json::json!({}));
+        assert_eq!(priority, crate::core_adapter::RemoteRpcPriority::High);
+        assert!(stream_closed.load(Ordering::Acquire));
+        assert!(!runtime.is_generation_current(generation));
+        assert_eq!(runtime.active_generation_for_test(), None);
+    }
+
+    #[tokio::test]
+    async fn app_shutdown_after_mobile_usb_disconnect_does_not_close_session_twice() {
+        struct StreamCloseCount(Arc<AtomicU64>);
+
+        impl Drop for StreamCloseCount {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+
+        let runtime = RemoteIoRuntimeState::new();
+        let (req_tx, mut req_rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(1);
+        let (observed_tx, mut observed_rx) = mpsc::unbounded_channel();
+        let stream_close_count = Arc::new(AtomicU64::new(0));
+        let io_task = {
+            let stream_close_count = stream_close_count.clone();
+            tokio::spawn(async move {
+                let _stream = StreamCloseCount(stream_close_count);
+                while let Some(request) = req_rx.recv().await {
+                    let _ = observed_tx.send(request.request.command);
+                    let _ = request.reply_tx.send(RpcReply::Json(
+                        chromvoid_core::rpc::types::RpcResponse::success(serde_json::Value::Null),
+                    ));
+                }
+            })
+        };
+        runtime
+            .store_test_mobile_usb_session(req_tx, io_task)
+            .expect("mobile USB session");
+
+        assert_eq!(
+            runtime
+                .disconnect_active_mobile_usb(Duration::from_secs(1), Duration::from_millis(10))
+                .await
+                .expect("user disconnect"),
+            MobileUsbDisconnectOutcome::Acknowledged,
+        );
+        for _ in 0..2 {
+            runtime
+                .shutdown_with_grace(RemoteIoStopReason::AppShutdown, Duration::from_secs(1))
+                .await
+                .expect("app shutdown after user disconnect");
+        }
+
+        assert_eq!(
+            observed_rx.recv().await.as_deref(),
+            Some(MOBILE_USB_SESSION_DISCONNECT),
+        );
+        assert!(observed_rx.recv().await.is_none());
+        assert_eq!(stream_close_count.load(Ordering::Acquire), 1);
+        assert_eq!(runtime.active_generation_for_test(), None);
+    }
+
+    #[tokio::test]
+    async fn app_shutdown_bounds_silent_mobile_usb_peer_and_closes_stream() {
+        let runtime = RemoteIoRuntimeState::new();
+        let (req_tx, mut req_rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(1);
+        let (request_tx, request_rx) = tokio::sync::oneshot::channel();
+        let stream_closed = Arc::new(AtomicBool::new(false));
+        let io_task = {
+            let stream_closed = stream_closed.clone();
+            tokio::spawn(async move {
+                let _stream = DropFlag(stream_closed);
+                let request = req_rx.recv().await.expect("disconnect request");
+                let _ = request_tx.send(request.request.command);
+                let _reply_tx = request.reply_tx;
+                std::future::pending::<()>().await;
+            })
+        };
+        runtime
+            .store_test_mobile_usb_session(req_tx, io_task)
+            .expect("mobile USB session");
+
+        let started = std::time::Instant::now();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            runtime.shutdown_mobile_usb_for_app_exit(Duration::from_secs(1)),
+        )
+        .await
+        .expect("silent peer must not block app shutdown")
+        .expect("app shutdown");
+
+        assert_eq!(
+            request_rx.await.expect("disconnect sent"),
+            MOBILE_USB_SESSION_DISCONNECT
+        );
+        assert!(started.elapsed() >= MOBILE_USB_EXIT_DISCONNECT_TIMEOUT);
+        assert!(stream_closed.load(Ordering::Acquire));
+        assert_eq!(runtime.active_generation_for_test(), None);
+    }
+
+    #[tokio::test]
+    async fn app_shutdown_does_not_send_mobile_usb_disconnect_to_network_peer() {
+        let runtime = RemoteIoRuntimeState::new();
+        let (req_tx, mut req_rx) = mpsc::channel(1);
+        let generation = runtime.next_active_generation();
+        runtime
+            .publish_active(ActiveRemoteIoSession {
+                generation,
+                kind: RemoteIoSessionKind::RemoteTransport,
+                req_tx,
+                io_task: tokio::spawn(std::future::pending::<()>()),
+                event_task: None,
+            })
+            .map_err(|error| error.error)
+            .expect("network session");
+
+        runtime
+            .shutdown_with_grace(RemoteIoStopReason::AppShutdown, Duration::from_secs(1))
+            .await
+            .expect("network app shutdown");
+
+        assert!(req_rx.recv().await.is_none());
+        assert_eq!(runtime.active_generation_for_test(), None);
     }
 
     #[tokio::test]

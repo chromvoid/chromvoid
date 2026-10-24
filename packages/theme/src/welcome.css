@@ -1,9 +1,18 @@
 :root,
+[data-theme],
+[theme],
+cv-theme-provider {
+  --brand-mark-ring-color: var(--cv-color-primary);
+}
+
+:root,
 [data-theme='dark'],
 [theme='dark'],
 cv-theme-provider,
 cv-theme-provider[theme='dark'],
 cv-theme-provider[mode='dark'] {
+  /* Public @project/brand-mark contract; business/brand/motion.md owns these sRGB values. */
+  --brand-mark-signal-color: hwb(189 18.4% 0%);
   --welcome-lockscreen-background: hwb(200 2.7% 96.1%);
   --welcome-lockscreen-surface: hwb(196 4.7% 92.5%);
   --welcome-lockscreen-input-background: hwb(195 3.9% 93.3%);
@@ -32,6 +41,7 @@ cv-theme-provider[mode='dark'] {
 [theme='light'],
 cv-theme-provider[theme='light'],
 cv-theme-provider[mode='light'] {
+  --brand-mark-signal-color: hwb(193 12.2% 5.9%);
   --welcome-lockscreen-background: var(--cv-color-bg);
   --welcome-lockscreen-surface: var(--cv-color-surface);
   --welcome-lockscreen-input-background: var(--cv-color-surface-2);
@@ -51,6 +61,7 @@ cv-theme-provider[mode='light'] {
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]):not([theme]),
   cv-theme-provider[mode='system'] {
+    --brand-mark-signal-color: hwb(193 12.2% 5.9%);
     --welcome-lockscreen-background: var(--cv-color-bg);
     --welcome-lockscreen-surface: var(--cv-color-surface);
     --welcome-lockscreen-input-background: var(--cv-color-surface-2);

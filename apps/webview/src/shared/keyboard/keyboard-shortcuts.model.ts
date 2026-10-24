@@ -10,7 +10,7 @@ import type {
   KeyboardShortcutPlatform,
 } from './shortcut.types'
 
-const MOBILE_PLATFORMS = new Set<KeyboardShortcutPlatform>(['android', 'ios'])
+const MOBILE_PLATFORMS = new Set<KeyboardShortcutPlatform>(['ios'])
 const KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   Delete: ['Delete', 'Del'],
 }
@@ -29,8 +29,6 @@ function normalizeRawPlatform(platform: unknown): KeyboardShortcutPlatform {
       return 'windows'
     case 'linux':
       return 'linux'
-    case 'android':
-      return 'android'
     case 'ios':
       return 'ios'
     case 'web':

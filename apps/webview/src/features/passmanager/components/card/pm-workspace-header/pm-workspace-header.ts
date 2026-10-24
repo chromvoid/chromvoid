@@ -8,12 +8,7 @@ import {i18n} from '@project/passmanager/i18n'
 import {PMIconPicker} from '../../pm-icon-picker'
 import {PMAvatarIcon} from '../../pm-avatar-icon'
 import {pmWorkspaceHeaderWorkbenchStyles} from './pm-workspace-header.workbench.styles'
-
-export type PMWorkspaceContextItem = {
-  label: string
-  value: string
-  current?: boolean
-}
+import type {PMWorkspaceContextItem} from './pm-workspace-header.types'
 
 export type PMWorkspaceHeaderDensity = 'regular' | 'compact' | 'workbench'
 

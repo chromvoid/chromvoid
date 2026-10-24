@@ -1,15 +1,14 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {androidSystemBackModel} from '../../src/app/navigation/android-system-back.model'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
-import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel} from '../../src/core/modules/module-access.model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {
   NavigationRail,
   NavigationRailActions,
 } from '../../src/features/file-manager/components/navigation-rail'
 import {navigationRailModel} from '../../src/features/file-manager/components/navigation-rail.model'
-import {ChromVoidAppModel} from '../../src/routes/app.route.model'
+import {ChromVoidAppModel, handleMobileBack} from '../../src/routes/app.route.model'
 import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 
@@ -44,7 +43,6 @@ function setupContext(layout: LayoutMode, sidebarOpen = true) {
 
 describe('NavigationRail mobile drawer auto-close', () => {
   afterEach(() => {
-    window.__CHROMVOID_SSH_KEYS_ENABLED__ = true
     navigationModel.disconnect()
     navigationRailModel.expanded.set(false)
     moduleAccessModel.reset()
@@ -116,11 +114,11 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(sidebar()).toBe(false)
   })
 
-  it('renders Passkeys below SSH keys and closes the mobile drawer when selected on Android', async () => {
+  it('renders Passkeys below SSH keys and closes the mobile drawer when selected on mobile', async () => {
     const {sidebar} = setupContext('mobile', true)
     vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_autofill: true,
       supports_credential_provider_passkeys_lite: true,
@@ -181,11 +179,12 @@ describe('NavigationRail mobile drawer auto-close', () => {
 
   it('renders Wallet in the mobile drawer when Core reports wallet support', async () => {
     const {sidebar} = setupContext('mobile', true)
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'crypto-wallet', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [{feature_key: 'crypto-wallet', status: 'enabled', denial_code: null}],
+    })
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
     })
 
@@ -199,7 +198,7 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(otpIndex).toBeGreaterThanOrEqual(0)
     expect(walletIndex).toBeGreaterThan(otpIndex)
     expect(walletButton?.querySelector('cv-icon[slot="prefix"]')?.getAttribute('name')).toBe('wallet')
-    expect(walletButton?.querySelector('cv-icon[slot="suffix"]')?.getAttribute('name')).toBe('lock')
+    expect(walletButton?.querySelector('cv-icon[slot="suffix"]')).toBeNull()
     ;(rail as any).handleWalletClick()
     expect(navigationModel.currentSurface()).toBe('wallet')
     expect(sidebar()).toBe(false)
@@ -252,22 +251,6 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(passwordsButton?.classList.contains('active')).toBe(false)
     expect(sshButton?.classList.contains('active')).toBe(true)
     expect(sshButton?.querySelector('cv-icon')?.getAttribute('name')).toBe('terminal')
-  })
-
-  it('hides SSH keys and normalizes its route when the build flag is disabled', async () => {
-    window.__CHROMVOID_SSH_KEYS_ENABLED__ = false
-    const {sidebar} = setupContext('mobile', true)
-
-    navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
-    const rail = await createRenderedRail()
-    const labels = buttonLabels(rail.shadowRoot)
-
-    expect(labels.some((label) => label.includes('SSH keys'))).toBe(false)
-    expect(navigationModel.snapshot().passwords).toEqual({kind: 'root'})
-
-    navigationRailModel.openSshKeys()
-    expect(navigationModel.snapshot().passwords).toEqual({kind: 'root'})
-    expect(sidebar()).toBe(true)
   })
 
   it('keeps SSH keys out of the desktop navigation rail', async () => {
@@ -334,13 +317,16 @@ describe('NavigationRail mobile drawer auto-close', () => {
 
   it('pins secondary mobile drawer actions below the primary navigation', async () => {
     setupContext('mobile', true)
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'remote', status: 'enabled', denial_code: null},
-      {feature_key: 'browser-extension', status: 'enabled', denial_code: null},
-      {feature_key: 'mounted-vault', status: 'enabled', denial_code: null},
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'remote', status: 'enabled', denial_code: null},
+        {feature_key: 'browser-extension', status: 'enabled', denial_code: null},
+        {feature_key: 'mounted-vault', status: 'enabled', denial_code: null},
+      ],
+    })
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_network_remote: true,
       supports_volume: true,
@@ -379,15 +365,18 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(secondaryLabels.some((label) => label.includes('OTPs'))).toBe(false)
   })
 
-  it('hides unsupported Pro surfaces on mobile while keeping locked Remote visible', async () => {
+  it('offers only the surfaces the platform can run, without a lock affordance', async () => {
     setupContext('mobile', true)
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'remote', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-      {feature_key: 'browser-extension', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-      {feature_key: 'mounted-vault', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'remote', status: 'enabled', denial_code: null},
+        {feature_key: 'browser-extension', status: 'enabled', denial_code: null},
+        {feature_key: 'mounted-vault', status: 'enabled', denial_code: null},
+      ],
+    })
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_network_remote: true,
       supports_volume: false,
@@ -402,17 +391,34 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(labels.some((label) => label.includes('Remote'))).toBe(true)
     expect(labels.some((label) => label.includes('Storage'))).toBe(false)
     expect(labels.some((label) => label.includes('Extensions'))).toBe(false)
-    expect(remoteButton?.querySelector('cv-icon[slot="suffix"]')?.getAttribute('name')).toBe('lock')
+    expect(remoteButton?.querySelector('cv-icon[slot="suffix"]')).toBeNull()
   })
 
-  it('silently redirects unsupported Pro surface to Remote on mobile', () => {
+  it('keeps entry points offered while availability is still being checked', async () => {
     setupContext('mobile', true)
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'remote', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-      {feature_key: 'browser-extension', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-    ])
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
+      mobile: true,
+      supports_network_remote: true,
+    })
+
+    const actions = await createRenderedActions()
+    const labels = buttonLabels(actions.shadowRoot)
+
+    expect(labels.some((label) => label.includes('Remote'))).toBe(true)
+  })
+
+  it('redirects a surface the platform cannot run to Remote on mobile', () => {
+    setupContext('mobile', true)
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'remote', status: 'enabled', denial_code: null},
+        {feature_key: 'browser-extension', status: 'enabled', denial_code: null},
+      ],
+    })
+    setRuntimeCapabilities({
+      platform: 'ios',
       mobile: true,
       supports_network_remote: true,
       supports_gateway: false,
@@ -422,43 +428,45 @@ describe('NavigationRail mobile drawer auto-close', () => {
     navigationModel.navigateToSurface('gateway', 'replace')
     const redirected = (
       appModel as unknown as {
-        normalizeUnsupportedSurface: () => boolean
+        normalizeUnavailableSurface: () => boolean
       }
-    ).normalizeUnsupportedSurface()
+    ).normalizeUnavailableSurface()
 
     expect(redirected).toBe(true)
     expect(navigationModel.currentSurface()).toBe('remote')
     expect(navigationModel.remotePanel()).toBe('hosts')
   })
 
-  it('hides every Pro surface and redirects direct Pro navigation to Files on iOS', async () => {
+  it('hides release-disabled surfaces and redirects direct navigation to Files', async () => {
     setupContext('mobile', true)
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'remote', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-      {feature_key: 'browser-extension', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-      {feature_key: 'mounted-vault', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-      {feature_key: 'crypto-wallet', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'remote', status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
+        {feature_key: 'crypto-wallet', status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
+      ],
+    })
     setRuntimeCapabilities({
       platform: 'ios',
       mobile: true,
       supports_network_remote: true,
-      supports_external_pro: false,
     })
 
     const actions = await createRenderedActions()
     const labels = buttonLabels(actions.shadowRoot)
+    const rail = await createRenderedRail()
+    const railLabels = buttonLabels(rail.shadowRoot)
     const appModel = new ChromVoidAppModel()
 
     expect(labels.some((label) => label.includes('Remote'))).toBe(false)
     expect(labels.some((label) => label.includes('Storage'))).toBe(false)
     expect(labels.some((label) => label.includes('Extensions'))).toBe(false)
-    expect(labels.some((label) => label.includes('Wallet'))).toBe(false)
+    expect(railLabels.some((label) => label.includes('Wallet'))).toBe(false)
 
     navigationModel.navigateToSurface('remote', 'replace')
     const redirected = (
-      appModel as unknown as {normalizeUnsupportedSurface: () => boolean}
-    ).normalizeUnsupportedSurface()
+      appModel as unknown as {normalizeUnavailableSurface: () => boolean}
+    ).normalizeUnavailableSurface()
 
     expect(redirected).toBe(true)
     expect(navigationModel.currentSurface()).toBe('files')
@@ -510,14 +518,14 @@ describe('NavigationRail mobile drawer auto-close', () => {
     expect(navigationModel.remotePanel()).toBe('hosts')
   })
 
-  it('closes the mobile drawer on Android system back before app backgrounding', () => {
+  it('closes the mobile drawer on mobile back before app backgrounding', () => {
     const {sidebar} = setupContext('mobile', true)
     const appModel = new ChromVoidAppModel()
 
     try {
       appModel.connect()
 
-      expect(androidSystemBackModel.handleBack()).toBe(true)
+      expect(handleMobileBack()).toBe(true)
       expect(sidebar()).toBe(false)
     } finally {
       appModel.disconnect()

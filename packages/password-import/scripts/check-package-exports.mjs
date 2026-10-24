@@ -18,7 +18,6 @@ async function bundle(entrySource, outdir, name) {
     bundle: true,
     entryPoints: [entryFile],
     conditions: ['browser'],
-    external: ['crypto', 'kdbxweb', 'xmldom'],
     format: 'esm',
     mainFields: ['browser', 'module', 'main'],
     minify: true,
@@ -32,24 +31,7 @@ async function bundle(entrySource, outdir, name) {
 
 async function main() {
   const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'))
-  const typeTargets = [
-    packageJson.exports['.'].types,
-    packageJson.exports['./types'].types,
-    packageJson.exports['./validation'].types,
-    packageJson.exports['./conflicts'].types,
-    packageJson.exports['./i18n'].types,
-    packageJson.exports['./i18n/availability'].types,
-    packageJson.exports['./mapper'].types,
-    packageJson.exports['./parsers'].types,
-    packageJson.exports['./parsers/1password'].types,
-    packageJson.exports['./parsers/csv'].types,
-    packageJson.exports['./parsers/bitwarden'].types,
-    packageJson.exports['./parsers/keepass'].types,
-    packageJson.exports['./ui/import-dialog'].types,
-    packageJson.exports['./ui/import-dialog-state'].types,
-    packageJson.exports['./ui/mobile-file-picker-lifecycle'].types,
-    packageJson.exports['./ui/file-accept'].types,
-  ]
+  const typeTargets = Object.values(packageJson.exports).flatMap((entry) => typeof entry === 'object' && entry.types ? [entry.types] : [])
 
   for (const target of typeTargets) {
     const fullPath = path.join(packageRoot, target)
@@ -60,15 +42,12 @@ async function main() {
   const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'password-import-exports-smoke-'))
 
   try {
-    await bundle(`import {ImportOrchestrator} from '${path.join(packageRoot, 'dist', 'index.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof ImportOrchestrator)\n`, tmpRoot, 'root')
-    await bundle(`import {ImportOrchestrator} from '${path.join(packageRoot, 'dist', 'mapper.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof ImportOrchestrator)\n`, tmpRoot, 'mapper')
+    await bundle(`import {CredentialImportService} from '${path.join(packageRoot, 'dist', 'index.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof CredentialImportService)\n`, tmpRoot, 'root')
     await bundle(`import {setLang} from '${path.join(packageRoot, 'dist', 'i18n.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof setLang)\n`, tmpRoot, 'i18n')
     await bundle(`import {hasCompletePasswordImportTranslations} from '${path.join(packageRoot, 'dist', 'i18n', 'availability.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof hasCompletePasswordImportTranslations)\n`, tmpRoot, 'i18n-availability')
     await bundle(`import {notifyMobileFilePickerLifecycleStart} from '${path.join(packageRoot, 'dist', 'ui', 'mobile-file-picker-lifecycle.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof notifyMobileFilePickerLifecycleStart)\n`, tmpRoot, 'lifecycle')
     await bundle(`import {ImportDialog} from '${path.join(packageRoot, 'dist', 'ui', 'import-dialog.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof ImportDialog)\n`, tmpRoot, 'dialog')
-    await bundle(`import {setImportCatalogOps} from '${path.join(packageRoot, 'dist', 'ui', 'import-dialog-state.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof setImportCatalogOps)\n`, tmpRoot, 'dialog-state')
-    await bundle(`import {parseCSV} from '${path.join(packageRoot, 'dist', 'parsers', 'index.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof parseCSV)\n`, tmpRoot, 'parsers')
-    await bundle(`import {parse1Password1PUX} from '${path.join(packageRoot, 'dist', 'parsers', '1password.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof parse1Password1PUX)\n`, tmpRoot, 'parsers-1password')
+    await bundle(`import {setCredentialImportService} from '${path.join(packageRoot, 'dist', 'ui', 'import-dialog-state.js').replaceAll(path.sep, '/')}';\nconsole.log(typeof setCredentialImportService)\n`, tmpRoot, 'dialog-state')
   } finally {
     await rm(tmpRoot, {recursive: true, force: true})
   }

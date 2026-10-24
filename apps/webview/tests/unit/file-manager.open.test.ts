@@ -379,8 +379,8 @@ describe('FileManagerModel open dispatcher', () => {
     expect(commands).toEqual([{kind: 'audio', fileId: 7, fileName: 'podcast.mp4'}])
   })
 
-  it('keeps Android on-demand ISO-BMFF inspection while visible inspection is optimized out', async () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+  it('keeps on-demand ISO-BMFF inspection on mobile while visible inspection is optimized out', async () => {
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     const mediaInfo = {
       kind: 'audio' as const,
       audioTracks: 1,
@@ -690,7 +690,6 @@ describe('FileManagerModel open dispatcher', () => {
 
   it.each([
     ['macos', {desktop: true}],
-    ['android', {mobile: true}],
   ] as const)('opens fallback files through the system on %s', async (platform, flags) => {
     setRuntimeCapabilities({
       platform,
@@ -738,9 +737,9 @@ describe('FileManagerModel open dispatcher', () => {
     expect(openExternal).not.toHaveBeenCalled()
   })
 
-  it('uses the native external opener on Android instead of Web Share fallback', async () => {
+  it('uses the native external opener on iOS instead of Web Share fallback', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_open_external: true,
     })
@@ -882,7 +881,7 @@ describe('FileManagerModel open dispatcher', () => {
 
   it('lets native share pending UI paint before invoking the system share sheet', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_share: true,
     })
@@ -1170,7 +1169,7 @@ describe('FileManagerModel open dispatcher', () => {
   })
 
   it('disables native multi-selection share action when only directories are selected', () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true, supports_native_share: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true, supports_native_share: true})
     vi.spyOn(shareService, 'canShareFiles').mockReturnValue(true)
 
     const {ctx} = createContext({
@@ -1335,49 +1334,9 @@ describe('FileManagerModel open dispatcher', () => {
     })
   })
 
-  it('saves gallery images through the native gallery service when supported', async () => {
+  it('routes image downloads through native gallery save instead of browser download', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
-      mobile: true,
-      supports_photo_library_save: true,
-    })
-
-    const {ctx} = createContext()
-    const model = new FileManagerModel(ctx)
-    const saveSpy = vi.spyOn(gallerySaveService, 'saveImageToGallery').mockResolvedValue({
-      name: 'photo.jpg',
-      uri: 'content://gallery/photo',
-    })
-
-    await model.handleSaveToGallery({
-      id: 9,
-      path: '/photo.jpg',
-      name: 'photo.jpg',
-      mimeType: 'image/jpeg',
-      isDir: false,
-    })
-
-    expect(saveSpy).toHaveBeenCalledWith(9, 'photo.jpg', 'image/jpeg')
-    expect(toastManager.toast.loading).toHaveBeenCalledWith(
-      'Saving "photo.jpg" to gallery...',
-      undefined,
-      {key: 'files.save-to-gallery:9', position: 'bottom-center'},
-    )
-    const message =
-      'Image "photo.jpg" saved to Pictures > ChromVoid. If it is not at the top, check the photo\'s original date.'
-    expect(updateGalleryToast).toHaveBeenCalledWith({
-      key: 'files.save-to-gallery:9',
-      message,
-      variant: 'success',
-      position: 'bottom-center',
-      duration: SAVE_TO_GALLERY_SUCCESS_TOAST_DURATION_MS,
-    })
-    expect(ctx.store.pushNotification).toHaveBeenCalledWith('success', message)
-  })
-
-  it('routes Android image downloads through native gallery save instead of browser download', async () => {
-    setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_photo_library_save: true,
     })
@@ -1403,7 +1362,7 @@ describe('FileManagerModel open dispatcher', () => {
     expect(updateUploadTask).not.toHaveBeenCalled()
     expect(ctx.store.pushNotification).toHaveBeenCalledWith(
       'success',
-      'Image "photo.jpg" saved to Pictures > ChromVoid. If it is not at the top, check the photo\'s original date.',
+      'Image "photo.jpg" saved to gallery',
     )
   })
 

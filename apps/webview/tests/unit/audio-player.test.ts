@@ -6,7 +6,7 @@ import type {CVDialog} from '@chromvoid/uikit/components/cv-dialog'
 import {CVSlider} from '@chromvoid/uikit/components/cv-slider'
 import {AudioPlayer} from '../../src/features/media/components/audio-player'
 import {
-  ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS,
+  NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS,
   MEDIA_PLAYBACK_WAVEFORM_BAR_COUNT,
   mediaPlaybackModel,
 } from '../../src/features/media/models/media-playback.model'
@@ -274,11 +274,11 @@ describe('audio-player', () => {
     expect(element.shadowRoot?.querySelector('.track-headline')).not.toBeNull()
   })
 
-  it('delays native audio preparation status while Android playback is starting', async () => {
+  it('delays native audio preparation status while native playback is starting', async () => {
     vi.useFakeTimers()
-    mediaPlaybackModel.driverKind.set('android-media3')
+    mediaPlaybackModel.driverKind.set('ios-avplayer')
     mediaPlaybackModel.nativeSessionId.set('native-1')
-    mediaPlaybackModel.sourceKind.set('android-media3')
+    mediaPlaybackModel.sourceKind.set('ios-avplayer')
     mediaPlaybackModel.loadingState.set('loading')
     mediaPlaybackModel.playbackState.set('buffering')
     mediaPlaybackModel.playbackIntent.set('play')
@@ -290,7 +290,7 @@ describe('audio-player', () => {
     expect(element.shadowRoot?.querySelector('.waveform-seek')?.getAttribute('data-preparing')).toBe('true')
 
     await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS)
+    await vi.advanceTimersByTimeAsync(NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS)
     await element.updateComplete
 
     const status = element.shadowRoot?.querySelector('.native-preparing-status')
@@ -298,10 +298,10 @@ describe('audio-player', () => {
     expect(status?.getAttribute('role')).toBe('status')
     expect(status?.getAttribute('aria-live')).toBe('polite')
     expect(element.shadowRoot?.querySelector('.native-preparing-title')?.textContent).toBe(
-      i18n('media:android-audio-preparing-title' as any),
+      i18n('media:native-audio-preparing-title' as any),
     )
     expect(element.shadowRoot?.querySelector('.native-preparing-detail')?.textContent).toBe(
-      i18n('media:android-audio-preparing-copy' as any),
+      i18n('media:native-audio-preparing-copy' as any),
     )
     expect(element.shadowRoot?.querySelector('.native-preparing-icon cv-icon')?.getAttribute('name')).toBe(
       'loader',
@@ -311,12 +311,12 @@ describe('audio-player', () => {
     expect(element.shadowRoot?.querySelector('.controls')).not.toBeNull()
   })
 
-  it('does not show native preparation status for short track switches after Android is ready', async () => {
-    mediaPlaybackModel.driverKind.set('android-media3')
+  it('does not show native preparation status for short track switches after native playback is ready', async () => {
+    mediaPlaybackModel.driverKind.set('ios-avplayer')
     mediaPlaybackModel.nativeSessionId.set('native-1')
-    mediaPlaybackModel.sourceKind.set('android-media3')
+    mediaPlaybackModel.sourceKind.set('ios-avplayer')
     mediaPlaybackModel.playbackIntent.set('play')
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId: 'native-1',
       trackId: 1,
@@ -342,12 +342,11 @@ describe('audio-player', () => {
   it('renders fallback-limited alternatives and emits file actions', async () => {
     mediaPlaybackModel.loadingState.set('fallback-limited')
     mediaPlaybackModel.playbackIssue.set({
-      kind: 'android-native-not-ready',
+      kind: 'blob-fallback-limited',
       trackId: 1,
       sourceRevision: 77,
-      sourceSize: 9 * 1024 * 1024,
-      fallbackLimitBytes: 8 * 1024 * 1024,
-      nativeReason: 'native_playback_not_ready',
+      sourceSize: 90 * 1024 * 1024,
+      fallbackLimitBytes: 64 * 1024 * 1024,
     })
     const actions: Array<{action: string; fileId: number}> = []
     const element = document.createElement('audio-player') as AudioPlayer
@@ -360,10 +359,10 @@ describe('audio-player', () => {
 
     expect(element.shadowRoot?.querySelector('.fallback-limited')).not.toBeNull()
     expect(element.shadowRoot?.querySelector('.fallback-title')?.textContent).toBe(
-      i18n('media:native-playback-unavailable-title' as any),
+      i18n('media:fallback-limited-title' as any),
     )
     expect(element.shadowRoot?.querySelector('.fallback-copy')?.textContent).toBe(
-      i18n('media:android-native-not-ready-fallback-copy' as any),
+      i18n('media:fallback-limited-copy' as any),
     )
     expect(element.shadowRoot?.querySelector('.seek-slider')).toBeNull()
     expect(element.shadowRoot?.querySelector('.controls')).toBeNull()

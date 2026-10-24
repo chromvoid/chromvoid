@@ -1,4 +1,6 @@
-pub mod android;
+mod audio_session_registry;
+
+pub(crate) use audio_session_registry::{NativeAudioSessionRegistry, NativeAudioSessionTrack};
 
 #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
 pub mod ios;
@@ -110,7 +112,6 @@ pub fn authenticate_with_biometric_for_tests(reason: &str) -> Result<(), Biometr
     ))
 }
 
-#[cfg(not(target_os = "android"))]
 pub async fn authenticate_with_biometric(reason: &str) -> Result<(), BiometricAuthError> {
     #[cfg(any(test, debug_assertions))]
     if let Some(override_data) = get_test_biometric_override() {
@@ -131,11 +132,11 @@ pub async fn authenticate_with_biometric(reason: &str) -> Result<(), BiometricAu
         })?;
     }
 
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
         let _ = reason;
         Err(BiometricAuthError::unavailable(
-            "Biometric auth requires iOS, macOS, or Android",
+            "Biometric auth requires iOS or macOS",
         ))
     }
 }
@@ -153,24 +154,7 @@ pub fn biometric_bridge_available() -> bool {
         return ios::biometric_bridge_available();
     }
 
-    #[cfg(target_os = "android")]
-    {
-        return android::biometric_bridge_available();
-    }
-
-    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
-    {
-        false
-    }
-}
-
-pub fn autofill_bridge_available() -> bool {
-    #[cfg(target_os = "android")]
-    {
-        return android::autofill_bridge_available();
-    }
-
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
         false
     }
@@ -202,17 +186,12 @@ pub fn credential_provider_passkeys_lite_supported() -> bool {
 }
 
 pub fn gallery_save_supported() -> bool {
-    #[cfg(target_os = "android")]
-    {
-        return android::gallery_save_supported();
-    }
-
     #[cfg(target_os = "ios")]
     {
         return ios::native_bridge::gallery_save_supported();
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
     {
         false
     }
@@ -223,17 +202,12 @@ pub fn save_image_to_gallery(
     file_name: &str,
     mime_type: Option<&str>,
 ) -> Result<String, String> {
-    #[cfg(target_os = "android")]
-    {
-        return android::save_image_to_gallery(bytes, file_name, mime_type);
-    }
-
     #[cfg(target_os = "ios")]
     {
         return ios::native_bridge::save_image_to_gallery(bytes, file_name, mime_type);
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
     {
         let _ = (bytes, file_name, mime_type);
         Err("Saving images to gallery is not supported on this platform".to_string())
@@ -245,17 +219,12 @@ pub fn open_file_with_system(
     path: &std::path::Path,
     mime_type: Option<&str>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    {
-        return android::open_file_with_system(path, mime_type);
-    }
-
     #[cfg(target_os = "ios")]
     {
         return ios::native_bridge::open_file_with_system(path, mime_type);
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
     {
         let _ = (path, mime_type);
         Err("Opening files externally is not supported on this platform".to_string())
@@ -263,32 +232,13 @@ pub fn open_file_with_system(
 }
 
 #[cfg(mobile)]
-pub fn open_url_with_system(url: &str) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    {
-        return android::open_url_with_system(url);
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = url;
-        Err("Opening URLs externally is not supported on this platform".to_string())
-    }
-}
-
-#[cfg(mobile)]
 pub fn share_files_with_system(items: &[(&std::path::Path, Option<&str>)]) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    {
-        return android::share_files_with_system(items);
-    }
-
     #[cfg(target_os = "ios")]
     {
         return ios::native_bridge::share_files_with_system(items);
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
     {
         let _ = items;
         Err("Sharing files externally is not supported on this platform".to_string())

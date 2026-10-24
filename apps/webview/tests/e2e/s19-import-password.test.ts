@@ -1,22 +1,11 @@
 import {expect, test} from 'vitest'
 import * as passwordImport from '@chromvoid/password-import'
 
-// Test that password-import package is available
-test('Import Password → Package is available', () => {
-  expect(passwordImport).toBeTruthy()
-})
-
-// Test that parsers can be imported (minimal test)
-test('Import Password → Parsers can be imported', async () => {
-  expect(typeof passwordImport.parseKeePass).toBe('function')
-  expect(typeof passwordImport.parseCSV).toBe('function')
-  expect(typeof passwordImport.parseBitwardenJson).toBe('function')
-  expect(typeof passwordImport.parse1Password1PUX).toBe('function')
-
-  // Test that mapper is available
-  expect(typeof passwordImport.detectConflicts).toBe('function')
-  expect(typeof passwordImport.mapAndSaveEntry).toBe('function')
-
-  // Test that dialog is available
+test('Import Password → Core service and dialog are the public import boundary', () => {
+  expect(typeof passwordImport.CredentialImportService).toBe('function')
   expect(typeof passwordImport.ImportDialog).toBe('function')
+  expect(typeof passwordImport.setCredentialImportService).toBe('function')
+  for (const retired of ['parseKeePass', 'parseCSV', 'parseBitwardenJson', 'parse1Password1PUX', 'mapAndSaveEntry']) {
+    expect(retired in passwordImport).toBe(false)
+  }
 })

@@ -36,35 +36,52 @@ impl RpcRouter {
     }
 
     fn backup_local_start(&mut self) -> BackupResult<serde_json::Value> {
+        let session = self.prepare_backup_local_session(&|| false)?;
+        let result = serde_json::json!({
+            "backup_id": session.id,
+            "estimated_size": session.manifest.total_size,
+            "chunk_count": session.manifest.chunk_count,
+        });
+        self.start_backup_local_session(session);
+        Ok(result)
+    }
+
+    pub(super) fn prepare_backup_local_session(
+        &mut self,
+        cancel_requested: &dyn Fn() -> bool,
+    ) -> BackupResult<BackupLocalSession> {
+        if cancel_requested() {
+            return Err(BackupCommandError::cancelled());
+        }
         self.require_master_password_for_backup()?;
         self.expire_backup_local_if_idle();
         if self.backup_local_is_active() {
             return Err(BackupCommandError::backup_already_in_progress());
         }
+        self.save().map_err(|error| {
+            BackupCommandError::internal(format!("Failed to save before backup: {error}"))
+        })?;
         BackupLocalPackService::cleanup_stale_temp_files(&self.storage);
 
-        let manifest =
-            BackupLocalPackService::build_manifest(&self.storage, self.backup_local_max_size())?;
+        let manifest = BackupLocalPackService::build_manifest(
+            &self.storage,
+            self.backup_local_max_size(),
+            cancel_requested,
+        )?;
 
         let created_at_ms = now_ms();
-        let backup_id = format!("backup-{}", created_at_ms);
-        let snapshot = BackupLocalPackService::materialize_pack(&self.storage, manifest)?;
+        let snapshot =
+            BackupLocalPackService::materialize_pack(&self.storage, manifest, cancel_requested)?;
         let manifest = snapshot.manifest;
 
-        self.start_backup_local_session(BackupLocalSession {
-            id: backup_id.clone(),
-            manifest: manifest.clone(),
+        Ok(BackupLocalSession {
+            id: format!("backup-{}", created_at_ms),
+            manifest,
             chunk_offsets: snapshot.chunk_offsets,
             pack_file: snapshot.pack_file,
             metadata: None,
             meta: ExpiringSessionMeta::new(created_at_ms),
-        });
-
-        Ok(serde_json::json!({
-            "backup_id": backup_id,
-            "estimated_size": manifest.total_size,
-            "chunk_count": manifest.chunk_count,
-        }))
+        })
     }
 
     pub(in crate::rpc::router) fn handle_backup_local_download_chunk(

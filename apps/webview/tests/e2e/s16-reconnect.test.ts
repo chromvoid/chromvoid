@@ -13,7 +13,7 @@ test('S16: break and reconnect WS', async () => {
   await page.goto('http://localhost:4400/index.html?surface=files', {waitUntil: 'domcontentloaded'})
   await waitForAuthenticated(page)
 
-  // break off
+  // Disconnect is a programmatic fault injection; a frame keeps its updates clear of Chromium's weak result promise.
   await page.evaluate(async () => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
     const {getAppContext} = (await dynamicImport(
@@ -24,6 +24,7 @@ test('S16: break and reconnect WS', async () => {
       throw new Error('ws.disconnect is unavailable')
     }
     ws.disconnect()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(async () => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>

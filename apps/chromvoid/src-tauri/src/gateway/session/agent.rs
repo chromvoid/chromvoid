@@ -528,11 +528,9 @@ async fn handle_proposal_wait(
         )
         .await;
     }
-    if let Err(error) = crate::pro::guard_pro_feature_async(
-        &state,
-        chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
-    )
-    .await
+    if let Err(error) =
+        crate::module_access::guard_module_async(&state, crate::module_access::MODULE_ENV_RUNTIME)
+            .await
     {
         return send_env_error_response(
             transport,
@@ -795,11 +793,9 @@ async fn handle_run_request(
         )
         .await;
     }
-    if let Err(error) = crate::pro::guard_pro_feature_async(
-        &state,
-        chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
-    )
-    .await
+    if let Err(error) =
+        crate::module_access::guard_module_async(&state, crate::module_access::MODULE_ENV_RUNTIME)
+            .await
     {
         let response = AgentResponseV1::error(
             request_id,
@@ -1162,7 +1158,7 @@ async fn dispatch_request(
             agent_error_from_runtime(error, AgentErrorContext::Generic),
         );
     }
-    let access_visible_without_entitlement = matches!(
+    let visible_without_module_access = matches!(
         &request.command,
         AgentCommandV1::Hello { .. }
             | AgentCommandV1::ConnectionStatus
@@ -1171,10 +1167,10 @@ async fn dispatch_request(
             | AgentCommandV1::RunStop { .. }
             | AgentCommandV1::RunsStopAll
     );
-    if !access_visible_without_entitlement {
-        if let Err(error) = crate::pro::guard_pro_feature_async(
+    if !visible_without_module_access {
+        if let Err(error) = crate::module_access::guard_module_async(
             &state,
-            chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+            crate::module_access::MODULE_ENV_RUNTIME,
         )
         .await
         {
@@ -1223,17 +1219,20 @@ async fn dispatch_request(
                 .lock()
                 .map(|adapter| adapter.is_unlocked())
                 .unwrap_or(false);
-            let module_state = env_runtime_module_state(&state).await;
-            state.env_runtime.status(unlocked).map(|status| {
-                AgentResponseDataV1::EnvStatus(AgentEnvStatusV1 {
-                    platform_supported: status.platform_supported,
-                    vault_unlocked: status.vault_unlocked,
-                    module_state,
-                    active_runs: status.active_runs,
-                    pending_approvals: status.pending_approvals,
-                    pending_proposals: status.pending_proposals,
+            env_runtime_module_state(&state)
+                .await
+                .and_then(|module_state| {
+                    state.env_runtime.status(unlocked).map(|status| {
+                        AgentResponseDataV1::EnvStatus(AgentEnvStatusV1 {
+                            platform_supported: status.platform_supported,
+                            vault_unlocked: status.vault_unlocked,
+                            module_state,
+                            active_runs: status.active_runs,
+                            pending_approvals: status.pending_approvals,
+                            pending_proposals: status.pending_proposals,
+                        })
+                    })
                 })
-            })
         }
         AgentCommandV1::PresetsList { profile } => {
             let profile_id = match profile {
@@ -1474,11 +1473,11 @@ fn with_env_runtime_agent_boundary<T>(
     }
     // The outer async guard is an early rejection only. Recheck the canonical
     // module resolver while holding the final adapter lock so a concurrent
-    // license/mode transition cannot race a proposal or run reservation.
+    // rollout/mode transition cannot race a proposal or run reservation.
     let capabilities = crate::types::runtime_capabilities_for_current_target();
-    if let Err(error) = crate::pro::guard_pro_feature_for_adapter(
+    if let Err(error) = crate::module_access::guard_module_for_adapter(
         adapter.as_mut(),
-        chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+        crate::module_access::MODULE_ENV_RUNTIME,
         &capabilities,
     ) {
         let (message, code) = rpc_result_error(error);
@@ -1487,31 +1486,29 @@ fn with_env_runtime_agent_boundary<T>(
     action(actor_label)
 }
 
-async fn env_runtime_module_state(state: &tauri::State<'_, crate::AppState>) -> String {
+async fn env_runtime_module_state(
+    state: &tauri::State<'_, crate::AppState>,
+) -> Result<String, crate::env_runtime::EnvRuntimeError> {
     let adapter = state.adapter.clone();
     let capabilities = crate::types::runtime_capabilities_for_current_target();
     let result = state
         .catalog_blocking_io_runtime
         .spawn_blocking(move || {
             let mut adapter = adapter.lock().map_err(|_| ())?;
-            Ok::<_, ()>(crate::pro::resolve_for_adapter(
+            Ok::<_, ()>(crate::module_access::resolve_for_adapter(
                 adapter.as_mut(),
-                chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+                crate::module_access::MODULE_ENV_RUNTIME,
                 &capabilities,
             ))
         })
         .await;
     let Ok(Ok(access)) = result else {
-        return "entitlement_unavailable".to_string();
+        return Err(crate::env_runtime::EnvRuntimeError::new(
+            crate::env_runtime::EnvRuntimeErrorCode::INTERNAL,
+            "Env Runtime module access is unavailable",
+        ));
     };
-    match access.status {
-        crate::pro::ModuleAccessStatus::Unsupported => "unsupported",
-        crate::pro::ModuleAccessStatus::DisabledByRollout => "disabled_by_rollout",
-        crate::pro::ModuleAccessStatus::EntitlementUnavailable => "entitlement_unavailable",
-        crate::pro::ModuleAccessStatus::LockedPro => "locked_pro",
-        crate::pro::ModuleAccessStatus::Enabled => "enabled",
-    }
-    .to_string()
+    Ok(access.status.as_str().to_string())
 }
 
 async fn core_secret_list(
@@ -1793,9 +1790,9 @@ async fn run_core_rpc(
                     "Unlock the local vault before reading Env Runtime metadata",
                 ));
             }
-            if let Err(error) = crate::pro::guard_pro_feature_for_adapter(
+            if let Err(error) = crate::module_access::guard_module_for_adapter(
                 adapter.as_mut(),
-                chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+                crate::module_access::MODULE_ENV_RUNTIME,
                 &capabilities,
             ) {
                 let (message, code) = rpc_result_error(error);
@@ -1893,9 +1890,9 @@ pub(crate) async fn resolve_and_start_run(
                     ));
                 }
                 let capabilities = crate::types::runtime_capabilities_for_current_target();
-                if let Err(error) = crate::pro::guard_pro_feature_for_adapter(
+                if let Err(error) = crate::module_access::guard_module_for_adapter(
                     adapter.as_mut(),
-                    chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+                    crate::module_access::MODULE_ENV_RUNTIME,
                     &capabilities,
                 ) {
                     let (message, code) = rpc_result_error(error);
@@ -2085,7 +2082,6 @@ fn agent_error_from_runtime(
         | Code::DEVICE_STORE_UNAVAILABLE
         | Code::DEVICE_STORE_VERSION
         | Code::DEVICE_STORE_WRITE_FAILED => "DEVICE_STORE_UNAVAILABLE",
-        Code::ENTITLEMENT_UNAVAILABLE => "ENTITLEMENT_UNAVAILABLE",
         Code::EXECUTABLE_IDENTITY_MISMATCH | Code::EXECUTABLE_UNAVAILABLE => {
             "EXECUTABLE_IDENTITY_MISMATCH"
         }
@@ -2114,7 +2110,6 @@ fn agent_error_from_runtime(
         Code::PROFILE_NOT_FOUND => "PROFILE_NOT_FOUND",
         Code::PROFILE_PRESET_MISMATCH => "PROFILE_PRESET_MISMATCH",
         Code::PROPOSAL_CLOSED => "PROPOSAL_NOT_FOUND",
-        Code::PRO_REQUIRED => "PRO_REQUIRED",
         Code::RUN_ALREADY_TERMINAL => "RUN_ALREADY_TERMINAL",
         Code::RUN_LIMIT_REACHED => "RUN_LIMIT_REACHED",
         Code::RUN_NOT_FOUND => "RUN_NOT_FOUND",
@@ -2488,9 +2483,7 @@ fn error_recovery(code: &str) -> (bool, &'static str) {
         "UNSUPPORTED_PLATFORM" => (false, "use_supported_macos_desktop"),
         "REMOTE_CORE_UNSUPPORTED" => (false, "switch_to_local_core"),
         "VAULT_REQUIRED" => (true, "ask_user_to_unlock"),
-        "PRO_REQUIRED" => (false, "ask_user_to_enable_pro"),
         "FEATURE_DISABLED_BY_ROLLOUT" => (false, "wait_for_feature_rollout"),
-        "ENTITLEMENT_UNAVAILABLE" => (true, "open_chromvoid_and_retry"),
         "DEVICE_STORE_UNAVAILABLE" => (true, "open_chromvoid_and_repair_store"),
         "SECRET_NOT_FOUND" => (false, "refresh_metadata"),
         "PROFILE_NOT_FOUND" => (false, "refresh_profiles"),
@@ -2882,16 +2875,10 @@ mod tests {
                 "wait_for_feature_rollout",
             ),
             (
-                "ENTITLEMENT_UNAVAILABLE",
-                "ENTITLEMENT_UNAVAILABLE",
-                true,
-                "open_chromvoid_and_retry",
-            ),
-            (
-                "PRO_REQUIRED",
-                "PRO_REQUIRED",
+                "REMOTE_CORE_UNSUPPORTED",
+                "REMOTE_CORE_UNSUPPORTED",
                 false,
-                "ask_user_to_enable_pro",
+                "switch_to_local_core",
             ),
         ] {
             let (_, code) = rpc_result_error(crate::types::RpcResult::Error {
@@ -2930,9 +2917,7 @@ mod tests {
             "UNSUPPORTED_PLATFORM",
             "REMOTE_CORE_UNSUPPORTED",
             "VAULT_REQUIRED",
-            "PRO_REQUIRED",
             "FEATURE_DISABLED_BY_ROLLOUT",
-            "ENTITLEMENT_UNAVAILABLE",
             "DEVICE_STORE_UNAVAILABLE",
             "SECRET_NOT_FOUND",
             "PROFILE_NOT_FOUND",

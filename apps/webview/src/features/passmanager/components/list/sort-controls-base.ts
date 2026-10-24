@@ -11,7 +11,7 @@ import {
   type SortDirection,
   type GroupBy,
   type ViewMode,
-} from './sort-controls'
+} from './sort-controls.model'
 
 export abstract class SortControlsBase extends ReatomLitElement {
   connectedCallback() {

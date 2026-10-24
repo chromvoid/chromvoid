@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
+import {FileManagerModel} from '../../src/features/file-manager/file-manager.model'
 import {WorkspaceDashboardHeader} from '../../src/features/file-manager/components/workspace-dashboard-header'
 import {createDefaultWorkspaceDashboardHeaderFilters} from '../../src/features/file-manager/components/workspace-dashboard-header.model'
 import {atom} from '@reatom/core'
@@ -40,6 +41,7 @@ function initHeaderContext(selectionEnabled = false, mode: 'mobile' | 'desktop' 
 
 describe('WorkspaceDashboardHeader mobile action menu layout', () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     clearAppContext()
     document.querySelectorAll('workspace-dashboard-header').forEach((el) => el.remove())
   })
@@ -47,7 +49,7 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
   it('renders one mobile add menu without selection actions', async () => {
     initHeaderContext(false)
     ensureWorkspaceDashboardHeaderDefined()
-    const commandSpy = vi.fn()
+    const commandSpy = vi.spyOn(FileManagerModel.prototype, 'executeMobileCommand').mockReturnValue(true)
 
     const header = document.createElement('workspace-dashboard-header') as WorkspaceDashboardHeader
     header.currentPath = '/'
@@ -67,7 +69,6 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
       {id: 'upload', icon: 'upload', label: 'Upload files'},
     ]
     header.mobileSelectionActions = []
-    header.addEventListener('mobile-command', commandSpy as EventListener)
     document.body.appendChild(header)
     await header.updateComplete
 
@@ -127,7 +128,7 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
     )
 
     expect(commandSpy).toHaveBeenCalledTimes(1)
-    expect((commandSpy.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({actionId: 'create-dir'})
+    expect(commandSpy).toHaveBeenCalledWith('create-dir')
   })
 
   it('renders a bottom selection bar instead of the FAB in mobile selection mode', async () => {
@@ -330,10 +331,10 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
     expect(setMobileQuickFilter).toHaveBeenCalledWith('images')
   })
 
-  it('delegates bottom selection actions through the mobile command event', async () => {
+  it('delegates bottom selection actions to the file-manager model', async () => {
     initHeaderContext(true)
     ensureWorkspaceDashboardHeaderDefined()
-    const commandSpy = vi.fn()
+    const commandSpy = vi.spyOn(FileManagerModel.prototype, 'executeMobileCommand').mockReturnValue(true)
 
     const header = document.createElement('workspace-dashboard-header') as WorkspaceDashboardHeader
     header.currentPath = '/'
@@ -349,14 +350,13 @@ describe('WorkspaceDashboardHeader mobile action menu layout', () => {
       {id: 'delete-selected', icon: 'trash-2', label: 'Delete'},
       {id: 'selection-done', icon: 'x', label: 'Clear'},
     ]
-    header.addEventListener('mobile-command', commandSpy as EventListener)
     document.body.appendChild(header)
     await header.updateComplete
 
     header.shadowRoot?.querySelector<HTMLElement>('[data-action="move-selected"]')?.click()
 
     expect(commandSpy).toHaveBeenCalledTimes(1)
-    expect((commandSpy.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({actionId: 'move-selected'})
+    expect(commandSpy).toHaveBeenCalledWith('move-selected')
   })
 
   it('wraps standard upload file input in a mobile file-picker lifecycle session', async () => {

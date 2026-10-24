@@ -9,6 +9,7 @@ import {
 } from '@chromvoid/uikit/components/cv-guidance-anchor'
 
 import {WorkspaceDashboardHeader} from '../../src/features/file-manager/components/workspace-dashboard-header'
+import {FileManagerModel} from '../../src/features/file-manager/file-manager.model'
 import {PasswordManagerDesktopToolbar} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar'
 import type {PasswordManagerLayoutModel} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.model'
 import {WelcomeSetupSection} from '../../src/routes/welcome/sections/steps'
@@ -130,8 +131,7 @@ describe('guidance anchor registration', () => {
     )
     const registrations = captureAnchorRegistrations()
     const header = document.createElement('workspace-dashboard-header') as WorkspaceDashboardHeader
-    const createDir = vi.fn()
-    header.addEventListener('create-dir', createDir)
+    const createDir = vi.spyOn(FileManagerModel.prototype, 'handleCreateDir').mockResolvedValue(undefined)
 
     document.body.append(header)
     await settleElement(header)

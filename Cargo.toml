@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+exclude = ["vendor/keepass-0.13.25", "vendor/ton-0.2.5"]
+
+# The shipping client already vendors `ton` so its HTTP client uses rustls.
+# Shared crates need the same patch: the crates.io build pulls reqwest with
+# default features, and native-tls has no OpenSSL to find on Android.
+[patch.crates-io]
+ton = { path = "vendor/ton-0.2.5" }
 
 [workspace.package]
 version = "0.1.0"

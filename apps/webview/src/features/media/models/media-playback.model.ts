@@ -9,8 +9,6 @@ import {
   type MediaStreamLifecycleReleaseReason,
 } from './media-stream-owner-registry'
 import type {
-  AndroidAudioPlayerEvent,
-  AndroidAudioPreparedTrack,
   MediaStreamErrorEvent,
   NativeAudioPlayerEvent,
   NativeAudioPreparedTrack,
@@ -18,46 +16,38 @@ import type {
 } from 'root/core/transport/transport'
 import type {ResolvedAudioTrack} from 'root/app/navigation/navigation.types'
 import {
-  AndroidMedia3PlaybackDriver,
-  canUseAndroidMedia3PlaybackForTracks,
-  disableAndroidMedia3PlaybackForRuntimeSession,
-  isAndroidMedia3CommandTimeoutError,
-  redactAndroidNativeSessionId,
-  resolveAndroidTrackSourceRevision,
-} from './android-media3-playback-driver'
-import {
   IosAvPlayerPlaybackDriver,
   canUseIosAvPlayerPlaybackForTracks,
   disableIosAvPlayerPlaybackForRuntimeSession,
 } from './ios-avplayer-playback-driver'
 import {
-  ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS,
-  ANDROID_MEDIA3_START_ACK_TIMEOUT_MS,
-  AndroidAudioSessionReconciler,
+  NativeAudioSessionReconciler,
   elapsedSince,
-  isAndroidAudioPlayerEvent,
-  type AndroidAudioFallbackReason,
-} from './android-audio-session-reconciler'
-import type {AudioPlaybackDriver, AudioPlaybackDriverKind, AudioSessionInput} from './audio-playback-driver'
+  isNativeAudioPlayerEvent,
+  type NativeAudioFallbackReason,
+} from './native-audio-session-reconciler'
+import {
+  isNativeAudioCommandTimeoutError,
+  redactNativeSessionId,
+  resolveTrackSourceRevision,
+  type AudioPlaybackDriver,
+  type AudioPlaybackDriverKind,
+  type AudioSessionInput,
+} from './audio-playback-driver'
 import {WebAudioElementPlaybackDriver} from './web-audio-element-playback-driver'
 import {tryGetAppContext} from 'root/shared/services/app-context'
-import {MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES} from 'root/features/media/components/file-loader'
+import {MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES} from 'root/features/media/components/file-loader'
 
 export type {ResolvedAudioTrack}
-export {
-  ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS,
-  ANDROID_MEDIA3_START_ACK_TIMEOUT_MS,
-  isAndroidAudioPlayerEvent,
-}
+export {isNativeAudioPlayerEvent}
 
 export type MediaPlaybackLoadingState = 'idle' | 'loading' | 'loaded' | 'fallback-limited' | 'error'
 export type MediaPlaybackState = 'stopped' | 'playing' | 'paused' | 'buffering' | 'error'
 export type MediaPlaybackIntent = 'play' | 'pause'
-export type MediaPlaybackSourceKind = 'none' | 'blob' | 'media-stream' | 'android-media3' | 'ios-avplayer'
+export type MediaPlaybackSourceKind = 'none' | 'blob' | 'media-stream' | 'ios-avplayer'
 export type MediaPlaybackIssueKind =
-  | 'android-native-not-ready'
-  | 'android-native-error'
-  | 'android-native-service-stopped'
+  | 'native-error'
+  | 'native-service-stopped'
   | 'blob-fallback-limited'
   | 'derivative-unavailable'
 export type MediaPlaybackIssue = {
@@ -66,7 +56,6 @@ export type MediaPlaybackIssue = {
   readonly sourceRevision: number | null
   readonly sourceSize: number | null
   readonly fallbackLimitBytes: number | null
-  readonly nativeReason?: AndroidAudioFallbackReason
   readonly nativeCode?: string | null
 }
 export type MediaPlaybackFallbackPanelState = {
@@ -91,7 +80,7 @@ export type MediaPlaybackQueueRow = {
 }
 const AUDIO_SESSION_STOP_SLOW_TRACE_MS = 1_200
 const AUDIO_SESSION_DRIVER_START_SLOW_TRACE_MS = 1_500
-export const ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS = 500
+export const NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS = 500
 const SEEK_PREVIEW_SETTLE_EPSILON_SECONDS = 0.35
 const PLAYBACK_UI_CLOCK_FALLBACK_FRAME_MS = 16
 const AUDIO_FILE_EXTENSION_PATTERN = /\.(aac|aif|aiff|alac|flac|m4a|mp3|ogg|opus|wav|weba)$/i
@@ -99,10 +88,6 @@ const NON_QUARANTINE_NATIVE_AUDIO_CODES = new Set([
   'ERR_NATIVE_AUDIO_VAULT_LOCKED',
   'ERR_NATIVE_AUDIO_SOURCE_STALE',
   'ERR_NATIVE_AUDIO_SESSION_STALE',
-])
-const ANDROID_AUDIO_WAIT_WITHOUT_WEB_FALLBACK_REASONS = new Set<AndroidAudioFallbackReason>([
-  'native_start_no_event',
-  'native_playback_not_ready',
 ])
 export const MEDIA_PLAYBACK_WAVEFORM_LEVEL_COUNT = 12
 const MEDIA_PLAYBACK_WAVEFORM_BASE_SHAPE = [
@@ -155,7 +140,7 @@ function toPositiveFiniteSourceSize(value: number | null | undefined): number | 
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-function shouldQuarantineAndroidNativeAudio(code: string | null | undefined): boolean {
+function shouldQuarantineNativeAudio(code: string | null | undefined): boolean {
   return !code || !NON_QUARANTINE_NATIVE_AUDIO_CODES.has(code)
 }
 
@@ -210,7 +195,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
   readonly loadingState = atom<MediaPlaybackLoadingState>('idle', 'mediaPlayback.loadingState')
   readonly playbackState = atom<MediaPlaybackState>('stopped', 'mediaPlayback.playbackState')
   readonly playbackIntent = atom<MediaPlaybackIntent>('pause', 'mediaPlayback.playbackIntent')
-  private readonly androidNativeAudioReadySeen = atom(false, 'mediaPlayback.androidNativeAudioReadySeen')
+  private readonly nativeAudioReadySeen = atom(false, 'mediaPlayback.nativeAudioReadySeen')
   private readonly nativeAudioPreparingStatusVisibleAtom = atom(
     false,
     'mediaPlayback.nativeAudioPreparingStatusVisible',
@@ -289,20 +274,16 @@ class MediaPlaybackModel implements MediaStreamOwner {
   readonly miniControlsVisible = computed<boolean>(
     () => this.sessionKind() === 'audio' && this.currentTrack() !== null,
   )
-  readonly androidNativeAudioActive = computed<boolean>(
-    () => this.driverKind() === 'android-media3' && this.nativeSessionId() !== null,
-  )
   readonly nativeAudioActive = computed<boolean>(
     () =>
-      (this.driverKind() === 'android-media3' || this.driverKind() === 'ios-avplayer') &&
-      this.nativeSessionId() !== null,
+      this.driverKind() === 'ios-avplayer' && this.nativeSessionId() !== null,
   )
   readonly nativeAudioPreparing = computed<boolean>(
     () =>
       this.sessionKind() === 'audio' &&
       this.currentTrack() !== null &&
-      (this.driverKind() === 'android-media3' || this.driverKind() === 'ios-avplayer') &&
-      !this.androidNativeAudioReadySeen() &&
+      this.driverKind() === 'ios-avplayer' &&
+      !this.nativeAudioReadySeen() &&
       this.playbackIntent() === 'play' &&
       (this.loadingState() === 'loading' || this.playbackState() === 'buffering'),
   )
@@ -330,14 +311,6 @@ class MediaPlaybackModel implements MediaStreamOwner {
     () => this.sessionKind() === 'audio' && this.currentTrack() !== null && this.loadingState() === 'loaded',
   )
   readonly fallbackPanelState = computed<MediaPlaybackFallbackPanelState>(() => {
-    const issue = this.playbackIssue()
-    if (issue?.kind === 'android-native-not-ready') {
-      return {
-        titleKey: 'media:native-playback-unavailable-title',
-        copyKey: 'media:android-native-not-ready-fallback-copy',
-      }
-    }
-
     return {
       titleKey: 'media:fallback-limited-title',
       copyKey: 'media:fallback-limited-copy',
@@ -397,10 +370,8 @@ class MediaPlaybackModel implements MediaStreamOwner {
     setPlaybackIntent: (intent: MediaPlaybackIntent) => this.setPlaybackIntent(intent),
     setPlaybackIssue: (issue: MediaPlaybackIssue | null) => this.playbackIssue.set(issue),
     clearSeekRequest: () => this.clearSeekRequest(),
-    reconcileAndroidPreparedTracks: (tracks: AndroidAudioPreparedTrack[] | undefined) =>
-      this.reconcileAndroidPreparedTracks(tracks),
     reconcileNativePreparedTracks: (tracks: NativeAudioPreparedTrack[] | undefined) =>
-      this.reconcileAndroidPreparedTracks(tracks),
+      this.reconcileNativePreparedTracks(tracks),
     markNativeStreamingUnsupportedForRuntime: () => this.markNativeStreamingUnsupportedForRuntime(),
     handleNativeStreamError: (event: MediaStreamErrorEvent) => this.handleNativeStreamError(event),
     releaseNativeStreamForLifecycle: (
@@ -408,7 +379,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
       context?: MediaStreamLifecycleReleaseContext,
     ) => this.releaseNativeStreamForLifecycle(reason, context),
   }
-  private readonly androidAudioReconciler = new AndroidAudioSessionReconciler({
+  private readonly nativeAudioReconciler = new NativeAudioSessionReconciler({
     driverKind: () => this.driverKind(),
     nativeSessionId: () => this.nativeSessionId(),
     tracks: () => this.tracks(),
@@ -427,14 +398,11 @@ class MediaPlaybackModel implements MediaStreamOwner {
     clearPlaybackIssue: () => this.playbackIssue.set(null),
     clearSeekPreview: () => this.seekPreviewTime.set(null),
     clearSeekRequest: () => this.clearSeekRequest(),
-    fallbackAndroidAudioToWeb: (nativeSessionId: string, reason: AndroidAudioFallbackReason) =>
-      this.fallbackAndroidAudioToWeb(nativeSessionId, reason),
-    failAndroidAudioSession: (event: AndroidAudioPlayerEvent) => this.failAndroidAudioSession(event),
-    handleAndroidAudioReleased: (event: AndroidAudioPlayerEvent) => this.handleAndroidAudioReleased(event),
+    failNativeAudioSession: (event: NativeAudioPlayerEvent) => this.failNativeAudioSession(event),
+    handleNativeAudioReleased: (event: NativeAudioPlayerEvent) => this.handleNativeAudioReleased(event),
     handleTrackEnded: () => this.handleTrackEnded(),
   })
   private readonly webAudioDriver = new WebAudioElementPlaybackDriver(this.driverHost)
-  private readonly androidMedia3Driver = new AndroidMedia3PlaybackDriver(this.driverHost)
   private readonly iosAvPlayerDriver = new IosAvPlayerPlaybackDriver(this.driverHost)
   private activeDriver: AudioPlaybackDriver = this.webAudioDriver
   private seekRequestId = 0
@@ -532,35 +500,34 @@ class MediaPlaybackModel implements MediaStreamOwner {
     const autoplay = options.autoplay ?? false
     const showFullPlayer = normalizedTracks.length > 0 && (options.showFullPlayer ?? true)
 
-    this.traceAndroidAudio('sessionStartRequested', {
+    this.traceNativeAudio('sessionStartRequested', {
       generation,
       requestedIndex: normalizedIndex,
       requestedTrackId: requestedTrack?.id ?? null,
-      requestedSourceRevision: requestedTrack ? resolveAndroidTrackSourceRevision(requestedTrack) : null,
+      requestedSourceRevision: requestedTrack ? resolveTrackSourceRevision(requestedTrack) : null,
       requestedTrackCount: normalizedTracks.length,
       previousSessionKind: this.sessionKind(),
       previousTrackId: this.currentTrackId(),
       previousDriverKind,
-      previousNativeSessionId: redactAndroidNativeSessionId(previousNativeSessionId),
+      previousNativeSessionId: redactNativeSessionId(previousNativeSessionId),
       fullPlayerOpen: this.fullPlayerOpen(),
     })
 
-    this.clearAndroidNativeWatchdogs()
-    this.resetAndroidNativeSessionTracking()
+    this.resetNativeSessionTracking()
     const stopStartedAt = Date.now()
     const stopSlowTrace = setTimeout(() => {
       if (!this.isActiveAudioSessionGeneration(generation)) return
-      this.traceAndroidAudio('sessionPreviousStopSlow', {
+      this.traceNativeAudio('sessionPreviousStopSlow', {
         generation,
         elapsedMs: elapsedSince(stopStartedAt),
         previousDriverKind,
-        previousNativeSessionId: redactAndroidNativeSessionId(previousNativeSessionId),
+        previousNativeSessionId: redactNativeSessionId(previousNativeSessionId),
       })
     }, AUDIO_SESSION_STOP_SLOW_TRACE_MS)
     try {
       await wrap(this.activeDriver.stop())
     } catch (error) {
-      this.traceAndroidAudio('sessionPreviousStopFailed', {
+      this.traceNativeAudio('sessionPreviousStopFailed', {
         generation,
         elapsedMs: elapsedSince(stopStartedAt),
         previousDriverKind,
@@ -570,13 +537,13 @@ class MediaPlaybackModel implements MediaStreamOwner {
     } finally {
       clearTimeout(stopSlowTrace)
     }
-    this.traceAndroidAudio('sessionPreviousStopped', {
+    this.traceNativeAudio('sessionPreviousStopped', {
       generation,
       elapsedMs: elapsedSince(stopStartedAt),
       previousDriverKind,
     })
     if (!this.isActiveAudioSessionGeneration(generation)) {
-      this.traceAndroidAudio('sessionStartAborted', {
+      this.traceNativeAudio('sessionStartAborted', {
         generation,
         reason: 'generation_stale_after_stop',
         activeGeneration: this.audioSessionGeneration,
@@ -591,7 +558,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
     this.tracks.set(normalizedTracks)
     this.currentIndex.set(normalizedIndex)
     this.playbackIssue.set(null)
-    this.androidNativeAudioReadySeen.set(false)
+    this.nativeAudioReadySeen.set(false)
     this.playbackIntent.set(autoplay ? 'play' : 'pause')
     this.playbackState.set(normalizedTracks.length > 0 ? (autoplay ? 'buffering' : 'paused') : 'stopped')
     this.currentTime.set(0)
@@ -600,7 +567,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
     this.clearSeekRequest()
     this.fullPlayerOpen.set(showFullPlayer)
     this.syncPlaybackTimelineState()
-    this.traceAndroidAudio('sessionStateCommitted', {
+    this.traceNativeAudio('sessionStateCommitted', {
       generation,
       requestedIndex: normalizedIndex,
       requestedTrackId: requestedTrack?.id ?? null,
@@ -611,7 +578,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
 
     if (normalizedTracks.length === 0) {
       this.loadingState.set('idle')
-      this.traceAndroidAudio('sessionStartSkipped', {
+      this.traceNativeAudio('sessionStartSkipped', {
         generation,
         reason: 'no_tracks',
       })
@@ -645,29 +612,28 @@ class MediaPlaybackModel implements MediaStreamOwner {
     const generation = ++this.audioSessionGeneration
     const previousDriverKind = this.activeDriver.kind
     const previousNativeSessionId = this.nativeSessionId()
-    this.traceAndroidAudio('sessionStopRequested', {
+    this.traceNativeAudio('sessionStopRequested', {
       generation,
       previousSessionKind: this.sessionKind(),
       previousTrackId: this.currentTrackId(),
       previousDriverKind,
-      previousNativeSessionId: redactAndroidNativeSessionId(previousNativeSessionId),
+      previousNativeSessionId: redactNativeSessionId(previousNativeSessionId),
     })
-    this.clearAndroidNativeWatchdogs()
-    this.resetAndroidNativeSessionTracking()
+    this.resetNativeSessionTracking()
     const stopStartedAt = Date.now()
     const stopSlowTrace = setTimeout(() => {
       if (!this.isActiveAudioSessionGeneration(generation)) return
-      this.traceAndroidAudio('sessionStopSlow', {
+      this.traceNativeAudio('sessionStopSlow', {
         generation,
         elapsedMs: elapsedSince(stopStartedAt),
         previousDriverKind,
-        previousNativeSessionId: redactAndroidNativeSessionId(previousNativeSessionId),
+        previousNativeSessionId: redactNativeSessionId(previousNativeSessionId),
       })
     }, AUDIO_SESSION_STOP_SLOW_TRACE_MS)
     try {
       await wrap(this.activeDriver.stop())
     } catch (error) {
-      this.traceAndroidAudio('sessionStopFailed', {
+      this.traceNativeAudio('sessionStopFailed', {
         generation,
         elapsedMs: elapsedSince(stopStartedAt),
         previousDriverKind,
@@ -677,13 +643,13 @@ class MediaPlaybackModel implements MediaStreamOwner {
     } finally {
       clearTimeout(stopSlowTrace)
     }
-    this.traceAndroidAudio('sessionStopped', {
+    this.traceNativeAudio('sessionStopped', {
       generation,
       elapsedMs: elapsedSince(stopStartedAt),
       previousDriverKind,
     })
     if (!this.isActiveAudioSessionGeneration(generation)) {
-      this.traceAndroidAudio('sessionStopAborted', {
+      this.traceNativeAudio('sessionStopAborted', {
         generation,
         reason: 'generation_stale_after_stop',
         activeGeneration: this.audioSessionGeneration,
@@ -701,7 +667,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
     this.sourceKind.set('none')
     this.sourceStreamId.set(null)
     this.playbackIssue.set(null)
-    this.androidNativeAudioReadySeen.set(false)
+    this.nativeAudioReadySeen.set(false)
     this.loadingState.set('idle')
     this.playbackState.set('stopped')
     this.playbackIntent.set('pause')
@@ -714,7 +680,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
   }
 
   requestPlay(): void {
-    this.traceAndroidAudio('requestPlay', {
+    this.traceNativeAudio('requestPlay', {
       source: 'model',
       sessionKind: this.sessionKind(),
       trackId: this.currentTrackId(),
@@ -722,19 +688,18 @@ class MediaPlaybackModel implements MediaStreamOwner {
       previousPlaybackIntent: this.playbackIntent(),
       previousPlaybackState: this.playbackState(),
       loadingState: this.loadingState(),
-      nativeSessionId: redactAndroidNativeSessionId(this.nativeSessionId()),
+      nativeSessionId: redactNativeSessionId(this.nativeSessionId()),
     })
     if (!this.currentTrack()) return
     if (this.loadingState() === 'fallback-limited') return
     if (this.playbackIssue()) return
     this.playbackIntent.set('play')
     this.syncPlaybackTimelineState()
-    this.startAndroidPlaybackReadyWatchdogIfNeeded()
     void this.activeDriver.play().catch((error) => this.handleDriverCommandFailure(error))
   }
 
   requestPause(): void {
-    this.traceAndroidAudio('requestPause', {
+    this.traceNativeAudio('requestPause', {
       source: 'model',
       sessionKind: this.sessionKind(),
       trackId: this.currentTrackId(),
@@ -742,9 +707,8 @@ class MediaPlaybackModel implements MediaStreamOwner {
       previousPlaybackIntent: this.playbackIntent(),
       previousPlaybackState: this.playbackState(),
       loadingState: this.loadingState(),
-      nativeSessionId: redactAndroidNativeSessionId(this.nativeSessionId()),
+      nativeSessionId: redactNativeSessionId(this.nativeSessionId()),
     })
-    this.clearAndroidPlaybackReadyWatchdog()
     this.playbackIntent.set('pause')
     if (this.playbackState() === 'playing' || this.playbackState() === 'buffering') {
       this.playbackState.set('paused')
@@ -894,21 +858,18 @@ class MediaPlaybackModel implements MediaStreamOwner {
     try {
       await wrap(this.activeDriver.selectTrack(nextIndex))
     } catch (error) {
-      this.traceAndroidAudio('trackSelectFailed', {
+      this.traceNativeAudio('trackSelectFailed', {
         requestedIndex: nextIndex,
         previousDriverKind,
-        previousNativeSessionId: redactAndroidNativeSessionId(previousNativeSessionId),
+        previousNativeSessionId: redactNativeSessionId(previousNativeSessionId),
         error: error instanceof Error ? error.name : typeof error,
       })
-      if (
-        (previousDriverKind === 'android-media3' || previousDriverKind === 'ios-avplayer') &&
-        previousNativeSessionId
-      ) {
-        this.traceAndroidAudio('trackSelectRestartSession', {
+      if (previousDriverKind === 'ios-avplayer' && previousNativeSessionId) {
+        this.traceNativeAudio('trackSelectRestartSession', {
           requestedIndex: nextIndex,
-          previousNativeSessionId: redactAndroidNativeSessionId(previousNativeSessionId),
+          previousNativeSessionId: redactNativeSessionId(previousNativeSessionId),
           error: error instanceof Error ? error.name : typeof error,
-          commandTimedOut: isAndroidMedia3CommandTimeoutError(error),
+          commandTimedOut: isNativeAudioCommandTimeoutError(error),
         })
         await wrap(
           this.startAudioSession(tracks, nextIndex, {
@@ -926,7 +887,6 @@ class MediaPlaybackModel implements MediaStreamOwner {
       this.syncPlaybackTimelineState()
       return
     }
-    this.startAndroidPlaybackReadyWatchdogIfNeeded()
   }
 
   async handleTrackEnded(): Promise<void> {
@@ -945,7 +905,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
   }
 
   handleMediaPlay(): void {
-    this.traceAndroidAudio('mediaElementPlayObserved', {
+    this.traceNativeAudio('mediaElementPlayObserved', {
       previousPlaybackIntent: this.playbackIntent(),
       previousPlaybackState: this.playbackState(),
       driverKind: this.driverKind(),
@@ -958,7 +918,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
   }
 
   handleMediaPause(): void {
-    this.traceAndroidAudio('mediaElementPauseObserved', {
+    this.traceNativeAudio('mediaElementPauseObserved', {
       previousPlaybackIntent: this.playbackIntent(),
       previousPlaybackState: this.playbackState(),
       driverKind: this.driverKind(),
@@ -1006,12 +966,8 @@ class MediaPlaybackModel implements MediaStreamOwner {
     this.webAudioDriver.handleNativeStreamLoadabilityFailure(streamId)
   }
 
-  handleAndroidAudioPlayerEvent(payload: unknown): void {
-    this.androidAudioReconciler.handlePlayerEvent(payload)
-  }
-
   handleNativeAudioPlayerEvent(payload: unknown): void {
-    this.androidAudioReconciler.handlePlayerEvent(payload as NativeAudioPlayerEvent)
+    this.nativeAudioReconciler.handlePlayerEvent(payload)
   }
 
   async releaseSourceForLifecycle(
@@ -1022,13 +978,12 @@ class MediaPlaybackModel implements MediaStreamOwner {
     if (context.nodeId !== undefined && currentTrack?.id !== context.nodeId) return
     const generation = ++this.audioSessionGeneration
 
-    this.traceAndroidAudio('sourceReleaseRequested', {
+    this.traceNativeAudio('sourceReleaseRequested', {
       reason,
       nodeId: context.nodeId ?? null,
       currentTrackId: currentTrack?.id ?? null,
     })
-    this.clearAndroidNativeWatchdogs()
-    this.resetAndroidNativeSessionTracking()
+    this.resetNativeSessionTracking()
     await wrap(this.activeDriver.stop())
     if (!this.isActiveAudioSessionGeneration(generation)) return
 
@@ -1036,7 +991,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
     this.driverKind.set('web-audio-element')
     this.nativeSessionId.set(null)
     this.playbackIssue.set(null)
-    this.androidNativeAudioReadySeen.set(false)
+    this.nativeAudioReadySeen.set(false)
     this.loadingState.set('idle')
     this.playbackState.set(this.sessionKind() === 'audio' && currentTrack ? 'paused' : 'stopped')
     this.playbackIntent.set('pause')
@@ -1058,8 +1013,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
   }
 
   cleanup(): void {
-    this.clearAndroidNativeWatchdogs()
-    this.resetAndroidNativeSessionTracking()
+    this.resetNativeSessionTracking()
     void this.stopSession()
   }
 
@@ -1072,23 +1026,23 @@ class MediaPlaybackModel implements MediaStreamOwner {
     this.activeDriver = selectedDriver
     this.driverKind.set(selectedDriver.kind)
     this.nativeSessionId.set(null)
-    this.androidNativeAudioReadySeen.set(false)
-    this.resetAndroidNativeSessionTracking()
+    this.nativeAudioReadySeen.set(false)
+    this.resetNativeSessionTracking()
     this.setSourceState({url: null, kind: 'none', streamId: null})
     const requestedTrack = input.tracks[input.index] ?? null
     const startedAt = Date.now()
-    this.traceAndroidAudio('driverStartRequested', {
+    this.traceNativeAudio('driverStartRequested', {
       generation,
       selectedDriverKind: selectedDriver.kind,
       requestedIndex: input.index,
       requestedTrackId: requestedTrack?.id ?? null,
-      requestedSourceRevision: requestedTrack ? resolveAndroidTrackSourceRevision(requestedTrack) : null,
+      requestedSourceRevision: requestedTrack ? resolveTrackSourceRevision(requestedTrack) : null,
       trackCount: input.tracks.length,
       autoplay: input.autoplay,
     })
     const driverStartSlowTrace = setTimeout(() => {
       if (!this.isActiveAudioSessionGeneration(generation)) return
-      this.traceAndroidAudio('driverStartSlow', {
+      this.traceNativeAudio('driverStartSlow', {
         generation,
         elapsedMs: elapsedSince(startedAt),
         selectedDriverKind: selectedDriver.kind,
@@ -1100,7 +1054,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
       await wrap(selectedDriver.startSession(input))
       clearTimeout(driverStartSlowTrace)
       if (!this.isActiveAudioSessionGeneration(generation)) {
-        this.traceAndroidAudio('driverStartAborted', {
+        this.traceNativeAudio('driverStartAborted', {
           generation,
           reason: 'generation_stale_after_start',
           activeGeneration: this.audioSessionGeneration,
@@ -1109,32 +1063,18 @@ class MediaPlaybackModel implements MediaStreamOwner {
         })
         return
       }
-      this.traceAndroidAudio('driverStartResolved', {
+      this.traceNativeAudio('driverStartResolved', {
         generation,
         elapsedMs: elapsedSince(startedAt),
         selectedDriverKind: selectedDriver.kind,
-        nativeSessionId: redactAndroidNativeSessionId(this.nativeSessionId()),
+        nativeSessionId: redactNativeSessionId(this.nativeSessionId()),
         sourceKind: this.sourceKind(),
         loadingState: this.loadingState(),
       })
-
-      if (selectedDriver.kind === 'android-media3') {
-        const nativeSessionId = this.nativeSessionId()
-        if (nativeSessionId) {
-          if (this.androidAudioReconciler.hasReceivedState(nativeSessionId)) {
-            this.traceAndroidAudio('startAckAlreadyReceived', {
-              expectedNativeSessionId: redactAndroidNativeSessionId(nativeSessionId),
-            })
-          } else {
-            this.startAndroidStartAckWatchdog(nativeSessionId)
-          }
-        }
-        this.startAndroidPlaybackReadyWatchdogIfNeeded()
-      }
     } catch (error) {
       clearTimeout(driverStartSlowTrace)
       if (!this.isActiveAudioSessionGeneration(generation)) {
-        this.traceAndroidAudio('driverStartAborted', {
+        this.traceNativeAudio('driverStartAborted', {
           generation,
           reason: 'generation_stale_after_start_error',
           activeGeneration: this.audioSessionGeneration,
@@ -1143,25 +1083,21 @@ class MediaPlaybackModel implements MediaStreamOwner {
         })
         return
       }
-      this.traceAndroidAudio('driverStartFailed', {
+      this.traceNativeAudio('driverStartFailed', {
         generation,
         elapsedMs: elapsedSince(startedAt),
         selectedDriverKind: selectedDriver.kind,
         error: error instanceof Error ? error.name : typeof error,
       })
-      if (selectedDriver.kind !== 'android-media3' && selectedDriver.kind !== 'ios-avplayer') {
+      if (selectedDriver.kind !== 'ios-avplayer') {
         throw error
       }
 
-      if (selectedDriver.kind === 'ios-avplayer') {
-        disableIosAvPlayerPlaybackForRuntimeSession()
-      } else {
-        disableAndroidMedia3PlaybackForRuntimeSession()
-      }
-      const fallbackReason: AndroidAudioFallbackReason = isAndroidMedia3CommandTimeoutError(error)
+      disableIosAvPlayerPlaybackForRuntimeSession()
+      const fallbackReason: NativeAudioFallbackReason = isNativeAudioCommandTimeoutError(error)
         ? 'native_command_timeout'
         : 'native_start_failed'
-      this.traceAndroidAudio('driverFallback', {
+      this.traceNativeAudio('driverFallback', {
         reason: fallbackReason,
         error: error instanceof Error ? error.name : typeof error,
       })
@@ -1172,8 +1108,8 @@ class MediaPlaybackModel implements MediaStreamOwner {
       this.activeDriver = this.webAudioDriver
       this.driverKind.set('web-audio-element')
       this.nativeSessionId.set(null)
-      this.androidNativeAudioReadySeen.set(false)
-      this.resetAndroidNativeSessionTracking()
+      this.nativeAudioReadySeen.set(false)
+      this.resetNativeSessionTracking()
       await wrap(this.webAudioDriver.startSession(input))
     }
   }
@@ -1182,24 +1118,8 @@ class MediaPlaybackModel implements MediaStreamOwner {
     return generation === this.audioSessionGeneration
   }
 
-  private startAndroidStartAckWatchdog(nativeSessionId: string): void {
-    this.androidAudioReconciler.startStartAckWatchdog(nativeSessionId)
-  }
-
-  private startAndroidPlaybackReadyWatchdogIfNeeded(): void {
-    this.androidAudioReconciler.startPlaybackReadyWatchdogIfNeeded()
-  }
-
-  private clearAndroidPlaybackReadyWatchdog(): void {
-    this.androidAudioReconciler.clearPlaybackReadyWatchdog()
-  }
-
-  private clearAndroidNativeWatchdogs(): void {
-    this.androidAudioReconciler.clearNativeWatchdogs()
-  }
-
-  private resetAndroidNativeSessionTracking(): void {
-    this.androidAudioReconciler.resetStateEventTracking()
+  private resetNativeSessionTracking(): void {
+    this.nativeAudioReconciler.resetStateEventTracking()
   }
 
   private syncNativeAudioPreparingStatus(preparing: boolean): void {
@@ -1219,7 +1139,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
         if (!this.nativeAudioPreparing()) return
         this.nativeAudioPreparingStatusVisibleAtom.set(true)
       }),
-      ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS,
+      NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS,
     )
   }
 
@@ -1235,7 +1155,6 @@ class MediaPlaybackModel implements MediaStreamOwner {
     options: {
       track?: ResolvedAudioTrack | null
       fallbackLimitBytes?: number | null
-      nativeReason?: AndroidAudioFallbackReason
       nativeCode?: string | null
     } = {},
   ): MediaPlaybackIssue {
@@ -1243,144 +1162,32 @@ class MediaPlaybackModel implements MediaStreamOwner {
     return {
       kind,
       trackId: track?.id ?? null,
-      sourceRevision: track ? resolveAndroidTrackSourceRevision(track) : null,
+      sourceRevision: track ? resolveTrackSourceRevision(track) : null,
       sourceSize: toPositiveFiniteSourceSize(track?.size),
       fallbackLimitBytes: options.fallbackLimitBytes ?? null,
-      nativeReason: options.nativeReason,
       nativeCode: options.nativeCode,
     }
   }
 
-  private canUseAndroidAudioBlobFallback(track: ResolvedAudioTrack | null): boolean {
+  private canUseNativeAudioBlobFallback(track: ResolvedAudioTrack | null): boolean {
     const sourceSize = toPositiveFiniteSourceSize(track?.size)
-    return sourceSize !== null && sourceSize <= MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES
-  }
-
-  private applyAndroidNativeFallbackLimitedIssue(
-    reason: AndroidAudioFallbackReason,
-    track: ResolvedAudioTrack | null,
-  ): void {
-    this.activeDriver = this.webAudioDriver
-    this.driverKind.set('web-audio-element')
-    this.nativeSessionId.set(null)
-    this.androidNativeAudioReadySeen.set(false)
-    this.resetAndroidNativeSessionTracking()
-    this.setSourceState({url: null, kind: 'none', streamId: null})
-    this.loadingState.set('fallback-limited')
-    this.playbackState.set('paused')
-    this.playbackIntent.set('pause')
-    this.currentTime.set(0)
-    this.duration.set(null)
-    this.seekPreviewTime.set(null)
-    this.clearSeekRequest()
-    this.playbackIssue.set(
-      this.createPlaybackIssue(
-        reason === 'native_playback_not_ready' || reason === 'native_start_no_event'
-          ? 'android-native-not-ready'
-          : 'android-native-error',
-        {
-          track,
-          fallbackLimitBytes: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES,
-          nativeReason: reason,
-        },
-      ),
-    )
-  }
-
-  private async fallbackAndroidAudioToWeb(
-    nativeSessionId: string,
-    reason: AndroidAudioFallbackReason,
-  ): Promise<void> {
-    const driverKind = this.driverKind()
-    if (
-      (driverKind !== 'android-media3' && driverKind !== 'ios-avplayer') ||
-      this.nativeSessionId() !== nativeSessionId
-    )
-      return
-    const generation = this.audioSessionGeneration
-
-    const tracks = this.tracks()
-    if (this.sessionKind() !== 'audio' || tracks.length === 0) return
-    const fallbackTrack = tracks[clampTrackIndex(tracks, this.currentIndex())] ?? null
-    const canUseWebFallback = this.canUseAndroidAudioBlobFallback(fallbackTrack)
-
-    this.traceAndroidAudio('driverFallback', {
-      reason,
-      expectedNativeSessionId: redactAndroidNativeSessionId(nativeSessionId),
-      canUseWebFallback,
-      sourceSize: toPositiveFiniteSourceSize(fallbackTrack?.size),
-      fallbackLimitBytes: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES,
-    })
-    console.warn(`[media-playback] Android native audio fallback: ${reason}`)
-
-    if (!canUseWebFallback && ANDROID_AUDIO_WAIT_WITHOUT_WEB_FALLBACK_REASONS.has(reason)) {
-      this.traceAndroidAudio('driverFallbackSkipped', {
-        reason,
-        skipReason: 'web_fallback_unavailable',
-        expectedNativeSessionId: redactAndroidNativeSessionId(nativeSessionId),
-        sourceSize: toPositiveFiniteSourceSize(fallbackTrack?.size),
-        fallbackLimitBytes: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES,
-      })
-      return
-    }
-
-    this.clearAndroidNativeWatchdogs()
-    this.resetAndroidNativeSessionTracking()
-    await wrap((driverKind === 'ios-avplayer' ? this.iosAvPlayerDriver : this.androidMedia3Driver).stop())
-    if (!this.isActiveAudioSessionGeneration(generation)) return
-    if (this.driverKind() !== driverKind) return
-    if (this.nativeSessionId() !== null && this.nativeSessionId() !== nativeSessionId) return
-    if (this.sessionKind() !== 'audio' || this.tracks().length === 0) return
-    if (!canUseWebFallback) {
-      this.applyAndroidNativeFallbackLimitedIssue(reason, fallbackTrack)
-      return
-    }
-
-    const fallbackTracks = this.tracks()
-    this.activeDriver = this.webAudioDriver
-    this.driverKind.set('web-audio-element')
-    this.nativeSessionId.set(null)
-    this.androidNativeAudioReadySeen.set(false)
-    this.resetAndroidNativeSessionTracking()
-    this.setSourceState({url: null, kind: 'none', streamId: null})
-    this.playbackIssue.set(null)
-
-    try {
-      await wrap(
-        this.webAudioDriver.startSession({
-          tracks: fallbackTracks,
-          index: clampTrackIndex(fallbackTracks, this.currentIndex()),
-          autoplay: this.playbackIntent() === 'play',
-        }),
-      )
-    } catch (error) {
-      this.handleDriverCommandFailure(error)
-    }
+    return sourceSize !== null && sourceSize <= MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES
   }
 
   private selectAudioPlaybackDriver(tracks: ResolvedAudioTrack[]): AudioPlaybackDriver {
     const transport = tryGetAppContext()?.ws
     const iosFallbackReason = this.iosAvPlayerFallbackReason(tracks, transport)
     if (iosFallbackReason === null) {
-      this.traceAndroidAudio('driverSelected', {
+      this.traceNativeAudio('driverSelected', {
         driverKind: 'ios-avplayer',
         trackCount: tracks.length,
       })
       return this.iosAvPlayerDriver
     }
 
-    const fallbackReason = this.androidMedia3FallbackReason(tracks, transport)
-    if (fallbackReason === null) {
-      this.traceAndroidAudio('driverSelected', {
-        driverKind: 'android-media3',
-        trackCount: tracks.length,
-      })
-      return this.androidMedia3Driver
-    }
-
-    this.traceAndroidAudio('driverSelected', {
+    this.traceNativeAudio('driverSelected', {
       driverKind: 'web-audio-element',
-      fallbackReason: runtimeCapabilitiesAtom().platform === 'ios' ? iosFallbackReason : fallbackReason,
+      fallbackReason: iosFallbackReason,
       trackCount: tracks.length,
     })
     return this.webAudioDriver
@@ -1400,21 +1207,8 @@ class MediaPlaybackModel implements MediaStreamOwner {
     return null
   }
 
-  private androidMedia3FallbackReason(
-    tracks: ResolvedAudioTrack[],
-    transport: TransportLike | undefined,
-  ): string | null {
-    if (transport?.kind !== 'tauri') return 'transport_unavailable'
-    if (typeof transport.sendAndroidAudioCommand !== 'function') return 'command_unavailable'
-    if (!runtimeModeModel.canUseAndroidNativeAudio({transportKind: transport.kind})) {
-      return 'runtime_gate'
-    }
-    if (!canUseAndroidMedia3PlaybackForTracks(tracks)) return 'track_metadata'
-    return null
-  }
-
-  private traceAndroidAudio(event: string, meta: Record<string, unknown> = {}): void {
-    this.androidAudioReconciler.trace(event, meta)
+  private traceNativeAudio(event: string, meta: Record<string, unknown> = {}): void {
+    this.nativeAudioReconciler.trace(event, meta)
   }
 
   private setSourceState(state: {
@@ -1429,7 +1223,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
 
   private setLoadingState(state: MediaPlaybackLoadingState): void {
     this.loadingState.set(state)
-    this.markAndroidNativeAudioReadyIfSettled()
+    this.markNativeAudioReadyIfSettled()
     this.syncPlaybackTimelineState()
   }
 
@@ -1440,18 +1234,18 @@ class MediaPlaybackModel implements MediaStreamOwner {
 
   private setPlaybackState(state: MediaPlaybackState): void {
     this.playbackState.set(state)
-    this.markAndroidNativeAudioReadyIfSettled()
+    this.markNativeAudioReadyIfSettled()
     this.syncPlaybackTimelineState()
   }
 
-  private markAndroidNativeAudioReadyIfSettled(): void {
-    if (this.driverKind() !== 'android-media3' && this.driverKind() !== 'ios-avplayer') return
+  private markNativeAudioReadyIfSettled(): void {
+    if (this.driverKind() !== 'ios-avplayer') return
     if (this.loadingState() !== 'loaded' && this.playbackState() !== 'playing') return
 
-    this.androidNativeAudioReadySeen.set(true)
+    this.nativeAudioReadySeen.set(true)
   }
 
-  reconcileAndroidPreparedTracks(preparedTracks: AndroidAudioPreparedTrack[] | undefined): void {
+  reconcileNativePreparedTracks(preparedTracks: NativeAudioPreparedTrack[] | undefined): void {
     if (!preparedTracks?.length) return
 
     const preparedByTrackId = new Map(preparedTracks.map((track) => [track.trackId, track]))
@@ -1473,30 +1267,24 @@ class MediaPlaybackModel implements MediaStreamOwner {
     console.warn('[media-playback] audio driver command failed', error)
   }
 
-  private async failAndroidAudioSession(event: AndroidAudioPlayerEvent): Promise<void> {
+  private async failNativeAudioSession(event: NativeAudioPlayerEvent): Promise<void> {
     const nativeSessionId = this.nativeSessionId()
     if (event.nativeSessionId !== nativeSessionId) return
     const failedDriverKind = this.driverKind()
-    if (failedDriverKind !== 'android-media3' && failedDriverKind !== 'ios-avplayer') return
+    if (failedDriverKind !== 'ios-avplayer') return
     const generation = this.audioSessionGeneration
     const failedTrack = this.currentTrack()
     const fallbackTracks = this.tracks()
     const fallbackIndex = clampTrackIndex(fallbackTracks, this.currentIndex())
     const autoplay = this.playbackIntent() === 'play'
     const code = event.code ?? null
-    const shouldQuarantine = shouldQuarantineAndroidNativeAudio(code)
-    const canUseWebFallback = shouldQuarantine && this.canUseAndroidAudioBlobFallback(failedTrack)
+    const shouldQuarantine = shouldQuarantineNativeAudio(code)
+    const canUseWebFallback = shouldQuarantine && this.canUseNativeAudioBlobFallback(failedTrack)
     if (shouldQuarantine) {
-      if (failedDriverKind === 'ios-avplayer') {
-        disableIosAvPlayerPlaybackForRuntimeSession(code ?? 'ios_native_error')
-      } else {
-        disableAndroidMedia3PlaybackForRuntimeSession(code ?? 'android_native_error')
-      }
+      disableIosAvPlayerPlaybackForRuntimeSession(code ?? 'ios_native_error')
     }
 
-    await wrap(
-      (failedDriverKind === 'ios-avplayer' ? this.iosAvPlayerDriver : this.androidMedia3Driver).stop(),
-    )
+    await wrap(this.iosAvPlayerDriver.stop())
     if (!this.isActiveAudioSessionGeneration(generation)) return
     if (this.driverKind() !== failedDriverKind) return
     if (this.nativeSessionId() !== null && this.nativeSessionId() !== nativeSessionId) return
@@ -1504,8 +1292,8 @@ class MediaPlaybackModel implements MediaStreamOwner {
     this.activeDriver = this.webAudioDriver
     this.driverKind.set('web-audio-element')
     this.nativeSessionId.set(null)
-    this.androidNativeAudioReadySeen.set(false)
-    this.resetAndroidNativeSessionTracking()
+    this.nativeAudioReadySeen.set(false)
+    this.resetNativeSessionTracking()
     this.setSourceState({url: null, kind: 'none', streamId: null})
     if (canUseWebFallback) {
       this.playbackIssue.set(null)
@@ -1524,7 +1312,7 @@ class MediaPlaybackModel implements MediaStreamOwner {
     }
 
     this.playbackIssue.set(
-      this.createPlaybackIssue('android-native-error', {
+      this.createPlaybackIssue('native-error', {
         track: failedTrack,
         nativeCode: code,
       }),
@@ -1536,32 +1324,27 @@ class MediaPlaybackModel implements MediaStreamOwner {
     this.clearSeekRequest()
   }
 
-  private handleAndroidAudioReleased(event: AndroidAudioPlayerEvent): void {
+  private handleNativeAudioReleased(event: NativeAudioPlayerEvent): void {
     if (event.nativeSessionId !== this.nativeSessionId()) return
     const releasedDriverKind = this.driverKind()
-    if (releasedDriverKind !== 'android-media3' && releasedDriverKind !== 'ios-avplayer') return
+    if (releasedDriverKind !== 'ios-avplayer') return
     const track = this.currentTrack()
     const shouldRecordServiceIssue = event.reason === 'service_destroyed' && this.playbackIntent() === 'play'
     if (shouldRecordServiceIssue) {
-      if (releasedDriverKind === 'ios-avplayer') {
-        disableIosAvPlayerPlaybackForRuntimeSession('service_destroyed')
-      } else {
-        disableAndroidMedia3PlaybackForRuntimeSession('service_destroyed')
-      }
+      disableIosAvPlayerPlaybackForRuntimeSession('service_destroyed')
     }
 
-    this.clearAndroidNativeWatchdogs()
-    this.resetAndroidNativeSessionTracking()
+    this.resetNativeSessionTracking()
     this.activeDriver = this.webAudioDriver
     this.sessionKind.set('none')
     this.tracks.set([])
     this.currentIndex.set(0)
     this.driverKind.set('web-audio-element')
     this.nativeSessionId.set(null)
-    this.androidNativeAudioReadySeen.set(false)
+    this.nativeAudioReadySeen.set(false)
     this.setSourceState({url: null, kind: 'none', streamId: null})
     this.playbackIssue.set(
-      shouldRecordServiceIssue ? this.createPlaybackIssue('android-native-service-stopped', {track}) : null,
+      shouldRecordServiceIssue ? this.createPlaybackIssue('native-service-stopped', {track}) : null,
     )
     this.loadingState.set('idle')
     this.playbackState.set('stopped')

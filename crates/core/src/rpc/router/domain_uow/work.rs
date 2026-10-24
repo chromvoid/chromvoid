@@ -140,6 +140,23 @@ impl<'a> DomainUnitOfWork<'a> {
             .map_err(catalog_error)
     }
 
+    pub(in crate::rpc::router) fn stage_move_and_rename_node(
+        &mut self,
+        node_id: u64,
+        new_parent_path: &str,
+        new_name: &str,
+    ) -> DomainUowResult<()> {
+        let old_path = self
+            .staged_catalog
+            .get_path(node_id)
+            .ok_or_else(|| DomainUowError::node_not_found("Node not found"))?;
+        self.ensure_path_in_domain(&old_path)?;
+        self.ensure_path_in_domain(&normalize_path(new_parent_path))?;
+        self.staged_catalog
+            .move_node_with_options(node_id, new_parent_path, Some(new_name), false)
+            .map_err(catalog_error)
+    }
+
     pub(in crate::rpc::router) fn stage_rename_node(
         &mut self,
         node_id: u64,

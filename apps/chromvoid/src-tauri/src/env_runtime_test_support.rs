@@ -1,6 +1,6 @@
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::HashMap;
     use std::ffi::OsString;
     use std::io::Write as _;
     use std::path::{Path, PathBuf};
@@ -8,13 +8,10 @@ mod tests {
     use std::sync::{mpsc, Arc, Mutex};
     use std::time::Duration;
 
-    use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD};
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use base64::Engine as _;
     use chromvoid_core::env_runtime::{
         EnvRuntimeResult, PrivateSpawnResolutionRequestV1, ResolvedEnvLeaseV1,
-    };
-    use chromvoid_core::license::{
-        BuildPolicy, LicenseCert, LicenseStore, SignedCert, LICENSE_KEY_ID_2026_01,
     };
     use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
     use chromvoid_core::rpc::{RpcInputStream, RpcReply};
@@ -22,7 +19,6 @@ mod tests {
         AgentEventDataV1, AgentPresetDraftV1, AgentProfileMetadataV1, AgentRunStatusV1,
         AgentVariableMappingV1, AGENT_OUTPUT_CHUNK_BYTES,
     };
-    use ed25519_dalek::{Signer as _, SigningKey};
     use serde::de::DeserializeOwned;
     use serde_json::{json, Value};
     use tempfile::TempDir;
@@ -200,47 +196,14 @@ mod tests {
         fn new(probe_source: PathBuf) -> Self {
             let temp = tempfile::tempdir().expect("create process integration tempdir");
             let storage_root = temp.path().join("vault-storage");
-            let license_root = temp.path().join("license");
             let workspace = temp.path().join("workspace");
             let cwd = workspace.join("project");
             std::fs::create_dir_all(&cwd).expect("create probe cwd");
             std::fs::write(cwd.join(".env-runtime-test-cwd"), b"cwd marker")
                 .expect("write cwd marker");
 
-            let signing_key = SigningKey::from_bytes(&[41_u8; 32]);
-            let license_store = LicenseStore::with_trusted_keys(
-                license_root.clone(),
-                BuildPolicy::Enforce,
-                BTreeMap::from([(
-                    LICENSE_KEY_ID_2026_01.to_string(),
-                    signing_key.verifying_key(),
-                )]),
-            );
-            let license_payload = LicenseCert {
-                v: 1,
-                kid: LICENSE_KEY_ID_2026_01.to_string(),
-                license_id: "env-runtime-process-integration".to_string(),
-                featureset: "pro".to_string(),
-                seat_limit: 1,
-                device_fingerprint: license_store
-                    .device_fingerprint()
-                    .expect("test device fingerprint"),
-                issued_at: "2026-07-15T00:00:00Z".to_string(),
-                exp: None,
-                source: Some("env-runtime-test".to_string()),
-            };
-            let signature = signing_key.sign(
-                &serde_json::to_vec(&license_payload).expect("serialize test license payload"),
-            );
-            license_store
-                .install_cert(SignedCert {
-                    payload: license_payload,
-                    signature: URL_SAFE_NO_PAD.encode(signature.to_bytes()),
-                })
-                .expect("install signed Pro test license");
-            let mut local =
-                LocalCoreAdapter::new_with_test_license_store(storage_root.clone(), license_store)
-                    .expect("create LocalCoreAdapter");
+            let mut local = LocalCoreAdapter::new_with_test_keystore(storage_root.clone())
+                .expect("create LocalCoreAdapter");
             local.set_master_key(Some(MASTER_PASSWORD.to_string()));
             rpc_ok_value(
                 &mut local,
@@ -312,7 +275,6 @@ mod tests {
                     .expect("core RPC dispatcher"),
                 sync_runtime: Arc::new(crate::commands::sync_cmds::SyncRuntimeState::new()),
                 storage_root: Arc::new(Mutex::new(storage_root.clone())),
-                license_root,
                 gateway: Arc::new(Mutex::new(gateway)),
                 env_runtime: Arc::new(
                     crate::env_runtime::EnvRuntimeState::new(
@@ -371,27 +333,7 @@ mod tests {
                 android_host_runtime: Arc::new(
                     crate::network::mobile_host::AndroidHostRuntimeState::new(),
                 ),
-                android_provider_runtime: Arc::new(
-                    crate::mobile::android::AndroidProviderRuntimeState::new(),
-                ),
-                android_audio_sessions: Arc::new(
-                    crate::mobile::android::AndroidAudioSessionRegistry::new(),
-                ),
-                android_native_upload_runtime: Arc::new(
-                    crate::mobile::android::AndroidNativeUploadRuntimeState::new(),
-                ),
-                android_saf_picker_runtime: Arc::new(
-                    crate::mobile::android::AndroidSafPickerRuntimeState::new(),
-                ),
-                android_biometric_runtime: Arc::new(
-                    crate::mobile::android::AndroidBiometricRuntimeState::new(),
-                ),
-                android_password_save_runtime: Arc::new(
-                    crate::mobile::android::AndroidPasswordSaveRuntimeState::new(),
-                ),
-                android_autofill_runtime: Arc::new(
-                    crate::mobile::android::AndroidAutofillRuntimeState::new(),
-                ),
+                native_audio_sessions: Arc::new(crate::mobile::NativeAudioSessionRegistry::new()),
                 ios_native_bridge_runtime: Arc::new(
                     crate::mobile::ios::native_bridge::IosNativeBridgeRuntimeState::new(),
                 ),

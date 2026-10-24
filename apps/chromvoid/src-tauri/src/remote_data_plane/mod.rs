@@ -6,17 +6,16 @@
 mod frames;
 mod handshake;
 mod io_loop;
-mod models;
 
+pub use chromvoid_client_runtime::remote_io_models::{
+    RemoteIoEvent, RemoteIoFailure, RemoteIoRequest, RemoteIoResult, RemoteIoTaskConfig,
+    RemoteIoTaskTiming, RemotePeerFeatures,
+};
 pub(crate) use frames::send_encrypted_frame_typed;
 pub use frames::{recv_decrypted_frame, send_encrypted_frame};
 pub use handshake::{
     handshake_ik_over_transport, handshake_ik_over_transport_typed, handshake_xx_over_transport,
     handshake_xx_over_transport_typed, RemoteHandshakeError, RemoteHandshakeFailureKind,
-};
-pub use models::{
-    RemoteIoEvent, RemoteIoFailure, RemoteIoRequest, RemoteIoResult, RemoteIoTaskConfig,
-    RemoteIoTaskTiming, RemotePeerFeatures,
 };
 
 use tokio::sync::mpsc;

@@ -19,7 +19,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.8</string>
+	<string>2.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>10</string>
 	<key>ChromVoidSharedKeychainAccessGroup</key>
@@ -32,6 +32,23 @@
 	<string>ChromVoid uses Face ID to verify access before showing the app.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>ChromVoid saves selected images to your photo library when you choose Save to Photos.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>TaoSceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

@@ -21,6 +21,7 @@ test('S17: full event synchronization cycle', async () => {
   await openFilesRoot(page)
 
   const testDirName = `test-sync-${Date.now()}`
+  // Keep direct API event-sync coverage; yield a frame after updates so Chromium cannot collect evaluate's result.
   const created = await page.evaluate(async (dirName) => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
     const {getAppContext} = (await dynamicImport(
@@ -30,11 +31,14 @@ test('S17: full event synchronization cycle', async () => {
     if (!cat?.api?.createDir) {
       throw new Error('catalog.api.createDir is unavailable')
     }
-    return cat.api.createDir(dirName)
+    const created = await cat.api.createDir(dirName)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    return created
   }, testDirName)
   expect(created.nodeId).toEqual(expect.any(Number))
   await waitForCatalogItem(page, testDirName, {path: '/'})
 
+  // Apply the same frame boundary after the direct delete API call.
   await page.evaluate(async (nodeId) => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
     const {getAppContext} = (await dynamicImport(
@@ -45,6 +49,7 @@ test('S17: full event synchronization cycle', async () => {
       throw new Error('catalog.api.delete is unavailable')
     }
     await cat.api.delete(nodeId)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, created.nodeId)
   await waitForCatalogItem(page, testDirName, {exists: false, path: '/'})
 })

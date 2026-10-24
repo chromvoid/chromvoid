@@ -264,6 +264,7 @@ pub struct CatalogTrashMetadata {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub enum CatalogMediaKind {
     Audio,
     Video,
@@ -273,6 +274,7 @@ pub enum CatalogMediaKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogMediaInfo {
     #[serde(rename = "k")]
     pub kind: CatalogMediaKind,
@@ -294,6 +296,7 @@ pub struct CatalogMediaInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogMediaStreamingMetadata {
     #[serde(rename = "d", default, skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
@@ -316,6 +319,7 @@ pub struct CatalogMediaStreamingMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogMediaByteRange {
     #[serde(rename = "o")]
     pub offset: u64,
@@ -326,6 +330,7 @@ pub struct CatalogMediaByteRange {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogMediaSegmentRange {
     #[serde(rename = "o")]
     pub offset: u64,

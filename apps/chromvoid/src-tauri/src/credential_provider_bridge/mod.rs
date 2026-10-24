@@ -8,6 +8,11 @@
 //!
 //! Also handles credential identity store synchronization on vault lock/unlock.
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+use chromvoid_client_runtime::provider::{
+    command_allowed as provider_bridge_command_allowed,
+    command_requires_local_core as provider_bridge_command_requires_local_core,
+};
 use std::sync::Arc;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use std::sync::{Mutex, OnceLock, Weak};
@@ -17,11 +22,11 @@ use serde_json::Value;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use crate::core_adapter::CoreAdapter;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+use crate::module_access::MODULE_CREDENTIAL_PROVIDER;
 use crate::task_lifecycle::TaskLifecycleRuntime;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use crate::task_lifecycle::{ExternalTaskName, ExternalTaskReadiness};
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-use chromvoid_core::license::PRO_FEATURE_CREDENTIAL_PROVIDER;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -29,7 +34,6 @@ use tauri::Manager;
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 mod ffi;
-mod identity_candidate;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 mod identity_store;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -104,7 +108,7 @@ fn otp_autofill_native_status(
     } else if !selected {
         "extension_not_enabled"
     } else {
-        // Pro entitlement and vault state are resolved reactively in the host UI.
+        // Module access and vault state are resolved reactively in the host UI.
         "unverified"
     }
 }
@@ -156,14 +160,14 @@ pub fn dispatch_provider_rpc(
                 }
             }
 
-            if provider_bridge_command_requires_pro(command) {
+            if provider_bridge_command_requires_local_core(command) {
                 let caps = crate::types::runtime_capabilities_for_current_target();
-                if let Err(error) = crate::pro::guard_pro_feature_for_adapter(
+                if let Err(error) = crate::module_access::guard_module_for_adapter(
                     adapter.as_mut(),
-                    PRO_FEATURE_CREDENTIAL_PROVIDER,
+                    MODULE_CREDENTIAL_PROVIDER,
                     &caps,
                 ) {
-                    return pro_guard_error_response(error);
+                    return module_denial_response(error);
                 }
             }
 
@@ -180,46 +184,13 @@ pub fn dispatch_provider_rpc(
     response
 }
 
-#[cfg(any(test, target_os = "ios", target_os = "macos"))]
-fn provider_bridge_command_allowed(command: &str) -> bool {
-    matches!(
-        command.trim(),
-        "credential_provider:status"
-            | "credential_provider:session:open"
-            | "credential_provider:session:close"
-            | "credential_provider:list"
-            | "credential_provider:search"
-            | "credential_provider:getSecret"
-            | "credential_provider:getOneTimeCode"
-            | "credential_provider:recordUse"
-            | "credential_provider:passkey:create"
-            | "credential_provider:passkey:get"
-            | "credential_provider:passkey:query"
-    )
-}
-
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn provider_bridge_command_requires_local_core(command: &str) -> bool {
-    !matches!(
-        command.trim(),
-        "credential_provider:status"
-            | "credential_provider:session:open"
-            | "credential_provider:session:close"
-    )
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-fn provider_bridge_command_requires_pro(command: &str) -> bool {
-    provider_bridge_command_requires_local_core(command)
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-fn pro_guard_error_response(error: crate::types::RpcResult<Value>) -> RpcResponse {
+fn module_denial_response(error: crate::types::RpcResult<Value>) -> RpcResponse {
     match error {
         crate::types::RpcResult::Error { error, code, .. } => RpcResponse::error(error, code),
         crate::types::RpcResult::Success { .. } => RpcResponse::error(
-            "Credential Provider entitlement unavailable",
-            Some("ENTITLEMENT_UNAVAILABLE".to_string()),
+            "Credential Provider module access unavailable",
+            Some("INTERNAL".to_string()),
         ),
     }
 }
@@ -376,51 +347,26 @@ mod tests {
 
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     #[test]
-    fn provider_bridge_command_allowlist_rejects_non_provider_commands() {
-        assert!(super::provider_bridge_command_allowed(
-            "credential_provider:list"
+    fn non_provider_command_is_denied_before_adapter_dispatch() {
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> =
+            Arc::new(Mutex::new(Box::new(RecordingAdapter {
+                mode: CoreMode::Local,
+                commands: commands.clone(),
+                response: RpcResponse::success(serde_json::json!({})),
+            })));
+        let response =
+            super::dispatch_provider_rpc(&adapter, "vault:unlock", serde_json::json!({}));
+        assert!(matches!(
+            response,
+            RpcResponse::Error { code: Some(code), .. } if code == "POLICY_DENIED"
         ));
-        assert!(super::provider_bridge_command_allowed(
-            "credential_provider:passkey:get"
-        ));
-        assert!(super::provider_bridge_command_allowed(
-            "credential_provider:getOneTimeCode"
-        ));
-        assert!(!super::provider_bridge_command_allowed("vault:unlock"));
-        assert!(!super::provider_bridge_command_allowed("catalog:list"));
-        assert!(!super::provider_bridge_command_allowed("passmanager:list"));
+        assert!(commands.lock().expect("recorded commands").is_empty());
     }
 
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     #[test]
-    fn provider_bridge_policy_leaves_status_and_session_commands_unmetered() {
-        for command in [
-            "credential_provider:status",
-            "credential_provider:session:open",
-            "credential_provider:session:close",
-        ] {
-            assert!(!super::provider_bridge_command_requires_local_core(command));
-            assert!(!super::provider_bridge_command_requires_pro(command));
-        }
-
-        for command in [
-            "credential_provider:list",
-            "credential_provider:search",
-            "credential_provider:getSecret",
-            "credential_provider:getOneTimeCode",
-            "credential_provider:recordUse",
-            "credential_provider:passkey:create",
-            "credential_provider:passkey:get",
-            "credential_provider:passkey:query",
-        ] {
-            assert!(super::provider_bridge_command_requires_local_core(command));
-            assert!(super::provider_bridge_command_requires_pro(command));
-        }
-    }
-
-    #[cfg(any(target_os = "ios", target_os = "macos"))]
-    #[test]
-    fn local_core_guard_rejects_paid_commands_before_core_dispatch() {
+    fn local_core_guard_rejects_vault_commands_before_core_dispatch() {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> =
             Arc::new(Mutex::new(Box::new(RecordingAdapter {
@@ -448,16 +394,13 @@ mod tests {
 
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     #[test]
-    fn pro_guard_stops_paid_command_after_license_status_probe() {
+    fn module_guard_admits_vault_command_without_any_licence() {
         let commands = Arc::new(Mutex::new(Vec::new()));
         let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> =
             Arc::new(Mutex::new(Box::new(RecordingAdapter {
                 mode: CoreMode::Local,
                 commands: commands.clone(),
-                response: RpcResponse::error(
-                    "License status unavailable",
-                    Some("ENTITLEMENT_UNAVAILABLE".to_string()),
-                ),
+                response: RpcResponse::success(serde_json::json!({"secret": "synthetic"})),
             })));
 
         let response = super::dispatch_provider_rpc(
@@ -466,14 +409,25 @@ mod tests {
             serde_json::json!({}),
         );
 
-        assert!(matches!(
-            response,
-            RpcResponse::Error { code: Some(code), .. } if code == "ENTITLEMENT_UNAVAILABLE"
-        ));
-        assert_eq!(
-            commands.lock().expect("recorded commands").as_slice(),
-            ["core:capabilities", "license:status"]
-        );
+        let module_enabled =
+            crate::types::runtime_capabilities_for_current_target().supports_autofill;
+        if module_enabled {
+            assert!(matches!(response, RpcResponse::Success { .. }));
+            assert_eq!(
+                commands.lock().expect("recorded commands").as_slice(),
+                ["core:capabilities", "credential_provider:getSecret"]
+            );
+        } else {
+            assert!(matches!(
+                response,
+                RpcResponse::Error { code: Some(code), .. }
+                    if code == "FEATURE_UNSUPPORTED_ON_PLATFORM"
+            ));
+            assert_eq!(
+                commands.lock().expect("recorded commands").as_slice(),
+                ["core:capabilities"]
+            );
+        }
     }
 
     #[test]

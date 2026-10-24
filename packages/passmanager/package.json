@@ -132,8 +132,8 @@
   },
   "dependencies": {
     "@reatom/core": "^1001.0.0",
-    "@tauri-apps/api": "2.11.1",
-    "@tauri-apps/plugin-dialog": "2.7.1",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-dialog": "2.8.3",
     "@project/i18n": "workspace:*",
     "@project/utils": "workspace:*",
     "uuid": "^14.0.1"

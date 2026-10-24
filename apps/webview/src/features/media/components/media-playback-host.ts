@@ -1,8 +1,6 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {css} from 'lit'
 
-import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
-import {ANDROID_MEDIA_SESSION_CONTROL_EVENT} from 'root/features/media/models/android-media-session-events'
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {
   getMediaStreamLoadabilityTimeoutMs,
@@ -29,17 +27,10 @@ export class MediaPlaybackHost extends ReatomLitElement {
 
   private appliedSourceUrl: string | null = null
   private appliedSeekRequestId = 0
-  private traceSeq = 0
   private loadabilityStreamId: string | null = null
   private loadabilityTimeout: ReturnType<typeof setTimeout> | undefined
 
-  connectedCallback(): void {
-    super.connectedCallback()
-    globalThis.addEventListener(ANDROID_MEDIA_SESSION_CONTROL_EVENT, this)
-  }
-
   disconnectedCallback(): void {
-    globalThis.removeEventListener(ANDROID_MEDIA_SESSION_CONTROL_EVENT, this)
     this.clearLoadabilityWatchdog()
     const audio = this.getAudioElement()
     if (audio) {
@@ -50,12 +41,6 @@ export class MediaPlaybackHost extends ReatomLitElement {
     this.appliedSourceUrl = null
     this.appliedSeekRequestId = 0
     super.disconnectedCallback()
-  }
-
-  handleEvent(event: Event): void {
-    if (event.type === ANDROID_MEDIA_SESSION_CONTROL_EVENT) {
-      this.syncAudioElement()
-    }
   }
 
   protected updated(changedProperties: Map<string, unknown>): void {
@@ -75,18 +60,9 @@ export class MediaPlaybackHost extends ReatomLitElement {
     const sourceUrl = mediaPlaybackModel.sourceUrl()
     const driverKind = mediaPlaybackModel.driverKind()
     const intent = mediaPlaybackModel.playbackIntent()
-    this.trace('syncAudioElement', {
-      intent,
-      sessionKind,
-      driverKind,
-      sourceChanged: this.appliedSourceUrl !== sourceUrl,
-      hasSourceUrl: sourceUrl !== null,
-      audioPaused: audio.paused,
-      readyState: audio.readyState,
-    })
 
-    if (driverKind === 'android-media3' || driverKind === 'ios-avplayer') {
-      this.clearAudioElement(audio, 'native_audio_driver')
+    if (driverKind === 'ios-avplayer') {
+      this.clearAudioElement(audio)
       return
     }
 
@@ -95,11 +71,6 @@ export class MediaPlaybackHost extends ReatomLitElement {
       this.appliedSourceUrl = null
       this.appliedSeekRequestId = 0
       if (audio.getAttribute('src')) {
-        this.trace('audioSourceCleared', {
-          reason: 'no_session_or_source',
-          audioPaused: audio.paused,
-          readyState: audio.readyState,
-        })
         audio.pause()
         audio.removeAttribute('src')
         audio.load()
@@ -111,10 +82,6 @@ export class MediaPlaybackHost extends ReatomLitElement {
       this.clearLoadabilityWatchdog()
       this.appliedSourceUrl = sourceUrl
       this.appliedSeekRequestId = 0
-      this.trace('audioSourceLoaded', {
-        sourceKind: mediaPlaybackModel.sourceKind(),
-        readyState: audio.readyState,
-      })
       audio.src = sourceUrl
       audio.load()
       this.startLoadabilityWatchdogIfNeeded()
@@ -126,38 +93,22 @@ export class MediaPlaybackHost extends ReatomLitElement {
       // Only issue play() when the element is actually paused; re-issuing it on
       // every Lit update while playback is running is redundant churn.
       if (!audio.paused) return
-      this.trace('audioPlayRequested', {
-        audioPaused: audio.paused,
-        readyState: audio.readyState,
-      })
       void audio.play().catch((error) => {
-        this.trace('audioPlayFailed', {
-          errorName: error instanceof Error ? error.name : typeof error,
-        })
         console.warn('[media-playback] audio play failed', error)
         mediaPlaybackModel.requestPause()
       })
       return
     }
 
-    this.trace('audioPauseRequested', {
-      audioPaused: audio.paused,
-      readyState: audio.readyState,
-    })
     audio.pause()
   }
 
-  private clearAudioElement(audio: HTMLAudioElement, reason: string): void {
+  private clearAudioElement(audio: HTMLAudioElement): void {
     this.clearLoadabilityWatchdog()
     this.appliedSourceUrl = null
     this.appliedSeekRequestId = 0
     if (!audio.getAttribute('src')) return
 
-    this.trace('audioSourceCleared', {
-      reason,
-      audioPaused: audio.paused,
-      readyState: audio.readyState,
-    })
     audio.pause()
     audio.removeAttribute('src')
     audio.load()
@@ -211,34 +162,18 @@ export class MediaPlaybackHost extends ReatomLitElement {
   }
 
   private handlePlay() {
-    this.trace('audioEventPlay', {
-      audioPaused: this.getAudioElement()?.paused ?? null,
-      readyState: this.getAudioElement()?.readyState ?? null,
-    })
     mediaPlaybackModel.handleMediaPlay()
   }
 
   private handlePause() {
-    this.trace('audioEventPause', {
-      audioPaused: this.getAudioElement()?.paused ?? null,
-      readyState: this.getAudioElement()?.readyState ?? null,
-    })
     mediaPlaybackModel.handleMediaPause()
   }
 
   private handleWaiting() {
-    this.trace('audioEventWaiting', {
-      audioPaused: this.getAudioElement()?.paused ?? null,
-      readyState: this.getAudioElement()?.readyState ?? null,
-    })
     mediaPlaybackModel.handleMediaWaiting()
   }
 
   private handleCanPlay() {
-    this.trace('audioEventCanPlay', {
-      audioPaused: this.getAudioElement()?.paused ?? null,
-      readyState: this.getAudioElement()?.readyState ?? null,
-    })
     this.clearLoadabilityWatchdog()
     mediaPlaybackModel.handleMediaCanPlay()
   }
@@ -264,32 +199,12 @@ export class MediaPlaybackHost extends ReatomLitElement {
   }
 
   private handleError() {
-    this.trace('audioEventError', {
-      audioPaused: this.getAudioElement()?.paused ?? null,
-      readyState: this.getAudioElement()?.readyState ?? null,
-    })
     // The error handler already routes to the loadability fallback; clear the
     // watchdog so it cannot fire a second, duplicate fallback afterwards.
     this.clearLoadabilityWatchdog()
     mediaPlaybackModel.handleMediaError()
   }
 
-  private trace(event: string, meta: Record<string, unknown> = {}): void {
-    const capabilities = runtimeCapabilitiesAtom()
-    if (capabilities.platform !== 'android' || !capabilities.mobile) return
-
-    const track = mediaPlaybackModel.currentTrack()
-    console.debug('[media-playback-host]', {
-      seq: ++this.traceSeq,
-      event,
-      sessionKind: mediaPlaybackModel.sessionKind(),
-      trackId: track?.id ?? null,
-      playbackState: mediaPlaybackModel.playbackState(),
-      playbackIntent: mediaPlaybackModel.playbackIntent(),
-      loadingState: mediaPlaybackModel.loadingState(),
-      ...meta,
-    })
-  }
 
   protected render() {
     mediaPlaybackModel.sessionKind()

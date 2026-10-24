@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>IOS-air — интерактивный дизайн</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <header class="studio-header">
+      <a class="wordmark" href="?screen=vault">CHROMVOID <span>IOS–AIR</span></a>
+      <span class="edition">NATIVE iOS · DESIGN STUDY 02</span>
+      <a href="../ux-spec.md">UX specification ↗</a>
+    </header>
+    <main class="studio">
+      <aside class="navigator" aria-label="Панель исследования дизайна">
+        <p class="eyebrow">01 / ПРОДУКТОВЫЕ СЦЕНАРИИ</p>
+        <h1>Всё своё.<br />Под рукой.</h1>
+        <p class="intro">
+          Нативный ChromVoid для iPhone и iPad. Спокойный интерфейс, явные действия, знакомая навигация.
+        </p>
+        <nav id="screen-nav" aria-label="Экраны макета"></nav>
+        <p class="scope-note">
+          Все данные вымышлены.<br />Это HTML-макет для обсуждения UX. Приложение будет на SwiftUI.
+        </p>
+      </aside>
+      <section class="stage" aria-label="Интерактивный макет">
+        <div class="preview-tools">
+          <label
+            >Устройство<select id="device">
+              <option value="phone">iPhone · 390</option>
+              <option value="compact">Компактный · 375</option>
+              <option value="tablet">iPad · split view</option>
+            </select></label
+          >
+          <label
+            >Тема<select id="theme">
+              <option value="dark">Тёмная</option>
+              <option value="light">Светлая</option>
+            </select></label
+          >
+          <label
+            >Текст<select id="text-size">
+              <option value="normal">100%</option>
+              <option value="large">150%</option>
+              <option value="largest">200%</option>
+            </select></label
+          >
+        </div>
+        <div class="device phone" id="device-frame">
+          <div class="status-bar" aria-hidden="true">
+            <b>9:41</b><span class="island"></span><span>▮▮▮ ▰</span>
+          </div>
+          <div class="app-layout">
+            <aside class="ipad-sidebar" id="ipad-nav" aria-label="Разделы приложения"></aside>
+            <div class="app-pane" id="app"></div>
+          </div>
+          <div class="home-indicator" aria-hidden="true"></div>
+        </div>
+        <p class="preview-caption">Интерактивный макет · без доступа к вашим данным</p>
+      </section>
+      <aside class="inspector" aria-label="Описание выбранного экрана">
+        <p class="eyebrow" id="screen-id"></p>
+        <h2 id="screen-title"></h2>
+        <p id="screen-description"></p>
+        <label class="state-label"
+          >Состояние экрана<select id="state">
+            <option value="normal">Обычное</option>
+            <option value="loading">Загрузка</option>
+            <option value="empty">Нет данных</option>
+            <option value="error">Ошибка</option>
+            <option value="readonly">Только чтение</option>
+          </select></label
+        >
+        <div class="design-note">
+          <p class="eyebrow">ПРОВЕРИТЬ В СЦЕНАРИИ</p>
+          <p id="screen-check"></p>
+        </div>
+        <button id="simulate-lock" class="studio-button">Свернуть → заблокировать</button>
+        <button id="reset" class="studio-button subtle">Сбросить демоданные</button>
+        <p class="scope-note">
+          Системные материалы, Face ID, AutoFill и lifecycle проверяются отдельно на нативной сборке. Панель
+          вокруг устройства не входит в продукт.
+        </p>
+      </aside>
+    </main>
+    <dialog id="notice">
+      <form method="dialog">
+        <h2 id="notice-title"></h2>
+        <p id="notice-body"></p>
+        <div id="notice-actions"></div>
+      </form>
+    </dialog>
+  </body>
+</html>

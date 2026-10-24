@@ -57,6 +57,21 @@ pub(crate) fn set_secret(
 ) -> OtpSidecarResult<()> {
     ensure_node_exists(session, request.node_id)?;
 
+    let node_id = request.node_id;
+    let validated = validate_secret(request)?;
+    let vault_key = session.vault_key();
+    let mut secrets = load_otp_secrets(vault_key, node_id, storage).unwrap_or_default();
+    secrets.secrets.retain(|s| s.label != validated.label);
+    secrets.secrets.push(validated);
+
+    save_otp_secrets(vault_key, node_id, &secrets, storage).map_err(|e| {
+        OtpSidecarError::internal(format!("Failed to save OTP secret: {}", e.into_message()))
+    })?;
+
+    Ok(())
+}
+
+pub(crate) fn validate_secret(request: OtpSetSecretRequest) -> OtpSidecarResult<OtpSecret> {
     let settings = normalize_settings(
         &request.algorithm,
         request.digits,
@@ -66,11 +81,7 @@ pub(crate) fn set_secret(
         request.counter,
     )?;
     let _ = generate_otp_code(&request.secret, settings, None)?;
-
-    let vault_key = session.vault_key();
-    let mut secrets = load_otp_secrets(vault_key, request.node_id, storage).unwrap_or_default();
-    secrets.secrets.retain(|s| s.label != request.label);
-    secrets.secrets.push(OtpSecret {
+    Ok(OtpSecret {
         label: request.label,
         secret: request.secret,
         encoding: settings.encoding.as_str().to_string(),
@@ -79,13 +90,7 @@ pub(crate) fn set_secret(
         algorithm: settings.algorithm.as_str().to_string(),
         digits: settings.digits,
         period: settings.period,
-    });
-
-    save_otp_secrets(vault_key, request.node_id, &secrets, storage).map_err(|e| {
-        OtpSidecarError::internal(format!("Failed to save OTP secret: {}", e.into_message()))
-    })?;
-
-    Ok(())
+    })
 }
 
 pub(crate) fn rename_secret(

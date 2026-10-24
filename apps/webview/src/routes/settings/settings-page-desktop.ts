@@ -1,4 +1,4 @@
-import {html, watch} from '@chromvoid/uikit/reatom-lit'
+import {html} from '@chromvoid/uikit/reatom-lit'
 
 import {css, nothing} from 'lit'
 
@@ -12,6 +12,7 @@ import {
   sharedStyles,
 } from 'root/shared/ui/shared-styles'
 import {routeCalloutStyles} from 'root/shared/ui/route-callout.styles'
+import {isLegalDocument} from 'root/shared/services/legal-documents.model'
 import {SettingsPageLayoutBase} from './settings-page-layout-base'
 import {renderMacosCredentialProviderCapabilities} from './settings-credential-provider-capabilities'
 import {SettingsVaultRekeyForm} from './settings-vault-rekey-form'
@@ -545,108 +546,67 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
         }
       }
 
-      .license-row {
-        display: grid;
-        gap: var(--app-spacing-2);
-        min-inline-size: 0;
-      }
-
-      .license-control-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--app-spacing-2);
-        min-inline-size: 0;
-      }
-
-      .license-seat-summary {
-        display: grid;
-        gap: var(--app-spacing-3);
-      }
-
-      .license-seat-metrics {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-        gap: var(--app-spacing-2);
-      }
-
-      .license-seat-metric {
-        display: grid;
-        gap: var(--app-spacing-1);
-        min-inline-size: 0;
-        padding: var(--app-spacing-3);
-        border: 1px solid var(--cv-color-border-muted);
-        border-radius: var(--cv-radius-2);
-        background: var(--cv-color-surface-2);
-      }
-
-      .license-seat-label {
-        color: var(--cv-color-text-muted);
-        font-size: var(--cv-font-size-xs);
-      }
-
-      .license-seat-value {
-        color: var(--cv-color-text);
-        font-size: var(--cv-font-size-sm);
-        font-weight: var(--cv-font-weight-semibold);
-      }
-
-      .license-code-row {
-        display: grid;
-        gap: var(--app-spacing-2);
-      }
-
-      .license-code-box {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--app-spacing-2);
-        padding: var(--app-spacing-3);
-        border: 1px solid var(--cv-color-border-muted);
-        border-radius: var(--cv-radius-2);
-        background: var(--cv-color-surface-2);
-      }
-
-      .license-code-value {
-        min-inline-size: 0;
-        flex: 1;
-        color: var(--cv-color-text);
-        font-family: var(--cv-font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-        font-size: var(--cv-font-size-xs);
-        overflow-wrap: anywhere;
-      }
-
-      .license-input {
-        box-sizing: border-box;
-        min-inline-size: min(100%, 280px);
-        max-inline-size: 100%;
-        flex: 1;
-        min-block-size: var(--app-touch-target-min);
-        padding: var(--app-spacing-2) var(--app-spacing-3);
-        border-radius: var(--cv-radius-2);
-        border: 1px solid var(--cv-color-border);
-        background: var(--cv-color-surface-2);
-        color: var(--cv-color-text);
-        font-size: var(--cv-font-size-sm);
-      }
-
       .vault-rekey-card {
         gap: var(--app-spacing-4);
+      }
+
+      .settings-link-list {
+        display: grid;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .settings-link-list > li + li {
+        border-block-start: 1px solid var(--cv-color-border-muted);
+      }
+
+      .settings-link-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: var(--app-spacing-3);
+        align-items: center;
+        min-block-size: var(--app-touch-target-min);
+        margin-inline: calc(var(--app-spacing-3) * -1);
+        padding: var(--app-spacing-3);
+        border-radius: var(--cv-radius-2);
+        color: var(--cv-color-text);
+        text-decoration: none;
+      }
+
+      .settings-link-row:hover {
+        background: var(--cv-color-hover);
+      }
+
+      .settings-link-row:focus-visible {
+        outline: 2px solid var(--cv-color-focus-ring, var(--cv-color-info));
+        outline-offset: 2px;
+      }
+
+      .settings-link-icon {
+        font-size: 18px;
+        color: var(--cv-color-primary);
+      }
+
+      .settings-link-external {
+        font-size: 16px;
+        color: var(--cv-color-text-muted);
+      }
+
+      .settings-link-row:hover .settings-link-external {
+        color: var(--cv-color-text);
       }
 
       @media (max-width: 719px) {
         .settings-row-control,
         .settings-actions,
-        .provider-actions,
-        .license-control-row {
+        .provider-actions {
           align-items: stretch;
         }
 
         .settings-row-control > *,
         .settings-actions > cv-button,
         .provider-actions > cv-button,
-        .license-control-row > cv-button,
-        .license-input,
         .settings-select,
         .settings-text-input {
           inline-size: 100%;
@@ -690,16 +650,6 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
     void this.model.setKeepScreenAwakeWhenUnlocked(checkbox.checked)
   }
 
-  private handleAndroidVaultStatusNotificationChange(event: Event) {
-    const checkbox = event.target as HTMLInputElement
-    void this.model.setAndroidVaultStatusNotificationEnabled(checkbox.checked)
-  }
-
-  private handleAndroidQuickLockTileChange(event: Event) {
-    const checkbox = event.target as HTMLInputElement
-    void this.model.setAndroidQuickLockTileEnabled(checkbox.checked)
-  }
-
   private handleConfirmFileDeletionChange(event: Event) {
     const checkbox = event.target as HTMLInputElement
     void this.model.setConfirmFileDeletion(checkbox.checked)
@@ -731,8 +681,10 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
     void this.model.openCredentialProviderSettings()
   }
 
-  private handleRequestAndroidQuickLockTile() {
-    void this.model.requestAndroidQuickLockTile()
+  private handleLegalDocumentClick(event: Event) {
+    event.preventDefault()
+    const legalDocument = (event.currentTarget as HTMLElement).dataset['legalDocument']
+    if (isLegalDocument(legalDocument)) void this.model.legalDocuments.open(legalDocument)
   }
 
   private handleStartSshAgent() {
@@ -745,25 +697,6 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
 
   private handleCopySshAgentSocketPath() {
     void this.model.copySshAgentSocketPath()
-  }
-
-  private handleActivationCodeInput(event: Event) {
-    this.model.setActivationCodeDraft((event.target as HTMLInputElement).value)
-  }
-
-  private async handleActivateLicense() {
-    await this.model.activateLicense()
-    if (!this.model.activationCodeError()) return
-    await this.updateComplete
-    this.shadowRoot?.querySelector<HTMLInputElement>('.license-input')?.focus()
-  }
-
-  private handleReleaseCurrentSeat() {
-    void this.model.releaseCurrentSeat()
-  }
-
-  private handleOpenLicenseCabinet() {
-    void this.model.openLicenseCabinet()
   }
 
   private handlePasswordImport() {
@@ -855,12 +788,6 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
         visible: true,
       },
       {
-        id: 'settings-license',
-        icon: 'badge-check',
-        label: i18n('settings:license-title'),
-        visible: this.model.supportsExternalPro(),
-      },
-      {
         id: 'settings-session-security',
         icon: 'shield-check',
         label: i18n('settings:session-security'),
@@ -877,6 +804,12 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
         icon: 'key-round',
         label: i18n('settings:provider-nav-title'),
         visible: this.model.showsCredentialProviderSection(),
+      },
+      {
+        id: 'settings-about',
+        icon: 'info',
+        label: i18n('settings:about-title'),
+        visible: true,
       },
     ]
 
@@ -1030,117 +963,7 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
     `
   }
 
-  private renderLicenseSection() {
-    const licenseActive = this.model.licenseActive()
-    const purchaseId = this.model.licensePurchaseIdLabel()
-
-    return html`
-      <section class="settings-section" id="settings-license" aria-labelledby="settings-license-title">
-        ${this.renderSectionHeader('settings-license', 'badge-check', i18n('settings:license-title'))}
-        <div class="settings-list">
-          <div class="settings-row">
-            <div class="settings-row-copy">
-              <span class="provider-status-pill" data-state=${this.model.licenseStatusState()}>
-                <span class="provider-status-dot"></span>
-                ${this.model.licenseStatusLabel()}
-              </span>
-              <p class="settings-description">${this.model.licenseDetailLabel()}</p>
-            </div>
-          </div>
-          ${licenseActive
-            ? html`
-                <div class="settings-subsection license-seat-summary">
-                  <p class="settings-description">${this.model.licenseSeatUsageLabel()}</p>
-                  <div class="license-seat-metrics" aria-label=${i18n('settings:license-seats-title')}>
-                    <div class="license-seat-metric">
-                      <span class="license-seat-label">${i18n('settings:license-seats-used')}</span>
-                      <span class="license-seat-value">${this.model.licenseSeatsUsedLabel()}</span>
-                    </div>
-                    <div class="license-seat-metric">
-                      <span class="license-seat-label">${i18n('settings:license-seats-available')}</span>
-                      <span class="license-seat-value">${this.model.licenseSeatsAvailableLabel()}</span>
-                    </div>
-                  </div>
-                  ${purchaseId
-                    ? html`
-                        <div class="license-code-row">
-                          <span class="license-seat-label">${i18n('settings:purchase-id-label')}</span>
-                          <div class="license-code-box">
-                            <code class="license-code-value">${purchaseId}</code>
-                          </div>
-                          <p class="settings-description">${i18n('settings:purchase-id-help')}</p>
-                        </div>
-                      `
-                    : nothing}
-                  <div class="provider-actions">
-                    <cv-button
-                      variant="secondary"
-                      .loading=${watch(this.model.licenseActivationBusy)}
-                      ?disabled=${watch(this.model.licenseCabinetOpenDisabled)}
-                      @click=${this.handleOpenLicenseCabinet}
-                    >
-                      <cv-icon slot="prefix" name="external-link"></cv-icon>
-                      ${i18n('settings:license-cabinet-open')}
-                    </cv-button>
-                    <cv-button
-                      variant="danger"
-                      .loading=${watch(this.model.licenseSeatBusy)}
-                      ?disabled=${watch(this.model.releaseCurrentSeatDisabled)}
-                      @click=${this.handleReleaseCurrentSeat}
-                    >
-                      ${i18n('settings:license-release-seat')}
-                    </cv-button>
-                  </div>
-                </div>
-              `
-            : html`
-                <div class="license-row">
-                  <div class="settings-row-copy">
-                    <span class="settings-label">${i18n('settings:activation-code-label')}</span>
-                    <p class="settings-description">${i18n('settings:activation-code-help')}</p>
-                  </div>
-                  <div class="license-control-row">
-                    <input
-                      class="license-input"
-                      type="password"
-                      autocomplete="off"
-                      .value=${watch(this.model.activationCodeDraft)}
-                      aria-required="true"
-                      aria-invalid=${this.model.activationCodeError() ? 'true' : 'false'}
-                      aria-describedby=${this.model.licenseActivationErrorLabel()
-                        ? 'settings-license-activation-error'
-                        : nothing}
-                      @input=${this.handleActivationCodeInput}
-                      placeholder=${i18n('settings:activation-code-placeholder')}
-                    />
-                    <cv-button
-                      variant="primary"
-                      .loading=${watch(this.model.licenseActivationBusy)}
-                      ?disabled=${watch(this.model.licenseActivationDisabled)}
-                      @click=${this.handleActivateLicense}
-                    >
-                      ${i18n('settings:license-activate')}
-                    </cv-button>
-                  </div>
-                </div>
-              `}
-          <cv-callout
-            class="route-callout settings-callout"
-            variant="danger"
-            density="dense"
-            role="alert"
-            id="settings-license-activation-error"
-            ?hidden=${watch(this.model.licenseActivationErrorHidden)}
-          >
-            ${this.model.licenseActivationErrorLabel()}
-          </cv-callout>
-        </div>
-      </section>
-    `
-  }
-
   private renderSessionSecuritySection(settings: SessionSettings) {
-    const androidQuickLockTileStatus = this.model.androidQuickLockTileStatus()
 
     return html`
       <section
@@ -1286,58 +1109,6 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
                 </div>
               `
             : nothing}
-          ${this.model.isAndroidRuntime()
-            ? html`
-                <div class="settings-subsection">
-                  <div class="settings-field">
-                    <h3 class="settings-section-title">${i18n('settings:android-quick-lock-title')}</h3>
-                    <p class="settings-description">${i18n('settings:android-quick-lock-description')}</p>
-                  </div>
-                  <div class="settings-row">
-                    <div class="settings-row-copy">
-                      <label class="settings-checkbox-row">
-                        <input
-                          type="checkbox"
-                          .checked=${settings.android_vault_status_notification_enabled}
-                          @change=${this.handleAndroidVaultStatusNotificationChange}
-                        />
-                        <span>${i18n('settings:android-vault-status-notification')}</span>
-                      </label>
-                      <p class="settings-description">
-                        ${i18n('settings:android-vault-status-notification-hint')}
-                      </p>
-                    </div>
-                  </div>
-                  <div class="settings-row">
-                    <div class="settings-row-copy">
-                      <label class="settings-checkbox-row">
-                        <input
-                          type="checkbox"
-                          .checked=${settings.android_quick_lock_tile_enabled}
-                          @change=${this.handleAndroidQuickLockTileChange}
-                        />
-                        <span>${i18n('settings:android-quick-lock-tile')}</span>
-                      </label>
-                      <p class="settings-description">${i18n('settings:android-quick-lock-tile-hint')}</p>
-                      ${settings.android_quick_lock_tile_enabled &&
-                      androidQuickLockTileStatus?.requestSupported
-                        ? html`
-                            <div class="provider-actions">
-                              <cv-button @click=${this.handleRequestAndroidQuickLockTile}>
-                                ${i18n('settings:android-quick-lock-tile-add')}
-                              </cv-button>
-                            </div>
-                          `
-                        : html`
-                            <p class="settings-description">
-                              ${i18n('settings:android-quick-lock-tile-manual-hint')}
-                            </p>
-                          `}
-                    </div>
-                  </div>
-                </div>
-              `
-            : nothing}
         </div>
       </section>
     `
@@ -1441,67 +1212,93 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
     }
 
     const selected = this.model.credentialProviderSelected()
-    const credentialProviderAccess = this.model.credentialProviderAccess()
+    const accessNotice = this.model.credentialProviderAccessNotice()
     const steps = this.model.credentialProviderSteps()
 
     return html`
-      <cv-guidance-anchor anchor-id="settings.mobile-autofill" surface="settings" owner="settings">
-        <section
-          class="settings-section provider-card"
-          id="settings-credential-provider"
-          aria-labelledby="settings-credential-provider-title"
-        >
-          ${this.renderSectionHeader(
-            'settings-credential-provider',
-            'key-round',
-            i18n('settings:provider-title'),
-            html`${this.model.credentialProviderDescription()}
-            ${renderGuidanceInline('settings.mobile-autofill', 'settings')}`,
+      <section
+        class="settings-section provider-card"
+        id="settings-credential-provider"
+        aria-labelledby="settings-credential-provider-title"
+      >
+        ${this.renderSectionHeader(
+          'settings-credential-provider',
+          'key-round',
+          i18n('settings:provider-title'),
+          this.model.credentialProviderDescription(),
+        )}
+
+        <div class="provider-status-row">
+          <span
+            class="provider-status-pill"
+            data-state=${this.model.credentialProviderStatusState()}
+            role="status"
+            aria-atomic="true"
+          >
+            <span class="provider-status-dot" aria-hidden="true"></span>
+            ${this.model.credentialProviderSummary()}
+          </span>
+        </div>
+
+        ${renderMacosCredentialProviderCapabilities(this.model, 'provider-status-pill')}
+
+        <div class="provider-actions">
+          <cv-button
+            variant="primary"
+            ?disabled=${this.model.credentialProviderSettingsActionDisabled()}
+            @click=${this.handleOpenCredentialProviderSettings}
+          >
+            ${this.model.credentialProviderActionLabel()}
+          </cv-button>
+        </div>
+        ${accessNotice
+          ? html`
+              <cv-callout class="route-callout settings-callout" variant="warning" density="dense">
+                ${accessNotice}
+              </cv-callout>
+            `
+          : nothing}
+
+        ${selected === true
+          ? nothing
+          : html`
+              <ol class="provider-steps">
+                <li>${steps[0]}</li>
+                <li>${steps[1]}</li>
+              </ol>
+            `}
+      </section>
+    `
+  }
+
+  private renderAboutSection() {
+    return html`
+      <section class="settings-section" id="settings-about" aria-labelledby="settings-about-title">
+        ${this.renderSectionHeader('settings-about', 'info', i18n('settings:about-title'))}
+        <ul class="settings-link-list">
+          ${this.model.legalDocuments.links().map(
+            (link) => html`
+              <li>
+                <a
+                  class="settings-link-row"
+                  href=${link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-legal-document=${link.document}
+                  @click=${this.handleLegalDocumentClick}
+                >
+                  <cv-icon class="settings-link-icon" name=${link.icon} aria-hidden="true"></cv-icon>
+                  <span class="settings-row-copy">
+                    <span class="settings-label">${link.label}</span>
+                    <span class="settings-description">${i18n('legal:opens-in-browser')}</span>
+                  </span>
+                  <cv-icon class="settings-link-external" name="external-link" aria-hidden="true"></cv-icon>
+                </a>
+              </li>
+            `,
           )}
-
-          <div class="provider-status-row">
-            <span
-              class="provider-status-pill"
-              data-state=${this.model.credentialProviderStatusState()}
-              role="status"
-              aria-atomic="true"
-            >
-              <span class="provider-status-dot" aria-hidden="true"></span>
-              ${this.model.credentialProviderSummary()}
-            </span>
-          </div>
-
-          ${renderMacosCredentialProviderCapabilities(this.model, 'provider-status-pill')}
-
-          <div class="provider-actions">
-            <cv-button
-              variant="primary"
-              ?disabled=${this.model.credentialProviderSettingsActionDisabled()}
-              @click=${this.handleOpenCredentialProviderSettings}
-            >
-              ${this.model.credentialProviderActionLabel()}
-            </cv-button>
-          </div>
-          ${credentialProviderAccess.status !== 'enabled'
-            ? html`
-                <cv-callout class="route-callout settings-callout" variant="warning" density="dense">
-                  ${credentialProviderAccess.status === 'unsupported'
-                    ? i18n('settings:credential-provider-unsupported')
-                    : i18n('settings:credential-provider-license-required')}
-                </cv-callout>
-              `
-            : nothing}
-
-          ${selected === true
-            ? nothing
-            : html`
-                <ol class="provider-steps">
-                  <li>${steps[0]}</li>
-                  <li>${steps[1]}</li>
-                </ol>
-              `}
-        </section>
-      </cv-guidance-anchor>
+        </ul>
+      </section>
     `
   }
 
@@ -1514,10 +1311,8 @@ export class SettingsPageDesktopLayout extends SettingsPageLayoutBase {
           ${this.renderSectionIndex()}
           <div class="settings-content">
             ${this.renderApplicationSection(settings)} ${this.renderPasswordsSection()}
-            ${this.renderPasswordImportDialog()}
-            ${this.model.supportsExternalPro() ? this.renderLicenseSection() : nothing}
-            ${this.renderSessionSecuritySection(settings)} ${this.renderSshAgentSection()}
-            ${this.renderAutofillSection()}
+            ${this.renderPasswordImportDialog()} ${this.renderSessionSecuritySection(settings)}
+            ${this.renderSshAgentSection()} ${this.renderAutofillSection()} ${this.renderAboutSection()}
           </div>
         </div>
       </div>

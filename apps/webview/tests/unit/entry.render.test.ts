@@ -326,7 +326,7 @@ describe('PMEntry', () => {
 
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
-        'plugin:clipboard-manager|write_text',
+        'plugin:clipboard-manager|write_secret',
         expect.objectContaining({text: 'loaded-secret'}),
       )
     })
@@ -1410,7 +1410,7 @@ describe('PMEntry', () => {
       isEditMode: {set: vi.fn()},
     } as unknown as typeof window.passmanager
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_otp_qr_scan: true,
     })

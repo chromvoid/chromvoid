@@ -1,9 +1,8 @@
-import type {ModuleAccessState} from 'root/core/pro/module-access.model'
+import type {ModuleAccessStatus} from 'root/core/modules/module-access.model'
 import {i18n} from 'root/i18n'
 
 export type MacosOneTimeCodeAutofillStatus =
   | 'unsupported_os'
-  | 'locked_pro'
   | 'vault_required'
   | 'provider_disabled'
   | 'extension_not_enabled'
@@ -38,7 +37,7 @@ type MacosOtpStatusInput = {
   nativeStatus: CredentialProviderNativeStatus | null
   selected: boolean | null
   localCoreMode: boolean
-  accessStatus: ModuleAccessState['status']
+  accessStatus: ModuleAccessStatus | null
   vaultOpen: boolean
 }
 
@@ -60,7 +59,6 @@ export function resolveMacosOtpAutofillStatus({
   }
   if (selected === false) return 'extension_not_enabled'
   if (selected === null || !localCoreMode) return 'unverified'
-  if (accessStatus === 'locked_pro') return 'locked_pro'
   if (accessStatus === 'disabled_by_rollout') return 'provider_disabled'
   if (accessStatus !== 'enabled') return 'unverified'
   if (!vaultOpen) return 'vault_required'
@@ -72,7 +70,6 @@ export function macosOtpAutofillStatusState(
 ): 'selected' | 'missing' | 'unknown' {
   if (status === 'ready') return 'selected'
   if (
-    status === 'locked_pro' ||
     status === 'vault_required' ||
     status === 'provider_disabled' ||
     status === 'extension_not_enabled'
@@ -88,8 +85,6 @@ export function macosOtpAutofillStatusLabel(status: MacosOneTimeCodeAutofillStat
       return i18n('settings:provider-otp-ready')
     case 'unsupported_os':
       return i18n('settings:provider-otp-unsupported-os')
-    case 'locked_pro':
-      return i18n('settings:provider-otp-locked-pro')
     case 'vault_required':
       return i18n('settings:provider-otp-vault-required')
     case 'provider_disabled':

@@ -15,6 +15,7 @@ use super::records::{
     AllocatedAddressV1, PreparationRecordV1, SecretPayloadV1, WalletProviderObservationV1,
     WalletTxStatus,
 };
+use super::root::{AccountScheme, TonSigningState, WalletRoot};
 
 #[derive(Debug, Clone)]
 pub struct WalletRuntimeConfig {
@@ -58,12 +59,9 @@ pub struct WalletHdAccountMaterializeInput {
     pub wallet_id: String,
     pub network: WalletNetwork,
     pub account_index: u32,
-    pub wallet_mode: String,
-    pub mnemonic_standard: String,
-    pub mnemonic_entropy: String,
-    pub mnemonic_words: Option<Vec<String>>,
-    pub wordlist: String,
-    pub bip39_passphrase: Option<String>,
+    pub root: WalletRoot,
+    pub ton_signing: Option<TonSigningState>,
+    pub scheme: AccountScheme,
     pub now: u64,
 }
 
@@ -126,7 +124,11 @@ impl WalletBalanceOutput {
 #[derive(Debug, Clone)]
 pub struct WalletHistoryInput {
     pub account: WalletAccountMeta,
+    /// Addresses allocated to accounts on the same network; UTXO profiles scan all of them.
+    pub allocated_addresses: Vec<AllocatedAddressV1>,
     pub limit: u32,
+    /// Timestamp (ms) used for transactions the provider has not yet timestamped (mempool).
+    pub now: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,6 +170,9 @@ pub struct WalletPrepareOutput {
     pub provider_snapshot: Option<Value>,
     pub canonical_payload: String,
     pub materializations: Vec<WalletProfileAccountMaterialization>,
+    /// Chain-imposed validity bound (ms) that is shorter than the generic preparation TTL, e.g.
+    /// the estimated expiry of a Solana recent blockhash. `None` keeps the base TTL.
+    pub valid_until: Option<u64>,
 }
 
 impl fmt::Debug for WalletPrepareOutput {
@@ -177,6 +182,7 @@ impl fmt::Debug for WalletPrepareOutput {
             .field("preview", &self.preview)
             .field("provider_snapshot", &self.provider_snapshot)
             .field("canonical_payload", &"[redacted]")
+            .field("valid_until", &self.valid_until)
             .finish()
     }
 }
@@ -281,6 +287,8 @@ pub struct WalletSubmitOutput {
 pub struct WalletRefreshInput {
     pub account: WalletAccountMeta,
     pub transaction: WalletTransactionEntry,
+    /// `WalletSignedArtifact::submit_metadata` persisted with the broadcast artifact, when any.
+    pub submit_metadata: Option<Value>,
     pub now: u64,
 }
 
@@ -326,6 +334,13 @@ pub trait WalletChainProfile: Send + Sync {
 
     fn is_enabled(&self, config: &WalletRuntimeConfig) -> bool {
         config.wallet_enabled
+    }
+
+    /// Whether a restored HD wallet can backfill this network's used derived accounts through
+    /// `wallet:balance:get { discover_addresses: true }` (account-based profiles) or used
+    /// addresses (UTXO profiles). Restore itself never touches the provider (SPEC-217 FR-016).
+    fn supports_restore_discovery(&self) -> bool {
+        false
     }
 
     fn materialize_hd_account(
@@ -394,4 +409,61 @@ pub trait WalletChainProfile: Send + Sync {
     }
 
     fn refresh(&self, input: WalletRefreshInput) -> Result<WalletRefreshOutput, WalletChainError>;
+
+    /// Reconciles a wallet's signing secret with on-chain state, e.g. promoting a confirmed
+    /// WalletTg key rotation. `Some(payload)` asks the caller to persist the updated secret.
+    fn reconcile_secret(
+        &self,
+        _input: WalletSecretReconcileInput,
+    ) -> Result<Option<SecretPayloadV1>, WalletChainError> {
+        Ok(None)
+    }
+
+    /// Prepares an on-chain signing key rotation. The caller persists `updated_secret`
+    /// before submitting `signed_artifact` through [`Self::submit_signed`].
+    fn rotate_signing_key(
+        &self,
+        _input: WalletKeyRotationInput,
+    ) -> Result<WalletKeyRotationOutput, WalletChainError> {
+        Err(WalletChainError::unsupported_account_model(
+            "signing key rotation is not supported for this network",
+        ))
+    }
+}
+
+pub struct WalletSecretReconcileInput {
+    pub account: WalletAccountMeta,
+    pub secret: SecretPayloadV1,
+    pub now: u64,
+}
+
+pub struct WalletKeyRotationInput {
+    pub account: WalletAccountMeta,
+    pub secret: SecretPayloadV1,
+    pub now: u64,
+}
+
+pub struct WalletKeyRotationOutput {
+    pub updated_secret: SecretPayloadV1,
+    pub signed_artifact: WalletSignedArtifact,
+    pub seqno: u32,
+    pub valid_until: u32,
+    pub new_public_key: String,
+    /// The full recovery phrase after the rotation (anchor half + new signing half).
+    pub mnemonic: Vec<String>,
+}
+
+impl fmt::Debug for WalletKeyRotationOutput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WalletKeyRotationOutput")
+            .field("seqno", &self.seqno)
+            .field("valid_until", &self.valid_until)
+            .field("new_public_key", &self.new_public_key)
+            .field(
+                "mnemonic",
+                &format!("[redacted; {} words]", self.mnemonic.len()),
+            )
+            .finish_non_exhaustive()
+    }
 }

@@ -1,347 +1,143 @@
 // @vitest-environment jsdom
-
 import {afterEach, describe, expect, it, vi} from 'vitest'
-
-import {ImportOrchestrator, type CatalogOperations} from '../mapper.js'
-import type {ExistingEntryInfo, ImportProgress, ImportResult} from '../types.js'
+import {CredentialImportService, type ImportReview} from '../credential-import-service.js'
 import {ImportDialog} from './import-dialog.js'
 import {ImportDialogModel} from './import-dialog.model.js'
+import {setCredentialImportService} from './import-dialog-state.js'
 
-const state = {
-  catalogOps: null as CatalogOperations | null,
-  existingEntriesMap: null as Map<string, ExistingEntryInfo> | null,
+const preview: ImportReview = {
+  revision: 'review',
+  mode: 'merge',
+  entry_count: 3,
+  created_entry_count: 2,
+  updated_entry_count: 1,
+  folder_count: 1,
+  ssh_key_count: 0,
+  warnings: [{code: 'attachments_omitted', count: 2}],
 }
-
-const onePasswordParserMock = vi.hoisted(() => vi.fn())
-
-vi.mock('./import-dialog-state.js', () => {
-  return {
-    getImportCatalogOps: () => state.catalogOps,
-    getExistingEntriesMap: () => state.existingEntriesMap,
-    setImportCatalogOps: (ops: CatalogOperations) => {
-      state.catalogOps = ops
-    },
-    setExistingEntriesMap: (map: Map<string, ExistingEntryInfo>) => {
-      state.existingEntriesMap = map
-    },
-  }
-})
-
-vi.mock('../parsers/1password.js', () => {
-  return {
-    parse1Password1PUX: onePasswordParserMock,
-  }
-})
-
 function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
   })
-  return {promise, resolve, reject}
+  return {promise, resolve}
 }
-
-function createCatalogOps(): CatalogOperations {
-  return {
-    createDir: vi.fn(async () => ({nodeId: 1})),
-    upload: vi.fn(async () => ({nodeId: 1})),
-    setOTPSecret: vi.fn(async () => undefined),
-    deleteNode: vi.fn(async () => undefined),
-    putIcon: vi.fn(async () => ({iconRef: 'icon-ref'})),
-    setGroupIcon: vi.fn(async () => undefined),
-  }
-}
-
-function createImportResult(): ImportResult {
-  return {
-    entries: [{id: 'entry-1', name: 'Entry 1'} as any],
-    folders: [],
-    conflicts: [],
-    warnings: [],
-  }
-}
-
-function createJsonFile(data: unknown, name: string): File {
-  const text = JSON.stringify(data)
-  const file = new File([text], name, {type: 'application/json'})
-  Object.defineProperty(file, 'text', {
-    value: async () => text,
+function harness() {
+  const service = new CredentialImportService(async () => {
+    throw new Error('Unexpected RPC')
   })
-  return file
-}
-
-function create1PuxFile(data: unknown, name = 'vault.1pux'): File {
-  return {
-    name,
-    size: JSON.stringify(data).length,
-    type: 'application/octet-stream',
-    arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(data)).buffer,
-  } as unknown as File
-}
-
-function createProgress(): ImportProgress {
-  return {
-    total: 1,
-    imported: 1,
-    updated: 0,
-    skipped: 0,
-    errors: 0,
-  }
+  const review = vi.spyOn(service, 'review').mockResolvedValue(preview)
+  const commit = vi.spyOn(service, 'commit').mockResolvedValue(undefined)
+  const cancel = vi.spyOn(service, 'cancel').mockResolvedValue(undefined)
+  setCredentialImportService(service)
+  return {model: new ImportDialogModel(), service, review, commit, cancel}
 }
 
 afterEach(() => {
-  document.body.innerHTML = ''
-  state.catalogOps = null
-  state.existingEntriesMap = null
-  onePasswordParserMock.mockReset()
+  document.body.replaceChildren()
+  setCredentialImportService(null)
   vi.restoreAllMocks()
 })
 
 describe('ImportDialogModel', () => {
-  it('keeps instance state isolated', () => {
-    const first = new ImportDialogModel()
-    const second = new ImportDialogModel()
+  it.each(['json', 'csv', '1pux'])(
+    'reviews %s through Core and confirms the authoritative counts once',
+    async (extension) => {
+      const h = harness()
+      await h.model.selectFile(new File(['synthetic'], `export.${extension}`))
+      expect(h.model.step()).toBe('preview')
+      expect(h.model.review()).toEqual(preview)
+      expect(h.model.selectedFile()).toBeNull()
+      expect(h.commit).not.toHaveBeenCalled()
+      const saving = deferred<void>()
+      h.commit.mockReturnValue(saving.promise)
+      const first = h.model.startImport()
+      const second = h.model.startImport()
+      expect(h.commit).toHaveBeenCalledTimes(1)
+      saving.resolve(undefined)
+      const completed = await first
+      await second.catch(() => undefined)
+      expect(completed).toEqual({
+        success: true,
+        progress: {total: 3, imported: 2, updated: 1, skipped: 0, errors: 0},
+      })
+      expect(h.model.step()).toBe('complete')
+      expect(h.model.review()).toBeNull()
+    },
+  )
 
-    first.step.set('preview')
-    first.parseError.set('boom')
-    first.progressState.set({
-      total: 3,
-      imported: 1,
-      updated: 1,
-      skipped: 0,
-      errors: 1,
-    })
-
-    expect(second.step()).toBe('file-select')
-    expect(second.parseError()).toBeNull()
-    expect(second.progressState().total).toBe(0)
-    expect(second.isImporting()).toBe(false)
+  it('accepts an empty KeePass password and allows retry after an incorrect password', async () => {
+    const h = harness()
+    const file = new File(['encrypted'], 'export.kdbx')
+    await h.model.selectFile(file)
+    expect(h.model.step()).toBe('password')
+    expect(h.review).not.toHaveBeenCalled()
+    h.review.mockRejectedValueOnce(new Error('Incorrect database password'))
+    await h.model.decrypt('wrong')
+    expect(h.model.step()).toBe('password')
+    expect(h.model.parseError()).toBe('Incorrect database password')
+    await h.model.decrypt('')
+    expect(h.review.mock.calls[1]?.slice(0, 2)).toEqual([file, ''])
+    expect(h.model.step()).toBe('preview')
+    expect(h.model.parseError()).toBeNull()
   })
 
-  it('dedupes concurrent import starts on the same instance', async () => {
-    const model = new ImportDialogModel()
-    state.catalogOps = createCatalogOps()
-    model.parseResult.set(createImportResult())
-
-    const executeDeferred = deferred<{
-      success: boolean
-      progress: ImportProgress
-      errors: string[]
-    }>()
-    const executeSpy = vi
-      .spyOn(ImportOrchestrator.prototype, 'execute')
-      .mockReturnValue(executeDeferred.promise)
-
-    const first = model.startImport()
-    const second = model.startImport()
-
-    expect(executeSpy).toHaveBeenCalledTimes(1)
-    expect(await second).toBeNull()
-
-    executeDeferred.resolve({
-      success: true,
-      progress: createProgress(),
-      errors: [],
-    })
-
-    await expect(first).resolves.toEqual({
-      success: true,
-      progress: createProgress(),
-    })
-    expect(model.step()).toBe('complete')
-    expect(model.isImporting()).toBe(false)
-    expect(model.importErrors()).toEqual([])
+  it('discards late previews after reset and keeps model instances isolated', async () => {
+    const h = harness(),
+      reply = deferred<ImportReview>()
+    h.review.mockReturnValue(reply.promise)
+    const pending = h.model.selectFile(new File(['synthetic'], 'export.json'))
+    const settled = pending.catch(() => undefined)
+    const reviewSignal = h.review.mock.calls[0]?.[2]
+    h.model.reset()
+    reply.resolve(preview)
+    await settled
+    expect(reviewSignal?.aborted).toBe(true)
+    expect(h.cancel).toHaveBeenCalled()
+    expect(h.model.step()).toBe('file-select')
+    expect(h.model.review()).toBeNull()
+    expect(new ImportDialogModel().review()).toBeNull()
   })
 
-  it('parses and imports a Bitwarden JSON export through the dialog model', async () => {
-    const createDir = vi.fn(async () => ({nodeId: 1}))
-    const upload = vi.fn<CatalogOperations['upload']>(async () => ({nodeId: 1}))
-    const setOTPSecret = vi.fn(async () => undefined)
-    const deleteNode = vi.fn(async () => undefined)
-    const catalogOps: CatalogOperations = {
-      createDir,
-      upload,
-      setOTPSecret,
-      deleteNode,
-    }
-
-    state.catalogOps = catalogOps
-
-    const file = createJsonFile(
-      {
-        encrypted: false,
-        folders: [{id: 'folder-1', name: 'Social'}],
-        collections: [{id: 'collection-1', name: 'work'}],
-        items: [
-          {
-            id: 'item-1',
-            folderId: 'folder-1',
-            collectionIds: ['collection-1'],
-            type: 1,
-            name: 'GitHub',
-            login: {
-              username: 'user@test.com',
-              password: 'secret123',
-              totp: 'JBSWY3DPEHPK3PXP',
-              uris: [{uri: 'https://github.com'}],
-            },
-            notes: 'Imported from Bitwarden',
-            fields: [{name: 'Recovery Key', value: 'abc-def'}],
-          },
-        ],
-      },
-      'bitwarden.json',
-    )
-
-    const model = new ImportDialogModel()
-    await model.selectFile(file)
-
-    expect(model.parseError()).toBeNull()
-    expect(model.step()).toBe('preview')
-    expect(model.parseResult()).toMatchObject({
-      entries: [
-        {
-          id: 'item-1',
-          type: 'login',
-          name: 'GitHub',
-          username: 'user@test.com',
-          password: 'secret123',
-          folder: 'Social',
-          notes: 'Imported from Bitwarden',
-          customFields: [{key: 'Recovery Key', value: 'abc-def'}],
-          otp: {
-            secret: 'JBSWY3DPEHPK3PXP',
-            label: 'GitHub',
-            type: 'TOTP',
-          },
-          tags: ['work'],
-          urls: [{value: 'https://github.com', match: 'base_domain'}],
-        },
-      ],
-      folders: [{id: 'folder-1', name: 'Social', path: 'Social'}],
-    })
-
-    const result = await model.startImport()
-
-    expect(result).toMatchObject({
-      success: true,
-      progress: {
-        total: 1,
-        imported: 1,
-        updated: 0,
-        skipped: 0,
-        errors: 0,
-        currentItem: 'GitHub',
-      },
-    })
-    expect(createDir).toHaveBeenCalledWith('Social', '/')
-    expect(createDir).toHaveBeenCalledWith('GitHub', '/Social')
-    expect(upload).toHaveBeenCalledWith('/Social/GitHub', 'meta.json', expect.any(Number), expect.anything(), expect.any(Number), 'application/json')
-    const metaUploadCall = upload.mock.calls.find((call) => call[1] === 'meta.json')
-    expect(metaUploadCall).toBeTruthy()
-    expect(upload).toHaveBeenCalledWith('/Social/GitHub', '.password', expect.any(Number), expect.anything(), expect.any(Number), 'text/plain')
-    expect(upload).toHaveBeenCalledWith('/Social/GitHub', '.fields.json', expect.any(Number), expect.anything(), expect.any(Number), 'application/json')
-    expect(upload).toHaveBeenCalledWith('/Social/GitHub', '.note', expect.any(Number), expect.anything(), expect.any(Number), 'text/plain')
-    expect(setOTPSecret).toHaveBeenCalledTimes(1)
-    const metaPayload = new TextDecoder().decode((upload as any).mock.calls[0][3])
-    expect(JSON.parse(metaPayload)).toMatchObject({tags: ['work']})
-    expect(deleteNode).not.toHaveBeenCalled()
-    expect(model.step()).toBe('complete')
-    expect(model.importErrors()).toEqual([])
+  it('requires a new review after commit failure and does not claim partial success', async () => {
+    const h = harness()
+    await h.model.selectFile(new File(['synthetic'], 'export.json'))
+    h.commit.mockRejectedValueOnce(new Error('Credentials changed; review again'))
+    const result = await h.model.startImport()
+    expect(result?.success).toBe(false)
+    expect(h.model.importErrors()).toEqual(['Credentials changed; review again'])
+    expect(h.model.progressState().imported).toBe(0)
+    expect(await h.model.startImport()).toBeNull()
+    expect(h.commit).toHaveBeenCalledTimes(1)
   })
 
-  it('parses a 1Password 1PUX export and opens preview', async () => {
-    const model = new ImportDialogModel()
-    onePasswordParserMock.mockResolvedValueOnce({
-      entries: [
-        {
-          id: 'item-1',
-          type: 'login',
-          name: 'GitHub',
-          username: 'user@test.com',
-          password: 'secret123',
-          folder: 'Personal',
-        },
-      ],
-      folders: [{id: 'vault-1', name: 'Personal', path: 'Personal'}],
-      conflicts: [],
-      warnings: [],
-    })
-
-    await model.selectFile(
-      create1PuxFile({
-        accounts: [
-          {
-            vaults: [
-              {
-                attrs: {uuid: 'vault-1', name: 'Personal'},
-                items: [
-                  {
-                    uuid: 'item-1',
-                    categoryUuid: '001',
-                    details: {
-                      loginFields: [
-                        {designation: 'username', value: 'user@test.com'},
-                        {designation: 'password', value: {concealed: 'secret123'}},
-                      ],
-                    },
-                    overview: {title: 'GitHub'},
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      }),
-    )
-
-    expect(model.parseError()).toBeNull()
-    expect(model.step()).toBe('preview')
-    expect(onePasswordParserMock).toHaveBeenCalledTimes(1)
-    expect(model.parseResult()).toMatchObject({
-      entries: [
-        {
-          id: 'item-1',
-          type: 'login',
-          name: 'GitHub',
-          username: 'user@test.com',
-          password: 'secret123',
-          folder: 'Personal',
-        },
-      ],
-      folders: [{id: 'vault-1', name: 'Personal', path: 'Personal'}],
-    })
-  })
-
-  it('reports 1Password 1PIF exports as unsupported format', async () => {
-    const model = new ImportDialogModel()
-
-    await model.selectFile(new File(['{}'], 'vault.1pif', {type: 'application/octet-stream'}))
-
-    expect(model.step()).toBe('file-select')
-    expect(model.parseResult()).toBeNull()
-    expect(model.parseError()).toBe(
-      'Unsupported file format. Please select a .kdbx, .json, .csv, or .1pux file.',
-    )
+  it('explains unsupported old hosts without loading a local parser', async () => {
+    const h = harness()
+    h.review.mockRejectedValueOnce(Object.assign(new Error('Unknown command'), {code: 'UNKNOWN_COMMAND'}))
+    await h.model.selectFile(new File(['synthetic'], 'export.json'))
+    expect(h.model.parseError()).toBe('Update ChromVoid on the connected host to import this file.')
+    expect(h.model.review()).toBeNull()
+    expect(h.commit).not.toHaveBeenCalled()
   })
 })
 
 describe('ImportDialog', () => {
-  it('registers the custom element idempotently', () => {
+  it('registers idempotently and resets the active import when detached', async () => {
+    const h = harness()
     ImportDialog.define()
     expect(() => ImportDialog.define()).not.toThrow()
-    expect(customElements.get('pm-import-dialog')).toBe(ImportDialog)
-  })
-
-  it('does not render import help inside the dialog', async () => {
-    ImportDialog.define()
-    const dialog = document.createElement('pm-import-dialog') as ImportDialog
-
+    const dialog = document.createElement('pm-import-dialog')
     document.body.append(dialog)
-    await dialog.updateComplete
-
-    expect(dialog.shadowRoot?.querySelector('[data-action="import-help"]')).toBeNull()
+    // Exercise the public file-picker event rather than setting private model state.
+    const element = dialog as ImportDialog
+    await element.updateComplete
+    const input = element.shadowRoot?.querySelector<HTMLInputElement>('input[type=file]')
+    expect(input).not.toBeNull()
+    Object.defineProperty(input, 'files', {value: [new File(['synthetic'], 'export.json')]})
+    input?.dispatchEvent(new Event('change'))
+    await vi.waitFor(() => expect(h.review).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(element.shadowRoot?.textContent).toContain('Attachments omitted: 2'))
+    dialog.remove()
+    expect(h.cancel).toHaveBeenCalled()
   })
 })

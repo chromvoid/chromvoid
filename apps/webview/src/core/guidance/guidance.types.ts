@@ -1,5 +1,5 @@
 import type {Routes} from 'root/app/router/router'
-import type {ModuleAccessStatus, ProFeatureKey} from 'root/core/pro/module-access.model'
+import type {ModuleAccessStatus, ModuleKey} from 'root/core/modules/module-access.model'
 import type {RuntimeCapabilityKey} from 'root/core/runtime/runtime-capabilities'
 import type en from 'root/i18n/locales/en.json'
 
@@ -29,12 +29,11 @@ export type GuidanceDefinition = {
   platforms?: readonly GuidancePlatform[]
   capabilityGate?: Partial<Record<RuntimeCapabilityKey, boolean>>
   moduleAccessGate?: {
-    feature: ProFeatureKey
+    feature: ModuleKey
     statuses: readonly ModuleAccessStatus[]
   }
   titleKey: GuidanceI18nKey
   bodyKey: GuidanceI18nKey
-  bodyKeyByModuleAccessStatus?: Partial<Record<ModuleAccessStatus, GuidanceI18nKey>>
   primaryActionKey?: GuidanceI18nKey
   secondaryActionKey?: GuidanceI18nKey
   presentation: GuidancePresentation

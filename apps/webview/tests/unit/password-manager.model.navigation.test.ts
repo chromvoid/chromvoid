@@ -19,10 +19,6 @@ vi.mock('root/shared/services/dialog-service', () => {
 
 import {Entry, Group, ManagerRoot} from '@project/passmanager'
 import {
-  consumeAndroidPasswordSavePrefill,
-  stageAndroidPasswordSavePrefill,
-} from '../../src/features/passmanager/models/android-password-save-prefill'
-import {
   PASSMANAGER_NO_MOTION_INTENT,
   pmMotionModel,
 } from '../../src/features/passmanager/models/pm-motion.model'
@@ -97,7 +93,6 @@ describe('PasswordManagerModel navigation', () => {
     pmModel.cleanup()
     unregisterMotionPresenter?.()
     unregisterMotionPresenter = undefined
-    consumeAndroidPasswordSavePrefill()
   })
 
   it('returns to root after root -> group -> entry back chain', () => {
@@ -315,7 +310,7 @@ describe('PasswordManagerModel navigation', () => {
 
     await pmModel.copyCurrentPassword()
 
-    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'secret'})
+    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_secret', {text: 'secret'})
     expect(toastMock.success).toHaveBeenCalledWith('Password copied', undefined, {
       key: 'passmanager.clipboard.copy',
     })
@@ -332,7 +327,7 @@ describe('PasswordManagerModel navigation', () => {
 
     await pmModel.copyCurrentPassword()
 
-    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'secret'})
+    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_secret', {text: 'secret'})
     expect(toastMock.show).toHaveBeenCalledWith({
       key: 'passmanager.clipboard.copy',
       message: 'Failed to copy password',
@@ -688,28 +683,5 @@ describe('PasswordManagerModel navigation', () => {
 
     expect(root.showElement()).toBe(group)
     expect(pmMotionModel.intent()).toEqual(PASSMANAGER_NO_MOTION_INTENT)
-  })
-
-  it('opens create entry when Android password save prefill is pending during init', () => {
-    originalPassmanager = window.passmanager
-    pmModel.managerSaver = {
-      read: () => ({version: 2, folders: [], entries: [], createdTs: 0, updatedTs: 0}),
-    } as any
-    stageAndroidPasswordSavePrefill({
-      token: 'token-1',
-      title: 'github.com',
-      username: 'alice@example.com',
-      password: 'pw-123',
-      urls: 'https://github.com/login',
-    })
-
-    window.passmanager = undefined as unknown as typeof window.passmanager
-
-    pmModel.init()
-
-    expect(passmanagerNavigationController.readRoute()).toEqual({
-      kind: 'create-entry',
-      targetGroupPath: undefined,
-    })
   })
 })

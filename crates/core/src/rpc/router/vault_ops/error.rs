@@ -112,6 +112,15 @@ impl From<MasterMaterialError> for VaultOpsError {
     }
 }
 
+impl From<crate::rpc::StorageMutationError> for VaultOpsError {
+    fn from(error: crate::rpc::StorageMutationError) -> Self {
+        Self {
+            message: error.to_string(),
+            code: Some(error.code().to_owned()),
+        }
+    }
+}
+
 impl From<RecoveryError> for VaultOpsError {
     fn from(error: RecoveryError) -> Self {
         let (message, code) = error.into_parts();

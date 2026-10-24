@@ -12,9 +12,9 @@
     "./passmanager.css": "./src/passmanager.css",
     "./media.css": "./src/media.css",
     "./welcome.css": "./src/welcome.css",
-    "./splash.css": "./src/splash.css",
     "./webview.css": "./src/webview.css",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./brand.css": "./src/brand.css"
   },
   "scripts": {
     "test": "bun ./scripts/check-exports.mjs"

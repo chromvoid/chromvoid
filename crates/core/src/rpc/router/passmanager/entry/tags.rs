@@ -7,7 +7,7 @@ use icu_properties::{
 use unicode_normalization::UnicodeNormalization;
 
 const CREDENTIAL_TAG_MAX_LENGTH: usize = 32;
-const CREDENTIAL_TAG_MAX_PER_ENTRY: usize = 12;
+pub(in crate::rpc::router::passmanager) const CREDENTIAL_TAG_MAX_PER_ENTRY: usize = 12;
 
 fn normalize_tag_text(value: &str) -> String {
     let normalized = value.nfkc().collect::<String>();
@@ -65,7 +65,7 @@ fn is_final_sigma_context(
     has_cased_before && !has_cased_after
 }
 
-pub(in crate::rpc::router::passmanager::entry) fn normalize_credential_tags(
+pub(in crate::rpc::router::passmanager) fn normalize_credential_tags(
     value: &serde_json::Value,
 ) -> Vec<String> {
     let Some(values) = value.as_array() else {

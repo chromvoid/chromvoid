@@ -1,3 +1,6 @@
+mod catalog;
+mod creation;
+mod exchange;
 mod migration;
 mod service;
 mod store;
@@ -12,12 +15,38 @@ pub(in crate::rpc::router::passmanager) use migration::{
     collect_export_keys, normalize_imported_keys, remove_legacy_metadata, stage_cleanup_nodes,
 };
 pub(in crate::rpc::router::passmanager) use store::{
-    metadata_document_bytes, SSH_METADATA_FILENAME, SSH_ROOT_PATH,
+    load_keys as load_key_metadata, metadata_document_bytes, SSH_METADATA_FILENAME, SSH_ROOT_PATH,
 };
 pub(in crate::rpc::router::passmanager) use types::SshKeyMetadata;
 
 impl RpcRouter {
-    pub(in super::super) fn handle_passmanager_ssh_list(&mut self, _data: &Value) -> RpcResponse {
+    pub(in super::super) fn handle_passmanager_ssh_import(&mut self, data: &Value) -> RpcResponse {
+        self.commit_passmanager_domain_uow("passmanager-ssh-import", |session, storage, uow| {
+            match creation::import(session, storage, uow, data) {
+                Ok(result) => RpcResponse::success(result),
+                Err(error) => error.into_rpc_response(),
+            }
+        })
+    }
+    pub(in super::super) fn handle_passmanager_ssh_export(&self, data: &Value) -> RpcResponse {
+        self.with_session(
+            |session| match exchange::export(session, &self.storage, data) {
+                Ok(result) => RpcResponse::success(result),
+                Err(error) => error.into_rpc_response(),
+            },
+        )
+    }
+
+    pub(in super::super) fn handle_passmanager_ssh_keygen(&mut self, data: &Value) -> RpcResponse {
+        self.commit_passmanager_domain_uow("passmanager-ssh-keygen", |session, storage, uow| {
+            match creation::generate(session, storage, uow, data) {
+                Ok(result) => RpcResponse::success(result),
+                Err(error) => error.into_rpc_response(),
+            }
+        })
+    }
+
+    fn migrate_ssh_catalog(&mut self) -> Option<RpcResponse> {
         let storage = self.storage.clone();
         let needs_migration = self
             .session
@@ -39,7 +68,7 @@ impl RpcRouter {
                 },
             );
             if !migrated.is_ok() {
-                return migrated;
+                return Some(migrated);
             }
 
             if !cleanup_node_ids.is_empty() {
@@ -62,6 +91,34 @@ impl RpcRouter {
             }
         }
 
+        None
+    }
+
+    pub(in super::super) fn handle_passmanager_ssh_page(&mut self, data: &Value) -> RpcResponse {
+        if let Some(error) = self.migrate_ssh_catalog() {
+            return error;
+        }
+        self.with_session(
+            |session| match catalog::page(session, &self.storage, data) {
+                Ok(page) => RpcResponse::success(page),
+                Err(error) => error.into_rpc_response(),
+            },
+        )
+    }
+
+    pub(in super::super) fn handle_passmanager_ssh_edit(&mut self, data: &Value) -> RpcResponse {
+        self.commit_passmanager_domain_uow("passmanager-ssh-edit", |session, storage, uow| {
+            match catalog::edit(session, storage, uow, data) {
+                Ok(key) => RpcResponse::success(key),
+                Err(error) => error.into_rpc_response(),
+            }
+        })
+    }
+
+    pub(in super::super) fn handle_passmanager_ssh_list(&mut self, _data: &Value) -> RpcResponse {
+        if let Some(error) = self.migrate_ssh_catalog() {
+            return error;
+        }
         let storage = self.storage.clone();
         self.with_session(|session| match store::load_keys(session, &storage) {
             Ok(ssh_keys) => RpcResponse::success(serde_json::json!({"sshKeys": ssh_keys})),

@@ -1,0 +1,3 @@
+import AirCredentialProvider
+
+final class CredentialProviderViewController: AirCredentialProviderController {}

@@ -10,8 +10,8 @@ import {
   groupBy,
   sortDirection,
   sortField,
-  SortControls,
-} from '../../src/features/passmanager/components/list/sort-controls'
+} from '../../src/features/passmanager/components/list/sort-controls.model'
+import {SortControls} from '../../src/features/passmanager/components/list/sort-controls'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {PasswordManagerDesktopLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-layout'
 

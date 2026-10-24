@@ -93,7 +93,6 @@ export class RemoteHostsFlowModel {
   readonly mobileHostTransports = this.mobileHost.transports
   readonly mobileHostPageState = this.mobileHost.pageState
   readonly connectedNetworkPeers = this.mobileHost.connectedNetworkPeers
-  readonly connectedUsbPeers = this.mobileHost.connectedUsbPeers
   readonly pairingPin = this.mobileHost.pairingPin
   readonly offer = this.mobileHost.offer
   readonly offerText = this.mobileHost.offerText

@@ -8,7 +8,7 @@ import {
 } from '../../src/features/passmanager/components/env-runtime/env-runtime.model'
 import {PMEnvRuntimePage} from '../../src/features/passmanager/components/env-runtime/env-runtime-page'
 import {PasswordManagerLayoutModel} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.model'
-import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel} from '../../src/core/modules/module-access.model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {setPasswordManagerLang} from '@project/passmanager/i18n'
 import type {
@@ -48,9 +48,7 @@ const CLI_STATUS: ProductCliInstallStatus = {
 }
 
 const DENIAL_STATES = [
-  {status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
   {status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
-  {status: 'entitlement_unavailable', denial_code: 'ENTITLEMENT_UNAVAILABLE'},
   {status: 'unsupported', denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM'},
   {status: 'unsupported', denial_code: 'REMOTE_CORE_UNSUPPORTED'},
 ] as const
@@ -194,6 +192,7 @@ function createHarness(options?: {
   rpcResult?: (command: string, data: Record<string, unknown>) => unknown
   invokeResult?: (command: string, args?: Record<string, unknown>) => unknown
   access?: EnvRuntimeDependencies['access']
+  retryAccess?: EnvRuntimeDependencies['retryAccess']
   now?: () => number
 }) {
   const listeners = new Map<string, (payload: unknown) => void>()
@@ -223,6 +222,7 @@ function createHarness(options?: {
     listen: listen as EnvRuntimeDependencies['listen'],
     confirm,
     access: options?.access ?? (() => ({feature_key: 'env-runtime', status: 'enabled', denial_code: null})),
+    retryAccess: options?.retryAccess ?? (async () => {}),
     now: options?.now ?? (() => 1_000),
   }
   return {model: new EnvRuntimeModel(dependencies), rpc, invoke, confirm, listen, listeners}
@@ -231,6 +231,7 @@ function createHarness(options?: {
 afterEach(() => {
   vi.clearAllTimers()
   vi.useRealTimers()
+  vi.restoreAllMocks()
   moduleAccessModel.reset()
   resetRuntimeCapabilities()
   envRuntimeModel.desktopSnapshot.set(null)
@@ -302,8 +303,22 @@ describe('EnvRuntimeModel', () => {
       }),
     })
 
-    expect(model.accessTitle()).toBe('Env Runtime access is unavailable')
+    expect(model.accessTitle()).toBe('Env Runtime is not available right now')
     expect(model.accessDescription()).toBe('')
+    expect(model.canRetryAccess()).toBe(false)
+  })
+
+  it('stays closed and offers a retry while module access is unknown', async () => {
+    const retryAccess = vi.fn(async () => {})
+    const {model} = createHarness({access: () => null, retryAccess})
+
+    expect(model.privilegedReadiness()).toEqual({ready: false, denial_code: 'MODULE_ACCESS_UNKNOWN'})
+    expect(model.accessTitle()).toBe('Env Runtime is not available right now')
+    expect(model.accessDescription()).toContain('could not confirm whether Env Runtime is available')
+    expect(model.canRetryAccess()).toBe(true)
+
+    await model.retryAccess()
+    expect(retryAccess).toHaveBeenCalledTimes(1)
   })
 
   it('keeps desktop Env Runtime access available without exposing a toolbar menu action', () => {
@@ -311,7 +326,7 @@ describe('EnvRuntimeModel', () => {
     const layoutModel = new PasswordManagerLayoutModel()
 
     for (const access of [{status: 'enabled', denial_code: null}, ...DENIAL_STATES] as const) {
-      moduleAccessModel.rawStates.set([{feature_key: 'env-runtime', ...access}])
+      moduleAccessModel.resolution.set({phase: 'resolved', states: [{feature_key: 'env-runtime', ...access}]})
       expect(layoutModel.getDesktopToolbarContext().showEnvRuntimeView).toBe(true)
       expect(
         layoutModel
@@ -781,7 +796,7 @@ describe('EnvRuntimeModel', () => {
 
   it('keeps invalid form submits enabled and renders row-associated stable controls', async () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([{feature_key: 'env-runtime', status: 'enabled', denial_code: null}])
+    moduleAccessModel.resolution.set({phase: 'resolved', states: [{feature_key: 'env-runtime', status: 'enabled', denial_code: null}]})
     envRuntimeModel.desktopSnapshot.set(EMPTY_SNAPSHOT)
     envRuntimeModel.openCreateProfile()
     envRuntimeModel.setProfileField('slug', 'backend-dev')
@@ -1181,13 +1196,16 @@ describe('EnvRuntimeModel', () => {
 
   it('keeps the plaintext-process warning visible on every run approval', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'enabled',
-        denial_code: null,
-      },
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {
+          feature_key: 'env-runtime',
+          status: 'enabled',
+          denial_code: null,
+        },
+      ],
+    })
     envRuntimeModel.desktopSnapshot.set({
       ...EMPTY_SNAPSHOT,
       status: {...EMPTY_SNAPSHOT.status, pending_approvals: 1},
@@ -1264,13 +1282,16 @@ describe('EnvRuntimeModel', () => {
 
   it('renders a reveal backend failure as an alert with an empty focused retry target', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'enabled',
-        denial_code: null,
-      },
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {
+          feature_key: 'env-runtime',
+          status: 'enabled',
+          denial_code: null,
+        },
+      ],
+    })
     const secret = {id: 'secret-1', label: 'API token', revision: 1, usage_count: 0}
     envRuntimeModel.desktopSnapshot.set(EMPTY_SNAPSHOT)
     envRuntimeModel.secrets.set([secret])
@@ -1295,13 +1316,16 @@ describe('EnvRuntimeModel', () => {
 
   it('renders current and proposed metadata without secret values for profile and preset reviews', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'enabled',
-        denial_code: null,
-      },
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {
+          feature_key: 'env-runtime',
+          status: 'enabled',
+          denial_code: null,
+        },
+      ],
+    })
     envRuntimeModel.profiles.set([PROFILE])
     envRuntimeModel.secrets.set([
       {id: 'secret-1', label: 'API token', revision: 1, usage_count: 1},
@@ -1406,13 +1430,8 @@ describe('EnvRuntimeModel', () => {
 
   it('renders denial states as recovery-only status and runs without privileged surfaces', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'locked_pro',
-        denial_code: 'PRO_REQUIRED',
-      },
-    ])
+    moduleAccessModel.resolution.set({phase: 'failed', error: 'snapshot unavailable'})
+    const refresh = vi.spyOn(moduleAccessModel, 'refresh').mockResolvedValue()
     const recoveryProposal = profileProposal()
     recoveryProposal.metadata.expires_at_epoch_ms = Date.now() + 600_000
     envRuntimeModel.desktopSnapshot.set({
@@ -1446,13 +1465,16 @@ describe('EnvRuntimeModel', () => {
     expect(container.querySelector('.status-band[data-mode="recovery"]')?.textContent).toContain('1')
     expect(container.querySelector('[data-runtime-runs] [data-kind="run"]')?.textContent).toContain('run-1')
     expect(container.querySelector('[data-runtime-runs] cv-button')?.textContent).toContain('Stop')
-    expect(container.textContent).toContain('Manage license')
     expect(container.querySelectorAll('cv-tab[slot="nav"]')).toHaveLength(5)
     expect(container.querySelector('[data-kind="approval"]')).not.toBeNull()
     expect(container.querySelector('[data-kind="proposal"]')).not.toBeNull()
-    expect(
-      container.querySelector('[data-readiness-warning][data-denial-code="PRO_REQUIRED"]'),
-    ).not.toBeNull()
+    const warning = container.querySelector('[data-readiness-warning][data-denial-code="MODULE_ACCESS_UNKNOWN"]')
+    expect(warning).not.toBeNull()
+    const retry = Array.from(warning?.querySelectorAll('cv-button') ?? []).find((button) =>
+      button.textContent?.includes('Try again'),
+    ) as HTMLElement | undefined
+    retry?.click()
+    expect(refresh).toHaveBeenCalledTimes(1)
     expect(container.textContent).not.toContain('Install CLI')
     expect(container.textContent).not.toContain('Pair agent')
     expect(container.textContent).toContain('Environment secrets')
@@ -1479,38 +1501,38 @@ describe('EnvRuntimeModel', () => {
     expect(reviewActions.at(-1)?.disabled).toBe(true)
   })
 
-  it('does not render a license CTA when external Pro is disabled by the distribution', () => {
-    setRuntimeCapabilities({
-      platform: 'ios',
-      mobile: true,
-      supports_external_pro: false,
+  it('does not offer a retry for a module the release has disabled', () => {
+    setRuntimeCapabilities({platform: 'macos', desktop: true})
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'env-runtime', status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
+      ],
     })
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'locked_pro',
-        denial_code: 'PRO_REQUIRED',
-      },
-    ])
 
     const container = document.createElement('div')
     const page = document.createElement('test-env-runtime-page') as EnvRuntimePageHarness
     render(page.renderForTest(), container, {host: page})
 
-    expect(envRuntimeModel.canManageLicense()).toBe(false)
-    expect(container.textContent).not.toContain('Manage license')
-    expect(container.textContent).not.toContain('Pro license required')
+    expect(envRuntimeModel.canRetryAccess()).toBe(false)
+    expect(
+      container.querySelector('[data-readiness-warning][data-denial-code="FEATURE_DISABLED_BY_ROLLOUT"]'),
+    ).not.toBeNull()
+    expect(container.textContent).not.toContain('Try again')
   })
 
   it('explains degraded device-store mode without hiding other Env Runtime sections', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'enabled',
-        denial_code: null,
-      },
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {
+          feature_key: 'env-runtime',
+          status: 'enabled',
+          denial_code: null,
+        },
+      ],
+    })
     envRuntimeModel.desktopSnapshot.set({
       ...EMPTY_SNAPSHOT,
       status: {
@@ -1533,13 +1555,16 @@ describe('EnvRuntimeModel', () => {
 
   it('shows bundled and installed CLI versions with a non-mutating PATH hint', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'enabled',
-        denial_code: null,
-      },
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {
+          feature_key: 'env-runtime',
+          status: 'enabled',
+          denial_code: null,
+        },
+      ],
+    })
     envRuntimeModel.desktopSnapshot.set(EMPTY_SNAPSHOT)
     envRuntimeModel.cliStatus.set({
       ...CLI_STATUS,
@@ -1566,13 +1591,16 @@ describe('EnvRuntimeModel', () => {
   it('keeps Arabic fallback copy natural while preset identifiers remain LTR', () => {
     setPasswordManagerLang('ar')
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'enabled',
-        denial_code: null,
-      },
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {
+          feature_key: 'env-runtime',
+          status: 'enabled',
+          denial_code: null,
+        },
+      ],
+    })
     envRuntimeModel.profiles.set([PROFILE])
     envRuntimeModel.setSection('presets')
     const emptyPreset = {...PRESET, passthrough_env: []}
@@ -1623,13 +1651,16 @@ describe('EnvRuntimeModel', () => {
 
   it('marks natural labels and technical Env Runtime fields at their DOM boundaries', () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'env-runtime',
-        status: 'enabled',
-        denial_code: null,
-      },
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {
+          feature_key: 'env-runtime',
+          status: 'enabled',
+          denial_code: null,
+        },
+      ],
+    })
     envRuntimeModel.desktopSnapshot.set(EMPTY_SNAPSHOT)
     envRuntimeModel.profiles.set([PROFILE])
 

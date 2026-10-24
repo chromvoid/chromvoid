@@ -88,7 +88,7 @@ fn upload_stream_metadata_requires_numeric_size() {
 fn upload_stream_metadata_preserves_optional_offset_default() {
     let metadata = parse_upload_stream_metadata(&serde_json::json!({ "size": 64 }))
         .expect("size-only metadata");
-    assert_eq!(metadata.size, 64);
+    assert_eq!(metadata.end_offset, 64);
     assert_eq!(metadata.offset, 0);
 
     let metadata = parse_upload_stream_metadata(&serde_json::json!({
@@ -96,22 +96,22 @@ fn upload_stream_metadata_preserves_optional_offset_default() {
         "offset": 32
     }))
     .expect("metadata with offset");
-    assert_eq!(metadata.size, 64);
+    assert_eq!(metadata.end_offset, 96);
     assert_eq!(metadata.offset, 32);
 }
 
 #[test]
-fn upload_stream_metadata_rejects_offset_beyond_size() {
+fn upload_stream_metadata_rejects_range_overflow() {
     let response = parse_upload_stream_metadata(&serde_json::json!({
-        "size": 64,
-        "offset": 65
+        "size": 1,
+        "offset": u64::MAX
     }))
-    .expect_err("offset beyond stream size should fail");
+    .expect_err("offset plus payload size must not overflow");
 
     assert_eq!(response.code(), Some("BAD_REQUEST"));
     assert_eq!(
         response.error_message(),
-        Some("upload stream offset exceeds size")
+        Some("upload stream range overflows")
     );
 }
 
@@ -127,7 +127,7 @@ fn upload_stream_chunk_data_preserves_metadata_and_sets_chunk_fields() {
             "offset": 0,
             "finish": true
         }),
-        64,
+        96,
         32,
         128,
         true,
@@ -139,7 +139,7 @@ fn upload_stream_chunk_data_preserves_metadata_and_sets_chunk_fields() {
     assert_eq!(chunk_data["name"], serde_json::json!("note.md"));
     assert_eq!(chunk_data["total_size"], serde_json::json!(128));
     assert_eq!(chunk_data["finish"], serde_json::json!(true));
-    assert_eq!(chunk_data["offset"], serde_json::json!(64));
+    assert_eq!(chunk_data["offset"], serde_json::json!(96));
     assert_eq!(chunk_data["size"], serde_json::json!(32));
 }
 

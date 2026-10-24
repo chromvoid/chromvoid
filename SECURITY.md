@@ -37,15 +37,15 @@ Please include as much of the following as you can safely provide:
 - Proof of concept, screenshots, logs, traces, crash output, or network captures
   with secrets removed.
 - Whether the issue affects vault confidentiality, vault integrity,
-  authentication, authorization, remote transport confidentiality, license or
-  payment integrity, service availability, or user privacy.
+  authentication, authorization, remote transport confidentiality, service
+  availability, or user privacy.
 - Whether you accessed, changed, deleted, or exfiltrated any data, even
   accidentally.
 - Your preferred contact address for follow-up.
 
 Do not send vault passwords, master passwords, private keys, seed phrases, OTP
-seeds, passkeys, decrypted vault contents, payment secrets, recovery material,
-or other live secrets in a report.
+seeds, passkeys, decrypted vault contents, recovery material, or other live
+secrets in a report.
 
 If you accidentally access data that is not yours, stop testing immediately, do
 not copy or share the data, and report the incident.
@@ -58,8 +58,8 @@ In scope:
 - ChromVoid WebView application UI.
 - ChromVoid browser extensions.
 - Rust core, protocol, CLI, FUSE, and platform bridge code.
-- Backend services for licensing, accounts, checkout, payments, pricing, blog,
-  admin, notifications, and landing/public pages.
+- Backend services for landing/public pages, blog, admin, notifications, and
+  the wallet provider proxy.
 - Relay, wake, remote-connectivity, sync-adjacent, and transport-related code.
 - Release, signing, packaging, update, and public-repository sync workflows.
 - Infrastructure configuration that can materially affect ChromVoid production
@@ -84,9 +84,9 @@ ChromVoid-specific impact:
   screen recorders, firmware compromise, or malware outside ChromVoid's control.
 - Weak user-chosen passwords or unsafe backup practices without a ChromVoid
   implementation flaw.
-- Third-party platform, app-store, browser, payment-provider, push-provider,
-  email-provider, hosting-provider, or operating-system issues not caused or
-  materially amplified by ChromVoid.
+- Third-party platform, app-store, browser, push-provider, email-provider,
+  hosting-provider, or operating-system issues not caused or materially
+  amplified by ChromVoid.
 - Denial-of-service, stress, load, resource-exhaustion, or destructive testing.
 
 We still welcome concise reports if you are unsure whether an issue is in scope.
@@ -105,9 +105,8 @@ Do not:
   ChromVoid users, employees, contractors, providers, or third parties.
 - Upload malware, ransomware, credential stealers, persistence tooling, or
   destructive payloads.
-- Bypass licensing, payment, entitlement, or rate-limit controls except to the
-  minimum extent necessary to demonstrate a legitimate vulnerability on assets
-  you control.
+- Bypass rate-limit or abuse-prevention controls except to the minimum extent
+  necessary to demonstrate a legitimate vulnerability on assets you control.
 - Continue testing after we ask you to stop because of operational, legal, or
   user-safety risk.
 - Publish exploit details before coordinated disclosure is complete.

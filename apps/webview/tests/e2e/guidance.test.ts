@@ -9,9 +9,8 @@ declare global {
   var __E2E_PAGE__: Page | undefined
 }
 
-type BlockedStatus = 'unsupported' | 'locked_pro' | 'entitlement_unavailable'
 type GuidanceE2EBridge = {
-  moduleAccessModel: {rawStates: {set: (states: Record<string, unknown>[]) => void}}
+  moduleAccessModel: {resolution: {set: (resolution: Record<string, unknown>) => void}}
   guidanceModel: {
     anchors: {set: (anchors: Record<string, unknown>) => void}
     definitions: {set: (definitions: Record<string, unknown>[]) => void}
@@ -31,12 +30,6 @@ type GuidanceE2EBridge = {
       element: HTMLElement
     }) => void
     unregisterAnchor: (anchorId: string, element?: HTMLElement) => void
-    openBlockedAction: (input: {
-      feature: 'remote'
-      surface: 'remote'
-      anchorId: 'pro.access-state'
-      reason: BlockedStatus
-    }) => void
   }
 }
 
@@ -120,26 +113,16 @@ async function waitForDeepCount(page: Page, selector: string, expectedCount: num
   )
 }
 
-async function clickDeep(page: Page, selector: string) {
-  await page.evaluate((targetSelector) => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (element.shadowRoot) {
-          const inner = deepFind(element.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
+async function waitForGuidanceInput(page: Page) {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+}
 
-    const element = deepFind(document, targetSelector)
-    if (!(element instanceof HTMLElement)) {
-      throw new Error(`Deep selector did not resolve to a clickable element: ${targetSelector}`)
-    }
-    element.click()
-  }, selector)
+// Trusted input lets Playwright wait for visibility, scrolling, and the splash hit target.
+async function clickDeep(page: Page, selector: string) {
+  await waitForGuidanceInput(page)
+  await page.locator(selector).click()
 }
 
 async function waitForDeepText(page: Page, selector: string, expectedText: string) {
@@ -164,8 +147,10 @@ async function waitForDeepText(page: Page, selector: string, expectedText: strin
   )
 }
 
+// Fixture model/DOM changes must yield a frame before evaluate returns: Chromium 149 can
+// collect its result promise while Lit/Reatom updates run in the same microtask checkpoint.
 async function resetGuidanceState(page: Page) {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -181,15 +166,17 @@ async function resetGuidanceState(page: Page) {
     guidanceModel.completedDomainEvents.set(new Set())
     guidanceModel.manualHelpRequest.set(null)
     guidanceModel.blockedActionRequest.set(null)
-    moduleAccessModel.rawStates.set([])
+    moduleAccessModel.resolution.set({phase: 'resolved', states: []})
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
+// Register the fixture anchor, then cross the frame boundary described in resetGuidanceState.
 async function registerGuidanceAnchor(
   page: Page,
   input: {anchorId: string; surface: string; elementId: string; text: string},
 ) {
-  await page.evaluate(({anchorId, surface, elementId, text}) => {
+  await page.evaluate(async ({anchorId, surface, elementId, text}) => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -205,6 +192,10 @@ async function registerGuidanceAnchor(
     anchor.id = elementId
     anchor.dataset['e2eGuidanceAnchor'] = 'true'
     anchor.textContent = text
+    // Native popovers need an onscreen source; the full-height app puts normal body siblings below it.
+    anchor.style.position = 'fixed'
+    anchor.style.insetBlockStart = '24px'
+    anchor.style.insetInlineStart = '24px'
     document.body.append(anchor)
     guidanceModel.registerAnchor({
       anchorId,
@@ -212,12 +203,14 @@ async function registerGuidanceAnchor(
       owner: 'e2e',
       element: anchor,
     })
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, input)
 }
 
+// Model-only guidance setup uses the resetGuidanceState frame boundary.
 async function configureMissingAnchorGuidance(page: Page) {
   await resetGuidanceState(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -238,12 +231,14 @@ async function configureMissingAnchorGuidance(page: Page) {
         version: 1,
       },
     ])
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
+// Model-only guidance setup uses the resetGuidanceState frame boundary.
 async function configureIntrusiveGuidance(page: Page) {
   await resetGuidanceState(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -264,6 +259,7 @@ async function configureIntrusiveGuidance(page: Page) {
         version: 1,
       },
     ])
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await registerGuidanceAnchor(page, {
     anchorId: 'e2e.gateway-pair-extension',
@@ -273,9 +269,10 @@ async function configureIntrusiveGuidance(page: Page) {
   })
 }
 
+// Dismissed/manual state is a fixture; yield after each mutation as in resetGuidanceState.
 async function configureManualHelpGuidance(page: Page) {
   await resetGuidanceState(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -297,6 +294,7 @@ async function configureManualHelpGuidance(page: Page) {
       },
     ])
     guidanceModel.dismiss('e2e.manual-help')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await registerGuidanceAnchor(page, {
     anchorId: 'e2e.manual-help',
@@ -304,17 +302,19 @@ async function configureManualHelpGuidance(page: Page) {
     elementId: 'e2e-manual-help-anchor',
     text: 'manual help anchor',
   })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
     bridge.guidanceModel.openManualHelp('files', 'e2e.manual-help')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
+// Model-only guidance setup uses the resetGuidanceState frame boundary.
 async function configureInlineGuidance(page: Page) {
   await resetGuidanceState(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -333,12 +333,14 @@ async function configureInlineGuidance(page: Page) {
         version: 1,
       },
     ])
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
+// Inserting the test Lit panel needs the resetGuidanceState frame boundary.
 async function renderInlineGuidanceFixture(page: Page, anchorId: string, surface: string) {
   await page.evaluate(
-    ({targetAnchorId, targetSurface}) => {
+    async ({targetAnchorId, targetSurface}) => {
       const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
         .__chromvoidGuidanceE2E
       if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -364,14 +366,16 @@ async function renderInlineGuidanceFixture(page: Page, anchorId: string, surface
       body.textContent = 'Network pairing lets this dashboard unlock or manage a vault hosted on another trusted device.'
       panel.append(title, body)
       host.replaceChildren(panel)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     },
     {targetAnchorId: anchorId, targetSurface: surface},
   )
 }
 
+// Model-only guidance setup uses the resetGuidanceState frame boundary.
 async function configureExplicitBottomSheetGuidance(page: Page) {
   await resetGuidanceState(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -391,12 +395,14 @@ async function configureExplicitBottomSheetGuidance(page: Page) {
         version: 1,
       },
     ])
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
+// Import help state is a fixture; yield after each mutation as in resetGuidanceState.
 async function configurePasswordImportManualHelp(page: Page) {
   await resetGuidanceState(page)
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
@@ -424,6 +430,7 @@ async function configurePasswordImportManualHelp(page: Page) {
         dismissedAt: 1,
       },
     ])
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await registerGuidanceAnchor(page, {
     anchorId: 'passwords.import',
@@ -431,14 +438,16 @@ async function configurePasswordImportManualHelp(page: Page) {
     elementId: 'e2e-passwords-import-anchor',
     text: 'password import manual help anchor',
   })
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
     bridge.guidanceModel.openManualHelp('passwords', 'passwords.import')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
+// Set the import surface directly for this fixture, then yield as in resetGuidanceState.
 async function openPasswordImportDialog(page: Page, layout: 'desktop' | 'mobile') {
   await openApp(page, 'passwords', layout)
   await page.waitForFunction(
@@ -446,10 +455,11 @@ async function openPasswordImportDialog(page: Page, layout: 'desktop' | 'mobile'
     undefined,
     {timeout: 10_000},
   )
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     ;(window as typeof window & {passmanager?: {showElement?: {set: (value: unknown) => void}}}).passmanager?.showElement?.set(
       'importDialog',
     )
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(
     () => (window as typeof window & {passmanager?: {showElement?: () => unknown}}).passmanager?.showElement?.() === 'importDialog',
@@ -457,77 +467,6 @@ async function openPasswordImportDialog(page: Page, layout: 'desktop' | 'mobile'
     {timeout: 10_000},
   )
   await waitForDeepSelector(page, 'pm-import-dialog')
-}
-
-async function openBlockedRemoteGuidance(page: Page, status: BlockedStatus) {
-  await resetGuidanceState(page)
-  await page.evaluate((nextStatus) => {
-    const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
-      .__chromvoidGuidanceE2E
-    if (!bridge) throw new Error('Guidance e2e bridge is not available')
-    const {guidanceModel, moduleAccessModel} = bridge
-
-    const staleAnchor = document.getElementById('e2e-pro-access-anchor')
-    if (staleAnchor instanceof HTMLElement) {
-      guidanceModel.unregisterAnchor('pro.access-state', staleAnchor)
-      staleAnchor.remove()
-    }
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'remote',
-        status: nextStatus,
-        denial_code: nextStatus === 'unsupported' ? 'FEATURE_UNSUPPORTED_ON_PLATFORM' : nextStatus.toUpperCase(),
-      },
-    ])
-    guidanceModel.definitions.set([
-      {
-        id: 'pro.remote.blocked',
-        surface: 'remote',
-        anchorId: 'pro.access-state',
-        trigger: 'blocked_action',
-        presentation: 'popover',
-        titleKey: 'guidance:pro.remote.blocked:title',
-        bodyKey: 'guidance:pro.remote.blocked:body',
-        bodyKeyByModuleAccessStatus: {
-          unsupported: 'guidance:pro.blocked.unsupported:body',
-          locked_pro: 'guidance:pro.blocked.locked-pro:body',
-          entitlement_unavailable: 'guidance:pro.blocked.entitlement-unavailable:body',
-        },
-        moduleAccessGate: {
-          feature: 'remote',
-          statuses: ['unsupported', 'entitlement_unavailable', 'locked_pro'],
-        },
-        primaryActionKey: 'guidance:actions:open-help',
-        completion: {kind: 'manual_ack'},
-        priority: 999,
-        owner: 'e2e',
-        version: 1,
-      },
-    ])
-    const anchor = document.createElement('button')
-    anchor.id = 'e2e-pro-access-anchor'
-    anchor.dataset['e2eGuidanceAnchor'] = 'true'
-    anchor.textContent = `${nextStatus} remote help`
-    anchor.addEventListener('click', () => {
-      guidanceModel.openBlockedAction({
-        surface: 'remote',
-        anchorId: 'pro.access-state',
-        feature: 'remote',
-        reason: nextStatus,
-      })
-    })
-    document.body.append(anchor)
-    guidanceModel.registerAnchor({
-      anchorId: 'pro.access-state',
-      surface: 'remote',
-      owner: 'e2e',
-      element: anchor,
-    })
-  }, status)
-
-  await waitForDeepCount(page, 'cv-popover[open]', 0)
-  await clickDeep(page, '#e2e-pro-access-anchor')
-  await waitForDeepSelector(page, 'cv-popover[open]')
 }
 
 test('guidance renders intrusive guidance as a desktop popover', async () => {
@@ -627,14 +566,14 @@ test('manual help can show a dismissed guidance item', async () => {
   await clickDeep(page, 'button[data-guidance-action="primary"]')
   await waitForDeepCount(page, 'cv-popover[open]', 0)
 
-  await page.evaluate(() => {
-    const anchor = document.getElementById('e2e-manual-help-anchor')
-    if (!(anchor instanceof HTMLElement)) throw new Error('Manual help anchor is missing')
-    anchor.focus()
+  // Focus the fixture button with input; manual help still needs its model-only setup and frame.
+  await clickDeep(page, '#e2e-manual-help-anchor')
+  await page.evaluate(async () => {
     const bridge = (window as typeof window & {__chromvoidGuidanceE2E?: GuidanceE2EBridge})
       .__chromvoidGuidanceE2E
     if (!bridge) throw new Error('Guidance e2e bridge is not available')
     bridge.guidanceModel.openManualHelp('files', 'e2e.manual-help')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await waitForDeepSelector(page, 'cv-popover[open]')
   await clickDeep(page, 'button[data-guidance-action="close"]')
@@ -643,31 +582,6 @@ test('manual help can show a dismissed guidance item', async () => {
   expect(
     await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.id : null)),
   ).toBe('e2e-manual-help-anchor')
-})
-
-test('blocked Pro surface copy differs by denial status', async () => {
-  const page = globalThis.__E2E_PAGE__!
-  await page.setViewportSize({width: 1200, height: 820})
-  await openApp(page, 'files')
-  await waitForDeepSelector(page, 'app-guidance-host')
-
-  const texts: string[] = []
-  for (const {status, expected} of [
-    {status: 'unsupported', expected: 'platform does not support'},
-    {status: 'locked_pro', expected: 'Activate a Pro license'},
-    {status: 'entitlement_unavailable', expected: 'could not read the active Core license state'},
-  ] as const) {
-    await openBlockedRemoteGuidance(page, status)
-    await waitForDeepText(page, 'cv-guidance-panel', expected)
-    const text = await queryDeepText(page, 'cv-guidance-panel')
-    expect(text).toBeTruthy()
-    texts.push(text!)
-  }
-
-  expect(new Set(texts).size).toBe(3)
-  expect(texts[0]).toContain('platform does not support')
-  expect(texts[1]).toContain('Activate a Pro license')
-  expect(texts[2]).toContain('could not read the active Core license state')
 })
 
 test('password import dialog has no temporary help button but manual import guidance still renders', async () => {

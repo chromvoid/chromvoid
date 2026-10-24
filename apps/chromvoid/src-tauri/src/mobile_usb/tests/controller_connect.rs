@@ -279,6 +279,202 @@ async fn mobile_usb_controller_disconnect_stops_active_data_plane() {
     assert_eq!(starter.stop_count(), 1);
 }
 
+#[cfg(desktop)]
+mod mode_switch {
+    use super::*;
+    use crate::commands::mode_cmds::prepare_mode_switch;
+    use crate::core_adapter::{CoreAdapter, CoreMode, RemoteCoreAdapter, RemoteHost};
+    use crate::core_rpc_dispatcher::CoreRpcDispatcher;
+    use crate::remote_data_plane::RemoteIoRequest;
+    use crate::remote_io_runtime::RemoteIoRuntimeState;
+    use std::time::Duration;
+    use tokio::sync::mpsc;
+
+    struct SessionStarter {
+        fake: FakeSessionStarter,
+        runtime: RemoteIoRuntimeState,
+        requests: Mutex<Option<mpsc::Sender<RemoteIoRequest>>>,
+        commands: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Default for SessionStarter {
+        fn default() -> Self {
+            Self {
+                fake: FakeSessionStarter::default(),
+                runtime: RemoteIoRuntimeState::new(),
+                requests: Mutex::new(None),
+                commands: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MobileUsbSessionStarter for SessionStarter {
+        async fn start_session(
+            &self,
+            request: MobileUsbStartSessionRequest,
+        ) -> Result<MobileUsbSessionHandle, MobileUsbError> {
+            let session = self.fake.start_session(request).await?;
+            let (requests, mut receiver) = mpsc::channel::<RemoteIoRequest>(1);
+            let commands = self.commands.clone();
+            let task = tokio::spawn(async move {
+                while let Some(request) = receiver.recv().await {
+                    let disconnected = request.request.command == "mobile_usb:session_disconnect";
+                    commands
+                        .lock()
+                        .expect("commands")
+                        .push(request.request.command);
+                    let _ = request.reply_tx.send(RpcReply::Json(RpcResponse::success(
+                        serde_json::Value::Null,
+                    )));
+                    if disconnected {
+                        break;
+                    }
+                }
+            });
+            self.runtime
+                .store_test_mobile_usb_session(requests.clone(), task)
+                .expect("mobile USB data plane");
+            *self.requests.lock().expect("requests") = Some(requests);
+            Ok(session)
+        }
+
+        async fn disconnect_user(&self) -> Result<(), MobileUsbError> {
+            self.runtime
+                .disconnect_active_mobile_usb(
+                    Duration::from_millis(250),
+                    Duration::from_millis(250),
+                )
+                .await
+                .expect("graceful mobile USB disconnect");
+            self.fake.disconnect_user().await
+        }
+
+        fn disconnect_terminal(&self) -> Result<(), MobileUsbError> {
+            self.runtime
+                .stop_active(crate::remote_io_runtime::RemoteIoStopReason::Test)
+                .expect("stop mobile USB data plane");
+            self.fake.disconnect_terminal()
+        }
+    }
+
+    #[tokio::test]
+    async fn mobile_usb_mode_switch_disconnects_controller_and_reconnects_same_host() {
+        let dispatcher = CoreRpcDispatcher::try_new().expect("core RPC dispatcher");
+        for (approved, unlocked) in [(false, true), (true, true), (false, false), (true, false)] {
+            let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
+            let store = Arc::new(InMemoryMobileUsbPairingStore::default());
+            let secrets = Arc::new(InMemoryMobileUsbSecretStore::default());
+            let client_keys = noise_keypair();
+            let key_ref = secrets
+                .save_client_key(&"host-1".to_string(), &client_keys.private)
+                .expect("save client key");
+            store
+                .commit_pairing(record("host-1", &key_ref, bridge.host_public_key()))
+                .expect("paired record");
+            let starter = Arc::new(SessionStarter::default());
+            starter.fake.set_host_unlocked(unlocked);
+            let controller =
+                MobileUsbController::new(bridge.clone(), store, secrets, starter.clone());
+            controller
+                .connect("host-1".to_string())
+                .await
+                .expect("first connect");
+            if approved {
+                let status = controller
+                    .handle_session_event(MobileUsbSessionEvent::HostUnlockConfirmed {
+                        session_id: "session-1".to_string(),
+                    })
+                    .expect("approve first session");
+                assert_eq!(
+                    status.session_state,
+                    MobileUsbSessionState::RemoteDashboardOpen
+                );
+            }
+
+            let mut remote = RemoteCoreAdapter::from_remote_sender(
+                RemoteHost::MobileUsb {
+                    host_id: "host-1".to_string(),
+                    label: Some("Pixel".to_string()),
+                    platform: "android".to_string(),
+                },
+                starter
+                    .requests
+                    .lock()
+                    .expect("requests")
+                    .clone()
+                    .expect("active mobile USB data plane"),
+            );
+            if approved {
+                remote.mark_mobile_usb_session_approved();
+            }
+            remote.apply_startup_state(Vec::new(), unlocked);
+            let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> = Arc::new(Mutex::new(Box::new(remote)));
+
+            let (previous_mode, was_unlocked, auto_locked) = prepare_mode_switch(
+                dispatcher.clone(),
+                adapter.clone(),
+                &controller,
+                "local".to_string(),
+            )
+            .await
+            .expect("switch USB remote to local");
+
+            assert!(matches!(
+                previous_mode,
+                CoreMode::Remote {
+                    host: RemoteHost::MobileUsb { .. }
+                }
+            ));
+            assert_eq!(was_unlocked, unlocked);
+            assert!(!auto_locked);
+            assert_eq!(adapter.lock().expect("adapter").is_unlocked(), unlocked);
+            assert_eq!(
+                *starter.commands.lock().expect("commands"),
+                vec!["mobile_usb:session_disconnect"]
+            );
+            assert_eq!(starter.fake.stop_count(), 1);
+            let status = controller.status().expect("disconnected status");
+            assert_eq!(status.session_state, MobileUsbSessionState::Disconnected);
+            assert!(status.active_host.is_none());
+            assert!(status.selected_transport.is_none());
+            let scanned = controller.scan().await.expect("scan after mode switch");
+            assert_eq!(scanned.len(), 1);
+            assert_eq!(bridge.scan_count(), 1);
+
+            let reconnected = controller
+                .connect("host-1".to_string())
+                .await
+                .expect("reconnect same host");
+            assert_eq!(
+                reconnected.active_host.expect("reconnected host").host_id,
+                "host-1"
+            );
+            assert_eq!(
+                reconnected.selected_transport,
+                Some(TransportType::UsbMobile)
+            );
+            assert_eq!(bridge.connect_open_count(), 2);
+            assert_eq!(starter.fake.start_count(), 2);
+            let new_session = controller
+                .handle_session_event(MobileUsbSessionEvent::HostUnlockConfirmed {
+                    session_id: "session-2".to_string(),
+                })
+                .expect("reconnect established a new session");
+            assert_eq!(
+                new_session.session_state,
+                MobileUsbSessionState::RemoteDashboardOpen
+            );
+            controller
+                .disconnect_terminal()
+                .expect("reconnected session cleanup");
+        }
+        dispatcher
+            .shutdown_with_timeout(Duration::from_secs(1))
+            .expect("dispatcher shutdown");
+    }
+}
+
 #[tokio::test]
 async fn mobile_usb_controller_repeats_ten_connect_disconnect_cycles_without_forgetting_pairing() {
     let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
@@ -618,7 +814,7 @@ async fn mobile_usb_controller_connect_persistent_ik_msg2_stale_stream_keeps_sta
 }
 
 #[tokio::test]
-async fn mobile_usb_controller_connect_ik_msg2_timeout_is_not_tauri_invoke_timeout() {
+async fn mobile_usb_controller_connect_all_ik_timeouts_offer_optional_repair_and_keep_pairing() {
     let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
     bridge.set_connect_no_response(true);
     let store = Arc::new(InMemoryMobileUsbPairingStore::default());
@@ -631,7 +827,12 @@ async fn mobile_usb_controller_connect_ik_msg2_timeout_is_not_tauri_invoke_timeo
         .commit_pairing(record("host-1", &key_ref, bridge.host_public_key()))
         .expect("paired record");
     let starter = Arc::new(FakeSessionStarter::default());
-    let controller = MobileUsbController::new(bridge.clone(), store, secrets, starter.clone());
+    let controller = MobileUsbController::new(
+        bridge.clone(),
+        store.clone(),
+        secrets.clone(),
+        starter.clone(),
+    );
 
     let error = controller
         .connect("host-1".to_string())
@@ -639,12 +840,88 @@ async fn mobile_usb_controller_connect_ik_msg2_timeout_is_not_tauri_invoke_timeo
         .expect_err("IK msg2 timeout");
     let status = controller.status().expect("status");
 
-    assert_eq!(error.code, MobileUsbErrorCode::HandshakeFailed);
+    assert_eq!(error.code, MobileUsbErrorCode::PhoneNotResponding);
+    assert_eq!(
+        error.code.recovery_action(),
+        MobileUsbRecoveryAction::RetryOrRepair
+    );
     assert!(error.message.contains("IK handshake timed out"));
+    assert_eq!(
+        status.error_code,
+        Some(MobileUsbErrorCode::PhoneNotResponding)
+    );
+    assert_eq!(status.session_state, MobileUsbSessionState::Error);
     assert!(!status.fallback_allowed);
     assert_eq!(bridge.connect_open_count(), 3);
     assert_eq!(bridge.pair_open_count(), 0);
     assert_eq!(starter.start_count(), 0);
+    assert!(store
+        .get(&"host-1".to_string())
+        .expect("record lookup")
+        .is_some());
+    assert_eq!(
+        secrets.load_client_key(&key_ref).expect("retained key"),
+        client_keys.private
+    );
+    assert!(secrets.delete_attempts().is_empty());
+}
+
+#[tokio::test]
+async fn mobile_usb_controller_connect_mixed_failures_keep_generic_handshake_timeout() {
+    let cases: [(&str, fn(&FakeMobileUsbBridge, bool)); 5] = [
+        (
+            "no accessory",
+            FakeMobileUsbBridge::set_connect_no_accessory_once,
+        ),
+        (
+            "write timeout",
+            FakeMobileUsbBridge::set_connect_first_write_timeout_once,
+        ),
+        (
+            "endpoint error",
+            FakeMobileUsbBridge::set_connect_first_write_android_endpoint_error_once,
+        ),
+        (
+            "invalid record",
+            FakeMobileUsbBridge::set_connect_bad_record_len_once,
+        ),
+        (
+            "invalid msg2",
+            FakeMobileUsbBridge::set_connect_invalid_msg2_once,
+        ),
+    ];
+
+    for (case, configure) in cases {
+        let bridge = Arc::new(FakeMobileUsbBridge::new(vec![scan_result()]));
+        configure(&bridge, true);
+        bridge.set_connect_no_response(true);
+        let store = Arc::new(InMemoryMobileUsbPairingStore::default());
+        let secrets = Arc::new(InMemoryMobileUsbSecretStore::default());
+        let client_keys = noise_keypair();
+        let key_ref = secrets
+            .save_client_key(&"host-1".to_string(), &client_keys.private)
+            .expect("save client key");
+        store
+            .commit_pairing(record("host-1", &key_ref, bridge.host_public_key()))
+            .expect("paired record");
+        let starter = Arc::new(FakeSessionStarter::default());
+        let controller = MobileUsbController::new(bridge.clone(), store, secrets, starter.clone());
+
+        let error = controller
+            .connect("host-1".to_string())
+            .await
+            .expect_err(case);
+
+        assert_eq!(error.code, MobileUsbErrorCode::HandshakeFailed, "{case}");
+        assert_eq!(
+            error.code.recovery_action(),
+            MobileUsbRecoveryAction::ManualRetry,
+            "{case}"
+        );
+        assert_eq!(bridge.connect_open_count(), 3, "{case}");
+        assert_eq!(bridge.pair_open_count(), 0, "{case}");
+        assert_eq!(starter.start_count(), 0, "{case}");
+    }
 }
 
 #[tokio::test]

@@ -39,6 +39,8 @@ export interface RemotePageRenderContext {
   remoteHostsUi?: RemoteHostsFlowPanelUI
   desktopUsbSession: () => DesktopUsbRemoteSessionPresentation | null
   onReconnectUsb: () => void
+  onRetryUsb: () => void
+  onForgetUsb: () => void
   // Sync context (Task 13)
   syncSnapshot: () => SyncSnapshot
   formatLastSyncTime: (ms: number) => string
@@ -373,6 +375,9 @@ export const renderRemotePage = (ctx: RemotePageRenderContext): TemplateResult =
             formatLastSyncTime: ctx.formatLastSyncTime,
             onRequestWriteLock: ctx.onRequestWriteLock,
             onReconnectUsb: ctx.onReconnectUsb,
+            onRetryUsb: ctx.onRetryUsb,
+            onForgetUsb: ctx.onForgetUsb,
+            actionBusy: ctx.remoteHostsModel.connectionOperationBusy(),
             onUseLocal: ctx.onSwitchToLocal,
           })}
         </div>

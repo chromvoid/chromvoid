@@ -1,30 +1,40 @@
 use super::super::{entry, path};
-use super::secret_export;
+use super::{error::RootExportError, secret_export};
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 use serde_json::{Map, Value};
 
-pub(super) fn collect_exported_entries(session: &VaultSession, storage: &Storage) -> Vec<Value> {
+pub(super) fn collect_exported_entries(
+    session: &VaultSession,
+    storage: &Storage,
+) -> Result<Vec<Value>, RootExportError> {
     let Some(pm_root) = session.catalog().find_by_path("/.passmanager") else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
 
     let mut node_ids = Vec::<u64>::new();
     entry::collect_entry_dir_ids_with_meta(pm_root, &mut node_ids);
     node_ids
         .into_iter()
-        .filter_map(|node_id| export_entry(session, storage, node_id))
+        .map(|node_id| export_entry(session, storage, node_id))
         .collect()
 }
 
-fn export_entry(session: &VaultSession, storage: &Storage, node_id: u64) -> Option<Value> {
-    let mut meta = entry::read_entry_meta_json(session, storage, node_id)?;
-    let meta_obj = meta.as_object_mut()?;
+fn export_entry(
+    session: &VaultSession,
+    storage: &Storage,
+    node_id: u64,
+) -> Result<Value, RootExportError> {
+    let mut meta = entry::read_entry_meta_json(session, storage, node_id)
+        .ok_or_else(|| RootExportError::internal("Could not read credential metadata"))?;
+    let meta_obj = meta
+        .as_object_mut()
+        .ok_or_else(|| RootExportError::internal("Invalid credential metadata"))?;
     super::super::ssh::remove_legacy_metadata(meta_obj);
     let path = session
         .catalog()
         .get_path(node_id)
-        .unwrap_or_else(|| "/.passmanager".to_string());
+        .ok_or_else(|| RootExportError::internal("Could not resolve credential path"))?;
     let group_path = path::group_path_from_entry_path(&path);
     let entry_type = meta_obj
         .get("entry_type")
@@ -34,11 +44,11 @@ fn export_entry(session: &VaultSession, storage: &Storage, node_id: u64) -> Opti
         .to_string();
 
     normalize_entry_paths(meta_obj, &entry_type, &group_path);
-    secret_export::attach_entry_secrets(meta_obj, session, storage, node_id, &entry_type);
+    secret_export::attach_entry_secrets(meta_obj, session, storage, node_id, &entry_type)?;
     normalize_optional_aliases(meta_obj);
     entry::normalize_entry_tags(meta_obj);
 
-    Some(meta)
+    Ok(meta)
 }
 
 fn normalize_entry_paths(meta_obj: &mut Map<String, Value>, entry_type: &str, group_path: &str) {

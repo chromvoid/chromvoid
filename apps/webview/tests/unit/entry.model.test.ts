@@ -522,7 +522,7 @@ describe('PMEntryModel actions', () => {
       await model.actions.copyPassword(entry)
 
       expect(invoke).toHaveBeenCalledWith(
-        'plugin:clipboard-manager|write_text',
+        'plugin:clipboard-manager|write_secret',
         expect.objectContaining({text: 'cached-secret'}),
       )
       expect(entry.password).not.toHaveBeenCalled()

@@ -16,8 +16,6 @@ export type SessionSettings = {
   auto_mount_after_unlock: boolean
   auto_start_ssh_agent_after_unlock: boolean
   keep_screen_awake_when_unlocked: boolean
-  android_vault_status_notification_enabled: boolean
-  android_quick_lock_tile_enabled: boolean
   confirm_file_deletion: boolean
   show_hidden_files: boolean
   markdown_attachment_folder_path: string
@@ -31,8 +29,6 @@ export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
   auto_mount_after_unlock: false,
   auto_start_ssh_agent_after_unlock: false,
   keep_screen_awake_when_unlocked: false,
-  android_vault_status_notification_enabled: true,
-  android_quick_lock_tile_enabled: true,
   confirm_file_deletion: true,
   show_hidden_files: false,
   markdown_attachment_folder_path: '/attachments',

@@ -10,10 +10,6 @@ import {
 } from 'root/core/runtime/runtime-media-probes'
 import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
 import {
-  notifyAndroidNativeVideoLifecycleEnd,
-  notifyAndroidNativeVideoLifecycleStart,
-} from 'root/features/media/models/android-native-video-lifecycle'
-import {
   isPlayableAudioMediaFile,
   isPlayableVideoMediaFile,
   isVideoFile,
@@ -118,11 +114,6 @@ export type FileBlobLoadOptions = {
   displayJobPriority?: number
   displayJobIntentId?: string
   materializationPriority?: number
-  /**
-   * Deprecated no-op kept for older call sites while Android video migrates to
-   * generic video-source/native-video delivery.
-   */
-  allowAndroidNativeVideo?: boolean
   mediaInfo?: FileMediaInfo | null
 }
 
@@ -145,7 +136,7 @@ export type VideoSourceAttemptDebug = {
 }
 
 export const MAX_MEDIA_BLOB_FALLBACK_BYTES = 64 * 1024 * 1024
-export const MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES = 8 * 1024 * 1024
+export const MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES = 8 * 1024 * 1024
 const MAX_BLOB_CACHE = 20
 const MAX_BLOB_CACHE_BYTES = 48 * 1024 * 1024
 const MAX_SINGLE_BLOB_CACHE_BYTES = 8 * 1024 * 1024
@@ -479,8 +470,7 @@ function mediaFormatInput(
 }
 
 function targetVideoPlatform(): boolean {
-  const platform = getRuntimeCapabilities().platform
-  return platform === 'android' || platform === 'macos'
+  return getRuntimeCapabilities().platform === 'macos'
 }
 
 function isTargetRawVideoRequest(
@@ -519,22 +509,6 @@ function isPlayableRawMediaFile(
   return isPlayableVideoMediaFile(input) || isPlayableAudioMediaFile(input)
 }
 
-function getMediaBlobFallbackLimitBytes(
-  fileName: string,
-  mimeType: string,
-  mediaInfo?: FileMediaInfo | null,
-): number {
-  const capabilities = getRuntimeCapabilities()
-  if (
-    capabilities.platform === 'android' &&
-    capabilities.mobile &&
-    isPlayableAudioMediaFile(mediaFormatInput(fileName, mimeType, mediaInfo))
-  ) {
-    return MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES
-  }
-
-  return MAX_MEDIA_BLOB_FALLBACK_BYTES
-}
 
 function assertMediaBlobFallbackAllowed(
   fileId: number,
@@ -609,7 +583,7 @@ function assertMediaBlobFallbackAllowed(
     return
   }
 
-  const fallbackLimitBytes = getMediaBlobFallbackLimitBytes(fileName, mimeType, options?.mediaInfo)
+  const fallbackLimitBytes = MAX_MEDIA_BLOB_FALLBACK_BYTES
   const sourceSize = getAuthoritativeSourceSize(fileId, options)
   if (runtimeModeModel.remoteCoreMode()) {
     logVideoSourceAttempt(
@@ -965,13 +939,7 @@ function trackVideoSource(
       transportSessionGeneration: source.transportSessionGeneration ?? null,
       size: source.size,
     })
-    try {
-      await releaseMediaSource?.(source)
-    } finally {
-      if (delivery.delivery === 'native-video') {
-        notifyAndroidNativeVideoLifecycleEnd()
-      }
-    }
+    await releaseMediaSource?.(source)
   }
 }
 
@@ -1335,7 +1303,7 @@ async function loadFileBlobForSourceFallback(
   throwIfAborted(options?.signal)
   assertMediaBlobFallbackAllowed(fileId, fileName, mimeType, variant, options, ws.kind)
   const mediaFallbackLimitBytes = isPlayableRawMediaFile(fileName, mimeType, options?.mediaInfo)
-    ? getMediaBlobFallbackLimitBytes(fileName, mimeType, options?.mediaInfo)
+    ? MAX_MEDIA_BLOB_FALLBACK_BYTES
     : null
   const downloadStartedAt = getImageGalleryDebugTime()
   logImageGalleryDebug('file-loader', 'raw-download.start', {
@@ -1483,35 +1451,16 @@ export async function loadFileSourceById(
   if (prepareMediaSource) {
     const releaseMediaSource = ws.releaseMediaSource?.bind(ws)
     const videoSourceStartedAt = getImageGalleryDebugTime()
-    let sourceAttachedToLifecycle = false
-    let nativeLifecycleStarted = false
-    const expectsNativeDelivery =
-      getRuntimeCapabilities().platform === 'android' &&
-      getRuntimeCapabilities().mobile &&
-      runtimeModeModel.canUseNativeVideoPlayback({transportKind: ws.kind})
-    const shouldProbeBrowserDecode = !expectsNativeDelivery
-    const startNativeLifecycle = () => {
-      if (expectsNativeDelivery && !nativeLifecycleStarted) {
-        nativeLifecycleStarted = true
-        notifyAndroidNativeVideoLifecycleStart()
-      }
-    }
     try {
       throwIfAborted(options?.signal)
-      // MediaCapabilities describes the WebView decoder, not the platform
-      // native decoder. It may reject a source (notably QuickTime on Android)
-      // that Media3 can play, so it only gates browser-backed deliveries.
-      const immediateDecodeSupport = shouldProbeBrowserDecode
-        ? peekVideoDecodeSupport({
-            mimeType,
-            mediaInfo: options?.mediaInfo,
-          })
-        : null
+      const immediateDecodeSupport = peekVideoDecodeSupport({
+        mimeType,
+        mediaInfo: options?.mediaInfo,
+      })
       if (immediateDecodeSupport) {
         throwIfVideoDecodeUnsupported(fileId, fileName, mimeType, immediateDecodeSupport, options)
       }
       assertVideoSourceRuntimeProbeSupport(fileId, fileName, mimeType, options)
-      startNativeLifecycle()
       logVideoSourceAttempt(
         fileId,
         fileName,
@@ -1540,7 +1489,7 @@ export async function loadFileSourceById(
         mimeType,
         lastModified: options?.lastModified ?? null,
       })
-      if (shouldProbeBrowserDecode && !immediateDecodeSupport) {
+      if (!immediateDecodeSupport) {
         try {
           const decodeSupport = await probeVideoDecodeSupport({
             mimeType,
@@ -1613,7 +1562,6 @@ export async function loadFileSourceById(
         dtMs: getImageGalleryDebugDurationMs(videoSourceStartedAt),
       })
 
-      sourceAttachedToLifecycle = delivery.delivery === 'native-video'
       return {
         kind: 'video-source',
         url,
@@ -1632,9 +1580,6 @@ export async function loadFileSourceById(
         release: trackVideoSource(fileId, variant, source, releaseMediaSource, delivery),
       }
     } catch (error) {
-      if (nativeLifecycleStarted && !sourceAttachedToLifecycle) {
-        notifyAndroidNativeVideoLifecycleEnd()
-      }
       if (isAbortError(error)) {
         throw error
       }

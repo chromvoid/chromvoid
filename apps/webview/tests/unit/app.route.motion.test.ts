@@ -77,7 +77,7 @@ describe('ChromVoidApp route motion contract', () => {
     vi.restoreAllMocks()
   })
 
-  it.each<Routes>(['loading', 'welcome', 'no-license', 'dashboard', 'task-progress', 'no-connection'])(
+  it.each<Routes>(['loading', 'welcome', 'dashboard', 'task-progress', 'no-connection'])(
     'renders exactly one route-content owner for %s',
     (route) => {
       const host = renderAppRouteContent(route)

@@ -2,8 +2,19 @@
 
 use crate::error::ErrorCode;
 use serde_json::Value;
+use zeroize::Zeroize;
 
 use super::types::RpcResponse;
+
+/// Best-effort cleanup of owned JSON string values before discarding sensitive RPC data.
+pub fn clear_rpc_strings(value: &mut Value) {
+    match value {
+        Value::String(value) => value.zeroize(),
+        Value::Array(values) => values.iter_mut().for_each(clear_rpc_strings),
+        Value::Object(values) => values.values_mut().for_each(clear_rpc_strings),
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
 
 /// Convert a `Result<T, E>` into `Result<T, RpcResponse>`, mapping the error
 /// to an RPC error response with the given error code.

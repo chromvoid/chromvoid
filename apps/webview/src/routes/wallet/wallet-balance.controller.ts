@@ -16,6 +16,16 @@ export type WalletBalanceHost = {
   reloadWalletData(refreshResources?: boolean): Promise<void>
 }
 
+/** Networks whose restore discovery has not completed yet for this wallet. */
+export function discoveryPendingNetworks(wallet: WalletSummary | undefined): string[] {
+  if (!wallet) return []
+  const networks = wallet.bitcoin_discovery_pending ? ['bitcoin'] : []
+  for (const network of wallet.account_discovery_pending ?? []) {
+    if (!networks.includes(network)) networks.push(network)
+  }
+  return networks
+}
+
 export class WalletBalanceController {
   private readonly requests = new Map<string, Promise<WalletBalanceResponse>>()
   private discoveryRun: Promise<void> | null = null
@@ -24,15 +34,23 @@ export class WalletBalanceController {
     const accountId = this.host.selectedAccountId()
     return Boolean(accountId && this.loadingAccountCounts()[accountId])
   }, 'wallet.selectedBalanceLoading')
+  /** Accounts whose balance request is still in flight (for the per-network summary). */
+  readonly loadingAccountIds = computed(
+    () => new Set(Object.keys(this.loadingAccountCounts())),
+    'wallet.loadingBalanceAccountIds',
+  )
   readonly discoveryWalletId = atom<string | null>(null, 'wallet.discoveryWalletId')
   readonly discoveryErrors = atom<Record<string, string>>({}, 'wallet.discoveryErrors')
-  readonly selectedDiscoveryPending = computed(() => {
+  readonly selectedDiscoveryPendingNetworks = computed(() => {
     const walletId = this.host.selectedWalletId()
-    return Boolean(
-      walletId &&
-      this.host.wallets().find((wallet) => wallet.wallet_id === walletId)?.bitcoin_discovery_pending,
+    return new Set(
+      walletId ? discoveryPendingNetworks(this.host.wallets().find((wallet) => wallet.wallet_id === walletId)) : [],
     )
-  }, 'wallet.selectedRecoveryDiscoveryPending')
+  }, 'wallet.selectedRecoveryDiscoveryPendingNetworks')
+  readonly selectedDiscoveryPending = computed(
+    () => this.selectedDiscoveryPendingNetworks().size > 0,
+    'wallet.selectedRecoveryDiscoveryPending',
+  )
   readonly selectedDiscoveryLoading = computed(
     () => this.discoveryWalletId() === this.host.selectedWalletId(),
     'wallet.selectedRecoveryDiscoveryLoading',
@@ -46,7 +64,7 @@ export class WalletBalanceController {
     return Boolean(
       account &&
       this.host.networkProviderReady(account.network) &&
-      !(account.network === 'bitcoin' && this.selectedDiscoveryPending()),
+      !this.accountDiscoveryPending(account),
     )
   }, 'wallet.selectedTransactionReady')
 
@@ -56,19 +74,22 @@ export class WalletBalanceController {
     private readonly formatError: (error: unknown) => string,
   ) {}
 
+  /** Balances and sends wait while the wallet still has to discover this account's network. */
+  accountDiscoveryPending(account: WalletAccount): boolean {
+    const wallet = this.host.wallets().find((item) => item.wallet_id === account.wallet_id)
+    return discoveryPendingNetworks(wallet).includes(account.network)
+  }
+
   async refreshSelectedWallet(): Promise<void> {
     const walletId = this.host.selectedWalletId()
     if (!walletId) return
-    const discoveryPending = Boolean(
-      this.host.wallets().find((wallet) => wallet.wallet_id === walletId)?.bitcoin_discovery_pending,
-    )
     const accounts = this.host
       .accounts()
       .filter(
         (account) =>
           account.wallet_id === walletId &&
           this.host.networkProviderReady(account.network) &&
-          !(account.network === 'bitcoin' && discoveryPending),
+          !this.accountDiscoveryPending(account),
       )
     await wrap(Promise.all(accounts.map((account) => this.refreshAccount(account))))
   }
@@ -109,23 +130,24 @@ export class WalletBalanceController {
   }
 
   private async runPendingDiscovery(): Promise<void> {
-    const pendingWallets = this.host.wallets().filter((wallet) => wallet.bitcoin_discovery_pending)
-    for (const wallet of pendingWallets) {
-      const account = this.host
-        .accounts()
-        .find((item) => item.wallet_id === wallet.wallet_id && item.network === 'bitcoin')
-      if (!account || !this.host.networkProviderReady(account.network)) continue
+    for (const wallet of this.host.wallets()) {
+      for (const network of discoveryPendingNetworks(wallet)) {
+        const account = this.host
+          .accounts()
+          .find((item) => item.wallet_id === wallet.wallet_id && item.network === network)
+        if (!account || !this.host.networkProviderReady(account.network)) continue
 
-      this.discoveryWalletId.set(wallet.wallet_id)
-      this.setDiscoveryError(wallet.wallet_id, null)
-      try {
-        const response = await wrap(this.request(account.account_id, true))
-        this.storeBalance(response)
-        await wrap(this.host.reloadWalletData(false))
-      } catch (error) {
-        this.setDiscoveryError(wallet.wallet_id, this.formatError(error))
-      } finally {
-        if (this.discoveryWalletId() === wallet.wallet_id) this.discoveryWalletId.set(null)
+        this.discoveryWalletId.set(wallet.wallet_id)
+        this.setDiscoveryError(wallet.wallet_id, null)
+        try {
+          const response = await wrap(this.request(account.account_id, true))
+          this.storeBalance(response)
+          await wrap(this.host.reloadWalletData(false))
+        } catch (error) {
+          this.setDiscoveryError(wallet.wallet_id, this.formatError(error))
+        } finally {
+          if (this.discoveryWalletId() === wallet.wallet_id) this.discoveryWalletId.set(null)
+        }
       }
     }
   }

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ChromVoid Air</string>
+
+    <string name="session_lock">Lock</string>
+
+    <string name="bridge_probe_title">Native bridge</string>
+    <string name="bridge_probe_checking">Checking the native bridge…</string>
+    <string name="bridge_probe_ready">Native bridge ready</string>
+    <string name="bridge_probe_failed">Native bridge unavailable</string>
+    <string name="bridge_probe_retry">Retry</string>
+    <string name="presence_prompt_title">Confirm it’s you</string>
+    <string name="credential_provider_subtitle">Passwords and passkeys from your vault</string>
+    <string name="login_offer_channel">Logins to save</string>
+    <string name="login_offer_title">Save the login for %1$s?</string>
+    <string name="login_offer_text">Open ChromVoid Air to review it and save it in your vault.</string>
+</resources>

@@ -10,11 +10,6 @@ import {i18n as appI18n} from 'root/i18n'
 import {toast} from 'root/shared/services/toast-manager'
 import {subscribeAfterInitial, type Unsubscribe} from 'root/shared/services/subscribed-signal'
 import {pmIconStore} from './models/pm-icon-store'
-import {
-  finishAndroidPasswordSave,
-  hasActiveAndroidPasswordSaveToken,
-  hasAndroidPasswordSavePrefill,
-} from './models/android-password-save-prefill'
 import {pmActiveRowModel} from './models/pm-active-row.model'
 import {pmEntryEditorModel} from './models/pm-entry-editor.model'
 import {pmMobileSelectionModel} from './models/pm-mobile-selection.model'
@@ -126,12 +121,10 @@ export class PasswordManagerModel {
   deactivateSurface(): void {
     pmActiveRowModel.clearAll()
     pmMobileSelectionModel.exit()
-    if (hasActiveAndroidPasswordSaveToken()) {
-      void finishAndroidPasswordSave('dismissed')
-    }
   }
 
   disposeSession(): void {
+    passmanagerMaintenanceModel.disposeImport()
     this.sessionGeneration += 1
     this.clearRootSubscriptions()
     this.settleCurrentSession('inactive')
@@ -167,10 +160,6 @@ export class PasswordManagerModel {
     } catch {}
 
     this.alive.set(true)
-
-    if (hasAndroidPasswordSavePrefill()) {
-      passmanagerNavigationController.openCreateEntry()
-    }
 
     return root
   }
@@ -277,9 +266,6 @@ export class PasswordManagerModel {
       next: describeShowElement(getPassmanagerShowElement()),
       route: passmanagerNavigationController.readRoute(),
     })
-    if (handled && route.kind === 'create-entry' && hasActiveAndroidPasswordSaveToken()) {
-      void finishAndroidPasswordSave('dismissed')
-    }
     return handled
   }
 
@@ -304,8 +290,9 @@ export class PasswordManagerModel {
   }
 
   async onImport(): Promise<void> {
-    await passmanagerMaintenanceModel.prepareImport()
-    passmanagerNavigationController.openImport()
+    if (await passmanagerMaintenanceModel.prepareImport()) {
+      passmanagerNavigationController.openImport()
+    }
   }
 
   async handleImportComplete(e: Event): Promise<void> {

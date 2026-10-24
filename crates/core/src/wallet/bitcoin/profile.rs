@@ -11,9 +11,10 @@ use crate::rpc::types::{
     WalletPreview, WalletProviderStatus, WalletTransactionOutput, WalletWarning,
 };
 use crate::wallet::{
-    hex_string, AllocatedAddressV1, WalletAddressDeriveInput, WalletAddressDeriveOutput,
-    WalletBalanceInput, WalletBalanceOutput, WalletBalanceTask, WalletChainError,
-    WalletChainProfile, WalletHdAccountMaterializeInput, WalletImportedAccountMaterializeInput,
+    hex_string, AccountScheme, AllocatedAddressV1, WalletAddressDeriveInput,
+    WalletAddressDeriveOutput, WalletBalanceInput, WalletBalanceOutput, WalletBalanceTask,
+    WalletChainError, WalletChainProfile, WalletHdAccountMaterializeInput, WalletHistoryInput,
+    WalletHistoryOutput, WalletHistoryTask, WalletImportedAccountMaterializeInput,
     WalletPrepareInput, WalletPrepareOutput, WalletProfileAccountMaterialization,
     WalletProviderObservationOutcomeV1, WalletProviderObservationV1, WalletRefreshInput,
     WalletRefreshOutput, WalletRuntimeConfig, WalletSignInput, WalletSignedArtifact,
@@ -22,7 +23,7 @@ use crate::wallet::{
 
 use super::account::{
     bitcoin_account_index, bitcoin_chain_for_purpose, bitcoin_derived_account,
-    ensure_bip39_hd_input, ensure_bitcoin_network, ensure_gap_allocation_allowed,
+    ensure_bitcoin_network, ensure_gap_allocation_allowed,
 };
 use super::constants::{
     BITCOIN_AMOUNT_UNIT, BITCOIN_CURVE, BITCOIN_DUST_THRESHOLD_SATS,
@@ -30,6 +31,7 @@ use super::constants::{
     BITCOIN_PROVIDER_SNAPSHOT_KIND, BITCOIN_RECONCILIATION_WINDOW_MS, BITCOIN_WIF_ENCODING,
 };
 use super::discovery::discover_hd_account_with_xpub;
+use super::history::history_for_addresses;
 use super::keys::{derive_account_xpub, derive_hd_address, p2wpkh_address, parse_wif_private_key};
 use super::payload::{
     locked_outpoints, parse_bitcoin_outputs, BitcoinPreparedPayloadV1, BitcoinProviderSnapshotV1,
@@ -136,23 +138,26 @@ impl WalletChainProfile for BitcoinChainProfile {
         config.wallet_enabled && config.capability_enabled("bitcoin_native_transfer")
     }
 
+    fn supports_restore_discovery(&self) -> bool {
+        true
+    }
+
     fn materialize_hd_account(
         &self,
         input: WalletHdAccountMaterializeInput,
     ) -> Result<WalletProfileAccountMaterialization, WalletChainError> {
         ensure_bitcoin_network(&input.network)?;
-        ensure_bip39_hd_input(
-            &input.wallet_mode,
-            &input.mnemonic_standard,
-            &input.mnemonic_entropy,
-            &input.wordlist,
-        )?;
+        if input.scheme != AccountScheme::BitcoinBip84Account {
+            return Err(WalletChainError::unsupported_account_model(
+                "Bitcoin HD account scheme mismatch",
+            ));
+        }
+        input.scheme.ensure_compatible(&input.root)?;
         Ok(WalletProfileAccountMaterialization {
             account: bitcoin_derived_account(
                 None,
                 input.wallet_id,
                 input.network,
-                Some(input.wallet_mode),
                 input.account_index,
                 0,
                 0,
@@ -264,6 +269,34 @@ impl WalletChainProfile for BitcoinChainProfile {
         self.create_balance_task(input).map(Some)
     }
 
+    fn split_history_task(
+        &self,
+        input: WalletHistoryInput,
+    ) -> Result<Option<WalletHistoryTask>, WalletChainError> {
+        ensure_bitcoin_network(input.account.network())?;
+        if self.provider.provider_status() != WalletProviderStatus::Ready {
+            return Err(WalletChainError::provider_unavailable());
+        }
+        let scan_addresses = if input.account.is_derived() {
+            let account_id = input.account.account_id().to_string();
+            let addresses = input
+                .allocated_addresses
+                .iter()
+                .filter(|address| address.account_id == account_id)
+                .cloned()
+                .collect::<Vec<_>>();
+            dedupe_addresses(addresses)
+        } else {
+            vec![imported_scan_address(&input.account)?]
+        };
+        let provider = self.provider.clone();
+        Ok(Some(Box::new(move || {
+            let transactions =
+                history_for_addresses(provider.as_ref(), &scan_addresses, input.limit, input.now)?;
+            Ok(WalletHistoryOutput { transactions })
+        })))
+    }
+
     fn prepare(&self, input: WalletPrepareInput) -> Result<WalletPrepareOutput, WalletChainError> {
         ensure_bitcoin_network(input.account.network())?;
         if self.provider.provider_status() != WalletProviderStatus::Ready {
@@ -362,6 +395,7 @@ impl WalletChainProfile for BitcoinChainProfile {
                 warnings,
                 ton: None,
                 ethereum: None,
+                solana: None,
             },
             provider_snapshot: Some(serde_json::to_value(snapshot).map_err(|error| {
                 WalletChainError::internal(format!(
@@ -372,6 +406,7 @@ impl WalletChainProfile for BitcoinChainProfile {
                 WalletChainError::internal(format!("Bitcoin payload serialization failed: {error}"))
             })?,
             materializations,
+            valid_until: None,
         })
     }
 

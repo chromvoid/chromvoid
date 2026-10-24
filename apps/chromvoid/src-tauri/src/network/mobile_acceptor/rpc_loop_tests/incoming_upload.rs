@@ -187,3 +187,104 @@ async fn host_rpc_loop_survives_upload_abort_via_stream_control_frame() {
         .expect("host loop join")
         .expect("host loop result");
 }
+
+#[tokio::test]
+async fn host_uploads_multiple_requests_and_frames_into_real_core() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut local =
+        crate::core_adapter::LocalCoreAdapter::new_with_test_keystore(temp.path().join("storage"))
+            .unwrap();
+    assert!(local
+        .handle(&RpcRequest::new(
+            "vault:unlock",
+            serde_json::json!({"password":"synthetic upload"})
+        ))
+        .is_ok());
+    let adapter: Arc<Mutex<Box<dyn CoreAdapter>>> = Arc::new(Mutex::new(Box::new(local)));
+    let (mut client_noise, host_noise) = noise_pair();
+    let (mut client_transport, host_transport) = ChannelTransport::pair(TransportType::WssRelay);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let host = tokio::spawn(run_host_rpc_loop_with_heartbeat_interval(
+        Some(adapter.clone()),
+        Box::new(host_transport),
+        host_noise,
+        TransportType::WssRelay,
+        temp.path().to_path_buf(),
+        "synthetic-upload-peer".to_string(),
+        shutdown_rx,
+        std::time::Duration::from_secs(30),
+        None,
+    ));
+    let expected = b"abcdefghij";
+    let mut node_id = None;
+    let mut offset = 0;
+    for (index, size) in [3, 3, 4].into_iter().enumerate() {
+        let end = offset + size;
+        let message_id = 701 + index as u64;
+        let request = RpcRequest::new(
+            "catalog:upload",
+            serde_json::json!({
+                "node_id":node_id,"parent_path":"/","name":"received.bin","size":size,
+                "offset":offset,"total_size":expected.len(),"finish":end == expected.len()
+            }),
+        );
+        send_encrypted_frame(
+            &mut client_transport,
+            &mut client_noise,
+            Frame {
+                frame_type: FrameType::RpcRequest,
+                message_id,
+                flags: FLAG_HAS_CONTINUATION,
+                payload: serde_json::to_vec(&request).unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+        for chunk in [
+            &expected[offset..offset + 1],
+            &expected[offset + 1..end],
+            &[],
+        ] {
+            send_encrypted_frame(
+                &mut client_transport,
+                &mut client_noise,
+                frame_continuation(
+                    FrameType::RpcRequest,
+                    message_id,
+                    chunk.to_vec(),
+                    !chunk.is_empty(),
+                ),
+            )
+            .await
+            .unwrap();
+        }
+        let frame = recv_test_frame(&mut client_transport, &mut client_noise).await;
+        assert_eq!(frame.frame_type, FrameType::RpcResponse);
+        assert_eq!(frame.message_id, message_id);
+        let response: RpcResponse = serde_json::from_slice(&frame.payload).unwrap();
+        assert!(response.is_ok(), "{response:?}");
+        let result = response.result().unwrap();
+        node_id = result["node_id"].as_u64();
+        assert!(node_id.is_some());
+        assert_eq!(result["uploaded_bytes"], end);
+        assert_eq!(result["uploaded"], end);
+        assert_eq!(result["completed"], end == expected.len());
+        offset = end;
+    }
+    let reply = adapter.lock().unwrap().handle_with_stream(
+        &RpcRequest::new("catalog:download", serde_json::json!({"node_id":node_id})),
+        None,
+    );
+    let RpcReply::Stream(mut stream) = reply else {
+        panic!("expected committed file")
+    };
+    let mut actual = Vec::new();
+    stream.reader.read_to_end(&mut actual).unwrap();
+    assert_eq!(actual, expected);
+    shutdown_tx.send(()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), host)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+}

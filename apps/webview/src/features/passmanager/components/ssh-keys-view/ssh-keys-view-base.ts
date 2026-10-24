@@ -41,6 +41,8 @@ export abstract class PMSshKeysViewBase extends ReatomLitElement {
   protected renderControls(slot?: string) {
     return html`
       <workspace-dashboard-header
+        data-testid="workspace-header"
+        data-surface="passwords"
         slot=${slot ?? nothing}
         class="ssh-view__controls"
         surface="passwords"

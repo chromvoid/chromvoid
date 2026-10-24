@@ -1,5 +1,4 @@
 import {atom} from '@reatom/core'
-import {render, type TemplateResult} from 'lit'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {ManagerRoot} from '@project/passmanager/core'
 
@@ -13,23 +12,18 @@ vi.mock('root/core/transport/tauri/ipc', () => ({
   tauriListen: (...args: unknown[]) => mocks.tauriListen(...args),
 }))
 
-import {type SurfaceId} from '../../src/app/navigation/navigation.types'
 import {
   GuidanceCompletionBridge,
   type GuidanceProductStateBinding,
 } from '../../src/core/guidance/guidance-completion-bridge'
 import {guidanceDefinitions} from '../../src/core/guidance/guidance.registry'
 import {guidanceModel} from '../../src/core/guidance/guidance.model'
-import {
-  moduleAccessModel,
-  type ModuleAccessState,
-} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel} from '../../src/core/modules/module-access.model'
 import {
   resetRuntimeCapabilities,
   setRuntimeCapabilities,
 } from '../../src/core/runtime/runtime-capabilities'
 import {RemoteStorageModel} from '../../src/routes/remote-storage/remote-storage.model'
-import {ChromVoidApp} from '../../src/routes/app.route.impl'
 import {WelcomeSharedModel, WelcomeToolsModel} from '../../src/routes/welcome/welcome.model'
 import {dialogService} from '../../src/shared/services/dialog-service'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
@@ -131,13 +125,16 @@ function setTauriRuntime(): void {
 }
 
 function enableMountedVaultAccess(): void {
-  moduleAccessModel.rawStates.set([
-    {
-      feature_key: 'mounted-vault',
-      status: 'enabled',
-      denial_code: null,
-    },
-  ])
+  moduleAccessModel.resolution.set({
+    phase: 'resolved',
+    states: [
+      {
+        feature_key: 'mounted-vault',
+        status: 'enabled',
+        denial_code: null,
+      },
+    ],
+  })
 }
 
 function registerMountAnchor(): HTMLElement {
@@ -443,7 +440,7 @@ describe('guidance completion signals', () => {
   it('emits restore.started after restore command success', async () => {
     setTauriRuntime()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_mobile_backup_restore: true,
     })
@@ -471,48 +468,5 @@ describe('guidance completion signals', () => {
     await model.onRestoreClick()
 
     expect(guidanceModel.completedDomainEvents().has('restore.started')).toBe(true)
-  })
-
-  it('opens blocked-action guidance from the blocked access help action, not from display alone', () => {
-    setRuntimeCapabilities({platform: 'macos', desktop: true, supports_network_remote: true})
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'remote',
-        status: 'locked_pro',
-        denial_code: 'LOCKED_PRO',
-      },
-    ])
-    guidanceModel.setRoute('dashboard')
-    ChromVoidApp.define()
-
-    const app = document.createElement(ChromVoidApp.elementName) as ChromVoidApp
-    const access: ModuleAccessState = {
-      feature_key: 'remote',
-      status: 'locked_pro',
-      denial_code: 'LOCKED_PRO',
-    }
-    const renderer = app as unknown as {
-      renderModuleAccessState: (surface: SurfaceId, access: ModuleAccessState) => TemplateResult
-    }
-    const container = document.createElement('div')
-    document.body.append(container)
-
-    render(renderer.renderModuleAccessState('remote', access), container, {host: app})
-
-    expect(guidanceModel.blockedActionRequest()).toBeNull()
-
-    container
-      .querySelector<HTMLButtonElement>('[data-feature="remote"][data-status="locked_pro"]')
-      ?.click()
-
-    expect(guidanceModel.blockedActionRequest()).toMatchObject({
-      feature: 'remote',
-      reason: 'locked_pro',
-      surface: 'remote',
-      anchorId: 'pro.access-state',
-    })
-    expect(guidanceModel.activeGuidance()).toMatchObject({
-      definition: {id: 'pro.remote.blocked'},
-    })
   })
 })

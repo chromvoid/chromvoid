@@ -1,13 +1,12 @@
 import {atom, wrap} from '@reatom/core'
 
 import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
-import type {AndroidVideoPlayerEvent, MediaStreamErrorEvent} from 'root/core/transport/transport'
+import type {MediaStreamErrorEvent} from 'root/core/transport/transport'
 import {i18n} from 'root/i18n'
 import {getMediaStreamLoadabilityTimeoutMs} from 'root/features/media/models/media-stream-loadability'
 import {
   registerInFlightMediaStreamLoad,
   registerMediaStreamOwner,
-  type AndroidVideoSourceIdentity,
   type MediaStreamLifecycleReleaseContext,
   type MediaStreamLifecycleReleaseReason,
   type MediaStreamOwner,
@@ -32,7 +31,6 @@ import {
   readyVideoSourceState,
   videoSourceStateFromLoadError,
   videoSourceStateFromMediaStreamErrorCode,
-  videoSourceStateFromNativeErrorCode,
   type VideoSourceFailureReason,
   type VideoSourceState,
 } from 'root/features/media/models/video-source-state'
@@ -76,7 +74,6 @@ export type VideoPlayerFileInput = {
 }
 
 export type VideoPlayerModelCallbacks = {
-  onAndroidNativeVideoReleased?: () => void
 }
 
 function formatVideoDebugPayload(payload: Record<string, unknown>): string {
@@ -222,7 +219,6 @@ export class VideoPlayerModel implements MediaStreamOwner {
           mediaInfo: this.mediaInfo,
           lastModified: this.lastModified,
           sourceSize: this.sourceSize,
-          allowAndroidNativeVideo: true,
         }),
       )
 
@@ -350,30 +346,6 @@ export class VideoPlayerModel implements MediaStreamOwner {
     }
 
     this.failCurrentSource(sourceFailureReason(videoSourceStateFromMediaStreamErrorCode(event.code)))
-  }
-
-  handleAndroidVideoPlayerEvent(event: AndroidVideoPlayerEvent): void {
-    const source = this.currentSource
-    const eventToken = event.nativeSourceToken ?? event.token
-    if (!source || this.nativeVideoToken(source) !== eventToken) return
-    this.trace('androidNativeEvent', {
-      event: event.event,
-      hasToken: Boolean(eventToken),
-    })
-
-    if (event.event === 'error') {
-      this.failCurrentSource(sourceFailureReason(videoSourceStateFromNativeErrorCode(event.error)))
-      return
-    }
-
-    if (event.event === 'released') {
-      this.invalidateCurrentLoad()
-      this.loading.set(false)
-      this.callbacks.onAndroidNativeVideoReleased?.()
-      return
-    }
-
-    this.loading.set(false)
   }
 
   handleNativeStreamLoadabilityFailure(
@@ -548,11 +520,7 @@ export class VideoPlayerModel implements MediaStreamOwner {
     }))
 
     if (ownerId) {
-      this.unregisterStreamOwner = registerMediaStreamOwner(
-        ownerId,
-        this,
-        this.androidVideoSourceIdentity(source),
-      )
+      this.unregisterStreamOwner = registerMediaStreamOwner(ownerId, this)
     }
 
     if (
@@ -849,22 +817,6 @@ export class VideoPlayerModel implements MediaStreamOwner {
     return null
   }
 
-  private androidVideoSourceIdentity(source: FileSourceLoadResult): AndroidVideoSourceIdentity | undefined {
-    if (
-      source.kind !== 'video-source' ||
-      source.delivery !== 'native-video' ||
-      source.mediaSourceGeneration == null ||
-      source.sourceRevision == null
-    ) {
-      return undefined
-    }
-    return {
-      mediaSourceGeneration: source.mediaSourceGeneration,
-      sourceRevision: source.sourceRevision,
-      transportSessionGeneration: source.transportSessionGeneration,
-      appForegroundEpoch: source.appForegroundEpoch,
-    }
-  }
 }
 
 function sourceFailureReason(state: VideoSourceState): VideoSourceFailureReason {
@@ -892,8 +844,6 @@ function stableTelemetryEventsForVideoTrace(
       return ['media.playback.error']
     case 'playbackEvent':
       return playbackEventTelemetry(payload['eventName'])
-    case 'androidNativeEvent':
-      return androidNativeEventTelemetry(payload['event'])
     case 'playbackTelemetry':
       return droppedFrameTelemetry(payload)
     case 'sourceReleased':
@@ -921,21 +871,6 @@ function playbackEventTelemetry(eventName: unknown): MediaTelemetryEventName[] {
   return []
 }
 
-function androidNativeEventTelemetry(eventName: unknown): MediaTelemetryEventName[] {
-  if (eventName === 'playing') {
-    return ['media.playback.playing']
-  }
-  if (eventName === 'paused') {
-    return ['media.playback.paused']
-  }
-  if (eventName === 'buffering') {
-    return ['media.playback.stall']
-  }
-  if (eventName === 'released') {
-    return ['media.playback.release']
-  }
-  return []
-}
 
 function droppedFrameTelemetry(payload: Record<string, unknown>): MediaTelemetryEventName[] {
   const droppedVideoFramesDelta = payload['droppedVideoFramesDelta']

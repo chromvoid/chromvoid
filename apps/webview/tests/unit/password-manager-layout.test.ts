@@ -20,7 +20,7 @@ import {
 import {PMGroupMobile} from '../../src/features/passmanager/components/group/group'
 import {pmCredentialTagsModel} from '../../src/features/passmanager/models/pm-credential-tags.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
-import {groupBy, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {groupBy, sortField} from '../../src/features/passmanager/components/list/sort-controls.model'
 
 function createGroup(id: string, name: string) {
   return new Group({

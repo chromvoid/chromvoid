@@ -30,6 +30,7 @@ pub(super) struct EntrySaveRequest {
     pub(super) otps: Option<serde_json::Value>,
     pub(super) import_source: Option<serde_json::Value>,
     pub(super) tags: Option<Vec<String>>,
+    pub(super) tag_keys: Option<Vec<String>>,
     pub(super) icon_ref: Option<String>,
 }
 
@@ -50,12 +51,29 @@ pub(super) struct EntryRenameRequest {
 pub(super) fn parse_entry_save_request(
     data: &serde_json::Value,
 ) -> Result<EntrySaveRequest, PassmanagerCommandError> {
-    let title = required_non_empty_str_any(data, "title", &[], "title")
-        .map_err(|response| {
-            PassmanagerCommandError::from_rpc_response(response, "title is required")
-        })?
-        .to_string();
+    parse_entry_fields(data, false)
+}
+
+/// `card_title_optional`: a card created with its number may come without a name, and Core
+/// names it from its network and last four digits (`payment_card::default_title`). Every other
+/// save names its entry.
+fn parse_entry_fields(
+    data: &serde_json::Value,
+    card_title_optional: bool,
+) -> Result<EntrySaveRequest, PassmanagerCommandError> {
     let entry_type = normalize_entry_type(data)?.to_string();
+    let title = if card_title_optional && entry_type == "payment_card" {
+        optional_str_any(data, "title", &[])
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        required_non_empty_str_any(data, "title", &[], "title")
+            .map_err(|response| {
+                PassmanagerCommandError::from_rpc_response(response, "title is required")
+            })?
+            .to_string()
+    };
     let payment_card = normalized_payment_card_meta(data)?;
     if entry_type == "payment_card" && payment_card.is_none() {
         return Err(PassmanagerCommandError::empty_payload(
@@ -63,7 +81,19 @@ pub(super) fn parse_entry_save_request(
         ));
     }
 
+    let tag_keys: Option<Vec<String>> = data
+        .get("tag_keys")
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value(value.clone()))
+        .transpose()
+        .map_err(|_| PassmanagerCommandError::empty_payload("Invalid tag selection"))?;
+    if tag_keys.is_some() && data.get("tags").is_some_and(|value| !value.is_null()) {
+        return Err(PassmanagerCommandError::empty_payload(
+            "Use tags or tag_keys, not both",
+        ));
+    }
     Ok(EntrySaveRequest {
+        tag_keys,
         title,
         entry_type,
         payment_card,
@@ -87,7 +117,7 @@ pub(super) fn parse_entry_save_request(
 pub(super) fn parse_entry_create_request(
     data: &serde_json::Value,
 ) -> Result<EntryCreateRequest, PassmanagerCommandError> {
-    let entry = parse_entry_save_request(data)?;
+    let entry = parse_entry_fields(data, true)?;
     if entry.requested_entry_id.is_none() {
         return Err(PassmanagerCommandError::empty_payload(
             "entry_id is required",
@@ -100,7 +130,7 @@ pub(super) fn parse_entry_create_request(
         Some(_) => {
             return Err(PassmanagerCommandError::empty_payload(
                 "secrets must be an object",
-            ))
+            ));
         }
     };
 

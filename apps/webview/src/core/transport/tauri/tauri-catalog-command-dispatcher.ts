@@ -544,6 +544,7 @@ export async function dispatchTauriCatalogCommand(input: DispatchCatalogCommandI
     case 'passmanager:entry:delete':
     case 'passmanager:entry:move':
     case 'passmanager:entry:rename':
+    case 'catalog:attachment:prepare':
     case 'passmanager:entry:list':
     case 'passmanager:ssh:list':
     case 'passmanager:ssh:key:update':

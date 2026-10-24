@@ -7,8 +7,8 @@ The intent is:
 
 - cryptography, client apps, and product-specific UI stay auditable and copyleft
 - the standalone headless accessibility package stays broadly reusable
-- backend services, relay infrastructure, paid features, and internal business
-  assets remain commercial / proprietary
+- backend services, relay infrastructure, and internal business assets remain
+  commercial / proprietary
 
 ## License Matrix
 

@@ -51,7 +51,7 @@ async function waitForSurfaceReady(page: Page) {
       )
 
       return (
-        rootReady && bodyReady && routeReady && !deepFind(document, 'welcome-page, no-license, no-connection')
+        rootReady && bodyReady && routeReady && !deepFind(document, 'welcome-page, no-connection')
       )
     },
     undefined,
@@ -59,8 +59,17 @@ async function waitForSurfaceReady(page: Page) {
   )
 }
 
+// Chromium 149 can collect evaluate results during app updates; send user actions as trusted input.
+async function waitForAppInput(page: Page): Promise<void> {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+}
+
+// Preserve the original deep match while Playwright scrolls it into view and checks the hit target.
 async function openNavigationItem(page: Page, label: string) {
-  await page.evaluate((nextLabel) => {
+  await waitForAppInput(page)
+  const handle = await page.evaluateHandle((nextLabel) => {
     function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
       for (const el of root.querySelectorAll(selector)) {
         acc.push(el)
@@ -80,8 +89,13 @@ async function openNavigationItem(page: Page, label: string) {
       )
     }) as HTMLElement | undefined
     if (!button) throw new Error(`Navigation item not found: ${nextLabel}`)
-    button.click()
+    return button
   }, label)
+  try {
+    await handle.asElement()!.click()
+  } finally {
+    await handle.dispose()
+  }
 }
 
 async function assertSurfaceThemeStability(page: Page, theme: 'light' | 'dark') {
@@ -143,24 +157,9 @@ test('S14: Switching theme and language', async () => {
   const beforeFilesLabel = await page.evaluate(() => window.i18n?.('navigation:files' as any))
   expect(beforeFilesLabel).toBe('Files')
 
-  await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-
-    const select = deepFind(document, 'select[name="language"]') as HTMLSelectElement | null
-    if (!select) throw new Error('Language selector not found')
-    select.value = 'ru'
-    select.dispatchEvent(new Event('change', {bubbles: true, composed: true}))
-  })
+  // Select through browser input instead of dispatching change from evaluate (see waitForAppInput).
+  await waitForAppInput(page)
+  await page.locator('select[name="language"]').selectOption('ru')
 
   await page.waitForFunction(() => {
     return (
@@ -226,12 +225,14 @@ test('S14: Arabic bootstraps in RTL and switches back to LTR without reload drif
     language: 'ar',
   })
 
+  // Change locale on the current Files route to verify drift; settle the app update across a frame.
   await page.evaluate(async () => {
     const dynamicImport = new Function('path', 'return import(path)') as (
       path: string,
     ) => Promise<{setLang(value: string): void}>
     const {setLang} = await dynamicImport('/i18n/index.ts')
     setLang('en')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(
     () =>

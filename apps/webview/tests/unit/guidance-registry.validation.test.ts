@@ -31,10 +31,8 @@ const releaseMatrix = [
   {rank: 1, ids: ['welcome.master-password', 'welcome.backup-restore']},
   {rank: 2, ids: ['remote-storage.mount-warning']},
   {rank: 3, ids: ['welcome.local-vs-remote']},
-  {rank: 4, ids: ['settings.mobile-autofill']},
   {rank: 5, ids: ['gateway.pair-extension']},
   {rank: 6, ids: ['remote.setup-network']},
-  {rank: 7, ids: ['pro.remote.blocked', 'pro.gateway.blocked', 'pro.remote-storage.blocked']},
   {rank: 8, ids: ['passwords.import-migration']},
   {rank: 9, ids: ['passkeys.empty-state']},
   {rank: 10, ids: ['files.empty-state', 'notes.empty-state', 'passwords.empty-state']},
@@ -56,14 +54,11 @@ describe('validateGuidanceRegistry', () => {
     expect(result).toEqual({ok: true, errors: []})
   })
 
-  it('provides English and Russian copy for every seeded title, body, status body, and action key', () => {
+  it('provides English and Russian copy for every seeded title, body, and action key', () => {
     const keys = new Set<string>()
     for (const item of guidanceDefinitions) {
       keys.add(item.titleKey)
       keys.add(item.bodyKey)
-      for (const key of Object.values(item.bodyKeyByModuleAccessStatus ?? {})) {
-        keys.add(key)
-      }
       if (item.primaryActionKey) keys.add(item.primaryActionKey)
       if (item.secondaryActionKey) keys.add(item.secondaryActionKey)
     }
@@ -90,15 +85,6 @@ describe('validateGuidanceRegistry', () => {
       'welcome.master-password',
       'gateway.pair-extension',
     ])
-    expect(byId.get('settings.mobile-autofill')).toMatchObject({
-      trigger: 'feature_discovery',
-      presentation: 'inline_hint',
-      platforms: ['android'],
-      capabilityGate: {supports_autofill: true},
-      moduleAccessGate: {feature: 'credential-provider', statuses: ['enabled']},
-      completion: {kind: 'product_state', key: 'credential_provider.enabled'},
-      priority: 90,
-    })
     expect(byId.get('remote-storage.mount-warning')).toMatchObject({
       trigger: 'blocked_action',
       presentation: 'popover',
@@ -148,14 +134,9 @@ describe('validateGuidanceRegistry', () => {
   it('locks security-sensitive release copy wording', () => {
     expect(en['guidance:welcome.master-password:body']).toContain('recovery')
     expect(en['guidance:remote-storage.mount-warning:body']).toContain('operating system')
-    expect(en['guidance:settings.mobile-autofill:body']).toContain('credential provider')
     expect(en['guidance:gateway.pair-extension:body']).toContain('approve the extension')
     expect(en['guidance:passwords.import-migration:body']).toContain('Preview')
     expect(en['guidance:passwords.import-migration:body']).toContain('conflicts')
-    expect(en['guidance:pro.blocked.unsupported:body']).toContain('platform')
-    expect(en['guidance:pro.blocked.disabled-by-rollout:body']).toContain('rollout')
-    expect(en['guidance:pro.blocked.entitlement-unavailable:body']).toContain('license')
-    expect(en['guidance:pro.blocked.locked-pro:body']).toContain('Pro license')
   })
 
   it('accepts valid definitions with known anchors and i18n keys', () => {
@@ -186,7 +167,6 @@ describe('validateGuidanceRegistry', () => {
           owner: '',
           version: 0,
           titleKey: 'missing:title',
-          bodyKeyByModuleAccessStatus: {locked_pro: 'missing:status-body'},
         } as unknown as GuidanceDefinition,
       ],
       anchors,
@@ -197,12 +177,11 @@ describe('validateGuidanceRegistry', () => {
     expect(result.errors).toContain('Unknown guidance surface for broken: missing')
     expect(result.errors).toContain('Selector-like anchor id is not allowed for broken: .selector')
     expect(result.errors).toContain('Unknown runtime capability for broken: missing-capability')
-    expect(result.errors).toContain('Unknown Pro feature for broken: missing-feature')
+    expect(result.errors).toContain('Unknown module for broken: missing-feature')
     expect(result.errors).toContain('Unknown module access status for broken: missing-status')
     expect(result.errors).toContain('Missing owner for broken')
     expect(result.errors).toContain('Invalid version for broken')
     expect(result.errors).toContain('Missing i18n key for broken: missing:title')
-    expect(result.errors).toContain('Missing i18n key for broken: missing:status-body')
   })
 
   it('reports unknown non-dynamic anchors directly', () => {
@@ -264,7 +243,7 @@ describe('validateGuidanceRegistry', () => {
       definitions: [
         {
           ...definition,
-          id: 'pro.remote.blocked',
+          id: 'remote-storage.mount-warning',
           trigger: 'blocked_action',
           completion: {kind: 'manual_ack'},
         },
@@ -272,6 +251,8 @@ describe('validateGuidanceRegistry', () => {
       anchors,
     })
 
-    expect(result.errors).not.toContain('Automatic guidance must not use manual_ack completion: pro.remote.blocked')
+    expect(result.errors).not.toContain(
+      'Automatic guidance must not use manual_ack completion: remote-storage.mount-warning',
+    )
   })
 })

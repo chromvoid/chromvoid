@@ -1,3 +1,4 @@
+use super::secrets::ensure_english_wordlist;
 use super::*;
 
 impl RpcRouter {
@@ -52,8 +53,6 @@ impl RpcRouter {
                 ));
             }
             let secret = load_secret(session, storage, &wallet.secret_ref)?;
-            let (mnemonic_standard, mnemonic_entropy, mnemonic_words, wordlist, bip39_passphrase) =
-                restore_hd_secret_material(&secret)?;
             let accounts = load_accounts(session, storage, Some(&wallet.wallet_id))?;
             let next_index = accounts
                 .iter()
@@ -65,20 +64,22 @@ impl RpcRouter {
             let now = now_ms();
             let mut uow = begin_wallet_uow(session, storage, "wallet-accounts-derive");
             let materialization = profile
-                .materialize_hd_account(WalletHdAccountMaterializeInput {
-                    wallet_id: wallet.wallet_id.clone(),
-                    network: request.network.clone(),
-                    account_index: next_index,
-                    wallet_mode: wallet.wallet_mode.clone(),
-                    mnemonic_standard,
-                    mnemonic_entropy,
-                    mnemonic_words,
-                    wordlist,
-                    bip39_passphrase,
+                .materialize_hd_account(hd_account_input(
+                    &wallet,
+                    &secret.payload,
+                    request.network.clone(),
+                    next_index,
                     now,
-                })
+                )?)
                 .map_err(WalletCommandError::from)?;
-            let account = materialize_profile_account(&mut uow, materialization)?;
+            let account = materialize_profile_account(&mut uow, materialization, &wallet)?;
+            let account = allocate_first_receive_address(
+                &mut uow,
+                profile.as_ref(),
+                account,
+                &secret.payload,
+                now,
+            )?;
             if adds_network {
                 wallet.supported_networks.push(request.network.clone());
                 wallet.updated_at = now;
@@ -125,6 +126,7 @@ impl RpcRouter {
                 .map_err(WalletCommandError::from)?;
             let wallet = load_wallet(session, storage, account.wallet_id())?;
             let secret = load_secret(session, storage, &wallet.secret_ref)?;
+            ensure_english_wordlist(&secret.payload)?;
             let allocated_addresses = load_account_addresses(
                 session,
                 storage,

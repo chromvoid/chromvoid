@@ -12,7 +12,7 @@ import {
   type GroupBy,
   type SortDirection,
   type SortField,
-} from './sort-controls'
+} from './sort-controls.model'
 import {GROUP_BY_OPTIONS, SORT_FIELD_OPTIONS} from './sort-options'
 
 type BottomSheetChangeEvent = CustomEvent<{open: boolean}>

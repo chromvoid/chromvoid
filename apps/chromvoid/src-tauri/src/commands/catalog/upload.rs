@@ -130,6 +130,7 @@ pub(crate) async fn catalog_upload_chunk(
     mime_type: Option<String>,
     chunk_size: Option<u64>,
     finish: Option<bool>,
+    create_only: Option<bool>,
     offset: u64,
     chunk: Vec<u8>,
 ) -> TauriRpcResult<Value> {
@@ -145,7 +146,7 @@ pub(crate) async fn catalog_upload_chunk(
 
     let adapter = state.adapter.clone();
     let catalog_blocking_io_runtime = state.catalog_blocking_io_runtime.clone();
-    let request_data = catalog_upload_request_data(
+    let mut request_data = catalog_upload_request_data(
         node_id,
         parent_path.as_deref(),
         name.as_deref(),
@@ -156,6 +157,9 @@ pub(crate) async fn catalog_upload_chunk(
         chunk_len,
         finish.unwrap_or(false),
     );
+    if create_only == Some(true) {
+        request_data["create_only"] = Value::Bool(true);
+    }
     let result = match catalog_blocking_io_runtime
         .spawn_blocking(move || {
             let mut adapter = match adapter.lock() {
@@ -287,147 +291,6 @@ fn catalog_upload_json_reply(reply: RpcReply) -> RpcResult<Value> {
     }
 }
 
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) async fn catalog_upload_native_files(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    parent_path: Option<String>,
-    upload_id: String,
-    read_chunk_size: Option<u64>,
-) -> Result<RpcResult<Value>, String> {
-    touch_last_activity(&state.last_activity, "catalog_upload_native_files_android");
-
-    let parent_path = parent_path
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "/".to_string());
-    let out = crate::mobile::android::upload_native_files(
-        state.android_native_upload_runtime.clone(),
-        app,
-        state.adapter.clone(),
-        parent_path,
-        upload_id,
-        read_chunk_size,
-    )
-    .await;
-
-    Ok(match out {
-        Ok(()) => rpc_ok(Value::Null),
-        Err(error) => rpc_err(error, Some("NATIVE_UPLOAD".to_string())),
-    })
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) async fn catalog_upload_android_shared_files(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    parent_path: Option<String>,
-    upload_id: String,
-    share_session_id: String,
-    read_chunk_size: Option<u64>,
-) -> Result<RpcResult<Value>, String> {
-    touch_last_activity(&state.last_activity, "catalog_upload_android_shared_files");
-
-    let parent_path = parent_path
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "/".to_string());
-    info!(
-        "android_share_upload_command: start upload_id={} share_session_id={} read_chunk_size={:?}",
-        upload_id, share_session_id, read_chunk_size
-    );
-    let upload_id_for_log = upload_id.clone();
-    let share_session_id_for_log = share_session_id.clone();
-    let out = crate::mobile::android::upload_android_shared_files(
-        state.android_native_upload_runtime.clone(),
-        app,
-        state.adapter.clone(),
-        parent_path,
-        upload_id,
-        share_session_id,
-        read_chunk_size,
-    )
-    .await;
-
-    Ok(match out {
-        Ok(()) => {
-            info!(
-                "android_share_upload_command: finish upload_id={} share_session_id={} status=ok",
-                upload_id_for_log, share_session_id_for_log
-            );
-            rpc_ok(Value::Null)
-        }
-        Err((error, code)) => {
-            info!(
-                "android_share_upload_command: finish upload_id={} share_session_id={} status=error code={}",
-                upload_id_for_log, share_session_id_for_log, code
-            );
-            rpc_err(error, Some(code))
-        }
-    })
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) async fn catalog_upload_shared_files(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    parent_path: Option<String>,
-    upload_id: String,
-    shared_session_id: String,
-    read_chunk_size: Option<u64>,
-) -> Result<RpcResult<Value>, String> {
-    catalog_upload_android_shared_files(
-        app,
-        state,
-        parent_path,
-        upload_id,
-        shared_session_id,
-        read_chunk_size,
-    )
-    .await
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) fn catalog_cancel_native_upload(
-    state: tauri::State<'_, AppState>,
-    upload_id: String,
-) -> RpcResult<Value> {
-    if crate::mobile::android::cancel_native_upload(
-        &state.android_native_upload_runtime,
-        &upload_id,
-    ) {
-        rpc_ok(Value::Null)
-    } else {
-        rpc_err(
-            "Native upload session not found",
-            Some("NATIVE_UPLOAD_NOT_FOUND".to_string()),
-        )
-    }
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) fn catalog_cancel_android_shared_files(share_session_id: String) -> RpcResult<Value> {
-    match crate::mobile::android::cancel_android_shared_files(&share_session_id) {
-        Ok(()) => rpc_ok(Value::Null),
-        Err((error, code)) => rpc_err(error, Some(code)),
-    }
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) fn catalog_cancel_shared_files(shared_session_id: String) -> RpcResult<Value> {
-    catalog_cancel_android_shared_files(shared_session_id)
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub(crate) fn catalog_list_shared_files() -> RpcResult<Value> {
-    rpc_ok(serde_json::json!([]))
-}
-
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub(crate) async fn catalog_upload_native_files(
@@ -554,27 +417,6 @@ pub(crate) async fn catalog_upload_shared_files(
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
-pub(crate) async fn catalog_upload_android_shared_files(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, AppState>,
-    parent_path: Option<String>,
-    upload_id: String,
-    share_session_id: String,
-    read_chunk_size: Option<u64>,
-) -> Result<RpcResult<Value>, String> {
-    catalog_upload_shared_files(
-        app,
-        state,
-        parent_path,
-        upload_id,
-        share_session_id,
-        read_chunk_size,
-    )
-    .await
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
 pub(crate) fn catalog_cancel_native_upload(_upload_id: String) -> RpcResult<Value> {
     rpc_err(
         "iOS native upload cancellation is not available for this session",
@@ -610,15 +452,6 @@ pub(crate) async fn catalog_cancel_shared_files(
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
-pub(crate) async fn catalog_cancel_android_shared_files(
-    state: tauri::State<'_, AppState>,
-    share_session_id: String,
-) -> TauriRpcResult<Value> {
-    catalog_cancel_shared_files(state, share_session_id).await
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
 pub(crate) async fn catalog_list_shared_files(
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Value> {
@@ -635,7 +468,7 @@ pub(crate) async fn catalog_list_shared_files(
     )
 }
 
-#[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(mobile, not(target_os = "ios")))]
 #[tauri::command]
 pub(crate) async fn catalog_upload_native_files(
     _app: tauri::AppHandle,
@@ -650,7 +483,7 @@ pub(crate) async fn catalog_upload_native_files(
     ))
 }
 
-#[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(mobile, not(target_os = "ios")))]
 #[tauri::command]
 pub(crate) async fn catalog_upload_shared_files(
     _app: tauri::AppHandle,
@@ -666,23 +499,7 @@ pub(crate) async fn catalog_upload_shared_files(
     ))
 }
 
-#[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]
-#[tauri::command]
-pub(crate) async fn catalog_upload_android_shared_files(
-    _app: tauri::AppHandle,
-    _state: tauri::State<'_, AppState>,
-    _parent_path: Option<String>,
-    _upload_id: String,
-    _share_session_id: String,
-    _read_chunk_size: Option<u64>,
-) -> Result<RpcResult<Value>, String> {
-    Ok(rpc_err(
-        "Android shared file upload is not available on this platform",
-        Some("NATIVE_UPLOAD_UNAVAILABLE".to_string()),
-    ))
-}
-
-#[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(mobile, not(target_os = "ios")))]
 #[tauri::command]
 pub(crate) fn catalog_cancel_native_upload(_upload_id: String) -> RpcResult<Value> {
     rpc_err(
@@ -691,7 +508,7 @@ pub(crate) fn catalog_cancel_native_upload(_upload_id: String) -> RpcResult<Valu
     )
 }
 
-#[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(mobile, not(target_os = "ios")))]
 #[tauri::command]
 pub(crate) fn catalog_cancel_shared_files(_shared_session_id: String) -> RpcResult<Value> {
     rpc_err(
@@ -700,16 +517,7 @@ pub(crate) fn catalog_cancel_shared_files(_shared_session_id: String) -> RpcResu
     )
 }
 
-#[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]
-#[tauri::command]
-pub(crate) fn catalog_cancel_android_shared_files(_share_session_id: String) -> RpcResult<Value> {
-    rpc_err(
-        "Android shared file upload is not available on this platform",
-        Some("NATIVE_UPLOAD_UNAVAILABLE".to_string()),
-    )
-}
-
-#[cfg(all(mobile, not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(mobile, not(target_os = "ios")))]
 #[tauri::command]
 pub(crate) fn catalog_list_shared_files() -> RpcResult<Value> {
     rpc_ok(serde_json::json!([]))

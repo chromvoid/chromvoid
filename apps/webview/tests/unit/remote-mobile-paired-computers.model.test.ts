@@ -10,7 +10,7 @@ import {RemoteMobilePairedComputersModel} from '../../src/routes/remote/remote-m
 function status(overrides: Partial<MobileHostStatus> = {}): MobileHostStatus {
   return {
     phase: 'Idle',
-    platform: 'android',
+    platform: 'ios',
     relay_url: null,
     device_id: 'phone-1',
     device_label: 'Phone',

@@ -31,8 +31,8 @@ export abstract class EnvRuntimePageBase extends ReatomLitElement {
     envRuntimeModel.clearError()
   }
 
-  protected handleOpenLicense(): void {
-    envRuntimeModel.openLicense()
+  protected handleRetryAccess(): void {
+    void envRuntimeModel.retryAccess()
   }
 
   protected handleCreateSecret(): void {

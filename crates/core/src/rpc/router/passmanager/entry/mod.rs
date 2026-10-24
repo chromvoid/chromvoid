@@ -1,12 +1,17 @@
 //! Entry I/O helpers and RPC adapter functions for PassManager.
 
+pub(super) mod card_brand;
+pub(super) mod detail;
+mod grouping;
 mod io;
+mod page;
 mod request;
 mod resolver;
 mod sanitize;
 mod service;
 mod tags;
 mod types;
+pub(super) mod websites;
 
 use crate::rpc::types::RpcResponse;
 use crate::vault::VaultSession;
@@ -19,10 +24,11 @@ pub(in crate::rpc::router::passmanager) use io::{
 };
 pub(in crate::rpc::router::passmanager) use resolver::resolve_entry_node_id;
 pub(in crate::rpc::router::passmanager) use sanitize::{
-    normalized_payment_card_meta, sanitize_entry_meta_for_wire,
+    normalized_payment_card_meta, sanitize_entry_meta_for_wire, sync_entry_group_path_meta_uow,
 };
 pub(in crate::rpc::router::passmanager) use tags::{
-    credential_tag_key, normalize_credential_tag_catalog, normalize_entry_tags,
+    credential_tag_key, normalize_credential_tag_catalog, normalize_credential_tags,
+    normalize_entry_tags, CREDENTIAL_TAG_MAX_PER_ENTRY,
 };
 
 pub(in crate::rpc::router::passmanager) fn handle_create(
@@ -132,6 +138,17 @@ pub(in crate::rpc::router::passmanager) fn handle_list(
     _data: &serde_json::Value,
 ) -> RpcResponse {
     match service::list_entries(s, storage) {
+        Ok(result) => RpcResponse::success(result),
+        Err(error) => error.into_rpc_response(),
+    }
+}
+
+pub(in crate::rpc::router::passmanager) fn handle_page(
+    s: &VaultSession,
+    storage: &crate::storage::Storage,
+    data: &serde_json::Value,
+) -> RpcResponse {
+    match page::read_page(s, storage, data) {
         Ok(result) => RpcResponse::success(result),
         Err(error) => error.into_rpc_response(),
     }

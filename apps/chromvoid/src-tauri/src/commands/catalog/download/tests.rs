@@ -2121,7 +2121,6 @@ fn build_gallery_save_payload_keeps_raw_heif_bytes() {
     assert_eq!(payload.bytes, PREVIEW_SOURCE_HEIC);
 }
 
-#[cfg(not(target_os = "android"))]
 #[test]
 fn save_gallery_payload_reports_unsupported_off_android() {
     let error = save_gallery_payload(GallerySavePayload {

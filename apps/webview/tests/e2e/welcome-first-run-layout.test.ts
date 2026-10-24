@@ -13,6 +13,15 @@ function getPage(ctx: {skip: () => void}): Page | undefined {
   return page
 }
 
+// Chromium 149 can collect an evaluate result during Lit/Reatom's final mutation flush.
+// Fixture mutations yield a frame; user actions use Playwright input after the splash.
+async function waitForWelcomeInput(page: Page) {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+}
+
+// Seed first-run and native safe-area state, then yield as described above.
 async function openMobileFirstRun(page: Page, viewport: {width: number; height: number}) {
   await page.setViewportSize(viewport)
   await page.goto('http://localhost:4400/index.html?preview=welcome&layout=mobile', {
@@ -43,6 +52,7 @@ async function openMobileFirstRun(page: Page, viewport: {width: number; height: 
 
     getAppContext().state.update({NeedUserInitialization: true, StorageOpened: false})
     document.documentElement.style.setProperty('--app-runtime-safe-area-block-end-native', '24px')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(() => {
@@ -67,6 +77,7 @@ async function openMobileFirstRun(page: Page, viewport: {width: number; height: 
   )
 }
 
+// Seed the locked-vault fixture, then yield before returning its evaluate result.
 async function openMobileLockedVault(page: Page, viewport: {width: number; height: number}) {
   await page.setViewportSize(viewport)
   await page.goto('http://localhost:4400/index.html?preview=welcome&layout=mobile', {
@@ -81,6 +92,7 @@ async function openMobileLockedVault(page: Page, viewport: {width: number; heigh
 
     getAppContext().state.update({NeedUserInitialization: false, StorageOpened: false})
     document.documentElement.style.setProperty('--app-runtime-safe-area-block-end-native', '24px')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(() => {
@@ -125,7 +137,7 @@ async function readLockedVaultGeometry(page: Page) {
       return null
     }
 
-    const route = deepFind(document, 'chromvoid-app') as HTMLElement | null
+    const route = deepFind(document, '[data-testid="app-root"]') as HTMLElement | null
     const layout = deepFind(document, 'welcome-page-mobile-layout') as HTMLElement | null
     const locked = layout?.shadowRoot?.querySelector<HTMLElement>('.locked-vault')
     const mainCard = layout?.shadowRoot?.querySelector<HTMLElement>('.main-card')
@@ -238,7 +250,7 @@ async function readFirstRunGeometry(page: Page) {
       return null
     }
 
-    const route = deepFind(document, 'chromvoid-app') as HTMLElement | null
+    const route = deepFind(document, '[data-testid="app-root"]') as HTMLElement | null
     const layout = deepFind(document, 'welcome-page-mobile-layout') as HTMLElement | null
     const container = layout?.shadowRoot?.querySelector<HTMLElement>('.container')
     const mainCard = layout?.shadowRoot?.querySelector<HTMLElement>('.main-card')
@@ -290,6 +302,7 @@ async function readFirstRunGeometry(page: Page) {
   })
 }
 
+// Native keyboard delivery has no browser input equivalent; yield within the mutating evaluate.
 async function applyIOSKeyboardTransition(
   page: Page,
   payload: {visible: boolean; bottomInset: number; phase: 'progress' | 'settled'},
@@ -308,6 +321,7 @@ async function applyIOSKeyboardTransition(
       source: 'ios-native',
       viewportMode: 'native-resize',
     })
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, payload)
 
   await page.evaluate(
@@ -315,50 +329,16 @@ async function applyIOSKeyboardTransition(
   )
 }
 
+// Use a trusted pointer to focus the rendered input; see waitForWelcomeInput.
 async function focusUnlockInput(page: Page) {
-  await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (element.shadowRoot) {
-          const inner = deepFind(element.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-
-    const setup = deepFind(document, 'welcome-setup-section') as HTMLElement | null
-    const inputHost = setup?.shadowRoot?.querySelector<HTMLElement>('[control-id="welcome.unlock-password"]')
-    const input = inputHost?.shadowRoot?.querySelector('input')
-    if (!(input instanceof HTMLInputElement)) throw new Error('Unlock input is unavailable')
-    input.focus()
-  })
+  await waitForWelcomeInput(page)
+  await page.locator('welcome-setup-section [control-id="welcome.unlock-password"] input').click()
 }
 
+// Open the sheet through its real button after the splash releases input.
 async function openCreateStorageSheet(page: Page) {
-  await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (element.shadowRoot) {
-          const inner = deepFind(element.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-
-    const setupSection = deepFind(document, 'welcome-setup-section') as HTMLElement | null
-    const createStorageButton = setupSection?.shadowRoot?.querySelector('[data-create-storage]')
-    const nativeButton = createStorageButton?.shadowRoot?.querySelector('button')
-    if (!(nativeButton instanceof HTMLButtonElement)) {
-      throw new Error('Create Storage entry action is unavailable')
-    }
-    nativeButton.click()
-  })
+  await waitForWelcomeInput(page)
+  await page.locator('welcome-setup-section [data-create-storage] button').click()
 
   await page.waitForFunction(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -643,7 +623,12 @@ test('mobile locked vault keeps technical errors separate and exposes pending st
 
   await openMobileLockedVault(page, {width: 360, height: 640})
 
-  await page.evaluate(() => {
+  // Fill through the real control; inject only the technical-error fixture state.
+  await waitForWelcomeInput(page)
+  await page
+    .locator('welcome-setup-section [control-id="welcome.unlock-password"] input')
+    .fill('vault-password')
+  await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -665,16 +650,10 @@ test('mobile locked vault keeps technical errors separate and exposes pending st
           }
         })
       | null
-    const setup = layout?.shadowRoot?.querySelector<HTMLElement>('welcome-setup-section')
-    const inputHost = setup?.shadowRoot?.querySelector<HTMLElement>('[control-id="welcome.unlock-password"]')
-    const input = inputHost?.shadowRoot?.querySelector('input')
-    if (!(input instanceof HTMLInputElement) || !layout?.model) {
-      throw new Error('Unlock input or model is unavailable')
-    }
+    if (!layout?.model) throw new Error('Welcome model is unavailable')
 
-    input.value = 'vault-password'
-    input.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true}))
     layout.model.setup.shared.setError('Technical unlock error')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(() => {
@@ -700,7 +679,8 @@ test('mobile locked vault keeps technical errors separate and exposes pending st
   expect(technicalGeometry.technicalAlertTop).not.toBeNull()
   expect(technicalGeometry.technicalAlertBottom).toBeLessThanOrEqual(technicalGeometry.lockedBottom + 1)
 
-  await page.evaluate(() => {
+  // Pending presentation is a model fixture; yield past its Lit/Reatom updates.
+  await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -726,6 +706,7 @@ test('mobile locked vault keeps technical errors separate and exposes pending st
     if (!layout?.model) throw new Error('Welcome model is unavailable')
     layout.model.setup.setupInProgress.set(true)
     layout.model.setup.icon.active()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(() => {
@@ -779,7 +760,7 @@ test('mobile locked vault scrolls input, submit, and alerts clear of an overlay 
       safeAreaTopInset: 24,
       safeAreaBottomInset: 24,
       phase: 'settled',
-      source: 'android-native',
+      source: 'ios-native',
       viewportMode: 'overlay',
     })
 
@@ -895,7 +876,7 @@ test('mobile Create Storage sheet stays above an overlay keyboard with a reachab
       safeAreaTopInset: 24,
       safeAreaBottomInset: 24,
       phase: 'settled',
-      source: 'android-native',
+      source: 'ios-native',
       viewportMode: 'overlay',
     })
 

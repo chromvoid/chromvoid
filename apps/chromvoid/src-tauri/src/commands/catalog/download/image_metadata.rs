@@ -263,15 +263,6 @@ fn load_catalog_image_metadata_with_cancellation(
     );
     gps_diagnostic.rust_exif_status = rust_xmp_diagnostic.rust_exif_status;
     gps_diagnostic.xmp_status = rust_xmp_diagnostic.xmp_status;
-    #[cfg(target_os = "android")]
-    {
-        gps_diagnostic.android_status = apply_android_image_metadata(
-            &source.bytes,
-            &mut metadata,
-            args.node_id,
-            source_metadata.source_revision,
-        );
-    }
     let parse_ms = parse_started.elapsed().as_millis();
     metadata.gps_diagnostic = Some(build_gps_diagnostic(
         gps_diagnostic_status(&metadata, &gps_diagnostic),
@@ -757,51 +748,6 @@ fn apply_exif_metadata(
     }
 }
 
-#[cfg(target_os = "android")]
-fn apply_android_image_metadata(
-    bytes: &[u8],
-    metadata: &mut CatalogImageMetadata,
-    node_id: u64,
-    source_revision: u64,
-) -> Option<String> {
-    let payload = match crate::mobile::android::extract_image_metadata_json(bytes) {
-        Ok(Some(payload)) => payload,
-        Ok(None) => return None,
-        Err(error) => {
-            tracing::warn!("image_metadata android_native_failed error={error}");
-            return Some("extractor_failed".to_string());
-        }
-    };
-
-    let payload_value = match serde_json::from_str::<serde_json::Value>(&payload) {
-        Ok(payload_value) => payload_value,
-        Err(error) => {
-            tracing::warn!("image_metadata android_native_invalid_json error={error}");
-            return Some("extractor_failed".to_string());
-        }
-    };
-    let android_status = android_gps_probe_status(&payload_value);
-    tracing::info!(
-        "image_metadata android_native_payload node_id={} source_revision={} fields={} width={} height={} date_taken={} camera={} lens={} gps={} gps_status={}",
-        node_id,
-        source_revision,
-        json_object_len(&payload_value),
-        json_has_field(&payload_value, "width"),
-        json_has_field(&payload_value, "height"),
-        json_has_field(&payload_value, "dateTaken"),
-        json_has_field(&payload_value, "cameraMake") || json_has_field(&payload_value, "cameraModel"),
-        json_has_field(&payload_value, "lensModel"),
-        json_has_field(&payload_value, "gps"),
-        android_status.as_deref().unwrap_or("not_found"),
-    );
-
-    match serde_json::from_value::<CatalogImageMetadata>(payload_value) {
-        Ok(android_metadata) => merge_missing_metadata(metadata, android_metadata),
-        Err(error) => tracing::warn!("image_metadata android_native_invalid_json error={error}"),
-    }
-    android_status
-}
-
 fn log_rust_exif_probe(exif: &Exif, trace: ImageMetadataTraceContext, gps: bool) {
     let status = rust_exif_gps_status(exif, gps);
     let latitude = gps_coordinate_parse(exif, Tag::GPSLatitude, Tag::GPSLatitudeRef);
@@ -1164,26 +1110,7 @@ fn xmp_decimal_or_fraction(value: &str) -> Option<f64> {
     Some(numerator / denominator)
 }
 
-#[cfg(target_os = "android")]
-fn json_object_len(value: &serde_json::Value) -> usize {
-    value.as_object().map_or(0, |object| object.len())
-}
-
-#[cfg(target_os = "android")]
-fn json_has_field(value: &serde_json::Value, key: &str) -> bool {
-    value.get(key).is_some_and(|value| !value.is_null())
-}
-
-#[cfg(target_os = "android")]
-fn android_gps_probe_status(value: &serde_json::Value) -> Option<String> {
-    value
-        .get("gpsProbe")
-        .and_then(|probe| probe.get("selectedStatus"))
-        .and_then(|status| status.as_str())
-        .map(str::to_string)
-}
-
-#[cfg(any(target_os = "android", test))]
+#[cfg(test)]
 fn merge_missing_metadata(target: &mut CatalogImageMetadata, source: CatalogImageMetadata) {
     target.width = target.width.or(source.width);
     target.height = target.height.or(source.height);

@@ -34,6 +34,8 @@ type TransferTaskUpdates = {
   status?: 'queued' | 'uploading' | 'done' | 'error' | 'paused'
 }
 
+// Transfer fixtures need model setters; yield a frame before returning to avoid Chromium 149's
+// evaluate promise GC race (see startMobileSelectionFromScrolledRow below).
 async function createTransferTask(
   page: Page,
   params: TransferTaskParams,
@@ -52,6 +54,7 @@ async function createTransferTask(
       if (nextUpdates) {
         store.updateUploadTask(id, nextUpdates)
       }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       return true
     },
     {nextParams: params, nextUpdates: updates},
@@ -116,13 +119,27 @@ type MobileActionPanelState = {
 }
 
 async function getMobileActionPanelState(page: Page): Promise<MobileActionPanelState> {
-  return page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+  const topToolbarActionIds = await page
+    .getByTestId('mobile-toolbar')
+    .locator('[data-action]:not([data-action="mobile-leading"]), cv-menu-item[value]')
+    .evaluateAll((actions) =>
+      actions.map((action) => action.getAttribute('data-action') ?? action.getAttribute('value')!),
+    )
+  return page.evaluate((topToolbarActionIds) => {
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -131,8 +148,8 @@ async function getMobileActionPanelState(page: Page): Promise<MobileActionPanelS
 
     const viewportW = window.innerWidth
     const viewportH = window.innerHeight
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-    if (!header?.shadowRoot) {
+    const header = deepFind(document, '[data-testid="workspace-header"]') as HTMLElement | null
+    if (!header) {
       return {
         exists: false,
         layoutSelectionMode: false,
@@ -146,16 +163,10 @@ async function getMobileActionPanelState(page: Page): Promise<MobileActionPanelS
       }
     }
 
-    const layout = header.shadowRoot.querySelector('.workspace-mobile-shell') as HTMLElement | null
-    const selectionToolbar = header.shadowRoot.querySelector('.mobile-selection-bar') as HTMLElement | null
-    const createBtn = header.shadowRoot.querySelector('[data-action="create-dir"]') as HTMLElement | null
-    const uploadBtn = header.shadowRoot.querySelector('[data-action="upload"]') as HTMLElement | null
-    const topToolbar = deepFind(document, 'mobile-top-toolbar') as
-      | (HTMLElement & {actions?: Array<{id?: string}>})
-      | null
-    const topToolbarActionIds = Array.isArray(topToolbar?.actions)
-      ? topToolbar.actions.map((action) => action.id).filter((id): id is string => typeof id === 'string')
-      : []
+    const layout = deepFind(header, '.workspace-mobile-shell') as HTMLElement | null
+    const selectionToolbar = deepFind(header, '.mobile-selection-bar') as HTMLElement | null
+    const createBtn = deepFind(header, '[data-action="create-dir"]') as HTMLElement | null
+    const uploadBtn = deepFind(header, '[data-action="upload"]') as HTMLElement | null
 
     return {
       exists: true,
@@ -168,7 +179,7 @@ async function getMobileActionPanelState(page: Page): Promise<MobileActionPanelS
       viewportW,
       viewportH,
     }
-  })
+  }, topToolbarActionIds)
 }
 
 type RectState = {left: number; right: number; top: number; bottom: number; width: number; height: number}
@@ -215,7 +226,7 @@ async function getUploadPillState(page: Page): Promise<UploadPillState> {
 
     const upload = deepFind(document, 'upload-progress-mobile') as HTMLElement | null
     const bar = upload?.shadowRoot?.querySelector('.minimized-bar') as HTMLElement | null
-    const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
+    const tabBar = deepFind(document, '[data-testid="mobile-tabs"]') as HTMLElement | null
     const rect = bar?.getBoundingClientRect() ?? null
     const tabRect = tabBar?.getBoundingClientRect() ?? null
     const serialize = (value: DOMRect | null) =>
@@ -346,16 +357,36 @@ type MobileScrollOwnerSnapshot = {
   shellContentMode: string | null
 }
 
+// The row is long-pressed with a real right click (a trusted `contextmenu`, which is what a long press
+// produces) instead of dispatching the event inside `page.evaluate`. The bundled Chromium 149 holds an
+// evaluate's result promise only weakly: when the evaluate itself starts selection mode, the update
+// microtasks that follow can let GC collect the resolved result before it is delivered, which Playwright
+// reports as "Execution context was destroyed" although nothing navigated.
 async function startMobileSelectionFromScrolledRow(
   page: Page,
 ): Promise<MobileSelectionScrollStart> {
-  return page.evaluate(async () => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+  // The startup splash covers the app until it is released; the real click must not land on it.
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+
+  const {namePoint, ...start} = await page.evaluate(async (): Promise<
+    MobileSelectionScrollStart & {namePoint: {x: number; y: number} | null}
+  > => {
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -374,11 +405,11 @@ async function startMobileSelectionFromScrolledRow(
     }
 
     function readScrollOwners(): MobileScrollOwnerSnapshot {
-      const shell = deepFind(document, 'file-app-shell-mobile-layout') as HTMLElement | null
+      const shell = deepFind(document, '[data-testid="shell-mobile"]') as HTMLElement | null
       const list = deepFind(document, 'virtual-file-list') as HTMLElement | null
       const container = list?.shadowRoot?.querySelector('.list-container') ?? null
-      const shellContent = shell?.shadowRoot?.querySelector('.content') ?? null
-      const appRoute = deepFind(document, 'chromvoid-app')
+      const shellContent = deepFind(shell, '[data-testid="shell-content"]') ?? null
+      const appRoute = deepFind(document, '[data-testid="app-root"]')
       return {
         listContainer: readScrollOwner(container),
         shellContent: readScrollOwner(shellContent),
@@ -399,6 +430,7 @@ async function startMobileSelectionFromScrolledRow(
         maxScrollTop: 0,
         selectedItemId: null,
         beforeScrollOwners: readScrollOwners(),
+        namePoint: null,
       }
     }
 
@@ -412,6 +444,7 @@ async function startMobileSelectionFromScrolledRow(
         maxScrollTop,
         selectedItemId: null,
         beforeScrollOwners: readScrollOwners(),
+        namePoint: null,
       }
     }
 
@@ -420,15 +453,16 @@ async function startMobileSelectionFromScrolledRow(
     await waitFrame()
     await waitFrame()
 
+    // A fully visible row, so the click lands on it and focusing it cannot scroll the list.
     const containerRect = container.getBoundingClientRect()
     const visibleItem = Array.from(list.shadowRoot?.querySelectorAll<HTMLElement>('file-item-mobile') ?? [])
       .filter((item) => {
         const rect = item.getBoundingClientRect()
-        return rect.bottom > containerRect.top && rect.top < containerRect.bottom
+        return rect.top >= containerRect.top && rect.bottom <= containerRect.bottom
       })
       .at(0)
-    const target = visibleItem?.shadowRoot?.querySelector('.file-item') as HTMLElement | null
-    if (!visibleItem || !target) {
+    const name = visibleItem?.shadowRoot?.querySelector('.file-item .name') as HTMLElement | null
+    if (!visibleItem || !name) {
       return {
         ok: false,
         reason: 'missing-visible-item',
@@ -436,20 +470,11 @@ async function startMobileSelectionFromScrolledRow(
         maxScrollTop,
         selectedItemId: null,
         beforeScrollOwners: readScrollOwners(),
+        namePoint: null,
       }
     }
 
-    const rect = target.getBoundingClientRect()
-    target.dispatchEvent(
-      new MouseEvent('contextmenu', {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        clientX: rect.left + 8,
-        clientY: rect.top + 8,
-      }),
-    )
-
+    const rect = name.getBoundingClientRect()
     return {
       ok: true,
       reason: null,
@@ -457,20 +482,49 @@ async function startMobileSelectionFromScrolledRow(
       maxScrollTop,
       selectedItemId: visibleItem.getAttribute('data-id'),
       beforeScrollOwners: readScrollOwners(),
+      namePoint: {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2},
     }
   })
+
+  if (start.ok && namePoint) {
+    await page.mouse.click(namePoint.x, namePoint.y, {button: 'right'})
+  }
+  return start
 }
 
 async function getMobileSelectionScrollResult(
   page: Page,
 ): Promise<MobileSelectionScrollResult> {
   return page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFindAll<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T[] {
+      if (!root) return []
+      const found = Array.from(root.querySelectorAll<T>(selector))
+      if (root instanceof Element && root.shadowRoot) {
+        found.push(...deepFindAll<T>(root.shadowRoot, selector))
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) found.push(...deepFindAll<T>(el.shadowRoot, selector))
+      }
+      return found
+    }
+
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -489,11 +543,11 @@ async function getMobileSelectionScrollResult(
     }
 
     function readScrollOwners(): MobileScrollOwnerSnapshot {
-      const shell = deepFind(document, 'file-app-shell-mobile-layout') as HTMLElement | null
+      const shell = deepFind(document, '[data-testid="shell-mobile"]') as HTMLElement | null
       const list = deepFind(document, 'virtual-file-list') as HTMLElement | null
       const container = list?.shadowRoot?.querySelector('.list-container') ?? null
-      const shellContent = shell?.shadowRoot?.querySelector('.content') ?? null
-      const appRoute = deepFind(document, 'chromvoid-app')
+      const shellContent = deepFind(shell, '[data-testid="shell-content"]') ?? null
+      const appRoute = deepFind(document, '[data-testid="app-root"]')
       return {
         listContainer: readScrollOwner(container),
         shellContent: readScrollOwner(shellContent),
@@ -505,9 +559,9 @@ async function getMobileSelectionScrollResult(
 
     const list = deepFind(document, 'virtual-file-list') as HTMLElement | null
     const container = list?.shadowRoot?.querySelector('.list-container') as HTMLElement | null
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
+    const header = deepFind(document, '[data-testid="workspace-header"]') as HTMLElement | null
     const selectionActionIds = Array.from(
-      header?.shadowRoot?.querySelectorAll<HTMLElement>('.mobile-selection-action[data-action]') ?? [],
+      deepFindAll<HTMLElement>(header, '.mobile-selection-action[data-action]'),
       (action) => action.dataset.action,
     ).filter((id): id is string => typeof id === 'string')
 
@@ -560,12 +614,35 @@ async function waitForFileManager(page: Page): Promise<void> {
 
 async function getDesktopTypeFilterGeometry(page: Page) {
   return page.evaluate(async () => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFindAll<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T[] {
+      if (!root) return []
+      const found = Array.from(root.querySelectorAll<T>(selector))
+      if (root instanceof Element && root.shadowRoot) {
+        found.push(...deepFindAll<T>(root.shadowRoot, selector))
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) found.push(...deepFindAll<T>(el.shadowRoot, selector))
+      }
+      return found
+    }
+
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (element.shadowRoot) {
-          const inner = deepFind(element.shadowRoot, selector)
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -573,12 +650,11 @@ async function getDesktopTypeFilterGeometry(page: Page) {
     }
 
     const popover = deepFind(document, 'cv-popover.type-filter') as HTMLElement | null
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-    const headerRoot = header?.shadowRoot
-    const filterSection = headerRoot?.querySelector<HTMLElement>('.filters-section')
-    const divider = headerRoot?.querySelector<HTMLElement>('.filters-section + .files-toolbar-divider')
-    const viewGroup = headerRoot?.querySelector<HTMLElement>('.view-mode-group')
-    const viewButtons = Array.from(headerRoot?.querySelectorAll<HTMLElement>('.view-mode-button') ?? [])
+    const header = deepFind(document, '[data-testid="workspace-header"]') as HTMLElement | null
+    const filterSection = deepFind<HTMLElement>(header, '.filters-section')
+    const divider = deepFind<HTMLElement>(header, '.filters-section + .files-toolbar-divider')
+    const viewGroup = deepFind<HTMLElement>(header, '.view-mode-group')
+    const viewButtons = deepFindAll<HTMLElement>(header, '.view-mode-button')
     const viewIcons = viewButtons.map((button) => button.querySelector<SVGElement>('[data-file-view-icon]'))
     const trigger = popover?.shadowRoot?.querySelector<HTMLButtonElement>('[part="trigger"]')
     const content = popover?.shadowRoot?.querySelector<HTMLElement>('[part="content"]')
@@ -775,8 +851,8 @@ test('navigation works in both layouts', async () => {
     await page.goto(`${BASE_URL}?layout=${layout}`)
     await waitForFileManager(page)
 
-    const hasBreadcrumbs = await deepQuerySelector(page, 'workspace-dashboard-header')
-    expect(hasBreadcrumbs, `workspace-dashboard-header should exist in ${layout} layout`).toBe(true)
+    const hasBreadcrumbs = await deepQuerySelector(page, '[data-testid="workspace-header"]')
+    expect(hasBreadcrumbs, `[data-testid="workspace-header"] should exist in ${layout} layout`).toBe(true)
   }
 })
 
@@ -800,7 +876,11 @@ test('mobile selection mode replaces the add menu with a bottom contextual bar',
   await page.goto(`${BASE_URL}?layout=mobile`)
   await waitForFileManager(page)
 
-  const requestedSelection = await page.evaluate(() => {
+  // Use trusted input for selection; see startMobileSelectionFromScrolledRow for the GC rationale.
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+  const selectionPoint = await page.evaluate(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -813,38 +893,44 @@ test('mobile selection mode replaces the add menu with a bottom contextual bar',
       return null
     }
 
-    const item = deepFind(document, 'file-item-mobile') as HTMLElement | null
-    const target = item?.shadowRoot?.querySelector('.file-item') as HTMLElement | null
-    if (!target) return false
+    const list = deepFind(document, 'virtual-file-list') as HTMLElement | null
+    const container = list?.shadowRoot?.querySelector('.list-container')
+    const item = list?.shadowRoot?.querySelector('file-item-mobile') as HTMLElement | null
+    const target = item?.shadowRoot?.querySelector('.file-item .name') as HTMLElement | null
+    if (!container || !item || !target) return null
 
-    target.dispatchEvent(
-      new MouseEvent('contextmenu', {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        clientX: target.getBoundingClientRect().left + 8,
-        clientY: target.getBoundingClientRect().top + 8,
-      }),
-    )
-    return true
+    const containerRect = container.getBoundingClientRect()
+    const itemRect = item.getBoundingClientRect()
+    if (itemRect.top < containerRect.top || itemRect.bottom > containerRect.bottom) return null
+    const rect = target.getBoundingClientRect()
+    return {x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}
   })
-  expect(requestedSelection).toBe(true)
+  expect(selectionPoint).not.toBeNull()
+  await page.mouse.click(selectionPoint!.x, selectionPoint!.y, {button: 'right'})
 
   await page.waitForFunction(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
       return null
     }
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
+    const header = deepFind(document, '[data-testid="workspace-header"]') as HTMLElement | null
     return Boolean(
-      header?.shadowRoot?.querySelector('.mobile-selection-action[data-action="selection-done"]'),
+      deepFind(header, '.mobile-selection-action[data-action="selection-done"]'),
     )
   }, undefined, {timeout: 10_000})
 
@@ -870,20 +956,28 @@ test('mobile selection mode preserves virtual file list scroll', async () => {
   expect(started.selectedItemId).not.toBeNull()
 
   await page.waitForFunction(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
       return null
     }
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
+    const header = deepFind(document, '[data-testid="workspace-header"]') as HTMLElement | null
     return Boolean(
-      header?.shadowRoot?.querySelector('.mobile-selection-action[data-action="selection-done"]'),
+      deepFind(header, '.mobile-selection-action[data-action="selection-done"]'),
     )
   }, undefined, {timeout: 10_000})
 
@@ -999,22 +1093,11 @@ test('mobile upload sheet opens with vertical header list footer layout', async 
     return Boolean(upload?.shadowRoot?.querySelector('.minimized-bar'))
   }, undefined, {timeout: 10_000})
 
-  await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-    const upload = deepFind(document, 'upload-progress-mobile') as HTMLElement | null
-    const trigger = upload?.shadowRoot?.querySelector('.minimized-main') as HTMLButtonElement | null
-    trigger?.click()
+  // Open with real input rather than mutating in evaluate; see the selection helper's GC rationale.
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
   })
+  await page.locator('upload-progress-mobile .minimized-main').click()
 
   await page.waitForFunction(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {

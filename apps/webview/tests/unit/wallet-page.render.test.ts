@@ -40,8 +40,8 @@ const ACCOUNT: WalletAccount = {
   wallet_mode: 'multichain',
   mnemonic_standard: 'bip39',
   account_model: 'account',
-  derivation_profile: 'ton_bip39_v5r1_account',
-  wallet_contract: 'wallet_v5r1',
+  derivation_profile: 'ton_bip39_wallet_tg_account',
+  wallet_contract: 'wallet_tg',
   account_index: 0,
   workchain: 0,
   label: 'Main account',
@@ -89,7 +89,7 @@ const IMPORTED_ACCOUNT: WalletAccount = {
   address: 'EQIabcdefghijklmnopqrstuvwxyz1234567890',
   public_key: 'imported-public-key',
   curve: 'ed25519',
-  wallet_contract: 'Wallet V5R1',
+  wallet_contract: 'Telegram Wallet',
   workchain: 0,
   raw_account: null,
   created_at: 1,
@@ -157,7 +157,6 @@ function tonStatus(input: Partial<WalletNetworkStatus> = {}): WalletNetworkStatu
     broadcast_enabled: true,
     capabilities: [
       {id: 'ton_native_transfer', state: 'ready', disabled_reason: null},
-      {id: 'ton_connect_v1', state: 'disabled', disabled_reason: 'Not built'},
     ],
     disabled_reason: null,
     ...input,
@@ -199,7 +198,7 @@ function preparedResponse(): WalletPrepareResponse {
       total_debit: '1255000000',
       warnings: [],
       ton: {
-        wallet_contract: 'wallet_v5r1',
+        wallet_contract: 'wallet_tg',
         seqno: 7,
         account_state: 'active',
         valid_until: 1000,
@@ -320,16 +319,15 @@ describe('WalletPage render contract', () => {
     expect(host.querySelector('input[type="checkbox"][value="ton"]')).toBeNull()
     expect(host.textContent).not.toContain(i18n('wallet:field:recovery-format'))
     expect(host.textContent).not.toContain(i18n('wallet:profile:ton-only:title'))
-    expect(findButton(host, i18n('wallet:action:generate')).disabled).toBe(false)
+    expect(findButton(host, i18n('wallet:action:create')).disabled).toBe(false)
+    expect(host.textContent).not.toContain(i18n('wallet:field:mnemonic'))
+    expect(host.textContent).toContain(i18n('wallet:create:export-hint'))
     expect(findOptionalButton(host, i18n('wallet:action:refresh'))).toBeUndefined()
   })
 
   it('shows a pending state and prevents duplicate wallet creation', () => {
     resetWalletModel()
     prepareWalletSurface(walletStatus([tonStatus()]), [], [])
-    walletPageModel.setup.generatedMnemonic.set(Array.from({length: 12}, () => 'word'))
-    walletPageModel.setup.generatedMnemonicDraftId.set('draft-1')
-    walletPageModel.setup.createConfirmed.set(true)
     walletPageModel.setup.hdWalletLoading.set(true)
     walletPageModel.setSetupFlow('create')
 
@@ -338,20 +336,19 @@ describe('WalletPage render contract', () => {
 
     expect(createButton.disabled).toBe(true)
     expect(createButton.getAttribute('aria-busy')).toBe('true')
-    expect(findButton(host, i18n('wallet:action:generate')).disabled).toBe(true)
   })
 
-  it('shows a pending state and prevents duplicate mnemonic generation', () => {
+  it('shows a pending state while the silent draft generation runs', () => {
     resetWalletModel()
     prepareWalletSurface(walletStatus([tonStatus()]), [], [])
     walletPageModel.setup.mnemonicLoading.set(true)
     walletPageModel.setSetupFlow('create')
 
     const host = renderMobileWalletPage()
-    const generateButton = findButton(host, i18n('wallet:action:generating'))
+    const createButton = findButton(host, i18n('wallet:action:creating'))
 
-    expect(generateButton.disabled).toBe(true)
-    expect(generateButton.getAttribute('aria-busy')).toBe('true')
+    expect(createButton.disabled).toBe(true)
+    expect(createButton.getAttribute('aria-busy')).toBe('true')
   })
 
   it('renders the strict TON-native restore contract without BIP39 passphrase controls', () => {
@@ -366,6 +363,42 @@ describe('WalletPage render contract', () => {
     expect(host.textContent).toContain(i18n('wallet:field:recovery-format'))
     expect(host.textContent).not.toContain(i18n('wallet:field:passphrase-toggle'))
     expect(findButton(host, i18n('wallet:action:import-phrase')).disabled).toBe(true)
+  })
+
+  it('keeps the create passphrase optional behind an advanced section', () => {
+    resetWalletModel()
+    prepareWalletSurface(walletStatus([tonStatus()]), [], [])
+    walletPageModel.setSetupFlow('create')
+
+    const host = renderMobileWalletPage()
+
+    expect(host.querySelector('details.setup-advanced')).not.toBeNull()
+    expect(host.textContent).toContain(i18n('wallet:create:advanced'))
+    expect(host.textContent).toContain(i18n('wallet:field:passphrase-toggle'))
+    expect(host.querySelector('input[type="password"]')).toBeNull()
+    expect(findButton(host, i18n('wallet:action:create')).disabled).toBe(false)
+  })
+
+  it('splits a rotated Telegram Wallet phrase into its two halves on both recovery layouts', () => {
+    resetWalletModel()
+    prepareWalletSurface(walletStatus([tonStatus()]))
+    walletPageModel.setMode('recovery')
+    walletPageModel.recoveryMnemonic.set(Array.from({length: 24}, (_, index) => `w${index + 1}`))
+    walletPageModel.recoveryMnemonicStandard.set('rotation')
+
+    for (const host of [renderWalletPage(), renderMobileWalletPage()]) {
+      expect(host.querySelectorAll('.mnemonic-grid')).toHaveLength(2)
+      expect(host.textContent).toContain(i18n('wallet:recovery:anchor-words'))
+      expect(host.textContent).toContain(i18n('wallet:recovery:signing-words'))
+      expect(host.textContent).toContain(i18n('wallet:recovery:rotation-hint'))
+      const numbers = [...host.querySelectorAll('.mnemonic-word .meta')].map((item) => item.textContent)
+      expect(numbers[12]).toBe('13')
+    }
+
+    walletPageModel.recoveryMnemonic.set(Array.from({length: 12}, (_, index) => `w${index + 1}`))
+    const host = renderWalletPage()
+    expect(host.querySelectorAll('.mnemonic-grid')).toHaveLength(1)
+    expect(host.textContent).toContain(i18n('wallet:recovery:single-phrase-hint'))
   })
 
   it('renders add account action for HD TON wallets', () => {
@@ -388,8 +421,8 @@ describe('WalletPage render contract', () => {
     host = renderWalletPage()
 
     expect(host.textContent).toContain(i18n('wallet:create:title'))
-    expect(host.textContent).toContain(i18n('wallet:action:generate'))
-    expect(findButton(host, i18n('wallet:action:create')).disabled).toBe(true)
+    // No phrase step: Create generates the draft silently and saves in one go.
+    expect(findButton(host, i18n('wallet:action:create')).disabled).toBe(false)
   })
 
   it('does not render add account action for imported wallets', () => {
@@ -454,7 +487,7 @@ describe('WalletPage render contract', () => {
     const sendRoot = await sendFormRoot(host)
 
     expect(sendRoot.textContent).toContain(i18n('wallet:preview:wallet-contract'))
-    expect(sendRoot.textContent).toContain('wallet_v5r1')
+    expect(sendRoot.textContent).toContain('wallet_tg')
     expect(sendRoot.textContent).toContain(i18n('wallet:preview:seqno'))
     expect(sendRoot.textContent).toContain('7')
     expect(sendRoot.textContent).toContain(i18n('wallet:preview:account-state'))
@@ -597,6 +630,66 @@ describe('WalletPage render contract', () => {
     ).toBe(false)
     expect(host.querySelector('.send-sheet wallet-send-form')).not.toBeNull()
     expect(host.querySelector('[role="tabpanel"]')).not.toBeNull()
+  })
+
+  it('lists every network account with its balance as one multichain wallet and routes Receive by network', () => {
+    resetWalletModel()
+    const tonAccount: WalletAccount = {
+      ...ACCOUNT,
+      account_id: 'account-bitcoin-ton',
+      wallet_id: BITCOIN_WALLET.wallet_id,
+      label: 'TON account',
+    }
+    prepareWalletSurface(walletStatus([bitcoinStatus(), tonStatus()]), [BITCOIN_WALLET], [BITCOIN_ACCOUNT, tonAccount])
+    walletPageModel.balances.set({
+      [tonAccount.account_id]: {...CACHED_BALANCE, account_id: tonAccount.account_id},
+    })
+
+    const host = renderMobileWalletPage(true)
+    const rows = [...host.querySelectorAll('.asset-list [role="option"]')]
+    expect(rows.map((row) => row.getAttribute('data-account-id'))).toEqual([
+      tonAccount.account_id,
+      BITCOIN_ACCOUNT.account_id,
+    ])
+    expect(rows[0]?.textContent).toContain('2.34 TON')
+    expect(rows[1]?.textContent).toContain('Bitcoin')
+    expect(host.querySelector('.account-rail')).toBeNull()
+    expect(findButton(host, i18n('wallet:mode:send')).disabled).toBe(false)
+
+    const desktop = renderWalletPage(true)
+    expect(desktop.querySelectorAll('.asset-list [role="option"]')).toHaveLength(2)
+    expect(desktop.querySelectorAll('.account-list .account-button')).toHaveLength(2)
+
+    expect(walletPageModel.executeToolbarCommand('receive')).toBe(true)
+    const sheet = renderMobileWalletPage(true).querySelector('.receive-sheet') as HTMLElement
+    const chips = [...sheet.querySelectorAll('.receive-network-chip')]
+    expect(chips.map((chip) => chip.getAttribute('aria-pressed'))).toEqual(['false', 'true'])
+    ;(chips[0] as HTMLButtonElement).click()
+    expect(walletPageModel.selectedAccountId()).toBe(tonAccount.account_id)
+    const switched = renderMobileWalletPage(true).querySelector('.receive-sheet') as HTMLElement
+    expect(switched.querySelector('code[dir="ltr"]')?.textContent).toBe(tonAccount.current_receive_address)
+  })
+
+  it('shows the network detected from the pasted address inside the send form', async () => {
+    resetWalletModel()
+    prepareWalletSurface(walletStatus([tonStatus()]))
+    walletPageModel.setMode('send')
+    // Core answers `wallet:address:detect`; the render contract only reflects its answer.
+    walletPageModel.setSendDestination('ton-address')
+    walletPageModel.sendDestinationNetwork.set('ton')
+
+    const root = await sendFormRoot(renderWalletPage())
+    expect(root.querySelector('#wallet-send-network')?.textContent).toContain('TON')
+    expect(root.querySelector('.network-hint')?.textContent).toContain(
+      i18n('wallet:send:network-detected', {network: 'TON'}),
+    )
+
+    walletPageModel.setSendDestination('eth-address')
+    walletPageModel.sendDestinationNetwork.set('ethereum')
+    const mismatch = await sendFormRoot(renderWalletPage())
+    expect(mismatch.querySelector('.network-hint.mismatch')?.textContent).toContain(
+      i18n('wallet:send:error:network-mismatch', {network: 'Ethereum'}),
+    )
   })
 
   it('suppresses populated local headers only when the dashboard shell owns the toolbar', () => {

@@ -1,9 +1,15 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
+const openExternalBrowserUrl = vi.hoisted(() => vi.fn((_url: string) => Promise.resolve()))
+
+vi.mock('../../src/shared/services/external-browser', () => ({
+  openExternalBrowserUrl: (url: string) => openExternalBrowserUrl(url),
+}))
+
 import {DEFAULT_SESSION_SETTINGS} from '../../src/core/session/session-settings'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {guidanceModel} from '../../src/core/guidance/guidance.model'
-import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel} from '../../src/core/modules/module-access.model'
 import {setLang as setAppLang} from '../../src/i18n'
 import {SettingsPage} from '../../src/routes/settings/settings-page'
 import {settingsPageModel} from '../../src/routes/settings/settings.model'
@@ -42,10 +48,7 @@ function layoutRoot(page: SettingsPage): ShadowRoot {
 function resetSettingsState() {
   settingsPageModel.settings.set({...DEFAULT_SESSION_SETTINGS})
   settingsPageModel.credentialProviderSelected.set(null)
-  settingsPageModel.androidQuickLockTileStatus.set(null)
   settingsPageModel.sshAgentStatus.set(null)
-  settingsPageModel.activationCodeDraft.set('')
-  settingsPageModel.activationCodeError.set('')
   settingsPageModel.vaultRekey.reset()
   moduleAccessModel.reset()
   guidanceModel.progress.set([])
@@ -65,6 +68,13 @@ function section(root: ShadowRoot, id: string): HTMLElement | null {
   return root.getElementById(id) as HTMLElement | null
 }
 
+function legalLinks(root: ParentNode): HTMLAnchorElement[] {
+  return Array.from(root.querySelectorAll<HTMLAnchorElement>('a[data-legal-document]'))
+}
+
+const PRIVACY_URL = 'https://chromvoid.com/en/legal/privacy-policy/'
+const TERMS_URL = 'https://chromvoid.com/en/legal/terms-of-service-eula/'
+
 function indexHrefs(root: ShadowRoot): string[] {
   return Array.from(root.querySelectorAll<HTMLAnchorElement>('.settings-index-link')).map((anchor) =>
     anchor.getAttribute('href'),
@@ -77,6 +87,7 @@ describe('Settings page layout', () => {
     resetSettingsState()
     initAppContext(createMockAppContext())
     setAppLang('en')
+    openExternalBrowserUrl.mockClear()
   })
 
   afterEach(() => {
@@ -86,14 +97,6 @@ describe('Settings page layout', () => {
     resetSettingsState()
     setAppLang('en')
     vi.restoreAllMocks()
-  })
-
-  it('keeps license activation available and identifies an empty activation code', async () => {
-    expect(settingsPageModel.licenseActivationDisabled()).toBe(false)
-
-    await expect(settingsPageModel.activateLicense()).resolves.toBe(false)
-
-    expect(settingsPageModel.activationCodeError()).toBe('This field is required')
   })
 
   it('renders the desktop section index and semantic settings sections', async () => {
@@ -107,20 +110,18 @@ describe('Settings page layout', () => {
     expect(indexHrefs(root)).toEqual([
       '#settings-application',
       '#settings-passwords',
-      '#settings-license',
       '#settings-session-security',
       '#settings-ssh-agent',
+      '#settings-about',
     ])
     expect(section(root, 'settings-application')?.tagName).toBe('SECTION')
     expect(section(root, 'settings-passwords')?.tagName).toBe('SECTION')
-    expect(section(root, 'settings-license')?.tagName).toBe('SECTION')
     expect(section(root, 'settings-session-security')?.tagName).toBe('SECTION')
     expect(section(root, 'settings-ssh-agent')?.tagName).toBe('SECTION')
     expect(section(root, 'settings-credential-provider')).toBeNull()
     expect(root.querySelector<HTMLInputElement>('#settings-markdown-attachment-folder')?.value).toBe(
       '/attachments',
     )
-    expect(root.querySelector('.license-input')).not.toBeNull()
   })
 
   it('renders macOS Credential Provider status and actions when the capability is available', async () => {
@@ -164,15 +165,10 @@ describe('Settings page layout', () => {
 
   it('renders the mobile overview hierarchy and hides desktop-only controls', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       desktop: false,
       supports_autofill: true,
-    })
-    settingsPageModel.androidQuickLockTileStatus.set({
-      supported: true,
-      requestSupported: true,
-      enabled: true,
     })
 
     const page = await renderSettingsPage()
@@ -180,41 +176,64 @@ describe('Settings page layout', () => {
 
     expect(root.querySelector('.settings-index')).toBeNull()
     expect(root.querySelector('#settings-ssh-agent')).toBeNull()
-    expect(root.querySelectorAll('.overview-row')).toHaveLength(6)
+    expect(root.querySelectorAll('.overview-row')).toHaveLength(7)
     expect(
       Array.from(root.querySelectorAll<HTMLElement>('[data-settings-route]')).map(
         (row) => row.dataset['settingsRoute'],
       ),
-    ).toEqual(['security', 'autofill', 'files', 'passwords', 'license'])
+    ).toEqual(['security', 'autofill', 'files', 'passwords'])
     expect(root.textContent).toContain('Security & locking')
     expect(root.textContent).toContain('Credential Provider / Autofill')
     expect(root.textContent).toContain('Files & storage')
     expect(root.textContent).toContain('Password vault')
     expect(root.textContent).toContain('Language')
-    expect(root.textContent).toContain('License')
   })
 
-  it('omits all external Pro settings from the iOS distribution', async () => {
-    setRuntimeCapabilities({
-      platform: 'ios',
-      mobile: true,
-      desktop: false,
-      supports_autofill: true,
-      supports_external_pro: false,
-    })
+  it('links the privacy policy and terms of service from the desktop About section', async () => {
+    setRuntimeCapabilities({platform: 'macos', desktop: true, mobile: false})
 
     const page = await renderSettingsPage()
     const root = layoutRoot(page)
+    const about = section(root, 'settings-about')
 
-    expect(root.querySelectorAll('.overview-row')).toHaveLength(4)
-    expect(
-      Array.from(root.querySelectorAll<HTMLElement>('[data-settings-route]')).map(
-        (row) => row.dataset['settingsRoute'],
-      ),
-    ).toEqual(['security', 'files', 'passwords'])
-    expect(root.querySelector('[data-settings-route="autofill"]')).toBeNull()
-    expect(root.querySelector('[data-settings-route="license"]')).toBeNull()
-    expect(root.querySelector('.license-input')).toBeNull()
+    expect(about?.tagName).toBe('SECTION')
+    expect(about?.querySelector('#settings-about-title')?.textContent?.trim()).toBe('About')
+    const links = legalLinks(about!)
+    expect(links.map((link) => [link.textContent?.replace(/\s+/g, ' ').trim(), link.getAttribute('href')])).toEqual([
+      ['Privacy Policy Opens in your browser', PRIVACY_URL],
+      ['Terms of Service Opens in your browser', TERMS_URL],
+    ])
+    expect(links.every((link) => link.getAttribute('rel') === 'noopener noreferrer')).toBe(true)
+
+    const click = new MouseEvent('click', {bubbles: true, cancelable: true})
+    links[0]!.dispatchEvent(click)
+
+    expect(click.defaultPrevented).toBe(true)
+    expect(openExternalBrowserUrl).toHaveBeenCalledWith(PRIVACY_URL)
+  })
+
+  it('links the privacy policy and terms of service from the mobile overview', async () => {
+    setRuntimeCapabilities({platform: 'ios', mobile: true, desktop: false})
+
+    const page = await renderSettingsPage()
+    const root = layoutRoot(page)
+    const aboutGroup = Array.from(root.querySelectorAll<HTMLElement>('.overview-section')).find(
+      (group) => group.querySelector('.group-label')?.textContent?.trim() === 'About',
+    )
+
+    expect(aboutGroup).toBeDefined()
+    const links = legalLinks(aboutGroup!)
+    expect(links.map((link) => [link.querySelector('.overview-title')?.textContent, link.getAttribute('href')])).toEqual([
+      ['Privacy Policy', PRIVACY_URL],
+      ['Terms of Service', TERMS_URL],
+    ])
+
+    const click = new MouseEvent('click', {bubbles: true, cancelable: true})
+    links[1]!.dispatchEvent(click)
+
+    expect(click.defaultPrevented).toBe(true)
+    expect(openExternalBrowserUrl).toHaveBeenCalledWith(TERMS_URL)
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'overview'})
   })
 
   it('switches the Settings presentation reactively without losing the route snapshot', async () => {
@@ -228,7 +247,7 @@ describe('Settings page layout', () => {
 
     expect(page.shadowRoot?.querySelector('settings-page-desktop-layout')).not.toBeNull()
 
-    setRuntimeCapabilities({platform: 'android', desktop: false, mobile: true})
+    setRuntimeCapabilities({platform: 'ios', desktop: false, mobile: true})
     await Promise.resolve()
     await page.updateComplete
 

@@ -251,7 +251,7 @@ describe('PMEntryTOTPItem', () => {
     await item.updateComplete
 
     expect(invoke).toHaveBeenCalledWith(
-      'plugin:clipboard-manager|write_text',
+      'plugin:clipboard-manager|write_secret',
       expect.objectContaining({text: '111222'}),
     )
     await waitForCondition(() => {
@@ -346,7 +346,7 @@ describe('PMEntryTOTPItem', () => {
 
     expect(event.defaultPrevented).toBe(true)
     expect(invoke).toHaveBeenCalledWith(
-      'plugin:clipboard-manager|write_text',
+      'plugin:clipboard-manager|write_secret',
       expect.objectContaining({text: '333444'}),
     )
   })
@@ -479,7 +479,7 @@ describe('PMEntryTOTPItem', () => {
     await copyPromise
 
     expect(invoke).toHaveBeenCalledWith(
-      'plugin:clipboard-manager|write_text',
+      'plugin:clipboard-manager|write_secret',
       expect.objectContaining({text: '222222'}),
     )
     expect(model.state.view()?.codeText).toBe('222 222')

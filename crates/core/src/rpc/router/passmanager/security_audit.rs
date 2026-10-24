@@ -1,3 +1,6 @@
+mod scan;
+pub(super) use scan::read_page;
+
 use std::collections::HashSet;
 
 use serde::de::DeserializeOwned;

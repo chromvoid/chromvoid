@@ -260,15 +260,18 @@ impl CatalogManager {
             .find_by_path_mut(&parent_path)
             .ok_or_else(|| Error::InvalidPath(parent_path.clone()))?;
 
-        if let Some(node) = parent.find_child_mut(old_name) {
-            node.name = new_name.to_string();
-            node.touch();
-        }
+        let node = parent
+            .find_child_mut(old_name)
+            .ok_or(Error::NodeNotFound(node_id))?;
+        node.name = new_name.to_string();
+        node.touch();
+        let mut renamed_ids = vec![node_id];
+        Self::collect_descendant_ids(node, &mut renamed_ids);
 
-        // Update index
-        if let Some(indexed_path) = self.node_index.get_mut(&node_id) {
-            if let Some(last) = indexed_path.last_mut() {
-                *last = new_name.to_string();
+        // Every descendant path contains the renamed directory at this same depth.
+        for id in renamed_ids {
+            if let Some(indexed_path) = self.node_index.get_mut(&id) {
+                indexed_path[path.len() - 1] = new_name.to_string();
             }
         }
 

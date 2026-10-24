@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::license::SignedCert;
+use super::{MasterRekeyRequest, MasterSetupRequest, VaultRekeyRequest};
 
 use super::{
     CatalogFilePatchRange, CatalogFileReplaceConflictMode, CatalogFolderFilter,
@@ -15,13 +15,14 @@ use super::{
     EnvSecretDeleteRequest, EnvSecretListRequest, EnvSecretRevealRequest, EnvSecretUpdateRequest,
     WalletAccountsDeriveRequest, WalletAccountsListRequest, WalletAddressBookCreateRequest,
     WalletAddressBookDeleteRequest, WalletAddressBookListRequest, WalletAddressBookUpdateRequest,
-    WalletAddressesDeriveRequest, WalletBackupExportRequest, WalletBalanceGetRequest,
-    WalletHdCreateRequest, WalletHdGenerateMnemonicRequest, WalletImportCreateRequest,
-    WalletListRequest, WalletSpendAuthorizationCreateRequest,
-    WalletSpendAuthorizationRevokeRequest, WalletStatusRequest, WalletTransactionCancelRequest,
-    WalletTransactionConfirmRequest, WalletTransactionPrepareRequest,
-    WalletTransactionQuoteRequest, WalletTransactionRebroadcastRequest,
-    WalletTransactionsListRequest, WalletTransactionsRefreshRequest, WalletTransactionsSyncRequest,
+    WalletAddressDetectRequest, WalletAddressesDeriveRequest, WalletBackupExportRequest,
+    WalletBalanceGetRequest, WalletHdCreateRequest, WalletHdGenerateMnemonicRequest,
+    WalletImportCreateRequest, WalletListRequest, WalletSpendAuthorizationCreateRequest,
+    WalletSpendAuthorizationRevokeRequest, WalletStatusRequest, WalletTonRotateKeyRequest,
+    WalletTransactionCancelRequest, WalletTransactionConfirmRequest,
+    WalletTransactionPrepareRequest, WalletTransactionQuoteRequest,
+    WalletTransactionRebroadcastRequest, WalletTransactionsListRequest,
+    WalletTransactionsRefreshRequest, WalletTransactionsSyncRequest,
 };
 
 #[cfg(feature = "ts-bindings")]
@@ -32,12 +33,14 @@ use ts_rs::TS;
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
 #[serde(transparent)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CredentialAuditStrengthScore(pub Option<u8>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CredentialAuditEntrySummary {
     pub entry_id: String,
     pub weak_password: bool,
@@ -78,6 +81,7 @@ pub struct PassmanagerSecurityAuditSetRequest {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct PassmanagerEntryCreateSecrets {
     pub password: Option<String>,
     pub note: Option<String>,
@@ -101,21 +105,6 @@ pub enum RpcCommand {
     #[serde(rename = "core:capabilities")]
     CoreCapabilities {},
 
-    #[serde(rename = "license:fingerprint")]
-    LicenseFingerprint {},
-
-    #[serde(rename = "license:install")]
-    LicenseInstall { cert: SignedCert },
-
-    #[serde(rename = "license:cert")]
-    LicenseCert {},
-
-    #[serde(rename = "license:uninstall")]
-    LicenseUninstall {},
-
-    #[serde(rename = "license:status")]
-    LicenseStatus {},
-
     // === Vault commands ===
     #[serde(rename = "vault:unlock")]
     VaultUnlock { password: String },
@@ -137,16 +126,13 @@ pub enum RpcCommand {
     VaultStatus {},
 
     #[serde(rename = "vault:rekey")]
-    VaultRekey {
-        current_password: String,
-        new_password: String,
-    },
+    VaultRekey(VaultRekeyRequest),
+
+    #[serde(rename = "master:setup")]
+    MasterSetup(MasterSetupRequest),
 
     #[serde(rename = "master:rekey")]
-    MasterRekey {
-        current_password: String,
-        new_master_password: String,
-    },
+    MasterRekey(MasterRekeyRequest),
 
     #[serde(rename = "admin:storage:gc:scan")]
     AdminStorageGcScan { include_system: Option<bool> },
@@ -243,6 +229,9 @@ pub enum RpcCommand {
     #[serde(rename = "wallet:backup:export")]
     WalletBackupExport(WalletBackupExportRequest),
 
+    #[serde(rename = "wallet:ton:rotateKey")]
+    WalletTonRotateKey(WalletTonRotateKeyRequest),
+
     #[serde(rename = "wallet:spendAuthorization:create")]
     WalletSpendAuthorizationCreate(WalletSpendAuthorizationCreateRequest),
 
@@ -260,6 +249,9 @@ pub enum RpcCommand {
 
     #[serde(rename = "wallet:addressBook:delete")]
     WalletAddressBookDelete(WalletAddressBookDeleteRequest),
+
+    #[serde(rename = "wallet:address:detect")]
+    WalletAddressDetect(WalletAddressDetectRequest),
 
     // === Catalog navigation ===
     #[serde(rename = "catalog:list")]
@@ -304,7 +296,13 @@ pub enum RpcCommand {
     #[serde(rename = "catalog:file-links:resolve")]
     CatalogFileLinksResolve { targets: Vec<String> },
 
+    #[serde(rename = "catalog:document:resolve-link")]
+    CatalogDocumentLink(super::CatalogDocumentLinkRequest),
+
     // === Catalog CRUD ===
+    #[serde(rename = "catalog:attachment:prepare")]
+    CatalogAttachmentPrepare(super::CatalogAttachmentRequest),
+
     #[serde(rename = "catalog:createDir")]
     CatalogCreateDir {
         name: String,
@@ -377,6 +375,8 @@ pub enum RpcCommand {
         mime_type: Option<String>,
         chunk_size: Option<u32>,
         finish: Option<bool>,
+        /// Reject existing files instead of starting a replacement transaction.
+        create_only: Option<bool>,
     },
 
     #[serde(rename = "catalog:file:replace")]
@@ -580,33 +580,13 @@ pub enum RpcCommand {
 
     #[serde(rename = "passkeys:delete")]
     PasskeysDelete {
-        #[serde(
-            rename = "credentialIdB64Url",
-            alias = "credential_id_b64url",
-            alias = "credentialId"
-        )]
-        credential_id_b64url: String,
+        #[serde(flatten)]
+        request: super::VaultPasskeyDeleteRequest,
     },
 
     // === PassManager domain commands (ADR-028) ===
     #[serde(rename = "passmanager:entry:create")]
-    PassmanagerEntryCreate {
-        entry_id: String,
-        title: String,
-        entry_type: String,
-        #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
-        created_ts: Option<u64>,
-        #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
-        updated_ts: Option<u64>,
-        urls: Option<Value>,
-        username: Option<String>,
-        otps: Option<Value>,
-        payment_card: Option<Value>,
-        group_path: Option<String>,
-        icon_ref: Option<String>,
-        tags: Option<Vec<String>>,
-        secrets: PassmanagerEntryCreateSecrets,
-    },
+    PassmanagerEntryCreate(super::PassmanagerEntryCreateRequest),
 
     #[serde(rename = "passmanager:entry:save")]
     PassmanagerEntrySave {
@@ -622,6 +602,21 @@ pub enum RpcCommand {
         icon_ref: Option<String>,
         tags: Option<Vec<String>>,
     },
+
+    #[serde(rename = "passmanager:entry:websites:read")]
+    PassmanagerWebsiteRead(super::PassmanagerWebsiteReadRequest),
+
+    #[serde(rename = "passmanager:entry:websites:validate")]
+    PassmanagerWebsiteValidate(super::PassmanagerWebsiteValidateRequest),
+
+    #[serde(rename = "passmanager:entry:websites:update")]
+    PassmanagerWebsiteUpdate(super::PassmanagerWebsiteUpdateRequest),
+
+    #[serde(rename = "passmanager:entry:detail")]
+    PassmanagerEntryDetail { entry_id: String },
+
+    #[serde(rename = "passmanager:entry:update")]
+    PassmanagerEntryUpdate(super::PassmanagerEntryUpdateRequest),
 
     #[serde(rename = "passmanager:entry:read")]
     PassmanagerEntryRead { entry_id: String },
@@ -641,6 +636,9 @@ pub enum RpcCommand {
     #[serde(rename = "passmanager:entry:list")]
     PassmanagerEntryList {},
 
+    #[serde(rename = "passmanager:entry:page")]
+    PassmanagerEntryPage(super::PassmanagerEntryPageRequest),
+
     #[serde(rename = "passmanager:secret:save")]
     PassmanagerSecretSave {
         entry_id: String,
@@ -659,6 +657,19 @@ pub enum RpcCommand {
         entry_id: String,
         secret_type: String,
     },
+
+    #[serde(rename = "passmanager:ssh:key:import")]
+    PassmanagerSshImport(super::PassmanagerSshImportRequest),
+    #[serde(rename = "passmanager:ssh:key:export")]
+    PassmanagerSshExport(super::PassmanagerSshExportRequest),
+
+    #[serde(rename = "passmanager:ssh:keygen")]
+    PassmanagerSshKeygen(super::PassmanagerSshKeygenRequest),
+
+    #[serde(rename = "passmanager:ssh:page")]
+    PassmanagerSshPage(super::PassmanagerSshPageRequest),
+    #[serde(rename = "passmanager:ssh:key:edit")]
+    PassmanagerSshEdit(super::PassmanagerSshEditRequest),
 
     #[serde(rename = "passmanager:ssh:list")]
     PassmanagerSshList {},
@@ -682,6 +693,21 @@ pub enum RpcCommand {
     #[serde(rename = "passmanager:ssh:secret:delete")]
     PassmanagerSshSecretDelete { key_id: String, secret_type: String },
 
+    #[serde(rename = "passmanager:tag:page")]
+    PassmanagerTagPage(super::PassmanagerTagPageRequest),
+
+    #[serde(rename = "passmanager:tag:save")]
+    PassmanagerTagSave(super::PassmanagerTagSaveRequest),
+
+    #[serde(rename = "passmanager:tag:delete")]
+    PassmanagerTagDelete(super::PassmanagerTagDeleteRequest),
+
+    #[serde(rename = "passmanager:group:page")]
+    PassmanagerGroupPage(super::PassmanagerGroupPageRequest),
+
+    #[serde(rename = "passmanager:group:rename")]
+    PassmanagerGroupRename(super::PassmanagerGroupRenameRequest),
+
     #[serde(rename = "passmanager:group:ensure")]
     PassmanagerGroupEnsure { path: String },
 
@@ -698,13 +724,24 @@ pub enum RpcCommand {
     #[serde(rename = "passmanager:group:delete")]
     PassmanagerGroupDelete { path: String },
 
+    #[serde(rename = "passmanager:import:limits")]
+    CredentialImportLimits {},
+    #[serde(rename = "passmanager:import:start")]
+    CredentialImportStart(super::CredentialImportStartRequest),
+    #[serde(rename = "passmanager:import:append")]
+    CredentialImportAppend(super::CredentialImportAppendRequest),
+    #[serde(rename = "passmanager:import:review")]
+    CredentialImportReview(super::CredentialImportReviewRequest),
+    #[serde(rename = "passmanager:import:commit")]
+    CredentialImportCommit(super::CredentialImportCommitRequest),
+    #[serde(rename = "passmanager:import:cancel")]
+    CredentialImportCancel(super::CredentialImportIdRequest),
+
+    #[serde(rename = "passmanager:root:import:preview")]
+    PassmanagerRootImportPreview(super::PassmanagerRootImportRequest),
+
     #[serde(rename = "passmanager:root:import")]
-    PassmanagerRootImport {
-        entries: Value,
-        folders: Value,
-        folders_meta: Option<Value>,
-        ssh_keys: Option<Value>,
-    },
+    PassmanagerRootImport(super::PassmanagerRootImportRequest),
 
     #[serde(rename = "passmanager:root:export")]
     PassmanagerRootExport {},
@@ -734,11 +771,32 @@ pub enum RpcCommand {
     #[serde(rename = "passmanager:icon:gc")]
     PassmanagerIconGc {},
 
+    #[serde(rename = "passmanager:securityAudit:page")]
+    PassmanagerSecurityAuditPage(super::PassmanagerSecurityAuditPageRequest),
+
     #[serde(rename = "passmanager:securityAudit:get")]
     PassmanagerSecurityAuditGet(PassmanagerSecurityAuditGetRequest),
 
     #[serde(rename = "passmanager:securityAudit:set")]
     PassmanagerSecurityAuditSet(PassmanagerSecurityAuditSetRequest),
+
+    #[serde(rename = "passmanager:password:generate")]
+    PassmanagerPasswordGenerate(super::PassmanagerPasswordGenerateRequest),
+
+    #[serde(rename = "passmanager:otp:parseUri")]
+    PassmanagerOtpParseUri(super::PassmanagerOtpUriRequest),
+
+    #[serde(rename = "passmanager:otp:record:list")]
+    PassmanagerOtpRecordList(super::PassmanagerOtpRecordsRequest),
+
+    #[serde(rename = "passmanager:otp:record:save")]
+    PassmanagerOtpRecordSave(super::PassmanagerOtpRecordSaveRequest),
+
+    #[serde(rename = "passmanager:otp:record:delete")]
+    PassmanagerOtpRecordDelete(super::PassmanagerOtpRecordRequest),
+
+    #[serde(rename = "passmanager:otp:record:code")]
+    PassmanagerOtpRecordCode(super::PassmanagerOtpRecordRequest),
 
     #[serde(rename = "passmanager:otp:generate")]
     PassmanagerOtpGenerate {

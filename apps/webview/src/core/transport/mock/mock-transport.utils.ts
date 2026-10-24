@@ -1,3 +1,6 @@
+import type {CatalogAttachmentRequest, CatalogAttachmentResponse} from '@chromvoid/scheme'
+
+import {normalizePath, splitPath} from '../../catalog/local-catalog/path'
 import type {Err, Ok} from './mock-transport.types'
 
 export function ok<T>(result: T): Ok<T> {
@@ -55,6 +58,93 @@ export function uint8ToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 export function nextSourceRevision(previous: number | undefined): number {
   const now = Date.now()
   return Math.max(now, (previous ?? 0) + 1)
+}
+
+const MOCK_SYSTEM_SHARD_IDS: ReadonlySet<string> = new Set([
+  '.passmanager',
+  '.wallet',
+  '.passkeys',
+  '.trash',
+  '.cv-env-runtime',
+])
+
+const MOCK_ATTACHMENT_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+  'image/tiff': 'tiff',
+  'image/bmp': 'bmp',
+  'image/svg+xml': 'svg',
+}
+
+/**
+ * Names an attachment the way Core `catalog:attachment:prepare` does; null for a request Core rejects
+ * as invalid. Creating the folder chain is left to the caller.
+ */
+export function planMockAttachment(request: CatalogAttachmentRequest): CatalogAttachmentResponse | null {
+  const rawFolder = request.folder_path.trim()
+  if (
+    !rawFolder.startsWith('/') ||
+    rawFolder.includes('\\') ||
+    /\p{Cc}/u.test(rawFolder) ||
+    rawFolder.split('/').some((part) => part === '.' || part === '..')
+  ) {
+    return null
+  }
+  const folder = normalizePath(rawFolder)
+  const mimeType = request.mime_type.trim().toLowerCase()
+  if (
+    folder === '/' ||
+    MOCK_SYSTEM_SHARD_IDS.has(splitPath(folder)[0] ?? '') ||
+    !mimeType.startsWith('image/') ||
+    mimeType.length <= 'image/'.length ||
+    /\p{White_Space}/u.test(mimeType)
+  ) {
+    return null
+  }
+
+  const sourceName = request.file_name.split(/[/\\]/u).pop() ?? ''
+  const dot = sourceName.lastIndexOf('.')
+  const rawStem = dot >= 0 ? sourceName.slice(0, dot) : sourceName
+  const suffix = dot >= 0 ? sourceName.slice(dot + 1) : ''
+  const extension = /^[A-Za-z\d]{1,10}$/u.test(suffix)
+    ? suffix.toLowerCase()
+    : MOCK_ATTACHMENT_MIME_EXTENSIONS[mimeType]
+  if (!extension) {
+    return null
+  }
+
+  const stem =
+    Array.from(rawStem)
+      .slice(0, 80)
+      .map((char) => (/[\p{Alphabetic}\p{N}_-]/u.test(char) ? char : '-'))
+      .join('')
+      .replace(/^-+|-+$/gu, '') || 'image'
+  const randomSuffix = uint8ToBase64(crypto.getRandomValues(new Uint8Array(16)))
+    .replace(/\+/gu, '-')
+    .replace(/\//gu, '_')
+    .replace(/=+$/u, '')
+  const name = `${stem}-${randomSuffix}.${extension}`
+  const path = `${folder}/${name}`
+  return {
+    parent_path: folder,
+    name,
+    mime_type: mimeType,
+    path,
+    markdown: `![${stem.replaceAll('_', '\\_')}](<${percentEncodeAttachmentPath(path)}>)`,
+  }
+}
+
+// Core keeps ASCII alphanumerics and `/-_.~`, so the renderer still sees a vault-absolute target.
+function percentEncodeAttachmentPath(path: string): string {
+  return Array.from(utf8ToUint8(path), (byte) => {
+    const char = String.fromCharCode(byte)
+    return /[A-Za-z\d/._~-]/u.test(char) ? char : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`
+  }).join('')
 }
 
 function chunkString(value: string, size: number): string {

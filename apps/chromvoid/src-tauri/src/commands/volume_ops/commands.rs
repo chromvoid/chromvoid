@@ -39,23 +39,11 @@ pub(crate) async fn volume_mount(
     state: tauri::State<'_, AppState>,
     backend: Option<String>,
 ) -> Result<RpcResult<VolumeStatus>, String> {
-    if let Err(error) = crate::pro::guard_pro_feature_async(
-        &state,
-        chromvoid_core::license::PRO_FEATURE_MOUNTED_VAULT,
-    )
-    .await
+    if let Err(error) =
+        crate::module_access::guard_module_async(&state, crate::module_access::MODULE_MOUNTED_VAULT)
+            .await
     {
-        return Ok(RpcResult::Error {
-            ok: false,
-            error: match &error {
-                RpcResult::Error { error, .. } => error.clone(),
-                RpcResult::Success { .. } => "Pro license required".to_string(),
-            },
-            code: match error {
-                RpcResult::Error { code, .. } => code,
-                RpcResult::Success { .. } => Some("PRO_REQUIRED".to_string()),
-            },
-        });
+        return Ok(crate::module_access::denial_result(error));
     }
     Ok(
         match volume_mount_inner(

@@ -1,5 +1,6 @@
 import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import type {CVMenuButtonInputEvent} from '@chromvoid/uikit/components/cv-menu-button'
+import {wrap} from '@reatom/core'
 import {nothing, type PropertyValues, type TemplateResult} from 'lit'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
@@ -11,13 +12,10 @@ import {markStartupContentReadyWhenStable} from 'root/app/bootstrap/startup-read
 import {markStartupTimeline} from 'root/app/bootstrap/startup-timeline'
 import {
   moduleAccessModel,
-  type ModuleAccessState,
-  type ModuleAccessStatus,
-  type ProFeatureKey,
-} from 'root/core/pro/module-access.model'
+  type ModuleAccessGate,
+} from 'root/core/modules/module-access.model'
 import {guidanceCompletionBridge, guidanceModel} from 'root/core/guidance'
 import {i18n} from 'root/i18n'
-import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import {getAppContext, getRouter} from 'root/shared/services/app-context'
 import {renderRouteBackLink} from 'root/shared/ui/route-back-link'
 import {subscribeAfterInitial} from 'root/shared/services/subscribed-signal'
@@ -27,7 +25,6 @@ import {
   type FileOpenCommand,
 } from 'root/shared/services/file-command-service'
 import type {Routes} from 'root/app/router/router'
-import type {SearchFilters} from 'root/shared/contracts/file-manager'
 import {getFileManagerModel} from 'root/features/file-manager/file-manager.model'
 import {WorkspaceDashboardHeader} from 'root/features/file-manager/components/workspace-dashboard-header'
 import {notesQuickViewHeaderControlsModel} from 'root/features/file-manager/components/notes-quick-view/notes-quick-view-base'
@@ -99,6 +96,7 @@ export class ChromVoidApp extends ReatomLitElement {
   private unsubscribeFileCommand?: () => void
   private unbindRouteTransition?: () => void
   private unbindNavigationPresenter?: () => void
+  private unbindStartupReadiness?: () => void
   private startupRouteReadinessTimerId = 0
 
   connectedCallback(): void {
@@ -117,6 +115,8 @@ export class ChromVoidApp extends ReatomLitElement {
     this.unbindRouteTransition = undefined
     this.unbindNavigationPresenter?.()
     this.unbindNavigationPresenter = undefined
+    this.unbindStartupReadiness?.()
+    this.unbindStartupReadiness = undefined
     window.clearTimeout(this.startupRouteReadinessTimerId)
     this.unsubscribeFileCommand?.()
     this.unsubscribeFileCommand = undefined
@@ -128,7 +128,9 @@ export class ChromVoidApp extends ReatomLitElement {
 
   protected override firstUpdated(changedProperties: PropertyValues): void {
     super.firstUpdated(changedProperties)
-    this.scheduleStartupReadinessForRoute(getRouter().route())
+    this.unbindStartupReadiness = this.model.startupReadinessRoute.subscribe(
+      wrap((route) => this.scheduleStartupReadinessForRoute(route)),
+    )
     this.unbindNavigationPresenter = navigationModel.registerCommitPresenter((request) =>
       this.presentNavigationCommit(request),
     )
@@ -251,19 +253,13 @@ export class ChromVoidApp extends ReatomLitElement {
     const hideMobileBackLinks = store.layoutMode() === 'mobile'
     const surface = navigationModel.currentSurface()
 
-    if (route === 'no-license') {
-      return html`<no-license></no-license>`
-    }
     if (route === 'welcome') {
       return html`<welcome-page></welcome-page>`
     }
 
     if (route === 'dashboard') {
       const moduleAccessGate = moduleAccessModel.surfaceGate(surface)
-      if (moduleAccessGate.kind === 'checking') return this.renderModuleAccessChecking()
-      if (moduleAccessGate.kind === 'blocked') {
-        return this.renderModuleAccessState(surface, moduleAccessGate.access)
-      }
+      if (moduleAccessGate.kind !== 'open') return this.renderModuleAccessGate(moduleAccessGate)
 
       if (surface === 'remote') {
         return html`<remote-page></remote-page>`
@@ -315,114 +311,46 @@ export class ChromVoidApp extends ReatomLitElement {
     return ''
   }
 
-  private getProAccessGuidanceSurface(surface: SurfaceId): 'remote' | 'gateway' | 'remote-storage' | null {
-    if (surface === 'remote' || surface === 'gateway' || surface === 'remote-storage') return surface
-    return null
-  }
-
-  private renderModuleAccessState(surface: SurfaceId, access: ModuleAccessState): TemplateResult {
-    const title =
-      access.status === 'unsupported'
-        ? i18n('pro-access:unsupported-title')
-        : access.status === 'disabled_by_rollout'
-          ? i18n('pro-access:disabled-title')
-          : access.status === 'entitlement_unavailable'
-            ? i18n('pro-access:unavailable-title')
-            : i18n('pro-access:required-title')
-    const detail =
-      access.status === 'entitlement_unavailable'
-        ? i18n('pro-access:entitlement-unavailable')
-        : access.status === 'locked_pro'
-          ? i18n('pro-access:locked-pro')
-          : access.denial_code || access.feature_key
-    const guidanceSurface = this.getProAccessGuidanceSurface(surface)
-
-    const content = html`
-      <section
-        class="pro-access-state"
-        aria-live=${access.status === 'entitlement_unavailable' ? nothing : 'polite'}
-        role=${access.status === 'entitlement_unavailable' ? 'alert' : nothing}
-      >
-        <cv-icon
-          name=${access.status === 'unsupported'
-            ? 'circle-slash'
-            : access.status === 'entitlement_unavailable'
-              ? 'triangle-alert'
-              : 'lock'}
-        ></cv-icon>
-        <h1>${title}</h1>
-        <p>${detail}</p>
-        <div class="pro-access-state__actions">
-          ${access.status === 'entitlement_unavailable'
-            ? html`
-                <button class="pro-access-state__button" @click=${this.handleRetryModuleAccess}>
-                  ${i18n('pro-access:retry')}
-                </button>
-              `
-            : html`
-                <button class="pro-access-state__button" @click=${this.handleOpenSettings}>
-                  ${i18n('navigation:settings')}
-                </button>
-              `}
-          ${guidanceSurface
-            ? html`
-                <button
-                  class="pro-access-state__button pro-access-state__button--secondary"
-                  data-surface=${surface}
-                  data-feature=${access.feature_key}
-                  data-status=${access.status}
-                  @click=${this.handleBlockedAccessHelp}
-                >
-                  ${i18n('guidance:actions:open-help')}
-                </button>
-              `
-            : nothing}
-        </div>
-      </section>
-    `
-    if (!guidanceSurface) return content
-
-    return html`
-      <cv-guidance-anchor anchor-id="pro.access-state" surface=${guidanceSurface} owner="module-access">
-        ${content}
-      </cv-guidance-anchor>
-    `
-  }
-
-  private renderModuleAccessChecking(): TemplateResult {
-    return html`
-      <section class="pro-access-state" aria-live="polite" role="status">
-        <cv-icon name="refresh-cw"></cv-icon>
-        <h1>${i18n('pro-access:checking-title')}</h1>
-        <p>${i18n('pro-access:checking-detail')}</p>
-      </section>
-    `
-  }
-
-  private handleOpenSettings() {
-    navigationModel.navigateToSurface('settings')
+  private renderModuleAccessGate(
+    gate: Exclude<ModuleAccessGate, {kind: 'open'}>,
+  ): TemplateResult {
+    switch (gate.kind) {
+      case 'checking':
+        return html`
+          <section class="module-access-state" role="status" aria-live="polite">
+            <cv-icon name="refresh-cw"></cv-icon>
+            <h1>${i18n('module-access:checking-title')}</h1>
+          </section>
+        `
+      case 'check-failed':
+        return html`
+          <section class="module-access-state" role="alert">
+            <cv-icon name="triangle-alert"></cv-icon>
+            <h1>${i18n('module-access:check-failed-title')}</h1>
+            <p>${i18n('module-access:check-failed-detail')}</p>
+            <div class="module-access-state__actions">
+              <button class="module-access-state__button" @click=${this.handleRetryModuleAccess}>
+                ${i18n('module-access:retry')}
+              </button>
+            </div>
+          </section>
+        `
+      case 'unavailable':
+        return html`
+          <section class="module-access-state" role="status" aria-live="polite">
+            <cv-icon name="circle-slash"></cv-icon>
+            <h1>
+              ${gate.access.status === 'disabled_by_rollout'
+                ? i18n('module-access:disabled-title')
+                : i18n('module-access:unsupported-title')}
+            </h1>
+          </section>
+        `
+    }
   }
 
   private handleRetryModuleAccess() {
     void moduleAccessModel.refresh()
-  }
-
-  private handleBlockedAccessHelp(event: Event): void {
-    const button = event.currentTarget as HTMLElement | null
-    const surface = button?.dataset['surface'] as SurfaceId | undefined
-    const feature = button?.dataset['feature'] as ProFeatureKey | undefined
-    const reason = button?.dataset['status'] as ModuleAccessStatus | undefined
-    if (!surface || !feature || !reason) return
-
-    const guidanceSurface = this.getProAccessGuidanceSurface(surface)
-    if (!guidanceSurface) return
-
-    guidanceModel.openBlockedAction({
-      surface: guidanceSurface,
-      anchorId: 'pro.access-state',
-      feature,
-      reason,
-    })
   }
 
   private renderMobileTopToolbar(state: MobileToolbarState): TemplateResult | typeof nothing {
@@ -430,6 +358,7 @@ export class ChromVoidApp extends ReatomLitElement {
 
     return html`
       <mobile-top-toolbar
+        data-testid="mobile-toolbar"
         slot="mobile-topbar"
         .title=${state.title}
         .titleAction=${state.titleAction ?? null}
@@ -452,7 +381,7 @@ export class ChromVoidApp extends ReatomLitElement {
 
   private renderDesktopTitleToolbar(options: DesktopTitleToolbarOptions): TemplateResult {
     return html`
-      <desktop-shell-toolbar slot="desktop-topbar">
+      <desktop-shell-toolbar data-testid="desktop-toolbar" slot="desktop-topbar">
         ${options.onBack
           ? html`
               <div slot="leading">
@@ -524,6 +453,7 @@ export class ChromVoidApp extends ReatomLitElement {
 
     return html`
       <workspace-dashboard-header
+        data-testid="workspace-header"
         slot="desktop-topbar"
         surface="files"
         .currentPath=${model.currentPath()}
@@ -533,18 +463,6 @@ export class ChromVoidApp extends ReatomLitElement {
         .filteredFiles=${model.visibleCount()}
         .selectedCount=${model.selectedCount()}
         .canDownloadSelection=${model.canDownloadSelection()}
-        @navigate=${this.handleDesktopFilesNavigate}
-        @filters-change=${this.handleDesktopFilesFiltersChange}
-        @create-dir=${this.handleDesktopFilesCreateDir}
-        @create-note=${this.handleDesktopCreateNote}
-        @upload-requested=${this.handleDesktopFilesUploadRequested}
-        @upload-paths-requested=${this.handleDesktopFilesUploadPathsRequested}
-        @native-upload-requested=${this.handleDesktopFilesNativeUploadRequested}
-        @move-selected=${this.handleDesktopFilesMoveSelected}
-        @download-selected=${this.handleDesktopFilesDownloadSelected}
-        @delete-selected=${this.handleDesktopFilesDeleteSelected}
-        @clear-selection=${this.handleDesktopFilesClearSelection}
-        @selection-mode-requested=${this.handleDesktopFilesSelectionModeRequested}
       ></workspace-dashboard-header>
     `
   }
@@ -552,10 +470,10 @@ export class ChromVoidApp extends ReatomLitElement {
   private renderNotesDesktopTopbar(): TemplateResult {
     return html`
       <workspace-dashboard-header
+        data-testid="workspace-header"
         slot="desktop-topbar"
         surface="notes"
         .controlsModel=${notesQuickViewHeaderControlsModel}
-        @create-note=${this.handleDesktopCreateNote}
       >
         <span slot="title">${i18n('navigation:notes' as never)}</span>
       </workspace-dashboard-header>
@@ -580,7 +498,13 @@ export class ChromVoidApp extends ReatomLitElement {
     const subtitle = `${context.networkLabel} · ${context.accountLabel}`
 
     return html`
-      <desktop-shell-toolbar slot="desktop-topbar" class="wallet-desktop-toolbar" single-row>
+      <desktop-shell-toolbar
+        data-testid="desktop-toolbar"
+        data-surface="wallet"
+        slot="desktop-topbar"
+        class="wallet-desktop-toolbar"
+        single-row
+      >
         <span slot="title">${i18n('wallet:title')}</span>
         <div slot="start" class="wallet-desktop-context">
           ${context.walletCount > 1
@@ -663,8 +587,7 @@ export class ChromVoidApp extends ReatomLitElement {
     }
 
     const surface = navigationModel.currentSurface()
-    const moduleAccess = moduleAccessModel.surfaceAccess(surface)
-    if (moduleAccess && moduleAccess.status !== 'enabled') {
+    if (!moduleAccessModel.canOpenSurface(surface)) {
       return this.renderBlockedSurfaceDesktopTopbar(surface)
     }
 
@@ -690,62 +613,6 @@ export class ChromVoidApp extends ReatomLitElement {
 
   private handleDesktopNavigationBack() {
     navigationModel.goBack()
-  }
-
-  private handleDesktopFilesNavigate(event: CustomEvent<{path?: string}>) {
-    const path = event.detail?.path
-    if (typeof path !== 'string') return
-    getFileManagerModel(getAppContext()).handleNavigate(path)
-  }
-
-  private handleDesktopFilesFiltersChange(event: CustomEvent<SearchFilters>) {
-    getFileManagerModel(getAppContext()).handleFiltersChange(event.detail)
-  }
-
-  private handleDesktopFilesCreateDir() {
-    void getFileManagerModel(getAppContext()).handleCreateDir()
-  }
-
-  private handleDesktopCreateNote() {
-    void getFileManagerModel(getAppContext()).handleCreateMarkdownNote()
-  }
-
-  private handleDesktopFilesUploadRequested(event: CustomEvent<{files?: FileList}>) {
-    const files = event.detail?.files
-    if (files && files.length > 0) {
-      void getFileManagerModel(getAppContext()).handleFileUpload(files)
-    }
-  }
-
-  private handleDesktopFilesUploadPathsRequested(event: CustomEvent<{files?: HostPathTokenGrant[]}>) {
-    const files = event.detail?.files
-    if (Array.isArray(files) && files.length > 0) {
-      void getFileManagerModel(getAppContext()).handlePathUpload(files)
-    }
-  }
-
-  private handleDesktopFilesNativeUploadRequested() {
-    void getFileManagerModel(getAppContext()).handleNativeUpload()
-  }
-
-  private handleDesktopFilesMoveSelected() {
-    void getFileManagerModel(getAppContext()).openMoveDialogForSelectedItems()
-  }
-
-  private handleDesktopFilesDownloadSelected() {
-    void getFileManagerModel(getAppContext()).handleDownloadSelected()
-  }
-
-  private handleDesktopFilesDeleteSelected() {
-    void getFileManagerModel(getAppContext()).handleDeleteSelected()
-  }
-
-  private handleDesktopFilesClearSelection() {
-    getAppContext().store.setSelectedItems([])
-  }
-
-  private handleDesktopFilesSelectionModeRequested(event: CustomEvent<{enabled?: boolean}>) {
-    getFileManagerModel(getAppContext()).setSelectionMode(Boolean(event.detail?.enabled))
   }
 
   private handleWalletToolbarButtonClick(event: Event): void {
@@ -788,6 +655,7 @@ export class ChromVoidApp extends ReatomLitElement {
 
     return html`
       <file-app-shell
+        data-testid="app-shell"
         ?data-details-hidden=${navigationModel.isDetailsHidden()}
         ?data-details-open=${isDetailsOpen}
         ?data-sidebar-open=${store.sidebarOpen()}
@@ -804,7 +672,7 @@ export class ChromVoidApp extends ReatomLitElement {
       >
         ${this.renderMobileTopToolbar(mobileToolbar)}
         ${this.renderDesktopTopbar(route)}
-        ${showStatusBar ? html`<status-bar slot="statusbar"></status-bar>` : nothing}
+        ${showStatusBar ? html`<status-bar data-testid="shell-status" slot="statusbar"></status-bar>` : nothing}
         ${routeContent} ${this.renderShellDetails()}
       </file-app-shell>
     `
@@ -1067,7 +935,6 @@ export class ChromVoidApp extends ReatomLitElement {
     }
     this.unbindRouteTransition = subscribeAfterInitial(getRouter().route, () => {
       const newRoute = getRouter().route()
-      this.scheduleStartupReadinessForRoute(newRoute)
 
       const plan = this.model.planRenderedRouteTransition(newRoute, biometricAppGateModel.shouldBlockSurface())
 
@@ -1099,21 +966,21 @@ export class ChromVoidApp extends ReatomLitElement {
     })
   }
 
-  private scheduleStartupReadinessForRoute(route: Routes): void {
+  private scheduleStartupReadinessForRoute(route: Routes | null): void {
     window.clearTimeout(this.startupRouteReadinessTimerId)
 
-    if (route === 'loading' || route === 'welcome') {
-      markStartupTimeline('web.startup-readiness.app-route-owned-by-child', {route})
-      return
-    }
-
-    const {ws} = getAppContext()
-    if (route === 'no-connection' && ws.kind === 'tauri' && !ws.connected()) {
+    if (route === null) {
+      const {ws} = getAppContext()
       markStartupTimeline('web.startup-readiness.app-route-skip-transient', {
         connected: ws.connected(),
         connecting: ws.connecting(),
-        route,
+        route: getRouter().route(),
       })
+      return
+    }
+
+    if (route === 'loading' || route === 'welcome') {
+      markStartupTimeline('web.startup-readiness.app-route-owned-by-child', {route})
       return
     }
 
@@ -1122,21 +989,24 @@ export class ChromVoidApp extends ReatomLitElement {
       route,
     })
 
-    this.startupRouteReadinessTimerId = window.setTimeout(() => {
-      const currentRoute = getRouter().route()
-      if (currentRoute !== route) {
-        markStartupTimeline('web.startup-readiness.app-route-skip-after-settle', {
-          currentRoute,
-          scheduledRoute: route,
-        })
-        return
-      }
+    this.startupRouteReadinessTimerId = window.setTimeout(
+      wrap(() => {
+        const currentRoute = this.model.startupReadinessRoute()
+        if (currentRoute !== route) {
+          markStartupTimeline('web.startup-readiness.app-route-skip-after-settle', {
+            currentRoute,
+            scheduledRoute: route,
+          })
+          return
+        }
 
-      markStartupTimeline('web.startup-readiness.app-route-stable', {route: currentRoute})
-      markStartupContentReadyWhenStable(this, {
-        criticalSelectors: [`.route-content[data-route="${currentRoute}"]`],
-      })
-    }, STARTUP_ROUTE_READINESS_SETTLE_MS)
+        markStartupTimeline('web.startup-readiness.app-route-stable', {route: currentRoute})
+        markStartupContentReadyWhenStable(this, {
+          criticalSelectors: [`.route-content[data-route="${currentRoute}"]`],
+        })
+      }),
+      STARTUP_ROUTE_READINESS_SETTLE_MS,
+    )
   }
 
   private onMobileToolbarAction(e: Event) {

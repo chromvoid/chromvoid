@@ -13,6 +13,7 @@ test('S6: folder creation', async () => {
   await openFilesRoot(page)
   const folderName = createUniqueName('e2e-create-folder')
 
+  // Keep the direct catalog API scenario; a frame lets app updates settle before Chromium can collect the result.
   const hasFolder = await page.evaluate(async (name) => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
     const {getAppContext} = (await dynamicImport(
@@ -25,7 +26,9 @@ test('S6: folder creation', async () => {
 
     await ctx.catalog.api.createDir(name)
     const children = ctx.catalog.catalog.getChildren('/')
-    return Array.isArray(children) && children.some((node: {name?: string}) => node?.name === name)
+    const hasFolder = Array.isArray(children) && children.some((node: {name?: string}) => node?.name === name)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    return hasFolder
   }, folderName)
 
   expect(hasFolder).toBe(true)

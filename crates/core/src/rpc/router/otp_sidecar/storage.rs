@@ -26,6 +26,26 @@ pub(crate) fn load_otp_secrets(
     serde_json::from_slice(&decrypted).ok()
 }
 
+/// Missing is an empty collection; corruption and I/O errors must never authorize replacement.
+pub(crate) fn load_otp_secrets_checked(
+    vault_key: &[u8; 32],
+    node_id: u64,
+    storage: &Storage,
+) -> OtpSidecarResult<OtpSecrets> {
+    let chunk_name = crate::crypto::otp_chunk_name(vault_key, node_id);
+    let encrypted = match storage.read_chunk(&chunk_name) {
+        Ok(bytes) => bytes,
+        Err(crate::error::Error::ChunkNotFound(_)) => return Ok(OtpSecrets::default()),
+        Err(_) => return Err(OtpSidecarError::internal("Could not read OTP settings")),
+    };
+    let decrypted = zeroize::Zeroizing::new(
+        crate::crypto::decrypt(&encrypted, vault_key, chunk_name.as_bytes())
+            .map_err(|_| OtpSidecarError::internal("Could not decrypt OTP settings"))?,
+    );
+    serde_json::from_slice(&decrypted)
+        .map_err(|_| OtpSidecarError::internal("Invalid OTP settings"))
+}
+
 pub(crate) fn save_otp_secrets(
     vault_key: &[u8; 32],
     node_id: u64,

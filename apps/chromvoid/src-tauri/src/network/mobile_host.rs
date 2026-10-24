@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use chromvoid_protocol::{NoiseTransport, RemoteTransport};
+use chromvoid_network_runtime::pairing_transport::{
+    recv_pairing_hello, send_pairing_hello, xxpsk0_initiator, xxpsk0_responder, PairingHello,
+};
+use chromvoid_protocol::RemoteTransport;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -20,7 +23,6 @@ use crate::core_adapter::CoreAdapter;
 use crate::network::host_responder_task::HostResponderTaskRuntime;
 
 const HOST_PRESENCE_TTL_MS: u64 = 5 * 60 * 1000;
-const PAIRING_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 const PAIRING_INITIAL_WAIT_FLOOR: Duration = Duration::from_secs(30);
 const APP_EXIT_OFFLINE_PRESENCE_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -181,14 +183,6 @@ pub struct MobileHostPairedPeer {
     pub platform: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PairingHello {
-    peer_id: String,
-    peer_label: String,
-    peer_pubkey_hex: String,
-    platform: String,
-}
-
 pub struct AndroidHostRuntimeState {
     status: Mutex<Option<MobileHostStatus>>,
     responder_task: HostResponderTaskRuntime,
@@ -239,8 +233,11 @@ impl AndroidHostRuntimeState {
         generation: u64,
         handle: tauri::async_runtime::JoinHandle<()>,
     ) -> Result<(), String> {
-        self.responder_task
-            .store(generation, handle, "Android host responder mutex poisoned")
+        self.responder_task.store(
+            generation,
+            handle.inner().abort_handle(),
+            "Android host responder mutex poisoned",
+        )
     }
 
     fn cancel_responder_task(&self) -> Result<(), String> {
@@ -717,46 +714,6 @@ fn should_skip_android_host_resume_for_busy_acceptor(
     acceptor_busy && !android_acceptor_active_for_relay(acceptor, relay_url)
 }
 
-#[cfg(target_os = "android")]
-pub(crate) fn schedule_android_host_mode_resume(
-    task_lifecycle: Arc<crate::task_lifecycle::TaskLifecycleRuntime>,
-    runtime: Arc<AndroidHostRuntimeState>,
-    acceptor_runtime: Arc<MobileAcceptorRuntimeState>,
-    adapter: Option<Arc<Mutex<Box<dyn CoreAdapter>>>>,
-    storage_root: PathBuf,
-    context: &'static str,
-) -> Result<(), String> {
-    task_lifecycle.spawn_unique_async(
-        crate::task_lifecycle::ManagedTaskName::AndroidHostModeResume,
-        move |mut shutdown_rx| async move {
-            let resume = resume_android_host_mode_if_enabled(
-                runtime,
-                acceptor_runtime,
-                adapter,
-                &storage_root,
-            );
-            tokio::select! {
-                result = resume => {
-                    if let Err(error) = result {
-                        warn!(
-                            "android mobile host resume failed: context={} error={}",
-                            context, error
-                        );
-                    }
-                }
-                changed = shutdown_rx.changed() => {
-                    if changed.is_ok() && shutdown_rx.borrow().is_some() {
-                        info!(
-                            "android mobile host resume stopped by lifecycle shutdown: context={}",
-                            context
-                        );
-                    }
-                }
-            }
-        },
-    )
-}
-
 pub async fn desktop_pair_android_host(
     offer: &MobilePairingOffer,
     pin: &str,
@@ -1004,178 +961,48 @@ async fn run_android_pairing_responder(
     Ok(())
 }
 
-async fn send_pairing_hello(
-    transport: &mut dyn RemoteTransport,
-    noise: &mut NoiseTransport,
-    hello: &PairingHello,
-) -> Result<(), String> {
-    let payload = serde_json::to_vec(hello).map_err(|e| format!("serialize pairing hello: {e}"))?;
-    let encrypted = noise
-        .encrypt(&payload)
-        .map_err(|e| format!("encrypt pairing hello: {e}"))?;
-    transport
-        .send(&encrypted)
-        .await
-        .map_err(|e| format!("send pairing hello: {e}"))
-}
-
 fn pairing_initial_wait_timeout(expires_at_ms: u64) -> Duration {
     let remaining_ms = expires_at_ms.saturating_sub(now_ms());
     PAIRING_INITIAL_WAIT_FLOOR.max(Duration::from_millis(remaining_ms))
 }
 
-async fn recv_pairing_hello(
-    transport: &mut dyn RemoteTransport,
-    noise: &mut NoiseTransport,
-) -> Result<PairingHello, String> {
-    let encrypted = recv_with_timeout(transport, "pairing hello recv").await?;
-    let decrypted = noise
-        .decrypt(&encrypted)
-        .map_err(|e| format!("decrypt pairing hello: {e}"))?;
-    serde_json::from_slice(&decrypted).map_err(|e| format!("decode pairing hello: {e}"))
-}
-
-async fn xxpsk0_initiator(
-    transport: &mut dyn RemoteTransport,
-    local_privkey: &[u8],
-    psk: &[u8; 32],
-) -> Result<NoiseTransport, String> {
-    use chromvoid_protocol::{MAX_HANDSHAKE_MSG, NOISE_PARAMS_XXPSK0};
-    use snow::params::NoiseParams;
-
-    let params: NoiseParams = NOISE_PARAMS_XXPSK0
-        .parse()
-        .map_err(|e: snow::Error| format!("noise params: {e}"))?;
-    let mut handshake = snow::Builder::new(params)
-        .local_private_key(local_privkey)
-        .map_err(|e| format!("local_private_key: {e}"))?
-        .psk(0, psk)
-        .map_err(|e| format!("psk: {e}"))?
-        .build_initiator()
-        .map_err(|e| format!("build_initiator: {e}"))?;
-
-    let mut buf = vec![0u8; MAX_HANDSHAKE_MSG];
-    let len = handshake
-        .write_message(&[], &mut buf)
-        .map_err(|e| format!("xxpsk0 msg1 write: {e}"))?;
-    transport
-        .send(&buf[..len])
-        .await
-        .map_err(|e| format!("xxpsk0 msg1 send: {e}"))?;
-
-    let msg2 = recv_with_timeout(transport, "xxpsk0 msg2 recv").await?;
-    handshake
-        .read_message(&msg2, &mut buf)
-        .map_err(|e| format!("xxpsk0 msg2 read: {e}"))?;
-
-    let len = handshake
-        .write_message(&[], &mut buf)
-        .map_err(|e| format!("xxpsk0 msg3 write: {e}"))?;
-    transport
-        .send(&buf[..len])
-        .await
-        .map_err(|e| format!("xxpsk0 msg3 send: {e}"))?;
-
-    let remote_static = handshake
-        .get_remote_static()
-        .ok_or("xxpsk0: no remote static key")?
-        .to_vec();
-    let transport = handshake
-        .into_transport_mode()
-        .map_err(|e| format!("xxpsk0 into_transport_mode: {e}"))?;
-    Ok(NoiseTransport::new(transport, remote_static))
-}
-
-async fn xxpsk0_responder(
-    transport: &mut dyn RemoteTransport,
-    local_privkey: &[u8],
-    psk: &[u8; 32],
-    initial_msg_timeout: Duration,
-) -> Result<NoiseTransport, String> {
-    use chromvoid_protocol::{MAX_HANDSHAKE_MSG, NOISE_PARAMS_XXPSK0};
-    use snow::params::NoiseParams;
-
-    let params: NoiseParams = NOISE_PARAMS_XXPSK0
-        .parse()
-        .map_err(|e: snow::Error| format!("noise params: {e}"))?;
-    let mut handshake = snow::Builder::new(params)
-        .local_private_key(local_privkey)
-        .map_err(|e| format!("local_private_key: {e}"))?
-        .psk(0, psk)
-        .map_err(|e| format!("psk: {e}"))?
-        .build_responder()
-        .map_err(|e| format!("build_responder: {e}"))?;
-
-    let mut buf = vec![0u8; MAX_HANDSHAKE_MSG];
-    let msg1 = recv_with_timeout_for(transport, "xxpsk0 msg1 recv", initial_msg_timeout).await?;
-    handshake
-        .read_message(&msg1, &mut buf)
-        .map_err(|e| format!("xxpsk0 msg1 read: {e}"))?;
-
-    let len = handshake
-        .write_message(&[], &mut buf)
-        .map_err(|e| format!("xxpsk0 msg2 write: {e}"))?;
-    transport
-        .send(&buf[..len])
-        .await
-        .map_err(|e| format!("xxpsk0 msg2 send: {e}"))?;
-
-    let msg3 = recv_with_timeout(transport, "xxpsk0 msg3 recv").await?;
-    handshake
-        .read_message(&msg3, &mut buf)
-        .map_err(|e| format!("xxpsk0 msg3 read: {e}"))?;
-
-    let remote_static = handshake
-        .get_remote_static()
-        .ok_or("xxpsk0: no remote static key")?
-        .to_vec();
-    let transport = handshake
-        .into_transport_mode()
-        .map_err(|e| format!("xxpsk0 into_transport_mode: {e}"))?;
-    Ok(NoiseTransport::new(transport, remote_static))
-}
-
-async fn recv_with_timeout(
-    transport: &mut dyn RemoteTransport,
-    label: &str,
-) -> Result<Vec<u8>, String> {
-    recv_with_timeout_for(transport, label, PAIRING_HANDSHAKE_TIMEOUT).await
-}
-
-async fn recv_with_timeout_for(
-    transport: &mut dyn RemoteTransport,
-    label: &str,
-    timeout: Duration,
-) -> Result<Vec<u8>, String> {
-    tokio::time::timeout(timeout, transport.recv())
-        .await
-        .map_err(|_| format!("{label}: timeout"))?
-        .map_err(|e| format!("{label}: {e}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use tokio::sync::oneshot;
 
-    struct DropFlag(Arc<AtomicBool>);
+    struct DropSignal(Option<oneshot::Sender<()>>);
 
-    impl Drop for DropFlag {
+    impl Drop for DropSignal {
         fn drop(&mut self) {
-            self.0.store(true, Ordering::Release);
+            if let Some(sender) = self.0.take() {
+                let _ = sender.send(());
+            }
         }
+    }
+
+    fn pending_responder() -> (tauri::async_runtime::JoinHandle<()>, oneshot::Receiver<()>) {
+        let (sender, receiver) = oneshot::channel();
+        let signal = DropSignal(Some(sender));
+        let handle = tauri::async_runtime::spawn(async move {
+            let _signal = signal;
+            std::future::pending::<()>().await;
+        });
+        (handle, receiver)
+    }
+
+    async fn assert_stopped(receiver: oneshot::Receiver<()>) {
+        tokio::time::timeout(Duration::from_secs(2), receiver)
+            .await
+            .expect("responder must stop")
+            .expect("responder cleanup must run");
     }
 
     #[tokio::test]
     async fn android_responder_replacement_invalidates_and_aborts_previous_task() {
         let runtime = AndroidHostRuntimeState::new();
         let generation = runtime.begin_responder_task().expect("begin responder");
-        let dropped = Arc::new(AtomicBool::new(false));
-        let drop_flag = DropFlag(dropped.clone());
-        let handle = tauri::async_runtime::spawn(async move {
-            let _drop_flag = drop_flag;
-            std::future::pending::<()>().await;
-        });
+        let (handle, stopped) = pending_responder();
         runtime
             .store_responder_task(generation, handle)
             .expect("store responder");
@@ -1184,15 +1011,14 @@ mod tests {
 
         assert!(!runtime.is_responder_generation_current(generation));
         assert!(runtime.is_responder_generation_current(replacement_generation));
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        assert!(dropped.load(Ordering::Acquire));
+        assert_stopped(stopped).await;
     }
 
     #[tokio::test]
     async fn android_responder_cancel_invalidates_generation() {
         let runtime = AndroidHostRuntimeState::new();
         let generation = runtime.begin_responder_task().expect("begin responder");
-        let handle = tauri::async_runtime::spawn(async {});
+        let (handle, stopped) = pending_responder();
         runtime
             .store_responder_task(generation, handle)
             .expect("store responder");
@@ -1200,17 +1026,14 @@ mod tests {
         runtime.cancel_responder_task().expect("cancel responder");
 
         assert!(!runtime.is_responder_generation_current(generation));
-        assert!(!runtime
-            .responder_task
-            .has_task_for_test("Android host responder mutex poisoned")
-            .expect("responder task status"));
+        assert_stopped(stopped).await;
     }
 
     #[tokio::test]
-    async fn android_responder_clear_only_clears_current_generation() {
+    async fn android_stale_responder_completion_keeps_current_task_cancellable() {
         let runtime = AndroidHostRuntimeState::new();
         let generation = runtime.begin_responder_task().expect("begin responder");
-        let handle = tauri::async_runtime::spawn(async {});
+        let (handle, stopped) = pending_responder();
         runtime
             .store_responder_task(generation, handle)
             .expect("store responder");
@@ -1218,18 +1041,10 @@ mod tests {
         runtime
             .clear_responder_task_if_current(generation.saturating_sub(1))
             .expect("clear stale generation");
-        assert!(runtime
-            .responder_task
-            .has_task_for_test("Android host responder mutex poisoned")
-            .expect("responder task status"));
-
         runtime
-            .clear_responder_task_if_current(generation)
-            .expect("clear current generation");
-        assert!(!runtime
-            .responder_task
-            .has_task_for_test("Android host responder mutex poisoned")
-            .expect("responder task status"));
+            .cancel_responder_task()
+            .expect("cancel current responder");
+        assert_stopped(stopped).await;
     }
 
     #[tokio::test]
@@ -1237,7 +1052,7 @@ mod tests {
         let runtime = Arc::new(AndroidHostRuntimeState::new());
         let acceptor_runtime = Arc::new(MobileAcceptorRuntimeState::new());
         let generation = runtime.begin_responder_task().expect("begin responder");
-        let handle = tauri::async_runtime::spawn(std::future::pending::<()>());
+        let (handle, stopped) = pending_responder();
         runtime
             .store_responder_task(generation, handle)
             .expect("store responder");
@@ -1248,10 +1063,7 @@ mod tests {
 
         assert_eq!(status.phase, MobileHostPhase::Idle);
         assert!(!runtime.is_responder_generation_current(generation));
-        assert!(!runtime
-            .responder_task
-            .has_task_for_test("Android host responder mutex poisoned")
-            .expect("responder task status"));
+        assert_stopped(stopped).await;
     }
 
     #[test]
@@ -1286,20 +1098,5 @@ mod tests {
             &acceptor,
             "wss://relay.test",
         ));
-    }
-
-    #[test]
-    fn android_responder_poison_returns_controlled_error() {
-        let runtime = AndroidHostRuntimeState::new();
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            runtime.responder_task.poison_for_test();
-        }));
-
-        assert_eq!(
-            runtime
-                .begin_responder_task()
-                .expect_err("poison should fail"),
-            "Android host responder mutex poisoned"
-        );
     }
 }

@@ -1,11 +1,18 @@
 //! Root import orchestration for PassManager.
 
+mod bitwarden;
 mod catalog_staging;
+mod csv;
+mod document;
 mod entry_staging;
 mod error;
+mod external;
 mod group_meta_staging;
+mod keepass;
+mod onepassword;
 mod otp_staging;
 mod parser;
+mod review;
 mod secret_staging;
 mod ssh_staging;
 mod staging;
@@ -31,6 +38,9 @@ impl RpcRouter {
             let Some(session) = self.session.as_mut() else {
                 return RpcResponse::error("Vault not unlocked", Some(ErrorCode::VaultRequired));
             };
+            if let Err(error) = review::check_revision(session, &storage, data) {
+                return error.into_rpc_response();
+            }
             let plan = match build_root_import_plan(session, &storage, payload) {
                 Ok(plan) => plan,
                 Err(error) => return error.into_rpc_response(),
@@ -39,6 +49,7 @@ impl RpcRouter {
                 catalog,
                 chunks,
                 legacy_ssh_cleanup_node_ids,
+                ..
             } = plan;
 
             let mut uow = DomainUnitOfWork::begin(
@@ -62,6 +73,7 @@ impl RpcRouter {
                     Some(ErrorCode::InternalError),
                 );
             }
+            self.event_queue.push_update_state();
             legacy_ssh_cleanup_node_ids
         };
 

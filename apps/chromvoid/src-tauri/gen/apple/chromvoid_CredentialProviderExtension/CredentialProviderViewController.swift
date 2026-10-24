@@ -897,11 +897,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 title: "ChromVoid AutoFill is disabled",
                 message: error.message
             )
-        case "PRO_REQUIRED", "ENTITLEMENT_UNAVAILABLE":
-            showProviderUnavailableUI(
-                title: "ChromVoid Pro is required",
-                message: error.message
-            )
         case "FEATURE_DISABLED_BY_ROLLOUT", "FEATURE_UNSUPPORTED_ON_PLATFORM":
             showProviderUnavailableUI(
                 title: "Verification code AutoFill is unavailable",

@@ -268,7 +268,7 @@ impl Keystore for FailingPepperKeystore {
     }
 
     fn delete_storage_pepper(&self) -> std::result::Result<(), KeystoreError> {
-        Ok(())
+        panic!("a failed pepper read must never delete the pepper")
     }
 }
 
@@ -420,6 +420,28 @@ fn unlock_initialized_empty_storage_does_not_replace_missing_pepper() {
     assert!(matches!(error, Error::StoragePepperRequired));
     assert_eq!(missing_keystore.store_calls.load(Ordering::SeqCst), 0);
     assert_eq!(snapshot_storage_files(temp_dir.path()), expected_snapshot);
+}
+
+#[test]
+fn unlock_pristine_storage_with_unreadable_pepper_does_not_initialize_or_replace_it() {
+    let (storage, temp_dir, _) = create_test_storage();
+    let expected_snapshot = snapshot_storage_files(temp_dir.path());
+    for failure in [
+        PepperLoadFailure::Unavailable,
+        PepperLoadFailure::PermissionDenied,
+        PepperLoadFailure::KeyInvalidated,
+        PepperLoadFailure::Corrupted,
+    ] {
+        let failing_keystore = FailingPepperKeystore::new(failure);
+        let error = match Vault::unlock_with_keystore(&storage, "password", Some(&failing_keystore))
+        {
+            Ok(_) => panic!("unreadable pepper must fail closed even without vault state"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, Error::KeystoreUnavailable(_)));
+        assert_eq!(failing_keystore.store_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(snapshot_storage_files(temp_dir.path()), expected_snapshot);
+    }
 }
 
 #[test]

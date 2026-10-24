@@ -39,15 +39,15 @@ import {
 } from '@chromvoid/password-import'
 import {setupMobileLifecycle} from '../../src/app/bootstrap/mobile-lifecycle'
 import {
-  ANDROID_NATIVE_VIDEO_LIFECYCLE_END_EVENT,
-  ANDROID_NATIVE_VIDEO_LIFECYCLE_START_EVENT,
-} from '../../src/features/media/models/android-native-video-lifecycle'
+  NATIVE_OTP_QR_SCANNER_LIFECYCLE_END_EVENT,
+  NATIVE_OTP_QR_SCANNER_LIFECYCLE_START_EVENT,
+} from '../../src/features/passmanager/components/card/entry-otp-create/entry-otp-native-scanner-lifecycle'
 import {mediaPlaybackModel} from '../../src/features/media/models/media-playback.model'
 
 describe('setupMobileLifecycle', () => {
   let visibilityState: DocumentVisibilityState = 'visible'
 
-  const seedAndroidAudioState = (
+  const seedNativeAudioState = (
     loadingState: 'loaded' | 'loading' | 'fallback-limited' | 'error',
     playbackIntent: 'play' | 'pause' = 'play',
   ) => {
@@ -63,8 +63,8 @@ describe('setupMobileLifecycle', () => {
       },
     ])
     mediaPlaybackModel.currentIndex.set(0)
-    mediaPlaybackModel.driverKind.set('android-media3')
-    mediaPlaybackModel.nativeSessionId.set('android-native-session-123456')
+    mediaPlaybackModel.driverKind.set('ios-avplayer')
+    mediaPlaybackModel.nativeSessionId.set('native-session-123456')
     mediaPlaybackModel.loadingState.set(loadingState)
     mediaPlaybackModel.playbackIntent.set(playbackIntent)
   }
@@ -137,9 +137,9 @@ describe('setupMobileLifecycle', () => {
   })
 
   it.each(['loaded', 'loading'] as const)(
-    'preserves Android native audio on background while state is %s',
+    'preserves native audio on background while state is %s',
     (loadingState) => {
-      seedAndroidAudioState(loadingState)
+      seedNativeAudioState(loadingState)
 
       visibilityState = 'hidden'
       document.dispatchEvent(new Event('visibilitychange'))
@@ -151,9 +151,9 @@ describe('setupMobileLifecycle', () => {
   )
 
   it.each(['fallback-limited', 'error'] as const)(
-    'does not preserve Android native audio on background while state is %s',
+    'does not preserve native audio on background while state is %s',
     (loadingState) => {
-      seedAndroidAudioState(loadingState)
+      seedNativeAudioState(loadingState)
 
       visibilityState = 'hidden'
       document.dispatchEvent(new Event('visibilitychange'))
@@ -164,8 +164,8 @@ describe('setupMobileLifecycle', () => {
     },
   )
 
-  it('does not preserve Android native audio on background after the user paused playback', () => {
-    seedAndroidAudioState('loaded', 'pause')
+  it('does not preserve native audio on background after the user paused playback', () => {
+    seedNativeAudioState('loaded', 'pause')
 
     visibilityState = 'hidden'
     document.dispatchEvent(new Event('visibilitychange'))
@@ -176,7 +176,7 @@ describe('setupMobileLifecycle', () => {
   })
 
   it('stops active audio only when mobile background notify reports a lock', async () => {
-    seedAndroidAudioState('loaded')
+    seedNativeAudioState('loaded')
     tauriInvokeMock.mockResolvedValueOnce({ok: true, result: {locked: true}})
     const stopSession = vi.spyOn(mediaPlaybackModel, 'stopSession').mockResolvedValue(undefined)
 
@@ -271,9 +271,9 @@ describe('setupMobileLifecycle', () => {
     expect(tauriInvokeMock).not.toHaveBeenCalled()
   })
 
-  it('ignores the hidden-visible cycle triggered by the Android native video activity', () => {
+  it('ignores the hidden-visible cycle triggered by the native OTP QR scanner', () => {
     window.dispatchEvent(
-      new CustomEvent(ANDROID_NATIVE_VIDEO_LIFECYCLE_START_EVENT, {
+      new CustomEvent(NATIVE_OTP_QR_SCANNER_LIFECYCLE_START_EVENT, {
         detail: {timeoutMs: 30_000},
       }),
     )
@@ -284,7 +284,7 @@ describe('setupMobileLifecycle', () => {
     visibilityState = 'visible'
     document.dispatchEvent(new Event('visibilitychange'))
 
-    window.dispatchEvent(new CustomEvent(ANDROID_NATIVE_VIDEO_LIFECYCLE_END_EVENT))
+    window.dispatchEvent(new CustomEvent(NATIVE_OTP_QR_SCANNER_LIFECYCLE_END_EVENT))
 
     expect(handleBackgroundMock).not.toHaveBeenCalled()
     expect(handleForegroundResumeMock).not.toHaveBeenCalled()

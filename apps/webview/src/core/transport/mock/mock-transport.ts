@@ -1,3 +1,4 @@
+import type {CatalogAttachmentRequest} from '@chromvoid/scheme'
 import {atom, wrap} from '@reatom/core'
 import {
   normalizeCredentialTagCatalog,
@@ -60,6 +61,7 @@ import {
   err,
   nextSourceRevision,
   ok,
+  planMockAttachment,
   readFileBytes,
   toBooleanValue,
   toNumberValue,
@@ -1288,6 +1290,28 @@ export class MockTransport implements TransportLike {
     })
   }
 
+  // Like Core, prepares the folder chain and a fresh name; the bytes still arrive via create-only upload.
+  private prepareAttachment(request: CatalogAttachmentRequest) {
+    const plan = planMockAttachment(request)
+    if (!plan) return err('Choose an image and an absolute attachment folder')
+
+    let parentId = 0
+    for (const segment of splitPath(plan.parent_path)) {
+      const existingId = this.nodes.get(parentId)?.children.find((id) => this.nodes.get(id)?.name === segment)
+      const existing = existingId === undefined ? undefined : this.nodes.get(existingId)
+      if (!existing) {
+        parentId = this.createNode({parentId, name: segment, type: 0}).id
+      } else if (existing.type === 0 || existing.type === 255) {
+        parentId = existing.id
+      } else {
+        // Only a pre-existing prefix can hold a file, so nothing was created that needs rolling back.
+        return err('Attachment folder contains a file')
+      }
+    }
+
+    return ok(plan)
+  }
+
   async rpc<T extends RpcCmdName>(command: T, data: RpcCmdData<T>): Promise<RpcCmdResult<T>> {
     return (await this.sendCatalog(command, data as Record<string, unknown>)) as RpcCmdResult<T>
   }
@@ -1372,6 +1396,14 @@ export class MockTransport implements TransportLike {
           case 'catalog:file-links:resolve': {
             return this.resolveFileLinks({
               targets: Array.isArray(data['targets']) ? data['targets'].map(String) : [],
+            })
+          }
+
+          case 'catalog:attachment:prepare': {
+            return this.prepareAttachment({
+              folder_path: toStringValue(data['folder_path']) ?? '',
+              file_name: toStringValue(data['file_name']) ?? '',
+              mime_type: toStringValue(data['mime_type']) ?? '',
             })
           }
 

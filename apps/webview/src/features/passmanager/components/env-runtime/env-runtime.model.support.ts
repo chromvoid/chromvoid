@@ -1,5 +1,5 @@
-import type {ModuleAccessState} from 'root/core/pro/module-access.model'
-import {moduleAccessModel} from 'root/core/pro/module-access.model'
+import type {ModuleAccessState} from 'root/core/modules/module-access.model'
+import {moduleAccessModel} from 'root/core/modules/module-access.model'
 import {tauriInvoke, tauriListen, type UnlistenFn} from 'root/core/transport/tauri/ipc'
 import {dialogService} from 'root/shared/services/dialog-service'
 
@@ -34,7 +34,8 @@ export type EnvRuntimeDependencies = {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>
   listen<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn>
   confirm(options: ConfirmOptions): Promise<boolean>
-  access(): ModuleAccessState
+  access(): ModuleAccessState | null
+  retryAccess(): Promise<void>
   now(): number
 }
 
@@ -86,6 +87,7 @@ export const defaultDependencies: EnvRuntimeDependencies = {
   listen: tauriListen,
   confirm: (options) => dialogService.showConfirmDialog(options),
   access: () => moduleAccessModel.featureAccess('env-runtime'),
+  retryAccess: () => moduleAccessModel.refresh(),
   now: () => Date.now(),
 }
 

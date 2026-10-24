@@ -1,13 +1,14 @@
 {
   "identifier": "mobile-dev",
   "description": "Main ChromVoid mobile window IPC permissions for packaged development builds.",
-  "platforms": ["iOS", "android"],
+  "platforms": ["iOS"],
   "windows": ["main"],
   "permissions": [
     "core:default",
     "mobile",
     "dialog:default",
     "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-write-secret",
     "clipboard-manager:allow-read-text"
   ]
 }

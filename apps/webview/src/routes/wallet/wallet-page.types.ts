@@ -20,7 +20,7 @@ export type WalletAddressBookEntry = RpcCmdResult<'wallet:addressBook:list'>['en
 
 export type WalletMainTab = 'overview' | 'send' | 'activity' | 'recovery'
 export type WalletSetupFlow = 'create' | 'restore' | 'import' | null
-export type WalletOverlay = 'wallet-switcher' | 'add-account' | 'import-wallet' | 'receive' | 'send' | null
+export type WalletOverlay = 'wallet-switcher' | 'import-wallet' | 'receive' | 'send' | null
 export type WalletMode = WalletMainTab | Exclude<WalletSetupFlow, null>
 
 export type WalletToolbarCommand = 'switch-wallet' | 'send' | 'receive' | 'refresh'

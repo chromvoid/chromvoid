@@ -4,7 +4,8 @@ import {CVDialog} from '@chromvoid/uikit/components/cv-dialog'
 import {CVImageViewer} from '@chromvoid/uikit/components/cv-image-viewer'
 import type {CVToast} from '@chromvoid/uikit/components/cv-toast'
 import type {CVToastRegion} from '@chromvoid/uikit/components/cv-toast-region'
-import {toast, ToastContainer} from '../../src/shared/services/toast-manager'
+import {toast} from '../../src/shared/services/toast-manager'
+import {ToastContainer} from '../../src/shared/services/toast-container'
 
 afterEach(() => {
   toast.clear()

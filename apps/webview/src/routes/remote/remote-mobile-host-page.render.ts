@@ -4,6 +4,7 @@ import {repeat} from 'lit/directives/repeat.js'
 import {i18n} from 'root/i18n'
 
 import type {MobileHostPageState, RemoteHostsFlowModel} from './remote-hosts-flow.model'
+import {getHostPlatformName} from './remote-hosts-flow.render.shared'
 import {formatLastSyncTime} from './remote.model'
 
 export interface MobileRemoteHostPageRenderContext {
@@ -21,12 +22,10 @@ export interface MobileRemoteHostPageRenderContext {
 
 type MobileHostPathState = 'after-start' | 'preparing' | 'ready' | 'connected' | 'degraded'
 
-function getStateTitle(state: MobileHostPageState, connectedCount: number, platform: string): string {
+function getStateTitle(state: MobileHostPageState, connectedCount: number): string {
   switch (state) {
     case 'off':
-      return platform === 'android'
-        ? i18n('remote:mobile-host-state-off-title-android')
-        : i18n('remote:mobile-host-state-off-title')
+      return i18n('remote:mobile-host-state-off-title')
     case 'starting':
       return i18n('remote:mobile-host-state-starting-title')
     case 'pairing':
@@ -40,12 +39,10 @@ function getStateTitle(state: MobileHostPageState, connectedCount: number, platf
   }
 }
 
-function getStateDescription(state: MobileHostPageState, platform: string): string {
+function getStateDescription(state: MobileHostPageState): string {
   switch (state) {
     case 'off':
-      return platform === 'android'
-        ? i18n('remote:mobile-host-state-off-description-android')
-        : i18n('remote:mobile-host-state-off-description')
+      return i18n('remote:mobile-host-state-off-description')
     case 'starting':
       return i18n('remote:mobile-host-state-starting-description')
     case 'pairing':
@@ -83,10 +80,6 @@ function resolveNetworkPathState(ctx: MobileRemoteHostPageRenderContext): Mobile
   return 'degraded'
 }
 
-function resolveUsbPathState(ctx: MobileRemoteHostPageRenderContext): MobileHostPathState {
-  return ctx.model.connectedUsbPeers().length > 0 ? 'connected' : 'ready'
-}
-
 function renderConnectionPath({
   kind,
   icon,
@@ -94,7 +87,7 @@ function renderConnectionPath({
   description,
   state,
 }: {
-  kind: 'network' | 'usb'
+  kind: 'network'
   icon: string
   title: string
   description: string
@@ -115,8 +108,6 @@ function renderConnectionPath({
 }
 
 function renderConnectionPaths(ctx: MobileRemoteHostPageRenderContext): TemplateResult {
-  const supportsUsb = ctx.model.mobileHostTransports().includes('usb_mobile')
-
   return html`
     <section class="mobile-host-section" aria-labelledby="mobile-host-paths-title">
       <h2 id="mobile-host-paths-title">${i18n('remote:mobile-host-connection-methods')}</h2>
@@ -128,15 +119,6 @@ function renderConnectionPaths(ctx: MobileRemoteHostPageRenderContext): Template
           description: i18n('remote:mobile-host-network-description'),
           state: resolveNetworkPathState(ctx),
         })}
-        ${supportsUsb
-          ? renderConnectionPath({
-              kind: 'usb',
-              icon: 'usb',
-              title: i18n('remote:transport-usb-mobile'),
-              description: i18n('remote:mobile-host-usb-short-description'),
-              state: resolveUsbPathState(ctx),
-            })
-          : nothing}
       </ul>
     </section>
   `
@@ -392,9 +374,7 @@ function renderTechnicalDetails(ctx: MobileRemoteHostPageRenderContext): Templat
         <div>
           <dt>${i18n('remote:mobile-host-platform')}</dt>
           <dd>
-            ${model.hostPlatform() === 'android'
-              ? i18n('remote:platform-android')
-              : i18n('remote:platform-ios')}
+            ${getHostPlatformName(model.hostPlatform())}
           </dd>
         </div>
         <div class="mobile-host-detail-device">
@@ -517,7 +497,6 @@ function renderPrimaryStateContent(ctx: MobileRemoteHostPageRenderContext): Temp
 export function renderMobileRemoteHostPage(ctx: MobileRemoteHostPageRenderContext): TemplateResult {
   const state = ctx.model.mobileHostPageState()
   const connectedCount = ctx.model.hostStatus()?.connected_peers.length ?? 0
-  const platform = ctx.model.hostPlatform()
   const busy =
     state === 'starting' || ctx.model.mobileHostStopping() || ctx.model.pairedComputers.operationBusy()
 
@@ -535,10 +514,10 @@ export function renderMobileRemoteHostPage(ctx: MobileRemoteHostPageRenderContex
         </div>
         <div class="mobile-host-status" role="status" aria-live="polite">
           <span class="mobile-host-status-dot" data-state=${state} aria-hidden="true"></span>
-          ${getStateTitle(state, connectedCount, platform)}
+          ${getStateTitle(state, connectedCount)}
         </div>
         <h1>${i18n('remote:mobile-host-page-title')}</h1>
-        <p>${getStateDescription(state, platform)}</p>
+        <p>${getStateDescription(state)}</p>
       </header>
 
       ${renderPrimaryStateContent(ctx)} ${renderConnectionPaths(ctx)} ${renderPairedComputers(ctx)}

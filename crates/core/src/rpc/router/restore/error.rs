@@ -15,7 +15,23 @@ pub(in crate::rpc::router::restore) struct RestoreCommandError {
 
 pub(in crate::rpc::router::restore) type RestoreResult<T> = Result<T, RestoreCommandError>;
 
+impl From<crate::rpc::StorageMutationError> for RestoreCommandError {
+    fn from(error: crate::rpc::StorageMutationError) -> Self {
+        Self {
+            message: error.to_string(),
+            code: Some(error.code().to_owned()),
+        }
+    }
+}
+
 impl RestoreCommandError {
+    pub(super) fn cancelled() -> Self {
+        Self {
+            message: "Restore cancelled".to_string(),
+            code: Some("CANCELLED".to_string()),
+        }
+    }
+
     pub(in crate::rpc::router::restore) fn new(
         message: impl Into<String>,
         code: Option<ErrorCode>,

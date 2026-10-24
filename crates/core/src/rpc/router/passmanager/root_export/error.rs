@@ -7,6 +7,10 @@ pub(super) struct RootExportError {
 }
 
 impl RootExportError {
+    pub(super) fn internal(message: &str) -> Self {
+        Self::new(message, Some(crate::error::ErrorCode::InternalError.into()))
+    }
+
     fn new(message: impl Into<String>, code: Option<String>) -> Self {
         Self {
             message: message.into(),

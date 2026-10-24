@@ -23,7 +23,7 @@ function ensureDefined() {
   defined = true
 }
 
-function enablePasskeysTauriRuntime(platform: 'android' | 'ios' | 'macos' = 'android') {
+function enablePasskeysTauriRuntime(platform: 'ios' | 'macos' = 'ios') {
   const mobile = platform !== 'macos'
   vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
   setRuntimeCapabilities({
@@ -349,7 +349,7 @@ describe('Provider passkeys page', () => {
   it('does not invoke native passkey commands without Tauri runtime', async () => {
     ensureDefined()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_autofill: true,
     })

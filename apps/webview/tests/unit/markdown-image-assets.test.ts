@@ -4,7 +4,10 @@ import {
   MarkdownImageAssetError,
   MarkdownImageAssetService,
 } from '../../src/features/file-manager/services/markdown-image-assets'
-import type {MarkdownImageRef} from '../../src/features/file-manager/services/markdown-renderer'
+import {
+  renderMarkdownSource,
+  type MarkdownImageRef,
+} from '../../src/features/file-manager/services/markdown-renderer'
 
 function imageRef(overrides: Partial<MarkdownImageRef> = {}): MarkdownImageRef {
   return {
@@ -30,15 +33,29 @@ function createNode(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function createService(options: {
-  findByPath?: (path: string) => unknown
-  createDir?: ReturnType<typeof vi.fn>
-  upload?: ReturnType<typeof vi.fn>
-  refreshSilent?: ReturnType<typeof vi.fn>
-  loadFileSourceById?: ReturnType<typeof vi.fn>
-  now?: () => number
-} = {}) {
-  const findByPath = vi.fn(options.findByPath ?? ((path: string) => (path === '/attachments/pic.png' ? createNode() : null)))
+function createService(
+  options: {
+    findByPath?: (path: string) => unknown
+    prepareAttachment?: ReturnType<typeof vi.fn>
+    createDir?: ReturnType<typeof vi.fn>
+    upload?: ReturnType<typeof vi.fn>
+    refreshSilent?: ReturnType<typeof vi.fn>
+    loadFileSourceById?: ReturnType<typeof vi.fn>
+    now?: () => number
+  } = {},
+) {
+  const findByPath = vi.fn(
+    options.findByPath ?? ((path: string) => (path === '/attachments/pic.png' ? createNode() : null)),
+  )
+  const prepareAttachment =
+    options.prepareAttachment ??
+    vi.fn(async () => ({
+      parent_path: '/attachments',
+      name: 'core-image.png',
+      mime_type: 'image/png',
+      path: '/attachments/core-image.png',
+      markdown: '![Core alt](</attachments/core-image.png>)',
+    }))
   const createDir = options.createDir ?? vi.fn(async () => ({nodeId: 10}))
   const upload = options.upload ?? vi.fn(async () => ({nodeId: 50}))
   const refreshSilent = options.refreshSilent ?? vi.fn(async () => undefined)
@@ -57,7 +74,7 @@ function createService(options: {
       ({
         catalog: {
           catalog: {findByPath},
-          api: {createDir, upload},
+          api: {prepareAttachment, createDir, upload},
           refreshSilent,
         },
       }) as any,
@@ -65,7 +82,7 @@ function createService(options: {
     now: options.now ?? (() => Date.UTC(2026, 4, 21, 15, 45, 0)),
   })
 
-  return {service, findByPath, createDir, upload, refreshSilent, loadFileSourceById}
+  return {service, findByPath, prepareAttachment, createDir, upload, refreshSilent, loadFileSourceById}
 }
 
 describe('MarkdownImageAssetService', () => {
@@ -104,65 +121,112 @@ describe('MarkdownImageAssetService', () => {
 
     const external = createService()
     await expect(
-      external.service.resolveImageRef(imageRef({rawRef: 'https://example.com/a.png', kind: 'external-blocked'})),
+      external.service.resolveImageRef(
+        imageRef({rawRef: 'https://example.com/a.png', kind: 'external-blocked'}),
+      ),
     ).resolves.toMatchObject({status: 'blocked-external', url: null})
   })
 
-  it('uploads image files into the configured folder with collision-safe Markdown links', async () => {
-    const {service, createDir, upload, refreshSilent} = createService({
-      findByPath: (path) =>
-        path === '/attachments'
-          ? createNode({isDir: true, isFile: false, name: 'attachments'})
-          : path === '/attachments/photo-2026-05-21-154500.png'
-            ? createNode({name: 'photo-2026-05-21-154500.png'})
-            : null,
-    })
-    const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', {type: 'image/png'})
-
+  it('uses Core destination and Markdown without a local naming or directory fallback', async () => {
+    const {service, prepareAttachment, createDir, upload, refreshSilent} = createService()
+    const file = new File([new Uint8Array([1, 2, 3])], 'photo.png')
     const result = await service.uploadImageFiles([file], {attachmentFolderPath: '/attachments'})
-
+    expect(prepareAttachment).toHaveBeenCalledWith({
+      folder_path: '/attachments',
+      file_name: 'photo.png',
+      mime_type: 'image/png',
+    })
     expect(createDir).not.toHaveBeenCalled()
     expect(upload).toHaveBeenCalledWith(
-      {parentPath: '/attachments', name: 'photo-2026-05-21-154500-2.png'},
+      {parentPath: '/attachments', name: 'core-image.png'},
       3,
       expect.anything(),
-      expect.objectContaining({chunkSize: 512 * 1024, type: 'image/png'}),
+      expect.objectContaining({createOnly: true, chunkSize: 512 * 1024, type: 'image/png'}),
     )
     expect(refreshSilent).toHaveBeenCalledTimes(1)
     expect(result).toEqual({
-      markdown: '![photo](/attachments/photo-2026-05-21-154500-2.png)',
-      paths: ['/attachments/photo-2026-05-21-154500-2.png'],
+      markdown: '![Core alt](</attachments/core-image.png>)',
+      paths: ['/attachments/core-image.png'],
     })
   })
 
-  it('resolves newly uploaded images before the lazy catalog mirror exposes the attachment child', async () => {
-    const {service, loadFileSourceById} = createService({
-      findByPath: (path) =>
-        path === '/attachments'
-          ? createNode({isDir: true, isFile: false, name: 'attachments'})
-          : null,
+  it('does not upload or fall back when preparation fails or is canceled', async () => {
+    const rejected = createService({
+      prepareAttachment: vi.fn(async () => {
+        throw new Error('denied')
+      }),
+    })
+    const file = new File(['image'], 'photo.png', {type: 'image/png'})
+    await expect(rejected.service.uploadImageFiles([file])).rejects.toThrow('denied')
+    expect(rejected.upload).not.toHaveBeenCalled()
+    expect(rejected.createDir).not.toHaveBeenCalled()
+    const controller = new AbortController()
+    const canceled = createService({
+      prepareAttachment: vi.fn(async () => {
+        controller.abort()
+        return {
+          parent_path: '/attachments',
+          name: 'unused.png',
+          mime_type: 'image/png',
+          path: '/attachments/unused.png',
+          markdown: 'unused',
+        }
+      }),
+    })
+    await expect(
+      canceled.service.uploadImageFiles([file], {signal: controller.signal}),
+    ).rejects.toMatchObject({name: 'AbortError'})
+    expect(canceled.upload).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('resolves Core Markdown with catalog mirror ready: %s', async (mirrorReady) => {
+    const path = '/Заметки/Фото 100%/literal%2F.png'
+    const name = 'literal%2F.png'
+    const {service, findByPath, loadFileSourceById} = createService({
+      prepareAttachment: vi.fn(async () => ({
+        parent_path: '/Заметки/Фото 100%',
+        name,
+        mime_type: 'image/png',
+        path,
+        markdown:
+          '![Photo](</%D0%97%D0%B0%D0%BC%D0%B5%D1%82%D0%BA%D0%B8/%D0%A4%D0%BE%D1%82%D0%BE%20100%25/literal%252F.png>)',
+      })),
+      findByPath: (target) => (mirrorReady && target === path ? createNode({nodeId: 77, name}) : null),
       upload: vi.fn(async () => ({nodeId: 77})),
     })
     const file = new File([new Uint8Array([1, 2, 3])], 'inline.png', {type: 'image/png'})
+    const uploaded = await service.uploadImageFiles([file], {attachmentFolderPath: '/Заметки/Фото 100%'})
+    const rendered = renderMarkdownSource(uploaded.markdown)
+    expect(rendered.imageRefs).toHaveLength(1)
+    const resolved = await service.resolveImageRef(rendered.imageRefs[0]!)
 
-    const uploaded = await service.uploadImageFiles([file], {attachmentFolderPath: '/attachments'})
-    const resolved = await service.resolveImageRef(imageRef({rawRef: uploaded.paths[0]}))
-
-    expect(resolved).toMatchObject({
-      status: 'loaded',
-      url: 'blob:preview',
-    })
+    expect(resolved).toMatchObject({status: 'loaded', url: 'blob:preview'})
+    expect(findByPath).toHaveBeenCalledWith(path)
     expect(loadFileSourceById).toHaveBeenCalledWith(
       77,
-      'inline-2026-05-21-154500.png',
+      name,
       expect.objectContaining({
-        derivativeFallback: 'raw',
+        derivativeFallback: mirrorReady ? 'none' : 'raw',
         mimeType: 'image/png',
-        sourceSize: 3,
         variant: 'preview-image',
       }),
     )
   })
+
+  it.each(['/a/%2E%2E/b.png', '/%2Fexample.com/a.png', '/a%5Cb.png'])(
+    'does not resolve an encoded invalid catalog path: %s',
+    async (target) => {
+      const {service, findByPath, loadFileSourceById} = createService()
+      const rendered = renderMarkdownSource(`![Photo](<${target}>)`)
+      expect(rendered.imageRefs).toHaveLength(1)
+      await expect(service.resolveImageRef(rendered.imageRefs[0]!)).resolves.toMatchObject({
+        status: 'unsupported',
+        url: null,
+      })
+      expect(findByPath).not.toHaveBeenCalled()
+      expect(loadFileSourceById).not.toHaveBeenCalled()
+    },
+  )
 
   it('rejects uploads when no image files are present', async () => {
     const {service} = createService()

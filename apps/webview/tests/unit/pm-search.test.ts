@@ -2,7 +2,7 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {Entry, ManagerRoot} from '@project/passmanager/core'
 import {filterValue, quickFilters, selectedCredentialTagFilters} from '@project/passmanager/select'
-import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls.model'
 import {PMQuickFilters} from '../../src/features/passmanager/components/list/quick-filters'
 import {PMSearch} from '../../src/features/passmanager/components/list/search'
 import {PMSearchMobile} from '../../src/features/passmanager/components/list/search-mobile'
@@ -130,10 +130,10 @@ describe('PMSearch', () => {
     expect(element.shadowRoot?.querySelector('.kbd-slash')).not.toBeNull()
   })
 
-  it('hides the slash hint on Android runtime even in desktop search layout', async () => {
+  it('hides the slash hint on a mobile runtime even in desktop search layout', async () => {
     ensureDefined()
     installPassmanagerRoot()
-    setRuntimeCapabilities({platform: 'android', mobile: true, desktop: false})
+    setRuntimeCapabilities({platform: 'ios', mobile: true, desktop: false})
 
     const element = document.createElement('pm-search') as PMSearch
     document.body.appendChild(element)

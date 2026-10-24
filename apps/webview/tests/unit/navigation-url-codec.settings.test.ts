@@ -11,7 +11,6 @@ describe('Settings navigation URL codec', () => {
     'autofill',
     'files',
     'passwords',
-    'license',
     'vault-rekey',
     'password-import',
   ] as const)('round-trips the %s route', (kind) => {

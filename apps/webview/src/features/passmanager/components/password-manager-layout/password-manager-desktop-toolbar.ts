@@ -379,7 +379,7 @@ export class PasswordManagerDesktopToolbar extends ReatomLitElement {
       showElement === 'otpView' || showElement === 'sshView' || showElement === 'envRuntimeView'
 
     return html`
-      <desktop-shell-toolbar single-row>
+      <desktop-shell-toolbar data-testid="desktop-toolbar" single-row>
         ${dedicatedView
           ? this.renderDedicatedToolbar(model, vaultSection, createSection, showElement)
           : this.renderListToolbar(model, vaultSection, createSection)}

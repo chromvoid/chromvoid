@@ -134,6 +134,7 @@ export abstract class NotesQuickViewBase extends ReatomLitElement {
   ) {
     return html`
       <workspace-dashboard-header
+        data-testid="workspace-header"
         slot=${slot ?? nothing}
         surface="notes"
         embedded

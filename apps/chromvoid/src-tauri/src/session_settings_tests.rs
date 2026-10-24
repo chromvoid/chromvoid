@@ -9,8 +9,6 @@ fn automated_session_security_is_opt_in_by_default() {
     assert!(!s.auto_start_ssh_agent_after_unlock);
     assert!(!s.lock_on_mobile_background);
     assert!(!s.keep_screen_awake_when_unlocked);
-    assert!(s.android_vault_status_notification_enabled);
-    assert!(s.android_quick_lock_tile_enabled);
     assert!(s.confirm_file_deletion);
     assert!(!s.show_hidden_files);
     assert_eq!(s.markdown_attachment_folder_path, "/attachments");
@@ -29,8 +27,6 @@ fn round_trip_persistence() {
     settings.lock_on_sleep = false;
     settings.lock_on_mobile_background = true;
     settings.keep_screen_awake_when_unlocked = true;
-    settings.android_vault_status_notification_enabled = false;
-    settings.android_quick_lock_tile_enabled = false;
     settings.confirm_file_deletion = false;
     settings.show_hidden_files = true;
     settings.markdown_attachment_folder_path = "/notes/assets".to_string();
@@ -44,8 +40,6 @@ fn round_trip_persistence() {
     assert!(!loaded.lock_on_sleep);
     assert!(loaded.lock_on_mobile_background);
     assert!(loaded.keep_screen_awake_when_unlocked);
-    assert!(!loaded.android_vault_status_notification_enabled);
-    assert!(!loaded.android_quick_lock_tile_enabled);
     assert!(!loaded.confirm_file_deletion);
     assert!(loaded.show_hidden_files);
     assert_eq!(loaded.markdown_attachment_folder_path, "/notes/assets");
@@ -67,11 +61,22 @@ fn backward_compat_missing_field() {
     assert!(!loaded.auto_mount_after_unlock);
     assert!(!loaded.auto_start_ssh_agent_after_unlock);
     assert!(!loaded.keep_screen_awake_when_unlocked);
-    assert!(loaded.android_vault_status_notification_enabled);
-    assert!(loaded.android_quick_lock_tile_enabled);
     assert!(loaded.confirm_file_deletion);
     assert!(!loaded.show_hidden_files);
     assert_eq!(loaded.markdown_attachment_folder_path, "/attachments");
+}
+
+#[test]
+fn settings_written_by_the_removed_android_client_still_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session_settings.json");
+
+    let legacy_json = r#"{"auto_lock_timeout_secs":60,"lock_on_sleep":false,"android_vault_status_notification_enabled":false,"android_quick_lock_tile_enabled":false}"#;
+    std::fs::write(&path, legacy_json).unwrap();
+
+    let loaded = SessionSettings::load(&path);
+    assert_eq!(loaded.auto_lock_timeout_secs, 60);
+    assert!(!loaded.lock_on_sleep);
 }
 
 #[test]
@@ -84,8 +89,6 @@ fn load_nonexistent_returns_default() {
     assert!(!loaded.auto_mount_after_unlock);
     assert!(!loaded.auto_start_ssh_agent_after_unlock);
     assert!(!loaded.keep_screen_awake_when_unlocked);
-    assert!(loaded.android_vault_status_notification_enabled);
-    assert!(loaded.android_quick_lock_tile_enabled);
     assert!(loaded.confirm_file_deletion);
     assert!(!loaded.show_hidden_files);
     assert_eq!(loaded.markdown_attachment_folder_path, "/attachments");

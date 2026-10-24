@@ -1,4 +1,4 @@
-#![cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+#![cfg_attr(not(test), allow(dead_code))]
 
 use std::future::Future;
 use std::path::Path;
@@ -23,12 +23,8 @@ pub(crate) enum DirectTransportStopReason {
     Shutdown,
     VaultLocked,
     ClientDisconnected,
-    PairingCancelled,
     PeerClosed,
     AccessoryDetached,
-    ExplicitDisconnect,
-    SessionReplaced,
-    LocalError,
     TransportClosed,
     StreamTimeout,
     DataPlaneError,
@@ -131,12 +127,8 @@ impl DirectTransportStopReason {
             Self::Shutdown => "shutdown",
             Self::VaultLocked => "vault_locked",
             Self::ClientDisconnected => "client_disconnected",
-            Self::PairingCancelled => "pairing_cancelled",
             Self::PeerClosed => "peer_closed",
             Self::AccessoryDetached => "accessory_detached",
-            Self::ExplicitDisconnect => "explicit_disconnect",
-            Self::SessionReplaced => "session_replaced",
-            Self::LocalError => "local_error",
             Self::TransportClosed => "transport_closed",
             Self::StreamTimeout => "stream_timeout",
             Self::DataPlaneError => "data_plane_error",

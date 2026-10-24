@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The accessory a ChromVoid desktop makes of the phone. A debug build answers the desktop's
+     development build, which names itself "Dev". -->
+<resources>
+    <usb-accessory
+        manufacturer="ChromVoid"
+        model="ChromVoid Mobile Host"
+        version="1" />
+</resources>

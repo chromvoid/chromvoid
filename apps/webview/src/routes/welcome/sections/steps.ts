@@ -2,6 +2,7 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {CVBottomSheet} from '@chromvoid/uikit/components/cv-bottom-sheet'
 import {css, nothing} from 'lit'
 import {i18n} from 'root/i18n'
+import {isLegalDocument} from 'root/shared/services/legal-documents.model'
 
 import {remoteHostsFlowStyles} from 'root/routes/remote/remote-hosts-flow.styles'
 import {
@@ -346,6 +347,39 @@ export class WelcomeSetupSection extends ReatomLitElement {
 
       .master-password-field {
         min-inline-size: 0;
+      }
+
+      .legal-consent {
+        margin: 0;
+        color: var(--cv-color-text-muted);
+        font-size: var(--cv-font-size-xs);
+        line-height: 1.5;
+        text-align: center;
+        text-wrap: pretty;
+      }
+
+      .legal-consent-link {
+        border-radius: 2px;
+        color: inherit;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      .legal-consent-link:hover {
+        color: var(--cv-color-text);
+      }
+
+      .legal-consent-link:focus-visible {
+        outline: 2px solid var(--cv-color-primary);
+        outline-offset: 2px;
+      }
+
+      .password-sheet .legal-consent {
+        color: var(--welcome-lockscreen-foreground-muted);
+      }
+
+      .password-sheet .legal-consent-link:hover {
+        color: var(--welcome-lockscreen-foreground);
       }
 
       .create-storage-sheet .master-warning {
@@ -716,6 +750,10 @@ export class WelcomeSetupSection extends ReatomLitElement {
         margin-block-start: 2px;
       }
 
+      :host([layout='desktop']) .legal-consent {
+        margin-block-end: var(--app-spacing-4);
+      }
+
       :host([layout='mobile']) .welcome-actions,
       :host([layout='mobile']) .setup-footer,
       :host([layout='mobile']) .remote-actions {
@@ -878,6 +916,12 @@ export class WelcomeSetupSection extends ReatomLitElement {
     this.focusInput(invalidInputId)
   }
 
+  private handleLegalDocumentClick(event: Event): void {
+    event.preventDefault()
+    const legalDocument = (event.currentTarget as HTMLElement).dataset['legalDocument']
+    if (this.model && isLegalDocument(legalDocument)) void this.model.legalDocuments.open(legalDocument)
+  }
+
   private async handleUnlockSubmit(event: Event): Promise<void> {
     event.preventDefault()
     if (!this.model) return
@@ -1019,10 +1063,34 @@ export class WelcomeSetupSection extends ReatomLitElement {
           type="submit"
           ?disabled=${this.model.busy()}
           aria-busy=${this.model.setupInProgress() ? 'true' : nothing}
+          aria-describedby="welcome-legal-consent"
         >
           ${renderPrimaryActionContent(i18n('welcome:create-storage'), this.model.setupInProgress())}
         </button>
+        ${this.renderLegalConsent()}
       </form>
+    `
+  }
+
+  private renderLegalConsent() {
+    if (!this.model) return nothing
+
+    return html`
+      <p id="welcome-legal-consent" class="legal-consent">
+        ${this.model.legalDocuments.consentParts().map((part) =>
+          part.kind === 'text'
+            ? part.text
+            : html`<a
+                class="legal-consent-link"
+                href=${part.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-legal-document=${part.document}
+                @click=${this.handleLegalDocumentClick}
+                >${part.label}</a
+              >`,
+        )}
+      </p>
     `
   }
 

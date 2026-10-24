@@ -37,7 +37,7 @@ export function createImageDisplaySourceDebugPayload(
 const SAFE_DEBUG_TOKEN_RE = /^[A-Za-z0-9_.:-]{1,80}$/
 const SAFE_DEBUG_MESSAGE_RE = /^[A-Za-z0-9 _.,:;()[\]=+'"$-]{1,240}$/
 const SAFE_DEBUG_MESSAGE_PREFIX_RE =
-  /^(Android image preview decoder|Image derivative|Image preview payload|Image exceeds derivative|Failed to encode|Cannot encode)/
+  /^(Image derivative|Image preview payload|Image exceeds derivative|Failed to encode|Cannot encode)/
 
 function getStableDebugToken(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -86,14 +86,6 @@ function readDebugOverride(): string | null {
   }
 }
 
-function isAndroidUserAgent(): boolean {
-  try {
-    return typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent)
-  } catch {
-    return false
-  }
-}
-
 function isUnitTestRuntime(): boolean {
   return (
     typeof process !== 'undefined' &&
@@ -114,7 +106,7 @@ export function isImageGalleryDebugEnabled(): boolean {
   }
 
   const capabilities = getRuntimeCapabilities()
-  return capabilities.platform === 'android' || capabilities.mobile || isAndroidUserAgent()
+  return capabilities.mobile
 }
 
 export function getImageGalleryDebugTime(): number {

@@ -8,8 +8,12 @@ declare global {
   var __E2E_PAGE__: Page | undefined
 }
 
+// Trusted input avoids Chromium 149 collecting an evaluate result during the navigation's updates.
 async function openNavigationItem(page: Page, label: string): Promise<void> {
-  await page.evaluate((nextLabel) => {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+  const handle = await page.evaluateHandle((nextLabel) => {
     function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
       acc.push(...root.querySelectorAll(selector))
       for (const element of root.querySelectorAll('*')) {
@@ -24,8 +28,13 @@ async function openNavigationItem(page: Page, label: string): Promise<void> {
         candidate.textContent?.trim().includes(nextLabel),
     ) as HTMLElement | undefined
     if (!button) throw new Error(`Navigation item not found: ${nextLabel}`)
-    button.click()
+    return button
   }, label)
+  try {
+    await handle.asElement()!.click()
+  } finally {
+    await handle.dispose()
+  }
 }
 
 async function waitForDeepSelector(page: Page, selector: string): Promise<void> {
@@ -54,20 +63,29 @@ async function installDesktopSurfaceTransitionProbe(
   forceElementScopedUnsupported = false,
 ): Promise<void> {
   await page.evaluate((disableElementScoped) => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (!element.shadowRoot) continue
-        const nested = deepFind(element.shadowRoot, selector)
-        if (nested) return nested
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind<T>(el.shadowRoot, selector)
+          if (inner) return inner
+        }
       }
       return null
     }
 
-    const desktopLayout = deepFind(document, 'file-app-shell-desktop-layout')
+    const desktopLayout = deepFind(document, '[data-testid="shell-desktop"]')
     const navigationRail = deepFind(document, 'navigation-rail')
-    const surfaceContent = desktopLayout?.shadowRoot?.querySelector('.content') as
+    const surfaceContent = deepFind(desktopLayout, '[data-testid="shell-content"]') as
       | (HTMLElement & {
           startViewTransition?: (options: Record<string, any>) => {
             ready: Promise<void>
@@ -178,6 +196,7 @@ test('desktop Notes to empty Files uses one isolated View Transition without nes
   await waitForAuthenticated(page)
   await waitForCatalogReady(page)
 
+  // Seed the empty Files fixture directly, then yield a frame before returning its evaluate result.
   await page.evaluate(async () => {
     const importModule = Function('path', 'return import(path)') as (
       path: string,
@@ -185,6 +204,7 @@ test('desktop Notes to empty Files uses one isolated View Transition without nes
     const {getAppContext} = await importModule('/shared/services/app-context.ts')
     const {store} = getAppContext()
     store.setSearchFilters({...store.searchFilters(), query: '__desktop_surface_transition_empty__'})
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await waitForDeepSelector(page, 'cv-empty-state')
 

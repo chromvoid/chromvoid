@@ -1,6 +1,5 @@
 use super::*;
-#[cfg(desktop)]
-use crate::catalog_blocking_io::CatalogBlockingIoError;
+#[cfg(any(desktop, target_os = "ios"))]
 use crate::state_ext::lock_or_string_err;
 
 #[cfg(target_os = "ios")]
@@ -71,30 +70,10 @@ pub(crate) async fn mobile_host_start(
             .map_err(|_| "serialize mobile host status failed".to_string());
     }
 
-    #[cfg(target_os = "android")]
-    {
-        let storage_root = {
-            let sr = lock_or_string_err!(state.storage_root, "Storage root");
-            sr.clone()
-        };
-        let fallback = device_label.unwrap_or_else(|| "ChromVoid Android".to_string());
-        let status = network::mobile_host::start_android_host_mode(
-            state.android_host_runtime.clone(),
-            state.mobile_acceptor_runtime.clone(),
-            Some(state.adapter.clone()),
-            &relay_url,
-            &storage_root,
-            &fallback,
-        )
-        .await?;
-        return serde_json::to_value(status)
-            .map_err(|_| "serialize mobile host status failed".to_string());
-    }
-
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(not(target_os = "ios"))]
     let _ = (state, relay_url, device_label);
 
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(not(target_os = "ios"))]
     Err("mobile host mode is not available on this platform".to_string())
 }
 
@@ -120,26 +99,10 @@ pub(crate) async fn mobile_host_stop(
             .map_err(|_| "serialize mobile host status failed".to_string());
     }
 
-    #[cfg(target_os = "android")]
-    {
-        let storage_root = {
-            let sr = lock_or_string_err!(state.storage_root, "Storage root");
-            sr.clone()
-        };
-        let status = network::mobile_host::stop_android_host_mode(
-            state.android_host_runtime.clone(),
-            state.mobile_acceptor_runtime.clone(),
-            &storage_root,
-        )
-        .await?;
-        return serde_json::to_value(status)
-            .map_err(|_| "serialize mobile host status failed".to_string());
-    }
-
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(not(target_os = "ios"))]
     let _ = state;
 
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(not(target_os = "ios"))]
     Err("mobile host mode is not available on this platform".to_string())
 }
 
@@ -171,41 +134,7 @@ pub(crate) fn mobile_host_status(state: tauri::State<'_, AppState>) -> serde_jso
         };
     }
 
-    #[cfg(target_os = "android")]
-    {
-        let status = match network::mobile_host::android_host_status(
-            &state.android_host_runtime,
-            &state.mobile_acceptor_runtime,
-        ) {
-            Ok(status) => status,
-            Err(error) => {
-                tracing::warn!("network: Android mobile host status unavailable: {error}");
-                network::mobile_host::MobileHostStatus {
-                    phase: network::mobile_host::MobileHostPhase::Idle,
-                    platform: "android".to_string(),
-                    relay_url: None,
-                    device_id: None,
-                    device_label: None,
-                    pairing_pin: None,
-                    pairing_offer: None,
-                    expires_at_ms: None,
-                    presence: None,
-                    paired_peer_id: None,
-                    connected_peers: Vec::new(),
-                    error: None,
-                }
-            }
-        };
-        return match serde_json::to_value(status) {
-            Ok(status) => status,
-            Err(error) => {
-                tracing::warn!("network: failed to serialize Android mobile host status: {error}");
-                serde_json::json!({"phase": "Idle", "platform": "android"})
-            }
-        };
-    }
-
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(not(target_os = "ios"))]
     {
         let _ = state;
         serde_json::json!({"phase": "Idle"})
@@ -236,27 +165,10 @@ pub(crate) async fn mobile_host_publish_presence(
             .map_err(|_| "serialize mobile host status failed".to_string());
     }
 
-    #[cfg(target_os = "android")]
-    {
-        let storage_root = {
-            let sr = lock_or_string_err!(state.storage_root, "Storage root");
-            sr.clone()
-        };
-        let status = network::mobile_host::publish_android_presence(
-            state.android_host_runtime.clone(),
-            state.mobile_acceptor_runtime.clone(),
-            &relay_url,
-            &storage_root,
-        )
-        .await?;
-        return serde_json::to_value(status)
-            .map_err(|_| "serialize mobile host status failed".to_string());
-    }
-
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(not(target_os = "ios"))]
     let _ = (state, relay_url);
 
-    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    #[cfg(not(target_os = "ios"))]
     Err("mobile host mode is not available on this platform".to_string())
 }
 
@@ -274,38 +186,8 @@ pub(crate) async fn desktop_pair_mobile_host(
     };
     let fallback = device_label.unwrap_or_else(|| "ChromVoid Desktop".to_string());
 
-    let platform = offer
-        .platform
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("ios");
-
-    if platform == "android" {
-        let (peer, paired) = network::mobile_host::desktop_pair_android_host_peer(
-            &offer,
-            &pin,
-            &storage_root,
-            &fallback,
-        )
-        .await?;
-        match state
-            .catalog_blocking_io_runtime
-            .spawn_blocking({
-                let storage_root = storage_root.clone();
-                move || {
-                    network::mobile_host::persist_desktop_paired_android_host(&storage_root, peer)
-                }
-            })
-            .await
-        {
-            Ok(result) => result?,
-            Err(error) => return Err(mobile_host_pair_store_blocking_err(error)),
-        }
-        return serde_json::to_value(paired)
-            .map_err(|_| "serialize paired mobile host failed".to_string());
-    }
-
+    // Both Air clients, iPhone and Android, host through the native protocol; the invitation's
+    // platform only names the phone, and the phone's own hello is what the desktop keeps.
     let ios_offer = network::PairingOffer {
         session_id: offer.session_id,
         relay_base_url: offer.relay_base_url,
@@ -315,23 +197,4 @@ pub(crate) async fn desktop_pair_mobile_host(
     let peer =
         network::ios_pairing::desktop_pair(&ios_offer, &pin, &storage_root, &fallback).await?;
     serde_json::to_value(peer).map_err(|_| "serialize paired mobile host failed".to_string())
-}
-
-#[cfg(desktop)]
-fn mobile_host_pair_store_blocking_err(error: CatalogBlockingIoError) -> String {
-    let (error, _code) = error.into_rpc_error("Desktop mobile host pair");
-    error
-}
-
-#[cfg(all(test, desktop))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mobile_host_pair_store_blocking_err_maps_shutdown() {
-        assert_eq!(
-            mobile_host_pair_store_blocking_err(CatalogBlockingIoError::ShuttingDown),
-            "Catalog background IO is shutting down"
-        );
-    }
 }

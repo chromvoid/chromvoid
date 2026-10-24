@@ -103,7 +103,7 @@ impl PassmanagerCredentialMeta {
         })
     }
 
-    fn url_rule_from_value(value: &Value) -> Option<PassmanagerUrlRule> {
+    pub(in crate::rpc::router) fn url_rule_from_value(value: &Value) -> Option<PassmanagerUrlRule> {
         match value {
             Value::String(raw) => {
                 let normalized = raw.trim();
@@ -140,7 +140,7 @@ impl PassmanagerCredentialMeta {
         }
     }
 
-    fn url_rules(meta: &Map<String, Value>) -> Vec<PassmanagerUrlRule> {
+    pub(in crate::rpc::router) fn url_rules(meta: &Map<String, Value>) -> Vec<PassmanagerUrlRule> {
         let mut rules = Vec::new();
         for key in ["urls", "url_rules", "urlRules"] {
             let Some(raw_rules) = meta.get(key) else {

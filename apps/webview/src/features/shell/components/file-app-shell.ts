@@ -83,6 +83,7 @@ export class FileAppShell extends ReatomLitElement {
     if (isMobile) {
       return html`
         <file-app-shell-mobile-layout
+          data-testid="shell-mobile"
           .sidebarOpen=${this.sidebarOpen}
           .detailsOpen=${this.detailsOpen}
           .detailsHidden=${this.detailsHidden}
@@ -100,6 +101,7 @@ export class FileAppShell extends ReatomLitElement {
 
     return html`
       <file-app-shell-desktop-layout
+        data-testid="shell-desktop"
         .detailsOpen=${this.detailsOpen}
         .detailsHidden=${this.detailsHidden}
         .dualPane=${this.dualPane}

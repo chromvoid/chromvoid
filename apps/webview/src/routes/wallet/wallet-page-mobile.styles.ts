@@ -325,60 +325,53 @@ export const walletPageMobileStyles = [
       font-size: var(--cv-font-size-xs);
     }
 
-    .account-rail {
-      display: flex;
-      gap: var(--app-spacing-3);
-      overflow-x: auto;
-      scroll-padding-inline: var(--app-spacing-4);
-      scroll-snap-type: inline proximity;
-      padding-inline: max(var(--app-spacing-4), var(--app-runtime-safe-area-inline-start, 0px))
-        max(var(--app-spacing-4), var(--app-runtime-safe-area-inline-end, 0px));
-      padding-block-end: var(--app-spacing-1);
-      scrollbar-width: none;
+    .asset-list {
+      display: grid;
+      gap: var(--app-spacing-2);
+      inline-size: 100%;
+      text-align: start;
     }
 
-    .account-rail::-webkit-scrollbar {
-      display: none;
-    }
-
-    .account-card,
-    .account-add-card {
+    .asset-row {
       box-sizing: border-box;
       display: grid;
-      min-inline-size: min(68vw, 244px);
-      min-block-size: 154px;
-      flex: 0 0 min(68vw, 244px);
-      scroll-snap-align: start;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--app-spacing-3);
+      inline-size: 100%;
+      min-block-size: 64px;
+      padding: var(--app-spacing-3);
       border: 1px solid var(--app-editorial-border-subtle, var(--cv-color-border-soft));
       border-radius: var(--cv-radius-lg);
-      padding: var(--app-spacing-3);
       text-align: start;
       background: var(--app-editorial-surface-elevated, var(--cv-color-surface-2));
       cursor: pointer;
     }
 
-    .account-card.selected {
+    .asset-row.selected {
       border-color: var(--cv-color-accent);
       background: var(--cv-color-accent-surface, var(--cv-color-surface-2));
     }
 
-    .account-card-top {
-      display: flex;
-      align-items: center;
-      gap: var(--app-spacing-2);
-    }
-
-    .account-card .network-mark {
-      inline-size: 28px;
-      block-size: 28px;
+    .asset-row .network-mark {
+      inline-size: 36px;
+      block-size: 36px;
       border-radius: 50%;
-      font-size: var(--cv-font-size-xs);
+      font-size: var(--cv-font-size-sm);
       font-weight: var(--cv-font-weight-semibold);
     }
 
-    .network-name,
-    .account-label,
-    .account-address {
+    .asset-copy {
+      display: grid;
+      min-inline-size: 0;
+      gap: 2px;
+    }
+
+    .asset-copy strong {
+      font-size: var(--cv-font-size-base);
+    }
+
+    .asset-meta {
       overflow: hidden;
       color: var(--app-editorial-text-tertiary, var(--cv-color-text-muted));
       font-size: var(--cv-font-size-xs);
@@ -386,21 +379,19 @@ export const walletPageMobileStyles = [
       white-space: nowrap;
     }
 
-    .account-card > strong {
-      align-self: end;
-      overflow-wrap: anywhere;
-      font-size: var(--cv-font-size-xl);
+    .asset-warning {
+      color: var(--cv-color-warning, var(--cv-color-text-muted));
     }
 
-    .account-add-card {
-      place-content: center;
-      justify-items: center;
+    .asset-balance {
+      display: inline-flex;
+      align-items: center;
       gap: var(--app-spacing-2);
-      border-style: dashed;
-      color: var(--app-editorial-text-secondary, var(--cv-color-text-muted));
-      text-align: center;
-      background: transparent;
+      font-size: var(--cv-font-size-lg);
+      text-align: end;
+      overflow-wrap: anywhere;
     }
+
 
     .network-callout,
     .recovery-warning {

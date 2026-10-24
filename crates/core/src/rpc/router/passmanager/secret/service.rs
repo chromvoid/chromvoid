@@ -10,7 +10,7 @@ use super::super::path::is_passmanager_path;
 use super::policy::{
     entry_type_from_meta, is_secret_compatible, normalize_secret_value, secret_filename,
 };
-use super::store::{read_secret_value, stage_delete_secret, stage_secret_value};
+use super::store::{read_secret_value_checked, stage_delete_secret, stage_secret_value};
 use super::types::{SecretReadResult, SecretSaveRequest, SecretTargetRequest};
 
 pub(super) fn save_secret(
@@ -50,7 +50,14 @@ pub(super) fn save_secret(
             .into_iter()
             .rev()
             .collect::<String>();
-        stage_payment_card_last4(s, storage, uow, entry_node_id, Some(&last4))?;
+        stage_payment_card_last4(
+            s,
+            storage,
+            uow,
+            entry_node_id,
+            Some(&last4),
+            Some(&normalized_value),
+        )?;
     }
 
     Ok(())
@@ -70,7 +77,7 @@ pub(super) fn read_secret(
             "secret_type is incompatible with entry_type",
         ));
     }
-    let value = read_secret_value(s, storage, entry_node_id, &request.secret_type)
+    let value = read_secret_value_checked(s, storage, entry_node_id, &request.secret_type)?
         .ok_or_else(|| PassmanagerCommandError::node_not_found("Secret not found"))?;
 
     Ok(SecretReadResult::new(value))
@@ -96,7 +103,7 @@ pub(super) fn delete_secret(
     stage_delete_secret(s, uow, entry_node_id, &secret_name)?;
 
     if request.secret_type == "card_pan" {
-        stage_payment_card_last4(s, storage, uow, entry_node_id, None)?;
+        stage_payment_card_last4(s, storage, uow, entry_node_id, None, None)?;
     }
 
     Ok(())
@@ -108,6 +115,7 @@ fn stage_payment_card_last4(
     uow: &mut DomainUnitOfWork<'_>,
     entry_node_id: u64,
     last4: Option<&str>,
+    pan: Option<&str>,
 ) -> Result<(), PassmanagerCommandError> {
     let mut meta = read_entry_meta_json(session, storage, entry_node_id)
         .ok_or_else(|| PassmanagerCommandError::node_not_found("Entry metadata not found"))?;
@@ -126,6 +134,18 @@ fn stage_payment_card_last4(
             "payment_card must be an object",
         ));
     };
+    // A name Core chose follows the number; one typed by hand stays.
+    let named_by_core = payment_card_obj
+        .get("last4")
+        .and_then(serde_json::Value::as_str)
+        .zip(meta_obj.get("title").and_then(serde_json::Value::as_str))
+        .is_some_and(|(old_last4, title)| {
+            crate::payment_card::is_default_title(
+                title,
+                super::super::entry::card_brand::card_network(payment_card_obj),
+                old_last4,
+            )
+        });
     if let Some(value) = last4 {
         payment_card_obj.insert(
             "last4".to_string(),
@@ -133,6 +153,37 @@ fn stage_payment_card_last4(
         );
     } else {
         payment_card_obj.remove("last4");
+    }
+    // A replaced number may belong to another network; Core keeps `brand` in step with it.
+    if let Some(pan) = pan {
+        let brand = super::super::entry::card_brand::detect_brand(pan)
+            .unwrap_or(super::super::entry::card_brand::UNKNOWN_BRAND);
+        payment_card_obj.insert(
+            "brand".to_string(),
+            serde_json::Value::String(brand.to_string()),
+        );
+    }
+    if named_by_core && last4.is_some() {
+        let parent = uow
+            .catalog()
+            .get_path(entry_node_id)
+            .and_then(|path| path.rsplit_once('/').map(|(parent, _)| parent.to_string()))
+            .ok_or_else(|| PassmanagerCommandError::node_not_found("Entry not found"))?;
+        let renamed = super::super::entry::card_brand::default_card_title(
+            uow,
+            &parent,
+            payment_card_obj,
+            Some(entry_node_id),
+        );
+        if let Some(title) = renamed.filter(|title| {
+            meta_obj.get("title").and_then(serde_json::Value::as_str) != Some(title)
+        }) {
+            uow.stage_rename_node(entry_node_id, &title)
+                .map_err(|error| {
+                    PassmanagerCommandError::from_domain_uow_error(error, "Failed to rename entry")
+                })?;
+            meta_obj.insert("title".to_string(), serde_json::Value::String(title));
+        }
     }
     meta_obj.insert("payment_card".to_string(), payment_card);
 

@@ -438,7 +438,10 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
       </cv-drawer>
 
       <div class="topbar"><slot name="mobile-topbar"></slot></div>
-      <main class="content ${mediaMiniVisible ? 'content--media-mini' : ''} ${hideTabBar ? 'content--no-tabbar' : ''}">
+      <main
+        data-testid="shell-content"
+        class="content ${mediaMiniVisible ? 'content--media-mini' : ''} ${hideTabBar ? 'content--no-tabbar' : ''}"
+      >
         <slot></slot>
       </main>
 
@@ -450,7 +453,7 @@ export class FileAppShellMobileLayout extends ReatomLitElement {
             <media-mini-player variant="mobile"></media-mini-player>
           </div>`
         : nothing}
-      ${hideTabBar ? nothing : html`<mobile-tab-bar></mobile-tab-bar>`}
+      ${hideTabBar ? nothing : html`<mobile-tab-bar data-testid="mobile-tabs"></mobile-tab-bar>`}
     `
   }
 }

@@ -1,4 +1,3 @@
-import {getRuntimeCapabilities} from '../../core/runtime/runtime-capabilities'
 import {syncPasswordInputDialogKeyboardOffset} from '../../shared/services/mobile-dialog-keyboard-stabilization'
 import {
   MOBILE_KEYBOARD_EXPANDED_ATTR,
@@ -18,7 +17,6 @@ import {
 
 const MIN_KEYBOARD_BOTTOM_INSET = 72
 const KEYBOARD_BOTTOM_INSET_VIEWPORT_RATIO = 0.08
-const ANDROID_SAFE_AREA_BOTTOM_FALLBACK = 16
 
 export const getVisualViewportLayoutHeight = ({
   rootClientHeight,
@@ -105,7 +103,7 @@ export const splitVisualViewportBottomInset = ({
     return {keyboardInset: 0, safeAreaInset: 0}
   }
 
-  // Android WebView can expose the system navigation/gesture inset through
+  // A WebView can expose the system navigation/gesture inset through
   // visualViewport even when the keyboard is closed. Treat only large bottom
   // insets as keyboard occlusion; keep smaller ones as a safe-area fallback.
   const keyboardThreshold = Math.max(
@@ -142,34 +140,22 @@ export const resolveEffectiveKeyboardInset = ({
 }
 
 export const resolveSafeAreaBottomFallback = ({
-  platform,
-  mobile,
   safeAreaInset,
-  safeAreaEnvInset,
   nativeSafeAreaBottomInset = 0,
   hasNativeSafeAreaBottom = false,
 }: {
-  platform: string
-  mobile: boolean
   safeAreaInset: number
-  safeAreaEnvInset: number
   nativeSafeAreaBottomInset?: number
   hasNativeSafeAreaBottom?: boolean
 }): number => {
   const normalizedSafeAreaInset =
     Number.isFinite(safeAreaInset) && safeAreaInset > 0 ? Math.round(safeAreaInset) : 0
-  const normalizedSafeAreaEnvInset =
-    Number.isFinite(safeAreaEnvInset) && safeAreaEnvInset > 0 ? Math.round(safeAreaEnvInset) : 0
   const normalizedNativeSafeAreaBottomInset =
     Number.isFinite(nativeSafeAreaBottomInset) && nativeSafeAreaBottomInset > 0
       ? Math.round(nativeSafeAreaBottomInset)
       : 0
 
   if (hasNativeSafeAreaBottom || normalizedNativeSafeAreaBottomInset > 0) return 0
-
-  if (platform === 'android' && mobile && normalizedSafeAreaInset === 0 && normalizedSafeAreaEnvInset === 0) {
-    return ANDROID_SAFE_AREA_BOTTOM_FALLBACK
-  }
 
   return normalizedSafeAreaInset
 }
@@ -218,19 +204,12 @@ export const setupMobileVisualViewportSync = () => {
       preferNativeKeyboardInset,
     })
     const cssViewportMode = usesNativeResize ? 'native-resize' : 'overlay'
-    const runtimeCaps = getRuntimeCapabilities()
-    const safeAreaEnvInset = Number.parseFloat(
-      getComputedStyle(root).getPropertyValue('--app-runtime-safe-area-block-end-environment'),
-    )
     const nativeSafeAreaBottomInset = Number.parseFloat(
       getComputedStyle(root).getPropertyValue('--app-runtime-safe-area-block-end-native'),
     )
     const hasNativeSafeAreaBottom = root.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)
     const resolvedSafeAreaInset = resolveSafeAreaBottomFallback({
-      platform: runtimeCaps.platform,
-      mobile: Boolean(runtimeCaps.mobile),
       safeAreaInset,
-      safeAreaEnvInset,
       nativeSafeAreaBottomInset,
       hasNativeSafeAreaBottom,
     })

@@ -5,10 +5,9 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 import {pmComponentLoaderModel} from '../../src/features/passmanager/models/pm-component-loader.model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 
-const {setImportCatalogOpsMock, setExistingEntriesMapMock} = vi.hoisted(() => {
+const {setCredentialImportServiceMock} = vi.hoisted(() => {
   return {
-    setImportCatalogOpsMock: vi.fn(),
-    setExistingEntriesMapMock: vi.fn(),
+    setCredentialImportServiceMock: vi.fn(),
   }
 })
 
@@ -16,18 +15,17 @@ vi.mock('@chromvoid/password-import/ui/import-dialog-state', async (importOrigin
   const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
-    setImportCatalogOps: setImportCatalogOpsMock,
-    setExistingEntriesMap: setExistingEntriesMapMock,
+    setCredentialImportService: setCredentialImportServiceMock,
   }
 })
 
-describe('pmModel.onImport sets catalogOps before showing dialog', () => {
+describe('pmModel.onImport connects Core before showing dialog', () => {
   let origPassmanager: any
   let origCatalog: any
 
   beforeEach(() => {
     vi.clearAllMocks()
-    setImportCatalogOpsMock.mockReset()
+    setCredentialImportServiceMock.mockReset()
 
     origPassmanager = (window as any).passmanager
     origCatalog = (window as any).catalog
@@ -66,31 +64,28 @@ describe('pmModel.onImport sets catalogOps before showing dialog', () => {
     vi.restoreAllMocks()
   })
 
-  it('should call setImportCatalogOps before setting showElement', async () => {
+  it('should call setCredentialImportService before setting showElement', async () => {
     const callOrder: string[] = []
 
-    setImportCatalogOpsMock.mockImplementation(() => callOrder.push('setCatalogOps'))
+    setCredentialImportServiceMock.mockImplementation(() => callOrder.push('setCoreService'))
     ;(window.passmanager.showElement as any).set = vi.fn(() => callOrder.push('setShowElement'))
 
     await pmModel.onImport()
 
-    expect(setImportCatalogOpsMock).toHaveBeenCalledTimes(1)
+    expect(setCredentialImportServiceMock).toHaveBeenCalledTimes(1)
     expect(window.passmanager.showElement.set).toHaveBeenCalledWith('importDialog')
-    expect(callOrder).toEqual(['setCatalogOps', 'setShowElement'])
+    expect(callOrder).toEqual(['setCoreService', 'setShowElement'])
   })
 
-  it('should pass a valid CatalogOperations object', async () => {
+  it('should pass a Core import service', async () => {
     await pmModel.onImport()
 
-    const calls = setImportCatalogOpsMock.mock.calls
+    const calls = setCredentialImportServiceMock.mock.calls
     const ops = calls[0]?.[0]
     expect(ops).toBeDefined()
-    expect(typeof ops.createDir).toBe('function')
-    expect(typeof ops.upload).toBe('function')
-    expect(typeof ops.setOTPSecret).toBe('function')
-    expect(typeof ops.deleteNode).toBe('function')
-    expect(typeof ops.putIcon).toBe('function')
-    expect(typeof ops.setGroupIcon).toBe('function')
+    expect(typeof ops.review).toBe('function')
+    expect(typeof ops.commit).toBe('function')
+    expect(typeof ops.cancel).toBe('function')
   })
 
   it('should refresh catalog before opening import dialog', async () => {
@@ -99,8 +94,8 @@ describe('pmModel.onImport sets catalogOps before showing dialog', () => {
       callOrder.push('refreshSilent')
     })
 
-    setImportCatalogOpsMock.mockImplementation(() => {
-      callOrder.push('setCatalogOps')
+    setCredentialImportServiceMock.mockImplementation(() => {
+      callOrder.push('setCoreService')
     })
     ;(window.passmanager.showElement as any).set = vi.fn(() => {
       callOrder.push('setShowElement')
@@ -109,7 +104,7 @@ describe('pmModel.onImport sets catalogOps before showing dialog', () => {
     await pmModel.onImport()
 
     expect(window.catalog.refreshSilent).toHaveBeenCalledTimes(1)
-    expect(callOrder).toEqual(['refreshSilent', 'setCatalogOps', 'setShowElement'])
+    expect(callOrder).toEqual(['refreshSilent', 'setCoreService', 'setShowElement'])
   })
 
   it('should sync catalog and reload passmanager after import complete', async () => {

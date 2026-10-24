@@ -85,6 +85,8 @@ export class RemotePage extends ReatomLitElement {
       },
       desktopUsbSession: model.desktopUsbSessionPresentation,
       onReconnectUsb: model.openUsbMobile,
+      onRetryUsb: model.retryUsbSession,
+      onForgetUsb: model.forgetUsbSessionPhone,
       // Sync context (Task 13)
       syncSnapshot: model.syncSnapshot,
       formatLastSyncTime,

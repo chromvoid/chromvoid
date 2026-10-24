@@ -1,7 +1,6 @@
 import {atom, computed, reatomEnum, reatomField, reatomForm, wrap} from '@reatom/core'
 
-import {navigationModel} from 'root/app/navigation/navigation.model'
-import type {ModuleAccessState} from 'root/core/pro/module-access.model'
+import type {ModuleAccessState} from 'root/core/modules/module-access.model'
 import type {UnlistenFn} from 'root/core/transport/tauri/ipc'
 
 import {envRuntimeI18n as t} from './env-runtime.i18n'
@@ -44,7 +43,11 @@ import type {
 
 const READY: EnvRuntimeReadiness = {ready: true, denial_code: null}
 
-function accessDenialCode(access: ModuleAccessState): string | null {
+// Module access has not been confirmed for the active Core yet, or could not be read.
+const MODULE_ACCESS_UNKNOWN = 'MODULE_ACCESS_UNKNOWN'
+
+function accessDenialCode(access: ModuleAccessState | null): string | null {
+  if (!access) return MODULE_ACCESS_UNKNOWN
   if (access.status === 'enabled') return null
   if (access.denial_code) return access.denial_code
   switch (access.status) {
@@ -52,10 +55,6 @@ function accessDenialCode(access: ModuleAccessState): string | null {
       return 'FEATURE_UNSUPPORTED_ON_PLATFORM'
     case 'disabled_by_rollout':
       return 'FEATURE_DISABLED_BY_ROLLOUT'
-    case 'locked_pro':
-      return 'PRO_REQUIRED'
-    case 'entitlement_unavailable':
-      return 'ENTITLEMENT_UNAVAILABLE'
   }
 }
 
@@ -97,10 +96,7 @@ export abstract class EnvRuntimeModelCore implements EventListenerObject {
     'envRuntime.devicePresetDenial',
   )
   readonly recoveryMode = computed(() => this.privilegedDenial() !== null, 'envRuntime.recoveryMode')
-  readonly canManageLicense = computed(() => {
-    const status = this.access().status
-    return status !== 'enabled' && status !== 'unsupported' && status !== 'disabled_by_rollout'
-  }, 'envRuntime.canManageLicense')
+  readonly canRetryAccess = computed(() => this.access() === null, 'envRuntime.canRetryAccess')
   readonly loading = atom(false, 'envRuntime.loading')
   readonly error = atom<string | null>(null, 'envRuntime.error')
   readonly secrets = atom<EnvSecretMetadata[]>([], 'envRuntime.secrets')
@@ -466,9 +462,9 @@ export abstract class EnvRuntimeModelCore implements EventListenerObject {
     this.error.set(null)
   }
 
-  openLicense(): void {
-    if (!this.canManageLicense()) return
-    navigationModel.navigateToSettingsRoute({kind: 'license'})
+  async retryAccess(): Promise<void> {
+    if (!this.canRetryAccess()) return
+    await wrap(this.dependencies.retryAccess())
   }
 
   readinessTitle(readiness: EnvRuntimeReadiness): string {
@@ -500,17 +496,15 @@ export abstract class EnvRuntimeModelCore implements EventListenerObject {
   }
 
   accessTitle(): string {
-    if (this.access().denial_code === 'REMOTE_CORE_UNSUPPORTED') {
+    const access = this.access()
+    if (!access) return t('accessUnavailableTitle')
+    if (access.denial_code === 'REMOTE_CORE_UNSUPPORTED') {
       return t('accessRemoteCoreTitle')
     }
-    switch (this.access().status) {
+    switch (access.status) {
       case 'unsupported':
         return t('accessUnsupportedTitle')
       case 'disabled_by_rollout':
-        return t('accessUnavailableTitle')
-      case 'locked_pro':
-        return t('accessLockedTitle')
-      case 'entitlement_unavailable':
         return t('accessUnavailableTitle')
       case 'enabled':
         return ''
@@ -518,18 +512,15 @@ export abstract class EnvRuntimeModelCore implements EventListenerObject {
   }
 
   accessDescription(): string {
-    if (this.access().denial_code === 'REMOTE_CORE_UNSUPPORTED') {
+    const access = this.access()
+    if (!access) return t('accessUnavailableDescription')
+    if (access.denial_code === 'REMOTE_CORE_UNSUPPORTED') {
       return t('accessRemoteCoreDescription')
     }
-    switch (this.access().status) {
+    switch (access.status) {
       case 'unsupported':
         return t('accessUnsupportedDescription')
       case 'disabled_by_rollout':
-        return ''
-      case 'locked_pro':
-        return t('accessLockedDescription')
-      case 'entitlement_unavailable':
-        return t('accessUnavailableDescription')
       case 'enabled':
         return ''
     }

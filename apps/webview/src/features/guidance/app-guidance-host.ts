@@ -202,7 +202,7 @@ export class AppGuidanceHost extends ReatomLitElement implements EventListenerOb
               </button>
             `
           : nothing}
-        <p>${i18n(guidanceModel.resolveBodyKey(definition))}</p>
+        <p>${i18n(definition.bodyKey)}</p>
         ${actionKey
           ? html`
               <button

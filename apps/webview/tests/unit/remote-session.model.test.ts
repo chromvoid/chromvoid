@@ -6,7 +6,7 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 import {remoteSessionModel} from '../../src/routes/remote/remote-session.model'
 import {runtimeModeModel} from '../../src/core/runtime/runtime-mode.model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
-import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel} from '../../src/core/modules/module-access.model'
 
 const tauriInvoke = vi.fn()
 const tauriListeners = new Map<string, (payload: unknown) => void>()
@@ -415,7 +415,6 @@ describe('remoteSessionModel', () => {
     expect(remoteSessionPeerId()).toBe('usb-host-1')
     expect(tauriInvoke.mock.calls.some(([command]) => command === 'rpc_dispatch')).toBe(false)
     expect(tauriInvoke.mock.calls.some(([command]) => command === 'module_access_snapshot')).toBe(false)
-    expect(tauriInvoke.mock.calls.some(([command]) => command === 'license_status')).toBe(false)
   })
 
   it('syncs immediately when mobile_usb_status_changed is emitted', async () => {
@@ -626,11 +625,11 @@ describe('remoteSessionModel', () => {
   })
 
   it('does not call desktop mode_status or invalidate local Core access on mobile runtime', async () => {
-    setRuntimeCapabilities({platform: 'android', desktop: false, mobile: true})
+    setRuntimeCapabilities({platform: 'ios', desktop: false, mobile: true})
     const resetRemoteSession = vi.fn()
     moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
     await moduleAccessModel.ensureActiveCoreAccess()
-    expect(moduleAccessModel.activeCoreLifecycle()).toBe('resolved')
+    expect(moduleAccessModel.resolution().phase).toBe('resolved')
 
     initAppContext(
       createMockAppContext({
@@ -649,6 +648,6 @@ describe('remoteSessionModel', () => {
     expect(tauriInvoke).not.toHaveBeenCalledWith('mode_status')
     expect(moduleAccessModel.activeCoreContext()).toEqual({sourceCore: 'local'})
     expect(moduleAccessModel.activeCoreReadiness()).toBe('ready')
-    expect(moduleAccessModel.activeCoreLifecycle()).toBe('resolved')
+    expect(moduleAccessModel.resolution().phase).toBe('resolved')
   })
 })

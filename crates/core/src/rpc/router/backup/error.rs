@@ -15,6 +15,12 @@ pub(in crate::rpc::router::backup) struct BackupCommandError {
 pub(in crate::rpc::router::backup) type BackupResult<T> = Result<T, BackupCommandError>;
 
 impl BackupCommandError {
+    pub(super) fn cancelled() -> Self {
+        Self {
+            message: "Backup cancelled".to_string(),
+            code: Some("CANCELLED".to_string()),
+        }
+    }
     pub(in crate::rpc::router::backup) fn new(
         message: impl Into<String>,
         code: Option<ErrorCode>,

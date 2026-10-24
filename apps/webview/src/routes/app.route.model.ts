@@ -27,7 +27,7 @@ import {markdownDocumentRenameModel} from 'root/features/file-manager/models/mar
 import {markdownPreviewModel} from 'root/features/file-manager/models/markdown-preview.model'
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {defaultLogger} from 'root/core/logger'
-import {moduleAccessModel} from 'root/core/pro/module-access.model'
+import {moduleAccessModel} from 'root/core/modules/module-access.model'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {i18n} from 'root/i18n'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
@@ -479,11 +479,9 @@ export function resolveMobileToolbarState(input: ResolveToolbarInput): MobileToo
               ? 'settings:files-storage-title'
               : settingsRoute.kind === 'passwords'
                 ? 'settings:password-vault-title'
-                : settingsRoute.kind === 'license'
-                  ? 'settings:license-title'
-                  : settingsRoute.kind === 'vault-rekey'
-                    ? 'settings:vault-password-title'
-                    : 'settings:passwords-maintenance-import'
+                : settingsRoute.kind === 'vault-rekey'
+                  ? 'settings:vault-password-title'
+                  : 'settings:passwords-maintenance-import'
 
       return {
         show: true,
@@ -715,6 +713,15 @@ export function handleMobileBack(): boolean {
 }
 
 export class ChromVoidAppModel {
+  readonly startupReadinessRoute = computed<Routes | null>(() => {
+    const route = getRouter().route()
+    const {ws} = getAppContext()
+    if (route === 'no-connection' && !ws.connected() && (ws.kind === 'tauri' || ws.connecting())) {
+      return null
+    }
+    return route
+  }, 'app.route.startupReadinessRoute')
+
   readonly renderedRoute = atom<Routes>(
     tryGetAppContext()?.router?.route?.() ?? 'loading',
     'app.route.renderedRoute',
@@ -943,7 +950,7 @@ export class ChromVoidAppModel {
 
   private setupComponentPreload(): void {
     const ensureVisibleRoute = () => {
-      if (this.normalizeUnsupportedSurface()) {
+      if (this.normalizeUnavailableSurface()) {
         return
       }
 
@@ -977,10 +984,9 @@ export class ChromVoidAppModel {
     )
   }
 
-  private normalizeUnsupportedSurface(): boolean {
+  private normalizeUnavailableSurface(): boolean {
     const surface = navigationModel.currentSurface()
-    const access = moduleAccessModel.surfaceAccess(surface)
-    if (!access || access.status !== 'unsupported') {
+    if (moduleAccessModel.isSurfaceOffered(surface)) {
       return false
     }
 

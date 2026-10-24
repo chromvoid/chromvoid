@@ -8,14 +8,15 @@
 //! - RPC command router
 
 pub mod catalog;
+pub mod credential_import;
 pub mod crypto;
-pub(crate) mod durable_file;
 pub(crate) mod durable_tx;
 pub mod env_runtime;
 pub mod error;
-pub mod license;
+pub mod markdown;
 pub mod media_inspector;
 pub mod passkeys;
+pub mod payment_card;
 pub mod rpc;
 pub mod storage;
 mod types;
@@ -74,6 +75,8 @@ mod ts_bindings {
             .expect("Failed to export TonTransactionPreviewV1");
         crate::rpc::types::EthereumTransactionPreviewV1::export_all_to(&out_dir)
             .expect("Failed to export EthereumTransactionPreviewV1");
+        crate::rpc::types::SolanaTransactionPreviewV1::export_all_to(&out_dir)
+            .expect("Failed to export SolanaTransactionPreviewV1");
         crate::wallet::evm::EvmRiskLevel::export_all_to(&out_dir)
             .expect("Failed to export EvmRiskLevel");
         crate::wallet::evm::EvmActionKind::export_all_to(&out_dir)
@@ -186,6 +189,14 @@ mod ts_bindings {
             .expect("Failed to export WalletBackupExportRequest");
         crate::rpc::types::WalletBackupExportResponse::export_all_to(&out_dir)
             .expect("Failed to export WalletBackupExportResponse");
+        crate::rpc::types::WalletTonRotateKeyRequest::export_all_to(&out_dir)
+            .expect("Failed to export WalletTonRotateKeyRequest");
+        crate::rpc::types::WalletTonRotateKeyResponse::export_all_to(&out_dir)
+            .expect("Failed to export WalletTonRotateKeyResponse");
+        crate::rpc::types::WalletAddressDetectRequest::export_all_to(&out_dir)
+            .expect("Failed to export WalletAddressDetectRequest");
+        crate::rpc::types::WalletAddressDetectResponse::export_all_to(&out_dir)
+            .expect("Failed to export WalletAddressDetectResponse");
         crate::rpc::types::CatalogListItem::export_all_to(&out_dir)
             .expect("Failed to export CatalogListItem");
         crate::rpc::types::CatalogListResponse::export_all_to(&out_dir)

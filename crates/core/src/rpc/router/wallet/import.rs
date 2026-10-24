@@ -91,6 +91,7 @@ impl RpcRouter {
                 mnemonic_standard: "imported".to_string(),
                 supported_networks: vec![request.network.clone()],
                 bitcoin_discovery_pending: Some(false),
+                account_discovery_pending: Vec::new(),
                 secret_ref: secret_id,
                 created_at: now,
                 updated_at: now,
@@ -116,7 +117,7 @@ impl RpcRouter {
                     now,
                 })
                 .map_err(WalletCommandError::from)?;
-            let account = materialize_profile_account(&mut uow, materialization)?;
+            let account = materialize_profile_account(&mut uow, materialization, &wallet)?;
 
             let mut index = load_index(session, storage)?;
             if !index.wallet_ids.contains(&wallet_id) {

@@ -1,0 +1,11 @@
+# Gradle and Android build outputs
+.gradle/
+build/
+*/build/
+local.properties
+
+# Native libraries and intermediate bindings are build artifacts. The generated
+# Kotlin under bridge/src/main/kotlin/com/chromvoid/air/ffi is committed so a
+# binding change is reviewable; the .so files never are.
+.build/
+bridge/src/main/jniLibs/

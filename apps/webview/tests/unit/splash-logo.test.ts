@@ -1,20 +1,19 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {markStartupContentReady} from '../../src/app/bootstrap/startup-readiness'
+import {STARTUP_SPLASH_RELEASED_EVENT} from '../../src/app/bootstrap/startup-splash'
 import {startSplashLogo} from '../../src/app/splash/SplashLogo'
+
+const {invoke} = vi.hoisted(() => ({invoke: vi.fn()}))
+
+vi.mock('@tauri-apps/api/core', () => ({invoke}))
 
 const originalWindowMatchMedia = window.matchMedia
 const originalRequestAnimationFrame = window.requestAnimationFrame
 
 function installSplashDom(): HTMLElement {
   document.documentElement.setAttribute('loading', '')
-  document.body.innerHTML = `
-    <div id="loading-native" class="loading-screen" aria-hidden="true">
-      <div class="splash-logo" data-splash-logo-stage>
-        <img class="splash-logo__image" data-splash-logo-image src="./assets/icon.png" alt="" />
-      </div>
-    </div>
-  `
+  document.body.innerHTML = '<div id="loading-native" class="loading-screen" aria-hidden="true"></div>'
   return document.getElementById('loading-native')!
 }
 
@@ -35,16 +34,36 @@ function setReducedMotion(matches: boolean): void {
   })
 }
 
+function controlAnimationFrames(): () => Promise<void> {
+  const callbacks: FrameRequestCallback[] = []
+  Object.defineProperty(window, 'requestAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (callback: FrameRequestCallback) => callbacks.push(callback),
+  })
+
+  return async () => {
+    await Promise.resolve()
+    for (const callback of callbacks.splice(0)) {
+      callback(performance.now())
+    }
+    await Promise.resolve()
+  }
+}
+
 describe('SplashLogo', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
+    invoke.mockReset().mockResolvedValue(undefined)
     installSplashDom()
     setReducedMotion(false)
   })
 
   afterEach(() => {
+    vi.clearAllTimers()
     vi.useRealTimers()
+    vi.unstubAllGlobals()
     document.documentElement.removeAttribute('loading')
     delete document.documentElement.dataset['splashNativeReady']
     delete document.documentElement.dataset['startupSplashActive']
@@ -65,110 +84,170 @@ describe('SplashLogo', () => {
     })
   })
 
-  it('uses web splash mode and releases loading after the minimum duration', async () => {
+  it('uses the blank web splash and releases as soon as content is ready', async () => {
     const root = document.getElementById('loading-native')!
 
-    startSplashLogo({exitDurationMs: 0, minVisibleMs: 1_600, startedAt: 0})
+    startSplashLogo({exitDurationMs: 0})
 
     expect(root.dataset['splashMode']).toBe('web')
     expect(root.dataset['splashMotion']).toBe('active')
     expect(document.documentElement.dataset['startupSplashSurface']).toBe('web')
-    expect(document.querySelector('.splash-logo__canvas')).toBeNull()
+    expect(root.childElementCount).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(37)
     markStartupContentReady()
 
-    await vi.advanceTimersByTimeAsync(1_599)
+    expect(document.documentElement.hasAttribute('loading')).toBe(false)
+    await Promise.resolve()
+    expect(document.documentElement.dataset['startupSplashReleased']).toBe('true')
+  })
+
+  it('releases immediately when startup content was already marked ready', async () => {
+    markStartupContentReady()
+
+    startSplashLogo({exitDurationMs: 0})
+
+    expect(document.documentElement.hasAttribute('loading')).toBe(false)
+    await Promise.resolve()
+    expect(document.documentElement.dataset['startupSplashReleased']).toBe('true')
+  })
+
+  it('keeps the short exit fade after content readiness', async () => {
+    const root = document.getElementById('loading-native')!
+    startSplashLogo()
+
+    markStartupContentReady()
+
+    expect(root.dataset['splashState']).toBe('exiting')
+    await vi.advanceTimersByTimeAsync(249)
     expect(document.documentElement.hasAttribute('loading')).toBe(true)
+    expect(document.documentElement.dataset['startupSplashReleased']).toBeUndefined()
 
     await vi.advanceTimersByTimeAsync(1)
     expect(document.documentElement.hasAttribute('loading')).toBe(false)
     expect(document.documentElement.dataset['startupSplashReleased']).toBe('true')
   })
 
-  it('marks reduced-motion mode without creating dynamic rendering surfaces', async () => {
+  it('uses the shorter exit fade for reduced motion without rendering a logo', async () => {
     const root = document.getElementById('loading-native')!
     setReducedMotion(true)
 
-    startSplashLogo({exitDurationMs: 0, minVisibleMs: 1_600, startedAt: 0})
+    startSplashLogo()
 
     expect(root.dataset['splashMotion']).toBe('reduced')
-    expect(document.querySelector('.splash-logo__canvas')).toBeNull()
+    expect(root.childElementCount).toBe(0)
     markStartupContentReady()
 
-    await vi.advanceTimersByTimeAsync(1_600)
-    expect(document.documentElement.hasAttribute('loading')).toBe(false)
-  })
-
-  it('waits for startup content readiness after the minimum duration', async () => {
-    startSplashLogo({exitDurationMs: 0, minVisibleMs: 1_600, startedAt: 0})
-
-    await vi.advanceTimersByTimeAsync(1_600)
-    expect(document.documentElement.hasAttribute('loading')).toBe(true)
-
-    markStartupContentReady()
-
-    expect(document.documentElement.hasAttribute('loading')).toBe(false)
-  })
-
-  it('uses the content readiness timeout as a safety release', async () => {
-    startSplashLogo({
-      contentReadyTimeoutMs: 2_000,
-      exitDurationMs: 0,
-      minVisibleMs: 1_600,
-      startedAt: 0,
-    })
-
-    await vi.advanceTimersByTimeAsync(1_999)
+    await vi.advanceTimersByTimeAsync(119)
     expect(document.documentElement.hasAttribute('loading')).toBe(true)
 
     await vi.advanceTimersByTimeAsync(1)
     expect(document.documentElement.hasAttribute('loading')).toBe(false)
   })
 
-  it('supports an explicit release without waiting for the minimum duration', () => {
-    const controller = startSplashLogo({exitDurationMs: 0, minVisibleMs: 1_600, startedAt: 0})
+  it('keeps loading while startup content is not ready', async () => {
+    startSplashLogo({exitDurationMs: 0})
 
-    controller.release()
+    await vi.advanceTimersByTimeAsync(4_500)
+    expect(document.documentElement.hasAttribute('loading')).toBe(true)
+
+    markStartupContentReady()
 
     expect(document.documentElement.hasAttribute('loading')).toBe(false)
   })
 
-  it('marks first paint readiness before releasing the native splash bridge', async () => {
+  it('uses the default content readiness timeout as a safety release', async () => {
+    startSplashLogo({exitDurationMs: 0})
+
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(document.documentElement.hasAttribute('loading')).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(document.documentElement.hasAttribute('loading')).toBe(false)
+  })
+
+  it('counts the readiness timeout from the splash start, not from a slow page load', async () => {
+    await vi.advanceTimersByTimeAsync(12_000)
+    startSplashLogo({exitDurationMs: 0})
+
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(document.documentElement.hasAttribute('loading')).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(document.documentElement.hasAttribute('loading')).toBe(false)
+  })
+
+  it('waits for readiness after a slow page load instead of releasing at once', async () => {
+    await vi.advanceTimersByTimeAsync(12_000)
+    startSplashLogo({exitDurationMs: 0})
+
+    await vi.advanceTimersByTimeAsync(1_500)
+    expect(document.documentElement.hasAttribute('loading')).toBe(true)
+
+    markStartupContentReady()
+    expect(document.documentElement.hasAttribute('loading')).toBe(false)
+  })
+
+  it('supports an explicit release before content readiness and signals it only once', async () => {
+    const released = vi.fn()
+    document.addEventListener(STARTUP_SPLASH_RELEASED_EVENT, released)
+    const controller = startSplashLogo({exitDurationMs: 0})
+
+    controller.release()
+    controller.release()
+    markStartupContentReady()
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(document.documentElement.hasAttribute('loading')).toBe(false)
+    expect(released).toHaveBeenCalledTimes(1)
+    document.removeEventListener(STARTUP_SPLASH_RELEASED_EVENT, released)
+  })
+
+  it('stops listening for readiness and cancels the timeout when destroyed', async () => {
+    const root = document.getElementById('loading-native')!
+    const controller = startSplashLogo({exitDurationMs: 0})
+
+    controller.destroy()
+    controller.destroy()
+    controller.release()
+    markStartupContentReady()
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(document.documentElement.hasAttribute('loading')).toBe(true)
+    expect(root.dataset['splashState']).toBe('visible')
+    expect(document.documentElement.dataset['startupSplashReleased']).toBeUndefined()
+  })
+
+  it('marks first paint readiness before the six-frame native splash handoff', async () => {
+    const paintFrame = controlAnimationFrames()
     const domReady = vi.fn()
     const events: Event[] = []
-
-    Object.defineProperty(window, 'requestAnimationFrame', {
-      configurable: true,
-      writable: true,
-      value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0),
-    })
     window.ChromVoidSplash = {domReady}
     document.addEventListener('chromvoid:splash-dom-ready', (event) => events.push(event), {once: true})
     const root = document.getElementById('loading-native')!
 
-    startSplashLogo({exitDurationMs: 0, minVisibleMs: 1_600, startedAt: 0})
+    startSplashLogo()
 
     expect(root.dataset['splashMode']).toBe('native')
     expect(document.documentElement.dataset['startupSplashSurface']).toBe('native-bridge')
 
-    await vi.advanceTimersByTimeAsync(701)
-    await vi.advanceTimersByTimeAsync(0)
-    await vi.advanceTimersByTimeAsync(0)
-    await Promise.resolve()
+    await paintFrame()
+    expect(events).toHaveLength(0)
+    await paintFrame()
 
     expect(domReady).not.toHaveBeenCalled()
     expect(events).toHaveLength(1)
     expect(document.documentElement.dataset['splashNativeReady']).toBe('true')
     markStartupContentReady()
 
-    await vi.advanceTimersByTimeAsync(899)
-
     expect(document.documentElement.hasAttribute('loading')).toBe(false)
+    expect(document.documentElement.dataset['startupSplashReleased']).toBeUndefined()
+    for (let i = 0; i < 5; i += 1) {
+      await paintFrame()
+    }
     expect(domReady).not.toHaveBeenCalled()
 
-    for (let i = 0; i < 6; i += 1) {
-      await Promise.resolve()
-      await vi.advanceTimersByTimeAsync(16)
-    }
+    await paintFrame()
     await Promise.resolve()
 
     expect(domReady).toHaveBeenCalledTimes(1)
@@ -176,36 +255,55 @@ describe('SplashLogo', () => {
   })
 
   it('still releases the native splash bridge if the DOM splash already exited', async () => {
+    const paintFrame = controlAnimationFrames()
     const domReady = vi.fn()
-
-    Object.defineProperty(window, 'requestAnimationFrame', {
-      configurable: true,
-      writable: true,
-      value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0),
-    })
     window.ChromVoidSplash = {domReady}
 
-    const controller = startSplashLogo({exitDurationMs: 0, minVisibleMs: 1_600, startedAt: 0})
+    const controller = startSplashLogo()
 
+    controller.release()
     controller.release()
     expect(document.documentElement.hasAttribute('loading')).toBe(false)
 
-    await vi.advanceTimersByTimeAsync(2_000)
     for (let i = 0; i < 8; i += 1) {
-      await Promise.resolve()
-      await vi.advanceTimersByTimeAsync(16)
+      await paintFrame()
     }
     await Promise.resolve()
 
     expect(domReady).toHaveBeenCalledTimes(1)
   })
 
+  it('notifies Tauri before marking the startup splash released', async () => {
+    let finishNativeReady: (() => void) | undefined
+    invoke.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishNativeReady = resolve
+        }),
+    )
+    vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
+    startSplashLogo({exitDurationMs: 0})
+
+    markStartupContentReady()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('frontend_splash_ready')
+    expect(document.documentElement.hasAttribute('loading')).toBe(false)
+    expect(document.documentElement.dataset['startupSplashReleased']).toBeUndefined()
+
+    finishNativeReady!()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(document.documentElement.dataset['startupSplashReleased']).toBe('true')
+  })
+
   it('does nothing when loading was already released', () => {
     document.documentElement.removeAttribute('loading')
 
-    const controller = startSplashLogo({exitDurationMs: 0, minVisibleMs: 1_600, startedAt: 0})
+    const controller = startSplashLogo({exitDurationMs: 0})
     controller.release()
 
     expect(document.documentElement.hasAttribute('loading')).toBe(false)
+    expect(document.documentElement.dataset['startupSplashActive']).toBeUndefined()
   })
 })

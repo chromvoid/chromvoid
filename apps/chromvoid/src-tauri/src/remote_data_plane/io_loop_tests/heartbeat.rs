@@ -122,3 +122,111 @@ async fn remote_io_task_suppresses_periodic_heartbeat_for_usb_mobile() {
         "USB Mobile desktop side must not send idle heartbeats over AOA"
     );
 }
+
+#[tokio::test]
+async fn silent_network_peer_times_out_even_when_relay_accepts_heartbeats() {
+    let (client_noise, host_noise) = noise_pair();
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let transport = ScriptedTransport::with_sent_frames(host_noise, Script::Idle, sent.clone());
+    let (req_tx, mut req_rx) = mpsc::channel(1);
+    let (evt_tx, _evt_rx) = mpsc::channel(1);
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        io_loop_with_timing(
+            RemoteIoTaskConfig::new(Box::new(transport), client_noise),
+            &mut req_rx,
+            &evt_tx,
+            RemoteIoTaskTiming {
+                heartbeat_interval: Duration::from_millis(20),
+                response_timeout: Duration::from_millis(100),
+                timeout_scan_interval: Duration::from_millis(5),
+            },
+        ),
+    )
+    .await
+    .expect("silent peer must be disconnected");
+    assert!(matches!(result, Err(RemoteIoFailure::TransportTimeout)));
+    assert!(sent
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|frame| frame.frame_type == FrameType::Heartbeat));
+    drop(req_tx);
+}
+
+#[tokio::test]
+async fn inbound_rpc_responses_keep_network_peer_alive_without_heartbeat_replies() {
+    let (client_noise, host_noise) = noise_pair();
+    let transport = ScriptedTransport::new(host_noise, Script::EchoJson);
+    let mut io = crate::remote_data_plane::spawn_remote_io_task_with_timing(
+        RemoteIoTaskConfig::new(Box::new(transport), client_noise),
+        RemoteIoTaskTiming {
+            heartbeat_interval: Duration::from_millis(20),
+            response_timeout: Duration::from_millis(200),
+            timeout_scan_interval: Duration::from_millis(5),
+        },
+    );
+    for _ in 0..4 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        io.req_tx
+            .send(RemoteIoRequest {
+                request: RpcRequest::new("vault:status", serde_json::json!({})),
+                stream: None,
+                reply_tx,
+                priority: RemoteRpcPriority::Normal,
+                cancel_group: None,
+            })
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(1), reply_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(reply, RpcReply::Json(RpcResponse::Success { .. })));
+        assert!(!io.task_handle.is_finished());
+    }
+    let event = tokio::time::timeout(Duration::from_secs(2), io.evt_rx.recv())
+        .await
+        .unwrap();
+    assert!(matches!(
+        event,
+        Some(RemoteIoEvent::Disconnected {
+            failure: RemoteIoFailure::TransportTimeout,
+            ..
+        })
+    ));
+    io.task_handle.await.unwrap();
+}
+
+#[tokio::test]
+async fn idle_usb_peer_is_not_subject_to_network_liveness_deadline() {
+    let (client_noise, host_noise) = noise_pair();
+    let transport = ScriptedTransport::with_transport_type(
+        host_noise,
+        Script::Idle,
+        Arc::new(Mutex::new(Vec::new())),
+        TransportType::UsbMobile,
+    );
+    let (req_tx, mut req_rx) = mpsc::channel(1);
+    let (evt_tx, _evt_rx) = mpsc::channel(1);
+    let result = tokio::time::timeout(
+        Duration::from_millis(200),
+        io_loop_with_timing(
+            RemoteIoTaskConfig::new(Box::new(transport), client_noise),
+            &mut req_rx,
+            &evt_tx,
+            RemoteIoTaskTiming {
+                heartbeat_interval: Duration::from_millis(10),
+                response_timeout: Duration::from_millis(20),
+                timeout_scan_interval: Duration::from_millis(5),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "USB keeps its existing event-driven disconnect policy"
+    );
+    drop(req_tx);
+}

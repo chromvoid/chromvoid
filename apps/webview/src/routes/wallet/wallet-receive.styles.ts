@@ -7,6 +7,44 @@ export const walletReceiveStyles = css`
     min-inline-size: 0;
   }
 
+  .receive-network-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--app-spacing-2);
+  }
+
+  .receive-network-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--app-spacing-2);
+    min-block-size: 36px;
+    padding: var(--app-spacing-1) var(--app-spacing-3) var(--app-spacing-1) var(--app-spacing-1);
+    border: 1px solid var(--app-editorial-border-subtle, var(--cv-color-border-soft));
+    border-radius: 999px;
+    color: var(--app-editorial-text-secondary, var(--cv-color-text));
+    font-size: var(--cv-font-size-sm);
+    background: var(--app-editorial-surface-muted, var(--cv-color-surface-secondary));
+    cursor: pointer;
+  }
+
+  .receive-network-chip[aria-pressed='true'] {
+    border-color: var(--cv-color-accent);
+    color: var(--app-editorial-text-primary, var(--cv-color-text));
+    background: var(--cv-color-accent-surface, var(--cv-color-surface-2));
+  }
+
+  .receive-network-chip .network-mark {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 26px;
+    block-size: 26px;
+    border-radius: 50%;
+    color: var(--cv-color-accent-contrast, var(--cv-color-bg));
+    font-size: var(--cv-font-size-xs);
+    font-weight: var(--cv-font-weight-semibold);
+    background: var(--cv-color-accent);
+  }
+
   .receive-context-list {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));

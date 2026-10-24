@@ -1,10 +1,23 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export const walletEnabledEnv = 'CHROMVOID_WALLET_ENABLED'
+export const tonApiUrlEnv = 'CHROMVOID_TON_API_URL'
 export const bitcoinEsploraUrlEnv = 'CHROMVOID_BTC_ESPLORA_URL'
+export const ethereumBuildEnv = 'CHROMVOID_BUILD_WALLET_ETHEREUM'
+export const ethereumRpcUrlEnv = 'CHROMVOID_ETH_RPC_URL'
+export const ethereumIndexerUrlEnv = 'CHROMVOID_ETH_INDEXER_URL'
+export const solanaBuildEnv = 'CHROMVOID_BUILD_WALLET_SOLANA'
+export const solanaRpcUrlEnv = 'CHROMVOID_SOL_RPC_URL'
 
-const walletEnvNames = [walletEnabledEnv, bitcoinEsploraUrlEnv]
+const walletEnvNames = [
+  tonApiUrlEnv,
+  bitcoinEsploraUrlEnv,
+  ethereumBuildEnv,
+  ethereumRpcUrlEnv,
+  ethereumIndexerUrlEnv,
+  solanaBuildEnv,
+  solanaRpcUrlEnv,
+]
 
 export function loadWalletEnvFromRoot(repoRoot) {
   const envFile = path.join(repoRoot, '.env')

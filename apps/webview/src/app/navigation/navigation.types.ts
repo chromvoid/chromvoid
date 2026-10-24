@@ -34,7 +34,6 @@ export type SettingsRoute =
   | {kind: 'autofill'}
   | {kind: 'files'}
   | {kind: 'passwords'}
-  | {kind: 'license'}
   | {kind: 'vault-rekey'}
   | {kind: 'password-import'}
 

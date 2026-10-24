@@ -8,12 +8,12 @@ mod provider;
 #[cfg(test)]
 mod tests;
 mod transfer;
+mod wallet_tg;
 
-pub(crate) use keys::ton_native_v5r1_account_identity;
 pub use profile::TonChainProfile;
 pub use provider::{
     TonBroadcastRequest, TonBroadcastResult, TonFeeEstimateRequest, TonHistoryRequest,
     TonHistoryTransaction, TonProvider, TonProviderAccount, TonProviderAccountState,
-    TonProviderError, TonProviderErrorKind, TonProviderSnapshot, TonRefreshRequest,
-    TonRefreshResult, UnavailableTonProvider,
+    TonProviderError, TonProviderErrorKind, TonProviderPublicKey, TonProviderSnapshot,
+    TonRefreshRequest, TonRefreshResult, UnavailableTonProvider,
 };

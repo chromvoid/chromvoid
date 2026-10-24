@@ -13,6 +13,7 @@ test('S8: delete folder', async () => {
   await openFilesRoot(page)
   const folderName = createUniqueName('test-sync-folder')
 
+  // Keep direct catalog API coverage; yield a frame after updates so Chromium cannot collect evaluate's result.
   const created = await page.evaluate(async (name) => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
     const {getAppContext} = (await dynamicImport(
@@ -22,11 +23,14 @@ test('S8: delete folder', async () => {
     if (!ctx?.catalog?.api?.createDir) {
       throw new Error('catalog.api.createDir is unavailable')
     }
-    return ctx.catalog.api.createDir(name)
+    const created = await ctx.catalog.api.createDir(name)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    return created
   }, folderName)
   expect(created.nodeId).toEqual(expect.any(Number))
   await waitForCatalogItem(page, folderName, {path: '/'})
 
+  // Apply the same frame boundary after the direct delete API call.
   await page.evaluate(async (nodeId) => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
     const {getAppContext} = (await dynamicImport(
@@ -37,6 +41,7 @@ test('S8: delete folder', async () => {
       throw new Error('catalog.api.delete is unavailable')
     }
     await ctx.catalog.api.delete(nodeId)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, created.nodeId)
   await waitForCatalogItem(page, folderName, {exists: false, path: '/'})
 })

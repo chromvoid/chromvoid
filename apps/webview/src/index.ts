@@ -47,7 +47,6 @@ import {validateCssTokens} from './utils/validate-css-tokens'
 // Initialization of dialogue service
 import './shared/services/dialog'
 
-const SPLASH_MIN_VISIBLE_MS = 1_600
 const SPLASH_IMPORT_WATCHDOG_MS = 2_800
 
 markStartupTimeline('web.index.module-start', {
@@ -230,7 +229,7 @@ function startStartupSplash() {
     .then(({startSplashLogo}) => {
       window.clearTimeout(watchdogId)
       markStartupTimeline('web.splash.import-ready')
-      startSplashLogo({minVisibleMs: SPLASH_MIN_VISIBLE_MS, startedAt: 0})
+      startSplashLogo()
     })
     .catch((error) => {
       window.clearTimeout(watchdogId)
@@ -241,13 +240,9 @@ function startStartupSplash() {
 }
 
 function releaseSplashLoadingFallback() {
-  const delay = Math.max(0, SPLASH_MIN_VISIBLE_MS - performance.now())
-  markStartupTimeline('web.splash.fallback-release-scheduled', {delayMs: Math.round(delay)})
-  window.setTimeout(() => {
-    markStartupTimeline('web.splash.fallback-release-run')
-    notifyNativeStartupSplashReady()
-    document.documentElement.removeAttribute('loading')
-  }, delay)
+  markStartupTimeline('web.splash.fallback-release-run')
+  notifyNativeStartupSplashReady()
+  document.documentElement.removeAttribute('loading')
 }
 
 function notifyNativeStartupSplashReady() {

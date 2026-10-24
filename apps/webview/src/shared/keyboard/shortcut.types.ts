@@ -2,7 +2,6 @@ export type KeyboardShortcutPlatform =
   | 'macos'
   | 'windows'
   | 'linux'
-  | 'android'
   | 'ios'
   | 'web'
   | 'unknown'

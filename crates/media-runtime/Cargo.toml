@@ -1,0 +1,25 @@
+[package]
+name = "chromvoid-media-runtime"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+description = "Shared bounded image derivatives and embedded audio artwork"
+
+[dependencies]
+serde_json.workspace = true
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "tiff", "webp"] }
+lofty = "0.24.0"
+tracing = "0.1"
+
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+libheif-rs = { version = "2.7", default-features = false, features = ["v1_17"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "ios"))'.dependencies]
+webp = { version = "0.3", default-features = false }
+
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+objc2-foundation = { version = "0.3.2", features = ["NSData", "NSDictionary", "NSObject", "NSString"] }
+
+[dev-dependencies]
+tempfile.workspace = true

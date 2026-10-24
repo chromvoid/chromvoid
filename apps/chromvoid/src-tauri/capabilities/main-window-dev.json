@@ -3,5 +3,5 @@
   "description": "Main ChromVoid window IPC permissions for packaged development builds.",
   "platforms": ["macOS", "windows", "linux"],
   "windows": ["main"],
-  "permissions": ["core:default", "desktop", "dialog:default", "clipboard-manager:allow-write-text"]
+  "permissions": ["core:default", "desktop", "dialog:default", "clipboard-manager:allow-write-secret"]
 }

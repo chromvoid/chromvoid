@@ -55,6 +55,7 @@ export interface DesktopUsbPresentation {
   recoveryAction: MobileUsbRecoveryAction | null
   recoveryCommand: DesktopUsbAction | null
   recoveryCta: DesktopUsbRecoveryCta | null
+  secondaryRecoveryCta: DesktopUsbRecoveryCta | null
 }
 
 export interface DesktopUsbTechnicalRow {
@@ -100,6 +101,7 @@ export interface DesktopUsbPresentationInput {
   canConfirmPairing: boolean
   recoveryAction: MobileUsbRecoveryAction | null
   lastFailedAction: DesktopUsbAction | null
+  silentPhoneHostId: string | null
   activeHost: MobileUsbHostView | null
   repairScanPending: boolean
   scannedHosts: DesktopUsbScannedRow[]
@@ -172,6 +174,8 @@ function resolveRecoveryCommand(input: DesktopUsbPresentationInput): DesktopUsbA
       return resolveUniquePairAction(input)
     case 'connect_existing':
       return resolveUniqueConnectAction(input)
+    case 'retry_or_repair':
+      return input.silentPhoneHostId ? {kind: 'connect', hostId: input.silentPhoneHostId} : {kind: 'scan'}
     case 'remove_and_repair':
       return resolveUniqueRemoveAction(input)
     case 'disconnect_before_retry':
@@ -203,6 +207,8 @@ function formatRecoveryCta(action: MobileUsbRecoveryAction): string {
       return i18n('remote:preauth-usb-pair')
     case 'connect_existing':
       return i18n('remote:preauth-usb-connect')
+    case 'retry_or_repair':
+      return i18n('remote:preauth-usb-retry')
     case 'remove_and_repair':
       return i18n('remote:preauth-remove-confirm')
     case 'disconnect_before_retry':
@@ -369,6 +375,13 @@ export function deriveDesktopUsbPresentation(input: DesktopUsbPresentationInput)
   const detailRows = deriveTechnicalRows(effectiveInput)
   const recoveryCommand = resolveRecoveryCommand(effectiveInput)
   const recoveryCta = resolveRecoveryCta(effectiveInput, recoveryCommand)
+  const secondaryRecoveryCta: DesktopUsbRecoveryCta | null =
+    effectiveInput.recoveryAction === 'retry_or_repair' && recoveryCommand?.kind === 'connect'
+      ? {
+          action: {kind: 'remove', hostId: recoveryCommand.hostId},
+          label: i18n('remote:preauth-remove-confirm'),
+        }
+      : null
   const defaultAction = resolvePrimaryAction(effectiveInput)
   const primaryAction =
     defaultAction?.kind === 'pair_confirm' ? defaultAction : (recoveryCta?.action ?? defaultAction)
@@ -383,9 +396,12 @@ export function deriveDesktopUsbPresentation(input: DesktopUsbPresentationInput)
       !effectiveInput.actionBusy &&
       (primaryAction.kind !== 'pair_confirm' || effectiveInput.canConfirmPairing),
     showPrimaryAction:
-      primaryAction !== null && !isPrimaryActionRepresentedByRows(primaryAction, scannedRows, pairedRows),
+      primaryAction !== null &&
+      (effectiveInput.recoveryAction === 'retry_or_repair' ||
+        !isPrimaryActionRepresentedByRows(primaryAction, scannedRows, pairedRows)),
     recoveryAction: effectiveInput.recoveryAction,
     recoveryCommand,
     recoveryCta,
+    secondaryRecoveryCta,
   }
 }

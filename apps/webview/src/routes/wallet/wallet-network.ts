@@ -62,6 +62,14 @@ const NETWORK_PROFILES: Record<WalletKnownNetwork, WalletNetworkUiProfile> = {
   },
 }
 
+/** Display order of the networks inside one universal wallet. */
+export const WALLET_NETWORK_ORDER: readonly WalletKnownNetwork[] = ['ton', 'bitcoin', 'ethereum', 'solana']
+
+export function walletNetworkRank(network: string): number {
+  const index = WALLET_NETWORK_ORDER.indexOf(network as WalletKnownNetwork)
+  return index < 0 ? WALLET_NETWORK_ORDER.length : index
+}
+
 export function isKnownWalletNetwork(network: string): network is WalletKnownNetwork {
   return Object.hasOwn(NETWORK_PROFILES, network)
 }

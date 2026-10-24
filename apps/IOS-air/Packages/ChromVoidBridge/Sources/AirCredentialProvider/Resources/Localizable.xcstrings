@@ -1,0 +1,227 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "AutoFill needs an active app session. ChromVoid Air is unavailable while the app is locked, in the background, or closed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AutoFill is connected. To fill passwords, open ChromVoid Air and unlock your vault: the extension only takes data from the open app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автозаполнение подключено. Чтобы подставлять пароли, откройте ChromVoid Air и разблокируйте хранилище: расширение берёт данные только из открытого приложения."
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отмена"
+          }
+        }
+      }
+    },
+    "ChromVoid Air": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChromVoid Air"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChromVoid Air"
+          }
+        }
+      }
+    },
+    "Confirm your identity to use this passkey.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm your identity to use this passkey."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подтвердите свою личность, чтобы использовать этот ключ доступа."
+          }
+        }
+      }
+    },
+    "Create passkey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create passkey"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать ключ доступа"
+          }
+        }
+      }
+    },
+    "Credential providers are disabled in ChromVoid Air.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Credential providers are disabled in ChromVoid Air."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поставщики учётных данных отключены в ChromVoid Air."
+          }
+        }
+      }
+    },
+    "Done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        }
+      }
+    },
+    "Identity verification was not completed. Close AutoFill and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identity verification was not completed. Close AutoFill and try again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подтверждение личности не завершено. Закройте автозаполнение и повторите попытку."
+          }
+        }
+      }
+    },
+    "No matching credentials": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching credentials"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего не найдено"
+          }
+        }
+      }
+    },
+    "The passkey may have been created. Check Passkeys in ChromVoid Air before trying again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The passkey may have been created. Check Passkeys in ChromVoid Air before trying again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возможно, ключ доступа уже создан. Проверьте раздел «Ключи доступа» в ChromVoid Air, прежде чем повторять попытку."
+          }
+        }
+      }
+    },
+    "This credential cannot be used for the requested service.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This credential cannot be used for the requested service."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эти учётные данные нельзя использовать для запрошенного сервиса."
+          }
+        }
+      }
+    },
+    "This credential type is unavailable on this device.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This credential type is unavailable on this device."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот тип учётных данных недоступен на этом устройстве."
+          }
+        }
+      }
+    },
+    "Your vault is locked. Open ChromVoid Air to unlock it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your vault is locked. Open ChromVoid Air to unlock it."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище заблокировано. Откройте ChromVoid Air, чтобы разблокировать его."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

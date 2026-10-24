@@ -257,7 +257,6 @@ function renderDiagnosticsSection(metadata: ImagePhotoMetadata | null) {
     renderOptionalRawDetailRow('GPS status', diagnostic?.status),
     renderOptionalRawDetailRow('Rust EXIF', diagnostic?.rustExifStatus),
     renderOptionalRawDetailRow('XMP', diagnostic?.xmpStatus),
-    renderOptionalRawDetailRow('Android extractor', diagnostic?.androidStatus),
     renderOptionalRawDetailRow('Import provenance', diagnostic?.importProvenanceStatus),
     renderOptionalRawDetailRow('Platform', provenance?.platform),
     renderOptionalRawDetailRow('Permission', provenance?.permissionStatus),

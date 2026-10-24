@@ -3,7 +3,7 @@ import {open} from '@tauri-apps/plugin-dialog'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {guidanceModel} from 'root/core/guidance'
-import {moduleAccessModel} from 'root/core/pro/module-access.model'
+import {moduleAccessModel} from 'root/core/modules/module-access.model'
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {getRuntimeCapabilities} from 'root/core/runtime/runtime-capabilities'
 import {tauriInvoke, tauriListen, type UnlistenFn} from 'root/core/transport/tauri/ipc'
@@ -215,7 +215,7 @@ export class RemoteStorageModel {
 
   private requestVolumeMountWarning(): boolean {
     if (!getRuntimeCapabilities().supports_volume) return false
-    if (moduleAccessModel.featureAccess('mounted-vault').status !== 'enabled') return false
+    if (!moduleAccessModel.isFeatureEnabled('mounted-vault')) return false
     if (guidanceModel.hasProgressForDefinition(VOLUME_MOUNT_WARNING_ID)) return false
     if (guidanceModel.completedDomainEvents().has('volume_mount.started')) return false
 

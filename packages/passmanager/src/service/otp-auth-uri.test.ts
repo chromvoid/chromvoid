@@ -1,6 +1,7 @@
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
 
 import {parseOtpAuthUri} from './otp-auth-uri'
+import sharedCases from './otp-auth-uri-cases.json'
 
 describe('parseOtpAuthUri', () => {
   it('parses a standard TOTP URI', () => {
@@ -22,6 +23,30 @@ describe('parseOtpAuthUri', () => {
         type: 'TOTP',
       },
     })
+  })
+
+  it('parses a TOTP URI when Android WebView treats the custom scheme as path-only', () => {
+    const NativeURL = URL
+    class AndroidWebViewURL extends NativeURL {
+      override get hostname(): string {
+        return this.protocol === 'otpauth:' ? '' : super.hostname
+      }
+    }
+
+    vi.stubGlobal('URL', AndroidWebViewURL)
+    try {
+      expect(
+        parseOtpAuthUri(
+          'otpauth://totp/ChromVoid%20Emulator:qr-test%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=ChromVoid%20Emulator',
+        ),
+      ).toMatchObject({
+        ok: true,
+        metadata: {issuer: 'ChromVoid Emulator', account: 'qr-test@example.com'},
+        otp: {type: 'TOTP', secret: 'JBSWY3DPEHPK3PXP'},
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('parses an HOTP URI with counter', () => {
@@ -124,5 +149,22 @@ describe('parseOtpAuthUri', () => {
       metadata: {issuer: 'Acme', account: 'alice@example.com'},
       otp: {label: 'alice@example.com'},
     })
+  })
+})
+
+describe('shared native setup-link compatibility', () => {
+  it.each(sharedCases)('preserves $label settings and review metadata', (item) => {
+    const result = parseOtpAuthUri(item.uri)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.code)
+    expect(result.metadata).toEqual({issuer: item.issuer, account: item.account})
+    expect(result.otp).toMatchObject({
+      label: item.label,
+      type: item.type,
+      algorithm: item.algorithm,
+      digits: item.digits,
+      period: item.period,
+    })
+    expect(result.otp.counter === undefined ? null : String(result.otp.counter)).toBe(item.counter)
   })
 })

@@ -1,0 +1,14 @@
+{
+  "name": "@project/reatom-vue",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@reatom/core": "1001.1.0",
+    "vue": "3.5.42"
+  }
+}

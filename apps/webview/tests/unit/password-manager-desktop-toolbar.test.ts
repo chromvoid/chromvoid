@@ -2,7 +2,7 @@ import {atom} from '@reatom/core'
 import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel} from '../../src/core/modules/module-access.model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {PasswordManagerDesktopLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-layout'
 import {PasswordManagerDesktopToolbar} from '../../src/features/passmanager/components/password-manager-layout/password-manager-desktop-toolbar'
@@ -146,7 +146,6 @@ function clickToolbarItem(item: HTMLElement | null): void {
 
 describe('PasswordManagerDesktopLayout toolbar', () => {
   afterEach(async () => {
-    window.__CHROMVOID_SSH_KEYS_ENABLED__ = true
     pmComponentLoaderModel.extendedReady.set(true)
     await Promise.resolve()
     document
@@ -282,15 +281,6 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
     expect(getToolbarItem(toolbar, 'pm-move')).toBeNull()
   })
 
-  it('omits the SSH keys action when the build flag is disabled', async () => {
-    window.__CHROMVOID_SSH_KEYS_ENABLED__ = false
-
-    const toolbar = await renderToolbar(createPassmanager(new ManagerRoot({} as any)))
-
-    expect(passwordManagerDesktopLayoutModel.getDesktopToolbarContext().showSshKeysView).toBe(false)
-    expect(getToolbarMenuItem(toolbar, 'pm-ssh-view')).toBeNull()
-  })
-
   it('keeps selection actions inactive while the import dialog is open', async () => {
     const toolbar = await renderToolbar(createPassmanager('importDialog'))
     const importAnchor = getToolbar(toolbar)?.querySelector(
@@ -349,9 +339,12 @@ describe('PasswordManagerDesktopLayout toolbar', () => {
 
   it('renders the macOS Env Runtime title without an action in the vault menu', async () => {
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'env-runtime', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'env-runtime', status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
+      ],
+    })
 
     const toolbar = await renderToolbar(createPassmanager('envRuntimeView'))
     await flush(toolbar)

@@ -4,7 +4,7 @@ import {GuidanceModel} from '../../src/core/guidance/guidance.model'
 import {guidanceDefinitions} from '../../src/core/guidance/guidance.registry'
 import type {GuidanceDefinition, GuidanceProgress} from '../../src/core/guidance/guidance.types'
 import type {GuidanceProgressStore} from '../../src/core/guidance/guidance.progress-store'
-import type {ModuleAccessStatus} from '../../src/core/pro/module-access.model'
+import type {ModuleAccessStatus} from '../../src/core/modules/module-access.model'
 import type {RuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 
 const BASE_CAPABILITIES: RuntimeCapabilities = {
@@ -17,7 +17,6 @@ const BASE_CAPABILITIES: RuntimeCapabilities = {
   supports_volume: false,
   supports_gateway: false,
   supports_network_remote: true,
-  supports_external_pro: true,
   supports_biometric: false,
   supports_autofill: false,
   supports_media_stream_protocol: false,
@@ -33,13 +32,7 @@ const BASE_CAPABILITIES: RuntimeCapabilities = {
   supports_mobile_backup_restore: false,
   supports_photo_library_save: false,
   supports_credential_provider_passkeys_lite: false,
-  supports_android_native_video: false,
-  android_native_audio_playback_rollout_enabled: false,
-  supports_android_native_upload: false,
-  supports_android_share_import: false,
-  supports_android_native_otp_qr_scan: false,
   supports_storage_root_selection: false,
-  supports_android_saf_backup_restore: false,
 }
 
 function createStore(initial: GuidanceProgress[] = []): GuidanceProgressStore & {saved: GuidanceProgress[][]} {
@@ -79,7 +72,7 @@ function createModel(options: {
   definitions?: GuidanceDefinition[]
   capabilities?: Partial<RuntimeCapabilities>
   layoutMode?: 'desktop' | 'mobile'
-  accessStatus?: ModuleAccessStatus
+  accessStatus?: ModuleAccessStatus | null
   store?: GuidanceProgressStore
   now?: () => number
 } = {}) {
@@ -90,7 +83,7 @@ function createModel(options: {
     readDashboardSurface: () => 'files',
     readLayoutMode: () => options.layoutMode ?? 'desktop',
     readRuntimeCapabilities: () => ({...BASE_CAPABILITIES, ...options.capabilities}),
-    readModuleAccessStatus: () => options.accessStatus ?? 'enabled',
+    readModuleAccessStatus: () => (options.accessStatus === undefined ? 'enabled' : options.accessStatus),
   })
 }
 
@@ -152,6 +145,21 @@ describe('GuidanceModel', () => {
     })
     enabled.setRoute('dashboard')
     expect(enabled.activeGuidance().kind).toBe('waiting_for_anchor')
+  })
+
+  it('keeps module-gated guidance hidden while module access is unknown', () => {
+    const model = createModel({
+      definitions: [
+        definition({
+          id: 'remote.network',
+          moduleAccessGate: {feature: 'remote', statuses: ['enabled']},
+        }),
+      ],
+      accessStatus: null,
+    })
+    model.setRoute('dashboard')
+
+    expect(model.activeGuidance().kind).toBe('hidden')
   })
 
   it('returns waiting_for_anchor until a connected real element is registered', () => {
@@ -343,38 +351,15 @@ describe('GuidanceModel', () => {
           id: 'remote.blocked',
           trigger: 'blocked_action',
           surface: 'files',
-          moduleAccessGate: {feature: 'remote', statuses: ['locked_pro']},
+          moduleAccessGate: {feature: 'remote', statuses: ['disabled_by_rollout']},
           completion: {kind: 'manual_ack'},
         }),
       ],
-      accessStatus: 'locked_pro',
+      accessStatus: 'disabled_by_rollout',
     })
     model.setRoute('dashboard')
-    model.openBlockedAction({surface: 'files', feature: 'remote', reason: 'locked_pro'})
+    model.openBlockedAction({surface: 'files', feature: 'remote', reason: 'disabled_by_rollout'})
 
     expect(model.activeGuidance()).toMatchObject({definition: {id: 'remote.blocked'}})
-  })
-
-  it('resolves blocked-action body copy from the requested denial reason', () => {
-    const blocked = definition({
-      id: 'remote.blocked',
-      trigger: 'blocked_action',
-      surface: 'files',
-      bodyKey: 'guidance:pro.remote.blocked:body',
-      bodyKeyByModuleAccessStatus: {
-        locked_pro: 'guidance:pro.blocked.locked-pro:body',
-        entitlement_unavailable: 'guidance:pro.blocked.entitlement-unavailable:body',
-      },
-      moduleAccessGate: {feature: 'remote', statuses: ['locked_pro', 'entitlement_unavailable']},
-      completion: {kind: 'manual_ack'},
-    })
-    const model = createModel({definitions: [blocked], accessStatus: 'locked_pro'})
-    model.setRoute('dashboard')
-
-    model.openBlockedAction({surface: 'files', feature: 'remote', reason: 'locked_pro'})
-    expect(model.resolveBodyKey(blocked)).toBe('guidance:pro.blocked.locked-pro:body')
-
-    model.openBlockedAction({surface: 'files', feature: 'remote', reason: 'entitlement_unavailable'})
-    expect(model.resolveBodyKey(blocked)).toBe('guidance:pro.blocked.entitlement-unavailable:body')
   })
 })

@@ -160,10 +160,7 @@ export class FileDownloadFlow {
 
     try {
       await wrap(saveImageToGallery(item.id, item.name, item.mimeType))
-      const message =
-        caps.platform === 'android'
-          ? i18n('file-manager:saved-to-gallery-android', {name: item.name})
-          : i18n('file-manager:saved-to-gallery', {name: item.name})
+      const message = i18n('file-manager:saved-to-gallery', {name: item.name})
       this.notify('success', message)
       savingToast.update({
         key: toastKey,

@@ -5,41 +5,46 @@ use serde_json::json;
 use zeroize::Zeroizing;
 
 use crate::rpc::types::{
-    DerivedAccountMetaV1, ImportedAccountMetaV1, TonTransactionPreviewV1, WalletAccountMeta,
-    WalletBalance, WalletConfirmStatus, WalletPreview, WalletProviderStatus,
-    WalletTransactionOutput,
+    ImportedAccountMetaV1, TonTransactionPreviewV1, WalletAccountMeta, WalletBalance,
+    WalletConfirmStatus, WalletPreview, WalletProviderStatus, WalletTransactionOutput,
+};
+use crate::wallet::rotation_mnemonic::{
+    canonical_rotation_words, generate_rotation_half, normalize_rotation_words, rotation_halves,
 };
 use crate::wallet::{
-    hex_string, new_account_id, WalletAddressDeriveInput, WalletAddressDeriveOutput,
-    WalletBalanceInput, WalletBalanceOutput, WalletChainError, WalletChainProfile,
-    WalletHdAccountMaterializeInput, WalletHistoryInput, WalletHistoryOutput, WalletHistoryTask,
-    WalletHistoryTransaction, WalletImportedAccountMaterializeInput, WalletPrepareInput,
-    WalletPrepareOutput, WalletProfileAccountMaterialization, WalletProviderObservationOutcomeV1,
-    WalletProviderObservationV1, WalletRefreshInput, WalletRefreshOutput, WalletRuntimeConfig,
-    WalletSignInput, WalletSignedArtifact, WalletSubmitInput, WalletSubmitOutput, WalletTxStatus,
+    derived_account_meta, hex_string, AccountScheme, HdRootRecoveryMaterialV2, SecretPayloadV1,
+    WalletAddressDeriveInput, WalletAddressDeriveOutput, WalletBalanceInput, WalletBalanceOutput,
+    WalletChainError, WalletChainProfile, WalletHdAccountMaterializeInput, WalletHistoryInput,
+    WalletHistoryOutput, WalletHistoryTask, WalletHistoryTransaction,
+    WalletImportedAccountMaterializeInput, WalletKeyRotationInput, WalletKeyRotationOutput,
+    WalletPrepareInput, WalletPrepareOutput, WalletProfileAccountMaterialization,
+    WalletProviderObservationOutcomeV1, WalletProviderObservationV1, WalletRefreshInput,
+    WalletRefreshOutput, WalletRuntimeConfig, WalletSecretReconcileInput, WalletSignInput,
+    WalletSignedArtifact, WalletSubmitInput, WalletSubmitOutput, WalletTxStatus,
 };
 
-use super::account::{ensure_ton_network, provider_account_from_meta, ton_derivation_profile};
+use super::account::{ensure_ton_network, provider_account_from_meta};
 use super::constants::{
-    TON_ACCOUNT_MODEL, TON_AMOUNT_UNIT, TON_MESSAGE_MODE_SIMPLE_TRANSFER,
-    TON_NATIVE_DERIVATION_PROFILE, TON_NETWORK, TON_PREPARED_PAYLOAD_KIND, TON_WALLET_CONTRACT,
-    TON_WORKCHAIN,
+    TON_AMOUNT_UNIT, TON_MESSAGE_MODE_SIMPLE_TRANSFER, TON_NETWORK, TON_PREPARED_PAYLOAD_KIND,
+    TON_WALLET_CONTRACT, TON_WORKCHAIN,
 };
-use super::error::{fee_estimation_error, provider_error, ton_core_error, ton_error};
+use super::error::{fee_estimation_error, provider_error, ton_core_error};
 use super::keys::{
-    key_pair_from_hd_root, key_pair_from_imported, ton_wallet_from_key_pair, ton_wallet_from_secret,
+    key_material_from_imported, key_material_from_root, key_material_from_secret,
+    rotation_key_pair_from_half, TonKeyMaterial,
 };
 use super::payload::{snapshot_value, TonPreparedPayloadV1};
 use super::provider::{
     TonBroadcastRequest, TonFeeEstimateRequest, TonHistoryRequest, TonProvider, TonProviderAccount,
-    TonProviderAccountState, TonProviderErrorKind, TonProviderSnapshot, TonRefreshRequest,
-    UnavailableTonProvider,
+    TonProviderAccountState, TonProviderErrorKind, TonProviderPublicKey, TonProviderSnapshot,
+    TonRefreshRequest, UnavailableTonProvider,
 };
 use super::transfer::{
     build_fee_estimate_body, build_internal_message, comment_body, parse_amount, parse_ton_address,
     parse_ton_destination, ton_prepare_warnings, valid_until_seconds, valid_until_seconds_now,
     validate_comment, validate_single_output,
 };
+use super::wallet_tg::WalletTg;
 
 #[derive(Clone)]
 pub struct TonChainProfile {
@@ -55,10 +60,41 @@ impl TonChainProfile {
         Self::new(Arc::new(UnavailableTonProvider))
     }
 
+    /// On-chain signing key for an active account; `None` when undeployed or unknown.
+    fn on_chain_public_key(
+        &self,
+        provider_account: &TonProviderAccount,
+        account_state: TonProviderAccountState,
+    ) -> Result<TonProviderPublicKey, WalletChainError> {
+        if account_state != TonProviderAccountState::Active {
+            return Ok(None);
+        }
+        self.provider
+            .public_key(provider_account)
+            .map_err(provider_error)
+    }
+
+    /// Resolves the signing wallet for `account` from its secret and live chain state.
+    fn signing_wallet(
+        &self,
+        provider_account: &TonProviderAccount,
+        material: &TonKeyMaterial,
+        snapshot: &TonProviderSnapshot,
+    ) -> Result<WalletTg, WalletChainError> {
+        let on_chain = self.on_chain_public_key(provider_account, snapshot.account_state)?;
+        let wallet = material.wallet(snapshot.account_state, on_chain.as_ref())?;
+        if wallet.address().to_hex() != provider_account.raw_account {
+            return Err(WalletChainError::internal(
+                "TON signing material does not match account address",
+            ));
+        }
+        Ok(wallet)
+    }
+
     fn estimate_transfer_fee(
         &self,
         provider_account: &TonProviderAccount,
-        wallet: &::ton::ton_wallet::TonWallet,
+        wallet: &WalletTg,
         snapshot: &TonProviderSnapshot,
         internal_message: ::ton::ton_core::cell::TonCell,
         valid_until: u32,
@@ -66,14 +102,8 @@ impl TonChainProfile {
         let body = build_fee_estimate_body(wallet, internal_message, snapshot.seqno, valid_until)?;
         let (init_code_boc_base64, init_data_boc_base64) =
             if snapshot.account_state == TonProviderAccountState::Uninitialized {
-                let code = ::ton::ton_wallet::WalletVersion::get_code(wallet.version)
-                    .map_err(ton_core_error)?;
-                let data = ::ton::ton_wallet::WalletVersion::get_default_data(
-                    wallet.version,
-                    &wallet.key_pair,
-                    wallet.wallet_id,
-                )
-                .map_err(ton_core_error)?;
+                let code = WalletTg::code()?;
+                let data = wallet.initial_data()?;
                 (
                     Some(code.to_boc_base64().map_err(ton_core_error)?),
                     Some(data.to_boc_base64().map_err(ton_core_error)?),
@@ -106,13 +136,7 @@ impl WalletChainProfile for TonChainProfile {
     }
 
     fn capability_ids(&self) -> Vec<&'static str> {
-        vec![
-            "ton_native_transfer",
-            super::super::ton_v2::TON_CONNECT_CAPABILITY,
-            super::super::ton_v2::TON_JETTON_CAPABILITY,
-            super::super::ton_v2::TON_LEGACY_RESTORE_CAPABILITY,
-            super::super::ton_v2::TON_CONTRACT_RAW_CACHE_CAPABILITY,
-        ]
+        vec!["ton_native_transfer"]
     }
 
     fn capability_implemented(&self, capability_id: &str) -> bool {
@@ -132,50 +156,37 @@ impl WalletChainProfile for TonChainProfile {
         input: WalletHdAccountMaterializeInput,
     ) -> Result<WalletProfileAccountMaterialization, WalletChainError> {
         ensure_ton_network(&input.network)?;
-        let derivation_profile =
-            ton_derivation_profile(&input.wallet_mode, &input.mnemonic_standard)?;
-        if derivation_profile == TON_NATIVE_DERIVATION_PROFILE && input.account_index != 0 {
+        let derivation_profile = input.scheme.as_str();
+        if input.scheme == AccountScheme::TonNativeWalletTgAccount && input.account_index != 0 {
             return Err(WalletChainError::unsupported_account_model(
                 "TON native v1 supports only account_index=0",
             ));
         }
-        let key_pair = key_pair_from_hd_root(
-            &input.mnemonic_standard,
-            &input.mnemonic_entropy,
-            input.mnemonic_words.as_deref(),
-            &input.wordlist,
-            input.bip39_passphrase.as_deref(),
+        let material = key_material_from_root(
+            &input.root,
+            input.ton_signing.as_ref(),
+            input.scheme,
             input.account_index,
-            derivation_profile,
         )?;
-        let wallet = ton_wallet_from_key_pair(key_pair)?;
-        let address = wallet.address.to_string();
-        let raw_account = wallet.address.to_hex();
-        let public_key = hex_string(&wallet.key_pair.public_key);
-        let account_id = new_account_id();
-        let account = WalletAccountMeta::Derived(DerivedAccountMetaV1 {
-            account_id: account_id.clone(),
-            wallet_id: input.wallet_id,
-            network: input.network,
-            wallet_mode: Some(input.wallet_mode),
-            mnemonic_standard: input.mnemonic_standard,
-            account_model: TON_ACCOUNT_MODEL.to_string(),
-            derivation_profile: derivation_profile.to_string(),
-            wallet_contract: Some(TON_WALLET_CONTRACT.to_string()),
-            account_index: Some(input.account_index),
-            workchain: Some(TON_WORKCHAIN),
-            label: Some(format!("TON account {}", input.account_index + 1)),
-            address: Some(address),
-            raw_account: Some(raw_account),
-            public_key: Some(public_key),
-            derivation_path: Some(format!("{derivation_profile}/{}", input.account_index)),
-            current_receive_address: None,
-            current_receive_derivation_path: None,
-            next_receive_index: None,
-            next_change_index: None,
-            created_at: input.now,
-            updated_at: input.now,
-        });
+        let wallet = material.anchor_wallet()?;
+        let address = wallet.address().to_string();
+        let raw_account = wallet.address().to_hex();
+        let public_key = hex_string(wallet.public_key());
+        let mut meta = derived_account_meta(
+            input.wallet_id,
+            input.network,
+            input.scheme,
+            input.account_index,
+            input.now,
+        );
+        meta.wallet_contract = Some(TON_WALLET_CONTRACT.to_string());
+        meta.workchain = Some(TON_WORKCHAIN);
+        meta.label = Some(format!("TON account {}", input.account_index + 1));
+        meta.address = Some(address);
+        meta.raw_account = Some(raw_account);
+        meta.public_key = Some(public_key);
+        meta.derivation_path = Some(format!("{derivation_profile}/{}", input.account_index));
+        let account = WalletAccountMeta::Derived(meta);
         Ok(WalletProfileAccountMaterialization {
             account,
             addresses: Vec::new(),
@@ -192,19 +203,19 @@ impl WalletChainProfile for TonChainProfile {
                 "TON imported accounts require curve=ed25519",
             ));
         }
-        let key_pair = key_pair_from_imported(&input.private_key, &input.encoding)?;
-        let wallet = ton_wallet_from_key_pair(key_pair)?;
+        let wallet =
+            key_material_from_imported(&input.private_key, &input.encoding)?.anchor_wallet()?;
         let account = WalletAccountMeta::Imported(ImportedAccountMetaV1 {
             account_id: input.account_id,
             wallet_id: input.wallet_id,
             network: input.network,
             label: Some(input.label),
-            address: wallet.address.to_string(),
-            public_key: Some(hex_string(&wallet.key_pair.public_key)),
+            address: wallet.address().to_string(),
+            public_key: Some(hex_string(wallet.public_key())),
             curve: Some("ed25519".to_string()),
             wallet_contract: Some(TON_WALLET_CONTRACT.to_string()),
             workchain: Some(TON_WORKCHAIN),
-            raw_account: Some(wallet.address.to_hex()),
+            raw_account: Some(wallet.address().to_hex()),
             created_at: input.now,
             updated_at: input.now,
         });
@@ -291,17 +302,12 @@ impl WalletChainProfile for TonChainProfile {
             .secret
             .as_ref()
             .ok_or_else(|| WalletChainError::internal("TON preparation requires wallet secret"))?;
-        let ton_wallet = ton_wallet_from_secret(&input.account, secret)?;
-        if ton_wallet.address.to_hex() != provider_account.raw_account {
-            return Err(WalletChainError::internal(
-                "TON preparation material does not match account address",
-            ));
-        }
-
+        let material = key_material_from_secret(&input.account, secret)?;
         let snapshot = self
             .provider
             .snapshot(&provider_account)
             .map_err(provider_error)?;
+        let ton_wallet = self.signing_wallet(&provider_account, &material, &snapshot)?;
         let destination_state = self
             .provider
             .account_state(&destination.normalized_address)
@@ -410,6 +416,7 @@ impl WalletChainProfile for TonChainProfile {
                     destination_state: destination_state.as_str().to_string(),
                 }),
                 ethereum: None,
+                solana: None,
             },
             provider_snapshot: Some(snapshot_value(
                 &snapshot,
@@ -421,6 +428,7 @@ impl WalletChainProfile for TonChainProfile {
                 WalletChainError::internal(format!("TON payload serialization failed: {error}"))
             })?,
             materializations: Vec::new(),
+            valid_until: None,
         })
     }
 
@@ -467,12 +475,8 @@ impl WalletChainProfile for TonChainProfile {
         let estimated_fee = parse_amount(&prepared.estimated_fee)?;
         let expected_sender_state_init_included =
             snapshot.account_state == TonProviderAccountState::Uninitialized;
-        let ton_wallet = ton_wallet_from_secret(&input.account, &input.signing_secret)?;
-        if ton_wallet.address.to_hex() != provider_account.raw_account {
-            return Err(WalletChainError::internal(
-                "TON signing material does not match account address",
-            ));
-        }
+        let material = key_material_from_secret(&input.account, &input.signing_secret)?;
+        let ton_wallet = self.signing_wallet(&provider_account, &material, &snapshot)?;
 
         let destination = parse_ton_address(&prepared.destination_address)?;
         let body = comment_body(prepared.comment.as_deref())?;
@@ -496,14 +500,13 @@ impl WalletChainProfile for TonChainProfile {
         }
 
         let add_state_init = prepared.sender_state_init_included;
-        let signed = ton_wallet
-            .create_ext_in_msg(
-                vec![int_msg],
-                prepared.seqno,
-                prepared.valid_until,
-                add_state_init,
-            )
-            .map_err(ton_error)?;
+        let signed = ton_wallet.create_ext_in_msg(
+            &int_msg,
+            prepared.seqno,
+            prepared.valid_until,
+            TON_MESSAGE_MODE_SIMPLE_TRANSFER,
+            add_state_init,
+        )?;
         let message_hash = hex_string(signed.cell_hash().map_err(ton_core_error)?.as_slice());
         let signed_message_boc_base64 = signed.to_boc_base64().map_err(ton_core_error)?;
         Ok(WalletSignedArtifact {
@@ -599,6 +602,138 @@ impl WalletChainProfile for TonChainProfile {
                 confirmations: None,
                 reason: None,
             }],
+        })
+    }
+
+    fn reconcile_secret(
+        &self,
+        input: WalletSecretReconcileInput,
+    ) -> Result<Option<SecretPayloadV1>, WalletChainError> {
+        let SecretPayloadV1::HdRootV2 {
+            wordlist,
+            recovery:
+                HdRootRecoveryMaterialV2::Rotation {
+                    mnemonic_words,
+                    pending_signing_words,
+                    pending_signing_valid_until,
+                    bip39_passphrase,
+                },
+        } = &input.secret
+        else {
+            return Ok(None);
+        };
+        let Some(pending_words) = pending_signing_words.as_deref() else {
+            return Ok(None);
+        };
+        let provider_account = provider_account_from_meta(&input.account)?;
+        let material = key_material_from_secret(&input.account, &input.secret)?;
+        let words = normalize_rotation_words(mnemonic_words);
+        let (anchor_words, _) = rotation_halves(&words)?;
+        let snapshot = self
+            .provider
+            .snapshot(&provider_account)
+            .map_err(provider_error)?;
+        let on_chain = self.on_chain_public_key(&provider_account, snapshot.account_state)?;
+        let landed = on_chain.as_ref() == material.pending_public_key();
+        let expired = pending_signing_valid_until
+            .is_some_and(|valid_until| valid_until_seconds_now() > valid_until);
+        if !landed && !expired {
+            return Ok(None);
+        }
+        if !landed && on_chain.is_none() {
+            // Unknown on-chain key: keep the pending half rather than risk dropping a live key.
+            return Ok(None);
+        }
+        let mnemonic_words = if landed {
+            canonical_rotation_words(anchor_words, &normalize_rotation_words(pending_words))
+        } else {
+            words
+        };
+        Ok(Some(SecretPayloadV1::HdRootV2 {
+            wordlist: wordlist.clone(),
+            recovery: HdRootRecoveryMaterialV2::Rotation {
+                mnemonic_words,
+                pending_signing_words: None,
+                pending_signing_valid_until: None,
+                bip39_passphrase: bip39_passphrase.clone(),
+            },
+        }))
+    }
+
+    fn rotate_signing_key(
+        &self,
+        input: WalletKeyRotationInput,
+    ) -> Result<WalletKeyRotationOutput, WalletChainError> {
+        let provider_account = provider_account_from_meta(&input.account)?;
+        let SecretPayloadV1::HdRootV2 { wordlist, recovery } = &input.secret else {
+            return Err(WalletChainError::unsupported_account_model(
+                "TON key rotation requires an HD wallet with a rotation mnemonic",
+            ));
+        };
+        let HdRootRecoveryMaterialV2::Rotation {
+            mnemonic_words,
+            bip39_passphrase,
+            ..
+        } = recovery
+        else {
+            return Err(WalletChainError::unsupported_account_model(
+                "TON key rotation requires a rotation mnemonic (TEP-0003)",
+            ));
+        };
+        let material = key_material_from_secret(&input.account, &input.secret)?;
+        if material.pending_public_key().is_some()
+            && material
+                .pending_valid_until()
+                .is_none_or(|valid_until| valid_until >= valid_until_seconds_now())
+        {
+            return Err(WalletChainError::invalid_input(
+                "a TON key rotation is still pending; wait for it to confirm or expire",
+            ));
+        }
+        let snapshot = self
+            .provider
+            .snapshot(&provider_account)
+            .map_err(provider_error)?;
+        let current = self.signing_wallet(&provider_account, &material, &snapshot)?;
+        let words = normalize_rotation_words(mnemonic_words);
+        let (anchor_words, _) = rotation_halves(&words)?;
+        let new_half = generate_rotation_half()?;
+        let new_key_pair = rotation_key_pair_from_half(&new_half)?;
+        let valid_until = valid_until_seconds();
+        let add_state_init = snapshot.account_state == TonProviderAccountState::Uninitialized;
+        let signed = current.create_change_public_key_ext_in_msg(
+            &new_key_pair,
+            snapshot.seqno,
+            valid_until,
+            add_state_init,
+        )?;
+        let message_hash = hex_string(signed.cell_hash().map_err(ton_core_error)?.as_slice());
+        let signed_message_boc_base64 = signed.to_boc_base64().map_err(ton_core_error)?;
+        let mnemonic = anchor_words
+            .iter()
+            .chain(new_half.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        Ok(WalletKeyRotationOutput {
+            updated_secret: SecretPayloadV1::HdRootV2 {
+                wordlist: wordlist.clone(),
+                recovery: HdRootRecoveryMaterialV2::Rotation {
+                    mnemonic_words: words,
+                    pending_signing_words: Some(new_half),
+                    pending_signing_valid_until: Some(valid_until),
+                    bip39_passphrase: bip39_passphrase.clone(),
+                },
+            },
+            signed_artifact: WalletSignedArtifact {
+                signed_artifact: Zeroizing::new(signed_message_boc_base64),
+                tx_hash: None,
+                message_ref: Some(message_hash),
+                submit_metadata: Some(json!({"seqno": snapshot.seqno})),
+            },
+            seqno: snapshot.seqno,
+            valid_until,
+            new_public_key: hex_string(&new_key_pair.public_key),
+            mnemonic,
         })
     }
 }

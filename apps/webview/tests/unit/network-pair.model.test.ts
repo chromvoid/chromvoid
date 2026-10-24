@@ -435,26 +435,26 @@ describe('RemoteHostsFlowModel', () => {
     expect(model.hostStatus()?.presence?.room_id).toBe('room-1')
   })
 
-  it('uses Android host defaults and mobile host IPC on Android', async () => {
+  it('uses iOS host defaults and mobile host IPC on iOS', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_network_remote: true,
     })
 
     const status: MobileHostStatus = {
       phase: 'Pairing',
-      platform: 'android',
+      platform: 'ios',
       relay_url: 'wss://relay.chromvoid.com',
-      device_id: 'device-android-1',
-      device_label: 'ChromVoid Android',
+      device_id: 'device-ios-1',
+      device_label: 'ChromVoid iPhone',
       pairing_pin: '654321',
       pairing_offer: {
         session_id: 'session-1',
         relay_base_url: 'https://relay.chromvoid.com',
-        device_label: 'ChromVoid Android',
+        device_label: 'ChromVoid iPhone',
         expires_at_ms: Date.now() + 60_000,
-        platform: 'android',
+        platform: 'ios',
       },
       expires_at_ms: null,
       presence: null,
@@ -479,15 +479,15 @@ describe('RemoteHostsFlowModel', () => {
 
     expect(tauriInvoke).toHaveBeenNthCalledWith(2, 'mobile_host_start', {
       relayUrl: 'wss://relay.chromvoid.com',
-      deviceLabel: 'ChromVoid Android',
+      deviceLabel: 'ChromVoid iPhone',
     })
     expect(model.offerText()).toContain('chromvoid://pair-mobile?')
-    expect(model.offerText()).toContain('platform=android')
+    expect(model.offerText()).toContain('platform=ios')
   })
 
   it('derives the mobile host page state from canonical host status', () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_network_remote: true,
     })
@@ -495,10 +495,10 @@ describe('RemoteHostsFlowModel', () => {
     const model = new RemoteHostsFlowModel()
     const status: MobileHostStatus = {
       phase: 'Idle',
-      platform: 'android',
+      platform: 'ios',
       relay_url: null,
       device_id: 'device-1',
-      device_label: 'ChromVoid Android',
+      device_label: 'ChromVoid iPhone',
       pairing_pin: null,
       pairing_offer: null,
       expires_at_ms: null,
@@ -534,7 +534,6 @@ describe('RemoteHostsFlowModel', () => {
       ],
     })
     expect(model.mobileHostPageState()).toBe('ready')
-    expect(model.connectedUsbPeers()).toHaveLength(1)
     expect(model.connectedNetworkPeers()).toHaveLength(0)
 
     model.hostStatus.set({
@@ -608,16 +607,16 @@ describe('RemoteHostsFlowModel', () => {
 
   it('confirms before disconnecting connected desktops from a mobile host', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_network_remote: true,
     })
     const connectedStatus: MobileHostStatus = {
       phase: 'Ready',
-      platform: 'android',
+      platform: 'ios',
       relay_url: 'wss://relay.chromvoid.com',
       device_id: 'device-1',
-      device_label: 'ChromVoid Android',
+      device_label: 'ChromVoid iPhone',
       pairing_pin: null,
       pairing_offer: null,
       expires_at_ms: null,

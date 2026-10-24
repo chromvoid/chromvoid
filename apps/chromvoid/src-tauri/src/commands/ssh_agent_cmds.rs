@@ -143,7 +143,6 @@ mod tests {
         unlocked: bool,
         entries: Vec<serde_json::Value>,
         secrets: HashMap<(String, String), String>,
-        license_status: Option<serde_json::Value>,
     }
 
     struct TestAdapter {
@@ -169,11 +168,6 @@ mod tests {
                 "passmanager:ssh:list" => RpcResponse::success(json!({
                     "sshKeys": shared.entries,
                 })),
-                "license:status" => shared
-                    .license_status
-                    .clone()
-                    .map(RpcResponse::success)
-                    .unwrap_or_else(|| RpcResponse::error("license unavailable", Some("TEST"))),
                 "passmanager:ssh:secret:read" => {
                     let key_id = req
                         .data
@@ -257,16 +251,6 @@ mod tests {
         )
     }
 
-    fn pro_license_status() -> serde_json::Value {
-        json!({
-            "licensed": true,
-            "plan": "pro",
-            "feature_keys": [chromvoid_core::license::PRO_FEATURE_SSH_AGENT],
-            "source_core": "local",
-            "build_policy": "enforce",
-        })
-    }
-
     fn app_with_state(
         adapter_shared: Arc<Mutex<TestAdapterData>>,
     ) -> (TempDir, tauri::App<MockRuntime>) {
@@ -285,7 +269,6 @@ mod tests {
                 .expect("core RPC dispatcher"),
             sync_runtime: Arc::new(crate::commands::sync_cmds::SyncRuntimeState::new()),
             storage_root: Arc::new(Mutex::new(tempdir.path().join("storage"))),
-            license_root: tempdir.path().join("license_vault"),
             gateway: Arc::new(Mutex::new(GatewayState::load_or_default(
                 tempdir.path().join("gateway.json"),
             ))),
@@ -342,27 +325,7 @@ mod tests {
             android_host_runtime: Arc::new(
                 crate::network::mobile_host::AndroidHostRuntimeState::new(),
             ),
-            android_provider_runtime: Arc::new(
-                crate::mobile::android::AndroidProviderRuntimeState::new(),
-            ),
-            android_audio_sessions: Arc::new(
-                crate::mobile::android::AndroidAudioSessionRegistry::new(),
-            ),
-            android_native_upload_runtime: Arc::new(
-                crate::mobile::android::AndroidNativeUploadRuntimeState::new(),
-            ),
-            android_saf_picker_runtime: Arc::new(
-                crate::mobile::android::AndroidSafPickerRuntimeState::new(),
-            ),
-            android_biometric_runtime: Arc::new(
-                crate::mobile::android::AndroidBiometricRuntimeState::new(),
-            ),
-            android_password_save_runtime: Arc::new(
-                crate::mobile::android::AndroidPasswordSaveRuntimeState::new(),
-            ),
-            android_autofill_runtime: Arc::new(
-                crate::mobile::android::AndroidAutofillRuntimeState::new(),
-            ),
+            native_audio_sessions: Arc::new(crate::mobile::NativeAudioSessionRegistry::new()),
             ios_native_bridge_runtime: Arc::new(
                 crate::mobile::ios::native_bridge::IosNativeBridgeRuntimeState::new(),
             ),
@@ -429,7 +392,6 @@ mod tests {
                 ("key-a".to_string(), "ssh_public_key".to_string()),
                 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+I0O6tnVW8gFDrWZ15l6WO3ol8YV0P4i4R6Jr4h9rB deploy".to_string(),
             )]),
-            license_status: None,
         }));
         let mut adapter = TestAdapter { shared };
 
@@ -457,7 +419,6 @@ mod tests {
                 "sshKeyComment": "legacy",
             })],
             secrets: HashMap::new(),
-            license_status: None,
         }));
         let mut adapter = TestAdapter { shared };
 
@@ -472,7 +433,6 @@ mod tests {
             unlocked: true,
             entries: vec![],
             secrets: HashMap::new(),
-            license_status: None,
         }));
         struct FailingListAdapter {
             shared: Arc<Mutex<TestAdapterData>>,
@@ -542,7 +502,6 @@ mod tests {
             unlocked: true,
             entries: vec![],
             secrets: HashMap::new(),
-            license_status: Some(pro_license_status()),
         }));
         let (_tempdir, app) = app_with_state(shared.clone());
         let _xdg_guard = XdgConfigGuard::set(_tempdir.path());
@@ -581,37 +540,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unlock_auto_start_requires_pro_entitlement() {
-        let _env_lock = env_lock().lock().expect("env lock");
-        let shared = Arc::new(Mutex::new(TestAdapterData {
-            mode: CoreMode::Local,
-            unlocked: true,
-            entries: vec![json!({
-                "id": "key-a",
-                "comment": "deploy",
-                "fingerprint": "SHA256:metadata",
-            })],
-            secrets: HashMap::from([(
-                ("key-a".to_string(), "ssh_public_key".to_string()),
-                sample_pubkey("deploy"),
-            )]),
-            license_status: None,
-        }));
-        let (_tempdir, app) = app_with_state(shared);
-        let _xdg_guard = XdgConfigGuard::set(_tempdir.path());
-
-        let error = reconcile_ssh_agent_with_vault(app.handle(), true)
-            .await
-            .expect_err("auto-start must require Pro entitlement");
-        assert!(error.contains("ENTITLEMENT_UNAVAILABLE"));
-
-        let ssh_agent = app.state::<AppState>().ssh_agent.clone();
-        let agent = ssh_agent.lock().expect("agent lock");
-        assert!(!agent.is_running());
-        assert_eq!(agent.identities_count(), 0);
-    }
-
-    #[tokio::test]
     async fn unlock_auto_start_disabled_and_runtime_refresh_updates_running_identities() {
         let _env_lock = env_lock().lock().expect("env lock");
         let shared = Arc::new(Mutex::new(TestAdapterData {
@@ -626,7 +554,6 @@ mod tests {
                 ("key-a".to_string(), "ssh_public_key".to_string()),
                 sample_pubkey("deploy"),
             )]),
-            license_status: Some(pro_license_status()),
         }));
         let (_tempdir, app) = app_with_state(shared.clone());
         let _xdg_guard = XdgConfigGuard::set(_tempdir.path());

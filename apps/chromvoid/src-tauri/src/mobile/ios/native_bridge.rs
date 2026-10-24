@@ -169,8 +169,6 @@ extern "C" {
     fn chromvoid_ios_native_otp_qr_scan_start(scan_id: *const c_char) -> i32;
     fn chromvoid_ios_native_otp_qr_scan_cancel(scan_id: *const c_char) -> i32;
     fn chromvoid_ios_native_audio_command(command_json: *const c_char) -> i32;
-    fn chromvoid_ios_native_video_start(source_json: *const c_char) -> i32;
-    fn chromvoid_ios_native_video_stop(token: *const c_char) -> i32;
     fn chromvoid_ios_native_passkeys_lite_available() -> i32;
     fn chromvoid_ios_native_release_lifecycle_sessions(reason: *const c_char) -> i32;
     fn chromvoid_ios_native_save_image_to_photos(
@@ -500,40 +498,6 @@ pub fn send_audio_playback_command(_app: tauri::AppHandle, command_json: &str) -
     #[cfg(not(target_os = "ios"))]
     {
         let _ = command_json;
-        false
-    }
-}
-
-pub fn start_video_playback(source_json: &str) -> bool {
-    let Ok(source_json) = c_string_arg(source_json, "native video source") else {
-        return false;
-    };
-
-    #[cfg(target_os = "ios")]
-    {
-        unsafe { chromvoid_ios_native_video_start(source_json.as_ptr()) != 0 }
-    }
-
-    #[cfg(not(target_os = "ios"))]
-    {
-        let _ = source_json;
-        false
-    }
-}
-
-pub fn stop_video_playback(token: &str) -> bool {
-    let Ok(token) = c_string_arg(token, "native video token") else {
-        return false;
-    };
-
-    #[cfg(target_os = "ios")]
-    {
-        unsafe { chromvoid_ios_native_video_stop(token.as_ptr()) != 0 }
-    }
-
-    #[cfg(not(target_os = "ios"))]
-    {
-        let _ = token;
         false
     }
 }

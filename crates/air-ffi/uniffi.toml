@@ -1,0 +1,9 @@
+[defaults.bindings.swift]
+module_name = "AirFFI"
+ffi_module_name = "AirFFIFFI"
+generate_immutable_records = true
+
+[defaults.bindings.kotlin]
+package_name = "com.chromvoid.air.ffi"
+cdylib_name = "chromvoid_air_ffi"
+generate_immutable_records = true

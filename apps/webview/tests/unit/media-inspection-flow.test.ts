@@ -82,30 +82,6 @@ describe('FileMediaInspectionFlow', () => {
     expect(inspectMediaInfo).not.toHaveBeenCalled()
   })
 
-  it('skips Android visible inspections without scheduling a timer', () => {
-    vi.useFakeTimers()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
-    const inspectMediaInfo = vi.fn()
-    const {flow} = createFlow({inspectMediaInfo})
-
-    try {
-      flow.queueVisible([createItem(1), createItem(2)])
-
-      expect(inspectMediaInfo).not.toHaveBeenCalled()
-      expect(flow.getDebugSnapshot()).toMatchObject({
-        deferredCount: 0,
-        hasDeferredTimer: false,
-        maxVisibleConcurrency: 1,
-        pendingCount: 0,
-      })
-
-      vi.advanceTimersByTime(mobileVisibleInspectionDelayMs)
-      expect(inspectMediaInfo).not.toHaveBeenCalled()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
   it('ignores stale inspection results after cancellation', async () => {
     const inspect = deferred<{
       nodeId: number
@@ -171,8 +147,8 @@ describe('FileMediaInspectionFlow', () => {
     }
   })
 
-  it('runs open-priority inspection on Android while visible inspections are optimized out', async () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+  it('runs open-priority inspection on mobile while visible inspections are optimized out', async () => {
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     const pending = deferred<{
       nodeId: number
       mediaInfo: {kind: 'video'; audioTracks: number; videoTracks: number}
@@ -231,43 +207,6 @@ describe('FileMediaInspectionFlow', () => {
 
     expect(inspectMediaInfo).toHaveBeenCalledTimes(1)
     expect(inspectMediaInfo).toHaveBeenCalledWith(1)
-  })
-
-  it('skips Android visible inspections without canceling open-priority work', async () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true})
-    const pending = deferred<{
-      nodeId: number
-      mediaInfo: {kind: 'video'; audioTracks: number; videoTracks: number}
-      sourceRevision: number
-      mediaInspectedRevision: number
-    }>()
-    const inspectMediaInfo = vi.fn(() => pending.promise)
-    const {flow} = createFlow({inspectMediaInfo})
-    const openItem = createItem(2)
-
-    const opened = flow.ensureBeforeOpen(openItem, () => openItem)
-    expect(inspectMediaInfo).toHaveBeenCalledTimes(1)
-    expect(inspectMediaInfo).toHaveBeenCalledWith(2)
-
-    flow.queueVisible([createItem(1)])
-
-    expect(flow.getDebugSnapshot()).toMatchObject({
-      deferredCount: 0,
-      hasDeferredTimer: false,
-      pendingCount: 1,
-    })
-    expect(inspectMediaInfo).toHaveBeenCalledTimes(1)
-
-    pending.resolve({
-      nodeId: 2,
-      mediaInfo: {kind: 'video', audioTracks: 0, videoTracks: 1},
-      sourceRevision: 1,
-      mediaInspectedRevision: 1,
-    })
-
-    await expect(opened).resolves.toMatchObject({
-      mediaInfo: {kind: 'video'},
-    })
   })
 
   it('skips visible inspections already completed for the current source revision', () => {

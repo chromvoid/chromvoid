@@ -11,31 +11,6 @@ use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 pub(crate) async fn restore_local_select_source(
     state: tauri::State<'_, AppState>,
 ) -> Result<RpcResult<RestoreLocalSourceSelected>, String> {
-    #[cfg(target_os = "android")]
-    {
-        let android_saf_picker_runtime = state.android_saf_picker_runtime.clone();
-        let out = crate::mobile::android::pick_saf_restore_tree_async(
-            &android_saf_picker_runtime,
-            "restore-local-select",
-        )
-        .await;
-
-        return Ok(match out {
-            Ok(tree) => rpc_ok(RestoreLocalSourceSelected {
-                backup_path: tree.uri,
-                display_name: tree.display_name,
-            }),
-            Err(error) => {
-                let code = if error.to_ascii_lowercase().contains("cancel") {
-                    "CANCELLED"
-                } else {
-                    "BAD_REQUEST"
-                };
-                restore_rpc_error(error, Some(code.to_string()))
-            }
-        });
-    }
-
     #[cfg(target_os = "ios")]
     {
         let ios_native_bridge_runtime = state.ios_native_bridge_runtime.clone();
@@ -64,7 +39,7 @@ pub(crate) async fn restore_local_select_source(
         });
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(not(target_os = "ios"))]
     {
         let _ = state;
         Ok(restore_rpc_error(
@@ -104,7 +79,6 @@ pub(crate) async fn restore_local_from_folder(
 
     let adapter = state.adapter.clone();
     let storage_root = state.storage_root.clone();
-    let android_saf_picker_runtime = state.android_saf_picker_runtime.clone();
     let vault_background_io_runtime = state.vault_background_io_runtime.clone();
     let cancel_requested_bg = vault_background_io_runtime.begin_restore_run();
 
@@ -117,7 +91,6 @@ pub(crate) async fn restore_local_from_folder(
                 master_password,
                 source_target,
                 cancel_requested_bg,
-                android_saf_picker_runtime,
             )
         })
         .await;
@@ -140,15 +113,13 @@ fn restore_local_from_folder_inner(
     master_password: String,
     source_target: RestoreSourceTarget,
     cancel_requested: Arc<AtomicBool>,
-    #[cfg_attr(not(target_os = "android"), allow(unused_variables))]
-    android_saf_picker_runtime: Arc<crate::mobile::android::AndroidSafPickerRuntimeState>,
 ) -> RpcResult<Value> {
     use base64::engine::general_purpose;
     use base64::Engine;
 
     let operation_started_at = std::time::Instant::now();
 
-    let source = match create_backup_source(source_target, &android_saf_picker_runtime) {
+    let source = match create_backup_source(source_target) {
         Ok(source) => source,
         Err(error) => {
             let code = if error.to_ascii_lowercase().contains("cancel") {

@@ -4,7 +4,6 @@ import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {i18n} from '@project/passmanager/i18n'
 import {filterValue, quickFilters} from '@project/passmanager/select'
 import {defaultLogger} from 'root/core/logger'
-import {isSshKeysEnabled} from 'root/core/config/app-feature-flags'
 import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
 import {pmEntryEditorModel} from '../../models/pm-entry-editor.model'
@@ -19,7 +18,7 @@ import {
 import {pmModel} from '../../password-manager.model'
 import type {PMDesktopToolbarActionSpec} from '../desktop-toolbar'
 import {PMGroupModel} from '../group/group/group.model'
-import {groupBy, sortDirection, sortField} from '../list/sort-controls'
+import {groupBy, sortDirection, sortField} from '../list/sort-controls.model'
 import {pmSshKeysViewModel} from '../ssh-keys-view/ssh-keys-view.model'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'pm-sidebar-width'
@@ -83,7 +82,6 @@ export type PMDesktopToolbarContext = {
   readOnly: boolean
   canCreateGroup: boolean
   canCreateEntry: boolean
-  showSshKeysView: boolean
   canOpenSshView: boolean
   showEnvRuntimeView: boolean
   canOpenEnvRuntimeView: boolean
@@ -110,7 +108,6 @@ function describeDesktopToolbarContext(context: PMDesktopToolbarContext) {
     readOnly: context.readOnly,
     canCreateGroup: context.canCreateGroup,
     canCreateEntry: context.canCreateEntry,
-    showSshKeysView: context.showSshKeysView,
     canOpenSshView: context.canOpenSshView,
     showEnvRuntimeView: context.showEnvRuntimeView,
     canOpenEnvRuntimeView: context.canOpenEnvRuntimeView,
@@ -233,7 +230,6 @@ export class PasswordManagerLayoutModel {
   }
 
   openSshView(): void {
-    if (!isSshKeysEnabled()) return
     pmModel.openSshView()
   }
 
@@ -405,15 +401,13 @@ export class PasswordManagerLayoutModel {
   getDesktopToolbarContext(): PMDesktopToolbarContext {
     const readOnly = this.isReadOnly()
     const capabilities = runtimeCapabilitiesAtom()
-    const showSshKeysView = isSshKeysEnabled()
     const showEnvRuntimeView = capabilities.desktop && !capabilities.mobile
 
     const context: PMDesktopToolbarContext = {
       readOnly,
       canCreateGroup: this.canCreateGroup(),
       canCreateEntry: !readOnly,
-      showSshKeysView,
-      canOpenSshView: showSshKeysView && Boolean(getPassmanagerRoot()) && !this.isLoading(),
+      canOpenSshView: Boolean(getPassmanagerRoot()) && !this.isLoading(),
       showEnvRuntimeView,
       canOpenEnvRuntimeView: showEnvRuntimeView && Boolean(getPassmanagerRoot()) && !this.isLoading(),
     }

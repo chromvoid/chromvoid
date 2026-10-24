@@ -53,6 +53,16 @@ pub(super) fn create_entry(
             "last4".to_string(),
             serde_json::Value::String(last4.to_string()),
         );
+        super::card_brand::apply_brand(payment_card, card_pan);
+        // A card saved without a name is named by its network and last four digits.
+        if request.entry.title.is_empty() {
+            let parent =
+                map_entry_group_path_to_passmanager_path(request.entry.group_path.as_deref())
+                    .unwrap_or_else(|| "/.passmanager".to_string());
+            let title = super::card_brand::default_card_title(uow, &parent, payment_card, None)
+                .ok_or_else(|| PassmanagerCommandError::empty_payload("title is required"))?;
+            request.entry.title = title;
+        }
     }
 
     // Entry IDs created by the product are UUIDs. Avoid the legacy resolver
@@ -90,9 +100,12 @@ fn stage_entry(
     s: &VaultSession,
     storage: &crate::storage::Storage,
     uow: &mut DomainUnitOfWork<'_>,
-    request: EntrySaveRequest,
+    mut request: EntrySaveRequest,
     existing_node_id: Option<u64>,
 ) -> Result<StagedEntry, PassmanagerCommandError> {
+    if let Some(keys) = &request.tag_keys {
+        request.tags = Some(super::super::tags::resolve_selected_keys(s, storage, keys)?);
+    }
     uow.ensure_dir("/.passmanager").map_err(|error| {
         PassmanagerCommandError::from_domain_uow_error(error, "Failed to ensure PassManager root")
     })?;

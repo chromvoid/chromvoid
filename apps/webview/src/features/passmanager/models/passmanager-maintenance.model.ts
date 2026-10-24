@@ -1,15 +1,12 @@
 import {atom, wrap} from '@reatom/core'
-import {setExistingEntriesMap, setImportCatalogOps} from '@chromvoid/password-import/ui/import-dialog-state'
+import {setCredentialImportService} from '@chromvoid/password-import/ui/import-dialog-state'
+import {CredentialImportService} from '@chromvoid/password-import/service'
 import {i18n} from '@project/passmanager/i18n'
 import {notify} from '@project/passmanager/notify'
 
 import {PassmanagerTransport} from 'root/core/state/passmanager'
 import {dialogService} from 'root/shared/services/dialog-service'
 import {getAppContext} from 'root/shared/services/app-context'
-import {
-  buildExistingEntriesByOriginalId,
-  createCatalogOperationsAdapter,
-} from '../service/catalog-import-adapter'
 import {downloadPassmanagerJson} from '../service/passmanager-json-download'
 import {pmComponentLoaderModel} from './pm-component-loader.model'
 import {pmIconStore} from './pm-icon-store'
@@ -19,24 +16,27 @@ export type PassmanagerMaintenanceAction = 'import' | 'export' | 'clean'
 
 export class PassmanagerMaintenanceModel {
   private importDialogRequest = 0
+  private importSessionRevision = 0
 
   readonly importDialogOpen = atom(false, 'passmanager.maintenance.importDialogOpen')
   readonly importCompletedSuccessfully = atom(false, 'passmanager.maintenance.importCompletedSuccessfully')
   readonly busyAction = atom<PassmanagerMaintenanceAction | null>(null, 'passmanager.maintenance.busyAction')
   readonly error = atom('', 'passmanager.maintenance.error')
 
-  async prepareImport(): Promise<void> {
+  async prepareImport(): Promise<boolean> {
+    const revision = this.importSessionRevision
     const {catalog} = getAppContext()
-
     await wrap(this.refreshCatalog())
-
-    const catalogOps = createCatalogOperationsAdapter(catalog)
-    setImportCatalogOps(catalogOps)
-
-    const existingMap = await wrap(buildExistingEntriesByOriginalId(catalog))
-    setExistingEntriesMap(existingMap)
-
     await wrap(pmComponentLoaderModel.ensureExtendedComponents())
+    if (revision !== this.importSessionRevision) return false
+    setCredentialImportService(new CredentialImportService((command, data) => catalog.transport.rpc(command, data)))
+    return true
+  }
+
+  disposeImport(): void {
+    this.importSessionRevision += 1
+    this.closeSettingsImportDialog()
+    setCredentialImportService(null)
   }
 
   async openSettingsImportDialog(): Promise<void> {
@@ -45,8 +45,8 @@ export class PassmanagerMaintenanceModel {
     await wrap(
       this.runBusy('import', async () => {
         this.importCompletedSuccessfully.set(false)
-        await wrap(this.prepareImport())
-        if (request === this.importDialogRequest) {
+        const prepared = await wrap(this.prepareImport())
+        if (prepared && request === this.importDialogRequest) {
           this.importDialogOpen.set(true)
         }
       }),

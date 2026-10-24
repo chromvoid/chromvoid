@@ -176,7 +176,6 @@ pub struct EnvProfileDeleteRequest {
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct EnvRuntimeStatusResponse {
     pub vault_unlocked: bool,
-    pub pro_enabled: bool,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]
     pub secret_count: Option<u32>,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number | null"))]

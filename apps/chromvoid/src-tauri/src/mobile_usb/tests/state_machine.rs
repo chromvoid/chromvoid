@@ -266,6 +266,14 @@ fn mobile_usb_error_transition_matrix_is_deterministic() {
             MobileUsbRecoveryAction::ConnectExisting,
         ),
         (
+            MobileUsbErrorCode::HandshakeFailed,
+            MobileUsbRecoveryAction::ManualRetry,
+        ),
+        (
+            MobileUsbErrorCode::PhoneNotResponding,
+            MobileUsbRecoveryAction::RetryOrRepair,
+        ),
+        (
             MobileUsbErrorCode::StalePairing,
             MobileUsbRecoveryAction::RemoveAndRepair,
         ),
@@ -365,4 +373,30 @@ fn mobile_usb_error_transition_matrix_is_deterministic() {
         Some(TransportType::UsbMobile)
     );
     assert!(!after_stale_unlock.fallback_allowed);
+}
+
+#[test]
+fn mobile_usb_phone_not_responding_serializes_with_optional_repair_contract() {
+    let code = MobileUsbErrorCode::PhoneNotResponding;
+    assert_eq!(code.as_str(), "ERR_USB_MOBILE_PHONE_NOT_RESPONDING");
+    assert_eq!(
+        serde_json::to_value(code).expect("serialize error code"),
+        serde_json::json!("ERR_USB_MOBILE_PHONE_NOT_RESPONDING")
+    );
+    assert_eq!(
+        serde_json::from_value::<MobileUsbErrorCode>(serde_json::json!(
+            "ERR_USB_MOBILE_PHONE_NOT_RESPONDING"
+        ))
+        .expect("deserialize error code"),
+        code
+    );
+    assert_eq!(
+        serde_json::to_value(code.recovery_action()).expect("serialize recovery action"),
+        serde_json::json!("retry_or_repair")
+    );
+    assert_eq!(
+        serde_json::from_value::<MobileUsbRecoveryAction>(serde_json::json!("retry_or_repair"))
+            .expect("deserialize recovery action"),
+        MobileUsbRecoveryAction::RetryOrRepair
+    );
 }

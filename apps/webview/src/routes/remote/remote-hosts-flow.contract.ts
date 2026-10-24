@@ -84,7 +84,7 @@ export type RemoteHostsCallbacks = {
 
 export type RemoteHostsFlowView = 'hosts' | 'pair-ios' | 'wait' | 'usb-mobile'
 export type RemoteHostsPairPhase = 'idle' | 'starting' | 'waiting' | 'connecting' | 'success' | 'failed'
-export type MobileHostTransportKind = 'wss_relay' | 'usb_mobile'
+export type MobileHostTransportKind = 'wss_relay'
 export type MobileHostPageState = 'off' | 'starting' | 'pairing' | 'ready' | 'connected' | 'error'
 
 export function parsePairingOffer(rawInput: string): PairingOffer {

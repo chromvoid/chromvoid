@@ -1,7 +1,7 @@
 {
   "name": "@chromvoid/password-import",
   "version": "0.0.1",
-  "description": "Password import from KeePass, Bitwarden, CSV",
+  "description": "Credential import UI backed by shared ChromVoid Rust Core",
   "files": [
     "dist",
     "README.md"
@@ -22,16 +22,6 @@
       "import": "./dist/types.js",
       "default": "./dist/types.js"
     },
-    "./validation": {
-      "types": "./dist/validation.d.ts",
-      "import": "./dist/validation.js",
-      "default": "./dist/validation.js"
-    },
-    "./conflicts": {
-      "types": "./dist/conflicts.d.ts",
-      "import": "./dist/conflicts.js",
-      "default": "./dist/conflicts.js"
-    },
     "./i18n": {
       "types": "./dist/i18n.d.ts",
       "import": "./dist/i18n.js",
@@ -41,36 +31,6 @@
       "types": "./dist/i18n/availability.d.ts",
       "import": "./dist/i18n/availability.js",
       "default": "./dist/i18n/availability.js"
-    },
-    "./mapper": {
-      "types": "./dist/mapper.d.ts",
-      "import": "./dist/mapper.js",
-      "default": "./dist/mapper.js"
-    },
-    "./parsers": {
-      "types": "./dist/parsers/index.d.ts",
-      "import": "./dist/parsers/index.js",
-      "default": "./dist/parsers/index.js"
-    },
-    "./parsers/csv": {
-      "types": "./dist/parsers/csv.d.ts",
-      "import": "./dist/parsers/csv.js",
-      "default": "./dist/parsers/csv.js"
-    },
-    "./parsers/bitwarden": {
-      "types": "./dist/parsers/bitwarden.d.ts",
-      "import": "./dist/parsers/bitwarden.js",
-      "default": "./dist/parsers/bitwarden.js"
-    },
-    "./parsers/1password": {
-      "types": "./dist/parsers/1password.d.ts",
-      "import": "./dist/parsers/1password.js",
-      "default": "./dist/parsers/1password.js"
-    },
-    "./parsers/keepass": {
-      "types": "./dist/parsers/keepass.d.ts",
-      "import": "./dist/parsers/keepass.js",
-      "default": "./dist/parsers/keepass.js"
     },
     "./ui/import-dialog": {
       "types": "./dist/ui/import-dialog.d.ts",
@@ -92,7 +52,12 @@
       "import": "./dist/ui/file-accept.js",
       "default": "./dist/ui/file-accept.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./service": {
+      "types": "./dist/credential-import-service.d.ts",
+      "import": "./dist/credential-import-service.js",
+      "default": "./dist/credential-import-service.js"
+    }
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node ./scripts/postbuild.mjs",
@@ -106,19 +71,16 @@
   "keywords": [],
   "author": "",
   "license": "AGPL-3.0-only",
-  "dependencies": {
-    "fflate": "^0.8.3",
-    "kdbxweb": "^2.1.1",
-    "papaparse": "^5.5.4"
-  },
   "devDependencies": {
-    "@types/papaparse": "^5.3.14",
     "esbuild": "^0.28.1",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "fflate": "^0.8.3",
+    "kdbxweb": "^2.1.1"
   },
   "peerDependencies": {
     "@chromvoid/uikit": "^2.0.0",
     "@reatom/core": "^1001.0.0",
-    "lit": "^3.0.0"
+    "lit": "^3.0.0",
+    "@chromvoid/scheme": "^0.1.0"
   }
 }

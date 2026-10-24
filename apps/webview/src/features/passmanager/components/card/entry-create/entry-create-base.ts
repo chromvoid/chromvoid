@@ -6,10 +6,6 @@ import type {CVInputInputEvent} from '@chromvoid/uikit/components/cv-input'
 import type {CVRadioGroupChangeEvent} from '@chromvoid/uikit/components/cv-radio-group'
 import type {CVSwitchChangeEvent} from '@chromvoid/uikit/components/cv-switch'
 import type {CVTextareaInputEvent} from '@chromvoid/uikit/components/cv-textarea'
-import {
-  consumeAndroidPasswordSavePrefill,
-  finishAndroidPasswordSave,
-} from 'root/features/passmanager/models/android-password-save-prefill'
 import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credential-tags.model'
 import {isPassmanagerReadOnlyOrMissing} from 'root/features/passmanager/models/pm-root.adapter'
 import {
@@ -100,7 +96,6 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
 
     const submitResult = await this.model.submit()
     if (submitResult.ok) {
-      void finishAndroidPasswordSave('saved')
       return
     }
 
@@ -133,12 +128,7 @@ export abstract class PMEntryCreateBase extends ReatomLitElement {
   public override connectedCallback(): void {
     super.connectedCallback()
     this.setAttribute('theme', 'dark')
-    if (this.model.reset()) {
-      const prefill = consumeAndroidPasswordSavePrefill()
-      if (prefill) {
-        this.model.applyPrefill(prefill)
-      }
-    }
+    this.model.reset()
     this.scheduleInitialViewportPreparation()
   }
 

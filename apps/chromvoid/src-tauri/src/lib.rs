@@ -39,8 +39,9 @@ mod catalog_blocking_io;
 mod commands;
 mod core_rpc_dispatcher;
 mod credential_provider_bridge;
-mod credential_provider_contract;
-mod credential_provider_passkey;
+// Owned by `chromvoid-android-runtime`; re-exported so the shell's existing
+// paths keep working while the platform logic lives with its owner.
+pub use chromvoid_android_runtime::{credential_provider_contract, credential_provider_passkey};
 #[cfg(desktop)]
 mod env_runtime;
 #[cfg(feature = "env-runtime-test-probe")]
@@ -55,10 +56,10 @@ mod media_source;
 pub mod media_stream;
 #[cfg(desktop)]
 mod mode_transition_coordinator;
+mod module_access;
 #[cfg(any(desktop, target_os = "ios"))]
 mod otp_import_handoff;
 mod paired_store_crypto;
-mod pro;
 #[cfg(desktop)]
 mod product_cli_install;
 #[cfg(desktop)]
@@ -90,7 +91,6 @@ pub use core_adapter::{CoreAdapter, CoreMode, LocalCoreAdapter};
 #[cfg(desktop)]
 pub use core_adapter::{RemoteCancelGroup, RemoteRpcPriority};
 #[cfg(any(test, debug_assertions))]
-pub use mobile::android::{AndroidAutofillAdapter, AutofillContext};
 #[cfg(any(test, debug_assertions))]
 pub use mobile::{BiometricAuthError, TestBiometricOverride};
 #[cfg(all(desktop, any(target_os = "linux", target_os = "macos")))]
@@ -139,9 +139,8 @@ pub fn mobile_foreground_is_unlocked(adapter: &dyn CoreAdapter) -> bool {
 
 #[cfg(mobile)]
 use commands::catalog::{
-    catalog_cancel_android_shared_files, catalog_cancel_native_upload, catalog_cancel_shared_files,
-    catalog_list_shared_files, catalog_upload_android_shared_files, catalog_upload_native_files,
-    catalog_upload_shared_files,
+    catalog_cancel_native_upload, catalog_cancel_shared_files, catalog_list_shared_files,
+    catalog_upload_native_files, catalog_upload_shared_files,
 };
 use commands::catalog::{
     catalog_download, catalog_download_range, catalog_file_replace, catalog_image_metadata,
@@ -201,10 +200,7 @@ use commands::network_cmds::{
 };
 use commands::network_cmds::{mobile_acceptor_start, mobile_acceptor_status, mobile_acceptor_stop};
 #[cfg(mobile)]
-use commands::passmanager::{
-    android_otp_qr_scan_cancel, android_otp_qr_scan_start, native_otp_qr_scan_cancel,
-    native_otp_qr_scan_start,
-};
+use commands::passmanager::{native_otp_qr_scan_cancel, native_otp_qr_scan_start};
 use commands::passmanager::{
     passmanager_download, passmanager_secret_read, passmanager_secret_write_chunk,
     passmanager_upload_chunk,
@@ -216,39 +212,31 @@ use commands::ssh_agent_cmds::{
 use commands::startup::frontend_splash_ready;
 #[cfg(desktop)]
 use commands::sync_cmds::{sync_delta_apply, sync_initial, sync_reconnect, sync_write};
+#[cfg(mobile)]
+use commands::vault::configure_native_edge_back;
 use commands::vault::{
-    android_audio_session_command, android_audio_warmup, android_autofill_provider_status,
-    android_media_session_stop, android_media_session_update,
-    android_open_autofill_provider_settings, android_passkey_delete, android_passkeys_list,
-    android_quick_lock_tile_status, android_request_quick_lock_tile, android_video_start,
-    android_video_stop, backup_local_cancel, backup_local_create,
-    credential_provider_passkey_delete, credential_provider_passkeys_list,
-    credential_provider_status, erase_device, get_current_mode, get_session_settings,
-    init_local_storage, master_rekey, master_setup, mobile_biometric_auth,
+    backup_local_cancel, backup_local_create, credential_provider_passkey_delete,
+    credential_provider_passkeys_list, credential_provider_status, erase_device, get_current_mode,
+    get_session_settings, init_local_storage, master_rekey, master_setup, mobile_biometric_auth,
     mobile_notify_background, mobile_notify_foreground, native_audio_session_command,
     open_credential_provider_settings, password_strength_estimate, restore_local_cancel,
     restore_local_from_folder, restore_local_select_source, rpc_dispatch, runtime_capabilities,
     set_session_settings, storage_set_root, touch_activity, unlock_debug_log, vault_rekey,
     vault_rekey_cancel,
 };
-#[cfg(mobile)]
-use commands::vault::{android_password_save_finish, configure_native_edge_back};
 #[cfg(desktop)]
 use commands::volume_ops::{volume_get_backends, volume_get_status, volume_mount, volume_unmount};
 use media_stream::{
     prepare_media_source, prepare_media_stream, release_media_source, release_media_stream,
 };
+use module_access::{module_access_resolve, module_access_snapshot};
 #[cfg(desktop)]
 use otp_import_handoff::{macos_otp_import_clear, macos_otp_import_pending, macos_otp_import_take};
-use pro::{
-    license_account_cabinet_handoff, license_activation_code_activate,
-    license_current_seat_deactivate, license_seat_status, license_status, module_access_resolve,
-    module_access_snapshot,
-};
 
 #[cfg(desktop)]
 use shutdown::{
-    collect_desktop_exit_cleanup, exit_request_should_intercept, run_desktop_exit_cleanup,
+    collect_desktop_exit_cleanup, run_desktop_exit_cleanup, wait_desktop_exit_cleanup,
+    DesktopExitCleanupMode,
 };
 
 #[cfg(desktop)]
@@ -318,11 +306,6 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         rpc_dispatch,
-        license_activation_code_activate,
-        license_account_cabinet_handoff,
-        license_status,
-        license_seat_status,
-        license_current_seat_deactivate,
         module_access_snapshot,
         module_access_resolve,
         macos_otp_import_pending,
@@ -414,24 +397,12 @@ pub fn run() {
         network_get_bootstrap_profile,
         mobile_notify_background,
         mobile_notify_foreground,
-        android_media_session_update,
-        android_media_session_stop,
-        android_audio_session_command,
         native_audio_session_command,
-        android_audio_warmup,
-        android_video_start,
-        android_video_stop,
         mobile_biometric_auth,
-        android_autofill_provider_status,
-        android_open_autofill_provider_settings,
         credential_provider_status,
         open_credential_provider_settings,
         credential_provider_passkeys_list,
         credential_provider_passkey_delete,
-        android_passkeys_list,
-        android_passkey_delete,
-        android_quick_lock_tile_status,
-        android_request_quick_lock_tile,
         network_connection_state,
         network_list_paired_peers,
         network_remove_paired_peer,
@@ -495,11 +466,6 @@ pub fn run() {
     #[cfg(mobile)]
     let builder = builder.invoke_handler(tauri::generate_handler![
         rpc_dispatch,
-        license_activation_code_activate,
-        license_account_cabinet_handoff,
-        license_status,
-        license_seat_status,
-        license_current_seat_deactivate,
         module_access_snapshot,
         module_access_resolve,
         catalog_upload_chunk,
@@ -509,12 +475,8 @@ pub fn run() {
         catalog_upload_shared_files,
         catalog_cancel_shared_files,
         catalog_list_shared_files,
-        catalog_upload_android_shared_files,
-        catalog_cancel_android_shared_files,
         native_otp_qr_scan_start,
         native_otp_qr_scan_cancel,
-        android_otp_qr_scan_start,
-        android_otp_qr_scan_cancel,
         passmanager_upload_chunk,
         write_text_file,
         catalog_download,
@@ -563,25 +525,12 @@ pub fn run() {
         network_get_bootstrap_profile,
         mobile_notify_background,
         mobile_notify_foreground,
-        android_media_session_update,
-        android_media_session_stop,
-        android_audio_session_command,
         native_audio_session_command,
-        android_audio_warmup,
-        android_video_start,
-        android_video_stop,
         mobile_biometric_auth,
-        android_autofill_provider_status,
-        android_open_autofill_provider_settings,
         credential_provider_status,
         open_credential_provider_settings,
         credential_provider_passkeys_list,
         credential_provider_passkey_delete,
-        android_passkeys_list,
-        android_passkey_delete,
-        android_quick_lock_tile_status,
-        android_request_quick_lock_tile,
-        android_password_save_finish,
         configure_native_edge_back,
         mobile_acceptor_start,
         mobile_acceptor_stop,
@@ -614,7 +563,9 @@ pub fn run() {
         }
     };
 
-    app.run(|app_handle, event| {
+    #[cfg(desktop)]
+    let mut desktop_exit_cleanup = None;
+    app.run(move |app_handle, event| {
         #[cfg(target_os = "macos")]
         if let RunEvent::Opened { urls } = &event {
             otp_import_handoff::handle_opened_urls(app_handle, urls);
@@ -630,22 +581,45 @@ pub fn run() {
             }
         }
         #[cfg(desktop)]
-        if let RunEvent::ExitRequested { api, .. } = event {
-            otp_import_handoff::clear_pending_otp_import();
+        {
+            let mode = match &event {
+                RunEvent::ExitRequested { .. } => DesktopExitCleanupMode::Async,
+                // macOS terminate: emits Exit directly, including Dock Quit and logout.
+                RunEvent::Exit => DesktopExitCleanupMode::Blocking,
+                _ => return,
+            };
             let state: tauri::State<'_, AppState> = app_handle.state();
-            if !exit_request_should_intercept(&state.exit_in_progress) {
-                return;
+            if let Some(cleanup) =
+                mode.dispatch(&state.exit_in_progress, &mut desktop_exit_cleanup, || {
+                    if let RunEvent::ExitRequested { api, .. } = &event {
+                        api.prevent_exit();
+                    }
+                    if mode == DesktopExitCleanupMode::Blocking {
+                        tracing::info!(
+                            "app_exit: running desktop exit cleanup from RunEvent::Exit"
+                        );
+                    }
+
+                    let app = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let cleanup = {
+                            otp_import_handoff::clear_pending_otp_import();
+                            let state: tauri::State<'_, AppState> = app.state();
+                            crate::commands::vault::release_mobile_native_sessions(
+                                &app, &state, "app_exit",
+                            );
+                            collect_desktop_exit_cleanup(app.clone(), &state)
+                        };
+                        run_desktop_exit_cleanup(cleanup).await;
+                        if mode == DesktopExitCleanupMode::Async {
+                            app.exit(0);
+                        }
+                    })
+                })
+            {
+                tracing::info!("app_exit: waiting for desktop exit cleanup from RunEvent::Exit");
+                wait_desktop_exit_cleanup(cleanup);
             }
-            crate::commands::vault::release_mobile_native_sessions(app_handle, &state, "app_exit");
-
-            api.prevent_exit();
-
-            let cleanup = collect_desktop_exit_cleanup(app_handle.clone(), &state);
-            let app = app_handle.clone();
-            tauri::async_runtime::spawn(async move {
-                run_desktop_exit_cleanup(cleanup).await;
-                app.exit(0);
-            });
         }
         #[cfg(not(desktop))]
         let _ = (app_handle, event);

@@ -15,13 +15,12 @@ const TASK_LIFECYCLE_POISONED: &str = "Task lifecycle mutex poisoned";
 const TASK_LIFECYCLE_SHUTDOWN_REQUESTED: &str = "Task lifecycle shutdown requested";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(target_os = "android", allow(dead_code))]
 pub(crate) enum ManagedTaskName {
     AutoLock,
     GatewayServer,
     MediaHttpServer,
     ShutdownSignalListener,
-    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
+    #[allow(dead_code)]
     AndroidHostModeResume,
     MacosStaleMountCleanup,
 }
@@ -36,7 +35,6 @@ pub(crate) enum ExternalTaskName {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(target_os = "android", allow(dead_code))]
 pub(crate) enum EventTaskName {
     SshAgentCatalogRefresh,
     VaultAutoMountAfterUnlock,
@@ -50,12 +48,10 @@ pub(crate) enum EventTaskName {
     IosPushWakeHandling,
     #[cfg_attr(not(target_os = "ios"), allow(dead_code))]
     IosBackgroundRefresh,
-    AndroidQuickLock,
     VaultSystemSleepLock,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(target_os = "android", allow(dead_code))]
 pub(crate) enum TaskShutdownReason {
     AppExit,
     #[cfg(test)]
@@ -743,34 +739,6 @@ mod tests {
         assert_eq!(
             runtime
                 .event_task_count_for_test(EventTaskName::IosBackgroundRefresh)
-                .expect("event count"),
-            0
-        );
-    }
-
-    #[tokio::test]
-    async fn android_quick_lock_event_tasks_are_tracked_and_shutdown() {
-        let runtime = TaskLifecycleRuntime::new();
-        runtime
-            .spawn_event_async(EventTaskName::AndroidQuickLock, |_shutdown| async {
-                std::future::pending::<()>().await;
-            })
-            .expect("spawn quick lock event task");
-
-        assert_eq!(
-            runtime
-                .event_task_count_for_test(EventTaskName::AndroidQuickLock)
-                .expect("event count"),
-            1
-        );
-
-        runtime
-            .shutdown_with_grace(TaskShutdownReason::Test, Duration::ZERO)
-            .await
-            .expect("shutdown");
-        assert_eq!(
-            runtime
-                .event_task_count_for_test(EventTaskName::AndroidQuickLock)
                 .expect("event count"),
             0
         );

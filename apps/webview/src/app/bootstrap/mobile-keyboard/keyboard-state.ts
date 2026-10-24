@@ -2,8 +2,6 @@ import {KEYBOARD_FALLBACK_SETTLE_MS, MIN_SCROLL_ADJUSTMENT_PX} from './constants
 import {getVisualViewportKeyboardInset, isLikelyVisualViewportKeyboardInset, readRootCssPx} from './geometry'
 import {nowMs} from './text-field-targets'
 import {
-  ANDROID_KEYBOARD_INSETS_EVENT,
-  ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
   IOS_KEYBOARD_INSETS_EVENT,
   IOS_NATIVE_KEYBOARD_INSETS_ATTR,
   MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
@@ -15,7 +13,6 @@ import {
 
 export type MobileKeyboardStatus = 'closed' | 'opening' | 'open'
 export type MobileKeyboardStateSource =
-  | 'android-native'
   | 'ios-native'
   | 'tauri-visibility'
   | 'visual-viewport'
@@ -38,7 +35,6 @@ export type MobileKeyboardStateController = {
 }
 
 type WindowWithNativeKeyboardInsets = Window & {
-  __chromvoidAndroidKeyboardInsets?: unknown
   __chromvoidIosKeyboardInsets?: unknown
 }
 
@@ -57,7 +53,6 @@ const normalizeKeyboardPayload = (detail: unknown): NormalizedKeyboardPayload | 
   if (typeof record['visible'] !== 'boolean') return null
 
   const source =
-    record['source'] === 'android-native' ||
     record['source'] === 'ios-native' ||
     record['source'] === 'tauri-visibility'
       ? record['source']
@@ -135,7 +130,6 @@ const getRootKeyboardBottomInset = (): number =>
   )
 
 const sourceFromRoot = (root: HTMLElement): MobileKeyboardStateSource => {
-  if (root.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)) return 'android-native'
   if (root.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)) return 'ios-native'
   if (root.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)) return 'tauri-visibility'
   return 'root'
@@ -207,9 +201,9 @@ const snapshotsEqual = (a: MobileKeyboardStateSnapshot, b: MobileKeyboardStateSn
   Math.abs(a.since - b.since) <= MIN_SCROLL_ADJUSTMENT_PX
 
 export const createMobileKeyboardStateController = (): MobileKeyboardStateController => {
-  let latestPayload =
-    normalizeKeyboardPayload((window as WindowWithNativeKeyboardInsets).__chromvoidAndroidKeyboardInsets) ??
-    normalizeKeyboardPayload((window as WindowWithNativeKeyboardInsets).__chromvoidIosKeyboardInsets)
+  let latestPayload = normalizeKeyboardPayload(
+    (window as WindowWithNativeKeyboardInsets).__chromvoidIosKeyboardInsets,
+  )
   let snapshot: MobileKeyboardStateSnapshot = closedSnapshot(null)
   const listeners = new Set<(state: MobileKeyboardStateSnapshot) => void>()
 
@@ -257,7 +251,6 @@ export const createMobileKeyboardStateController = (): MobileKeyboardStateContro
           refresh('root-mutation')
         })
 
-  window.addEventListener(ANDROID_KEYBOARD_INSETS_EVENT, handleNativeEvent)
   window.addEventListener(IOS_KEYBOARD_INSETS_EVENT, handleNativeEvent)
   rootObserver?.observe(document.documentElement, {
     attributes: true,
@@ -265,7 +258,6 @@ export const createMobileKeyboardStateController = (): MobileKeyboardStateContro
       'style',
       'data-mobile-keyboard-expanded',
       NATIVE_KEYBOARD_INSETS_ATTR,
-      ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
       IOS_NATIVE_KEYBOARD_INSETS_ATTR,
       MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
     ],
@@ -285,7 +277,6 @@ export const createMobileKeyboardStateController = (): MobileKeyboardStateContro
     cleanup() {
       listeners.clear()
       rootObserver?.disconnect()
-      window.removeEventListener(ANDROID_KEYBOARD_INSETS_EVENT, handleNativeEvent)
       window.removeEventListener(IOS_KEYBOARD_INSETS_EVENT, handleNativeEvent)
     },
   }

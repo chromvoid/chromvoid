@@ -4,6 +4,12 @@ use super::super::backup_pack::BackupChunkManifest;
 use super::super::session_lifecycle::ExpiringSessionMeta;
 use crate::storage::StorageTempArtifact;
 
+pub(super) struct BackupLocalMaterial {
+    pub metadata: Vec<u8>,
+    pub master_salt: Vec<u8>,
+    pub master_verify: Vec<u8>,
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::rpc::router) struct BackupLocalMetadata {
     pub(in crate::rpc::router) metadata: String,

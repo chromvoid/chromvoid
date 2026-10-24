@@ -229,7 +229,7 @@ export class FileMediaInspectionFlow {
     if (runtimeModeModel.remoteCoreMode()) {
       return runtimeModeModel.remoteMediaInspectionVisibleAllowed() ? null : 'remote_split_unsupported'
     }
-    return getRuntimeCapabilities().platform === 'android' ? 'android_visible_optimized_out' : null
+    return null
   }
 
   private startInspection(

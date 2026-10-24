@@ -5,8 +5,10 @@ use std::time::Duration;
 use tauri::Manager;
 use tracing::{error, info, warn};
 
-use super::identity_candidate::{project_credential_identities, CredentialIdentityProjection};
 use crate::task_lifecycle::EventTaskName;
+use chromvoid_client_runtime::provider::{
+    project_credential_identities, CredentialIdentityProjection,
+};
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 
 const IDENTITY_SYNC_DEBOUNCE: Duration = Duration::from_millis(350);
@@ -128,18 +130,14 @@ fn sync_credential_identities_on_unlock_blocking(app_handle: &tauri::AppHandle) 
                 return;
             }
             let caps = crate::types::runtime_capabilities_for_current_target();
-            if let Err(error) = crate::pro::guard_pro_feature_for_adapter(
+            if let Err(error) = crate::module_access::guard_module_for_adapter(
                 adapter.as_mut(),
-                chromvoid_core::license::PRO_FEATURE_CREDENTIAL_PROVIDER,
+                crate::module_access::MODULE_CREDENTIAL_PROVIDER,
                 &caps,
             ) {
-                let denial_code = match error {
-                    crate::types::RpcResult::Error { code, .. } => code,
-                    crate::types::RpcResult::Success { .. } => None,
-                };
                 info!(
-                    denial_code = denial_code.as_deref().unwrap_or("ENTITLEMENT_UNAVAILABLE"),
-                    "credential_provider_bridge: clearing credential identities after policy denial"
+                    denial = %crate::module_access::denial_reason(error),
+                    "credential_provider_bridge: clearing credential identities after module denial"
                 );
                 drop(adapter);
                 remove_all_credential_identities();

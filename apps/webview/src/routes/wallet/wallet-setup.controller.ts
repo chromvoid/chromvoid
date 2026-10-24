@@ -54,9 +54,10 @@ export class WalletSetupController {
     try {
       const response = await wrap(
         rpcPort.rpc('wallet:hd:generateMnemonic', {
+          // The only creation shape: a universal rotation root (TEP-0003), 12 words.
           wallet_mode: MULTICHAIN_WALLET_MODE,
-          mnemonic_standard: 'bip39',
-          word_count: setup.wordCount(),
+          mnemonic_standard: 'rotation',
+          word_count: 12,
           wordlist: 'english',
         }),
       )
@@ -72,15 +73,18 @@ export class WalletSetupController {
   }
 
   async createGeneratedWallet(): Promise<void> {
+    if (!this.deps.setup.canCreateGeneratedWallet()) return
+    if (!this.deps.setup.generatedMnemonicDraftId()) await this.generateMnemonic()
     const mnemonicDraftId = this.deps.setup.generatedMnemonicDraftId()
-    if (!this.deps.setup.canCreateGeneratedWallet() || !mnemonicDraftId) return
+    if (!mnemonicDraftId || !this.deps.setup.canCreateGeneratedWallet()) return
     const created = await this.createHdWallet({
       label: this.deps.setup.createLabel(),
       mnemonic: null,
       mnemonicDraftId,
       walletMode: MULTICHAIN_WALLET_MODE,
-      mnemonicStandard: 'bip39',
+      mnemonicStandard: 'rotation',
       supportedNetworks: this.deps.setup.availableMultichainNetworks(),
+      // The passphrase is an optional extra for the non-TON accounts; off means none at all.
       bip39Passphrase: this.deps.setup.useBip39Passphrase() ? this.deps.setup.bip39Passphrase() : null,
     })
     if (created) this.deps.setup.invalidateGeneratedMnemonic()
@@ -93,11 +97,11 @@ export class WalletSetupController {
       label: setup.restoreLabel(),
       mnemonic: normalizeMnemonicText(setup.restoreMnemonicText()),
       mnemonicDraftId: null,
-      walletMode: setup.restoreProfile(),
+      walletMode: setup.restoreWalletMode(),
       mnemonicStandard: setup.restoreMnemonicStandard(),
       supportedNetworks: setup.restoreNetworks(),
       bip39Passphrase:
-        setup.restoreProfile() === MULTICHAIN_WALLET_MODE && setup.useBip39Passphrase()
+        setup.restoreWalletMode() === MULTICHAIN_WALLET_MODE && setup.useBip39Passphrase()
           ? setup.bip39Passphrase()
           : null,
     })
@@ -131,7 +135,7 @@ export class WalletSetupController {
     mnemonic: string[] | null
     mnemonicDraftId: string | null
     walletMode: typeof MULTICHAIN_WALLET_MODE | typeof TON_ONLY_WALLET_MODE
-    mnemonicStandard: 'bip39' | 'ton_native'
+    mnemonicStandard: 'bip39' | 'ton_native' | 'rotation'
     supportedNetworks: string[]
     bip39Passphrase: string | null
   }): Promise<boolean> {
@@ -140,6 +144,7 @@ export class WalletSetupController {
     setup.hdWalletLoading.set(true)
     try {
       const expectedWordCounts = input.mnemonicStandard === 'ton_native' ? [24] : [12, 24]
+      // `rotation` (Telegram Wallet, TEP-0003) accepts the 12-word initial form and the 24-word rotated form.
       if (input.mnemonic && !expectedWordCounts.includes(input.mnemonic.length)) {
         throw new Error(i18n('wallet:error:mnemonic-length'))
       }

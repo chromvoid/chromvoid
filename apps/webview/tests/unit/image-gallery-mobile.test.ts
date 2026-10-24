@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
-import {androidSystemBackModel} from '../../src/app/navigation/android-system-back.model'
+import {handleMobileBack} from '../../src/routes/app.route.model'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {ImageGalleryMobile} from '../../src/features/media/components/image-gallery-mobile/image-gallery-mobile'
@@ -298,7 +298,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     clearAppContext()
     ImageGalleryMobile.define()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_share: true,
       supports_photo_library_save: true,
@@ -356,7 +356,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     withoutSave.remove()
 
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_photo_library_save: true,
     })
@@ -470,7 +470,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     expect(syncImages).toHaveBeenCalledTimes(1)
   })
 
-  it('shows share actions on Android Tauri even when Web Share API is unavailable', async () => {
+  it('shows share actions on iOS Tauri even when Web Share API is unavailable', async () => {
     Object.defineProperty(navigator, 'share', {
       configurable: true,
       writable: true,
@@ -1106,7 +1106,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     expect(element.infoSheetOpen).toBe(false)
   })
 
-  it('closes the info sheet on Android system back before gallery navigation', async () => {
+  it('closes the info sheet on mobile back before gallery navigation', async () => {
     const element = await mountGallery()
     const goBackFromUi = vi.spyOn(navigationModel, 'goBackFromUi').mockReturnValue(true)
     const close = vi.fn()
@@ -1115,7 +1115,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     await flush(element)
     expect(element.infoSheetOpen).toBe(true)
 
-    expect(androidSystemBackModel.handleBack()).toBe(true)
+    expect(handleMobileBack()).toBe(true)
     await flush(element)
 
     expect(element.infoSheetOpen).toBe(false)
@@ -1124,7 +1124,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
     expect(goBackFromUi).not.toHaveBeenCalled()
   })
 
-  it('closes the open gallery on Android system back before route navigation', async () => {
+  it('closes the open gallery on mobile back before route navigation', async () => {
     const element = await mountGallery()
     const goBackFromUi = vi.spyOn(navigationModel, 'goBackFromUi').mockReturnValue(true)
     const close = vi.fn()
@@ -1132,7 +1132,7 @@ describe('image-gallery-mobile fast swipe queue', () => {
 
     expect(element.infoSheetOpen).toBe(false)
 
-    expect(androidSystemBackModel.handleBack()).toBe(true)
+    expect(handleMobileBack()).toBe(true)
     await flush(element)
 
     expect(close).toHaveBeenCalledTimes(1)

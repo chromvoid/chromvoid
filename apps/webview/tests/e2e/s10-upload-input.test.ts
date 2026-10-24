@@ -13,27 +13,12 @@ test('S10: Uploading a file via input', async () => {
   await page.goto('http://localhost:4400/index.html?layout=desktop')
   await waitForAuthenticated(page)
 
-  await page.waitForFunction(() => {
-    const queryDeep = (selector: string, root: ParentNode = document): Element | null => {
-      const direct = root.querySelector(selector)
-      if (direct) return direct
-
-      const elements = root.querySelectorAll('*')
-      for (const element of elements) {
-        const shadowRoot = (element as HTMLElement).shadowRoot
-        if (!shadowRoot) continue
-        const nested = queryDeep(selector, shadowRoot)
-        if (nested) return nested
-      }
-
-      return null
-    }
-
-    return Boolean(queryDeep('workspace-dashboard-header'))
-  })
+  await page.getByTestId('workspace-header').waitFor({state: 'attached'})
 
   const fileName = `sample-${Date.now()}.txt`
 
+  // Root-path fixture setup changes reactive state; yield a frame before returning
+  // so its updates cannot race Chromium's evaluate result under GC.
   await page.evaluate(async () => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
     const {getAppContext} = (await dynamicImport(
@@ -63,40 +48,15 @@ test('S10: Uploading a file via input', async () => {
         })
       }
     }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
-  await page.evaluate((name) => {
-    const queryDeep = (selector: string, root: ParentNode = document): Element | null => {
-      const direct = root.querySelector(selector)
-      if (direct) return direct
-
-      const elements = root.querySelectorAll('*')
-      for (const element of elements) {
-        const shadowRoot = (element as HTMLElement).shadowRoot
-        if (!shadowRoot) continue
-        const nested = queryDeep(selector, shadowRoot)
-        if (nested) return nested
-      }
-
-      return null
-    }
-
-    const header = queryDeep('workspace-dashboard-header')
-    if (!header) {
-      throw new Error('workspace-dashboard-header is unavailable')
-    }
-
-    const transfer = new DataTransfer()
-    transfer.items.add(new File(['hello from s10 upload input'], name, {type: 'text/plain'}))
-
-    header.dispatchEvent(
-      new CustomEvent('upload-requested', {
-        detail: {files: transfer.files},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-  }, fileName)
+  // Exercise the shared upload flow through the native file input.
+  await page.getByTestId('workspace-header').locator('input[type="file"]').setInputFiles({
+    name: fileName,
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello from s10 upload input'),
+  })
 
   await page.waitForFunction(() => Array.isArray((window as any).__s10UploadCalls) && (window as any).__s10UploadCalls.length === 1)
 

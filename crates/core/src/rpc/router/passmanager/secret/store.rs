@@ -12,16 +12,40 @@ pub(in crate::rpc::router::passmanager) fn read_secret_value(
     entry_node_id: u64,
     secret_type: &str,
 ) -> Option<String> {
-    let secret_name = secret_filename(secret_type)?;
-    let entry_path = s.catalog().get_path(entry_node_id)?;
+    read_secret_value_checked(s, storage, entry_node_id, secret_type)
+        .ok()
+        .flatten()
+}
+
+/// Only an absent catalog field is optional; unreadable stored data is an error.
+pub(in crate::rpc::router::passmanager) fn read_secret_value_checked(
+    s: &VaultSession,
+    storage: &crate::storage::Storage,
+    entry_node_id: u64,
+    secret_type: &str,
+) -> Result<Option<String>, PassmanagerCommandError> {
+    let secret_name = secret_filename(secret_type)
+        .ok_or_else(|| PassmanagerCommandError::empty_payload("Unsupported secret type"))?;
+    let entry_path = s
+        .catalog()
+        .get_path(entry_node_id)
+        .ok_or_else(|| PassmanagerCommandError::node_not_found("Entry not found"))?;
     if !is_passmanager_path(&entry_path) {
-        return None;
+        return Err(PassmanagerCommandError::access_denied("Access denied"));
     }
     let secret_path = format!("{entry_path}/{secret_name}");
-    let bytes = read_file_bytes_by_path(s, storage, &secret_path)
-        .ok()
-        .flatten()?;
-    String::from_utf8(bytes).ok()
+    if s.catalog()
+        .find_by_path(&secret_path)
+        .is_some_and(|node| !node.is_file())
+    {
+        return Err(PassmanagerCommandError::internal("Secret is not a file"));
+    }
+    read_file_bytes_by_path(s, storage, &secret_path)?
+        .map(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(|_| PassmanagerCommandError::internal("Invalid secret text"))
+        })
+        .transpose()
 }
 
 pub(in crate::rpc::router::passmanager) fn stage_secret_value(

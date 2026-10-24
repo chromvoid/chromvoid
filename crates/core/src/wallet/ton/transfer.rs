@@ -10,11 +10,12 @@ use crate::wallet::WalletChainError;
 
 use super::constants::{
     TON_COMMENT_MAX_BYTES, TON_DESTINATION_UNINITIALIZED_BOUNCEABLE_WARNING,
-    TON_DESTINATION_UNINITIALIZED_BOUNCEABLE_WARNING_MESSAGE, TON_VALID_UNTIL_SECONDS,
-    TON_WORKCHAIN,
+    TON_DESTINATION_UNINITIALIZED_BOUNCEABLE_WARNING_MESSAGE, TON_MESSAGE_MODE_SIMPLE_TRANSFER,
+    TON_VALID_UNTIL_SECONDS, TON_WORKCHAIN,
 };
 use super::error::ton_core_error;
 use super::provider::TonProviderAccountState;
+use super::wallet_tg::WalletTg;
 
 pub(super) fn validate_single_output(
     outputs: &[WalletTransactionOutput],
@@ -167,26 +168,18 @@ pub(super) fn build_internal_message(
 }
 
 pub(super) fn build_fee_estimate_body(
-    wallet: &::ton::ton_wallet::TonWallet,
+    wallet: &WalletTg,
     internal_message: ::ton::ton_core::cell::TonCell,
     seqno: u32,
     valid_until: u32,
 ) -> Result<::ton::ton_core::cell::TonCell, WalletChainError> {
-    if wallet.version != ::ton::ton_wallet::WalletVersion::V5R1 {
-        return Err(WalletChainError::unsupported_wallet_contract(
-            "TON fee estimation supports only wallet_v5r1",
-        ));
-    }
-
-    let unsigned_body = wallet
-        .create_ext_in_body(valid_until, seqno, vec![internal_message])
-        .map_err(super::error::ton_error)?;
-    let mut builder = ::ton::ton_core::cell::TonCell::builder();
-    builder.write_cell(&unsigned_body).map_err(ton_core_error)?;
-    builder
-        .write_bits(&[0u8; 64], 512)
-        .map_err(ton_core_error)?;
-    builder.build().map_err(ton_core_error)
+    let unsigned_body = wallet.build_send_one_external_body(
+        seqno,
+        valid_until,
+        TON_MESSAGE_MODE_SIMPLE_TRANSFER,
+        &internal_message,
+    )?;
+    WalletTg::unsigned_request(&unsigned_body)
 }
 
 pub(super) fn valid_until_seconds_now() -> u32 {

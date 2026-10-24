@@ -50,10 +50,7 @@ function rekeyForm(page: SettingsPage): SettingsVaultRekeyForm {
 function resetSettingsState() {
   settingsPageModel.settings.set({...DEFAULT_SESSION_SETTINGS})
   settingsPageModel.credentialProviderSelected.set(null)
-  settingsPageModel.androidQuickLockTileStatus.set(null)
   settingsPageModel.sshAgentStatus.set(null)
-  settingsPageModel.activationCodeDraft.set('')
-  settingsPageModel.activationCodeError.set('')
   vaultRekeyModel.reset()
 }
 

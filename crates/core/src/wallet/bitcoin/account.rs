@@ -1,8 +1,5 @@
-use crate::rpc::types::{DerivedAccountMetaV1, WalletAccountMeta, WalletNetwork};
-use crate::wallet::{
-    new_account_id, AllocatedAddressV1, WalletChainError, BIP39_ENGLISH_WORDLIST,
-    BIP39_MNEMONIC_STANDARD, MULTICHAIN_WALLET_MODE,
-};
+use crate::rpc::types::{WalletAccountMeta, WalletNetwork};
+use crate::wallet::{derived_account_meta, AccountScheme, AllocatedAddressV1, WalletChainError};
 
 use super::constants::{
     BITCOIN_ACCOUNT_MODEL, BITCOIN_ADDRESS_GAP, BITCOIN_DERIVATION_PROFILE, BITCOIN_NETWORK,
@@ -23,100 +20,45 @@ pub(super) fn ensure_bitcoin_network(network: &WalletNetwork) -> Result<(), Wall
     Ok(())
 }
 
-pub(super) fn ensure_bip39_hd_input(
-    wallet_mode: &str,
-    mnemonic_standard: &str,
-    mnemonic_entropy: &str,
-    wordlist: &str,
-) -> Result<(), WalletChainError> {
-    if wallet_mode != MULTICHAIN_WALLET_MODE {
-        return Err(WalletChainError::unsupported_chain(
-            "Bitcoin v1 requires wallet_mode=multichain",
-        ));
-    }
-    ensure_bip39_secret_input(mnemonic_standard, mnemonic_entropy, wordlist)
-}
-
-pub(super) fn ensure_bip39_secret_input(
-    mnemonic_standard: &str,
-    mnemonic_entropy: &str,
-    wordlist: &str,
-) -> Result<(), WalletChainError> {
-    if mnemonic_standard != BIP39_MNEMONIC_STANDARD {
-        return Err(WalletChainError::unsupported_chain(
-            "Bitcoin v1 supports only bip39 mnemonic_standard",
-        ));
-    }
-    if wordlist != BIP39_ENGLISH_WORDLIST {
-        return Err(WalletChainError::invalid_input(
-            "Bitcoin v1 supports only english wordlist",
-        ));
-    }
-    if mnemonic_entropy.is_empty() {
-        return Err(WalletChainError::invalid_input(
-            "Bitcoin HD root entropy is missing",
-        ));
-    }
-    Ok(())
-}
-
 pub(super) fn bitcoin_derived_account(
     existing: Option<&WalletAccountMeta>,
     wallet_id: String,
     network: WalletNetwork,
-    wallet_mode: Option<String>,
     account_index: u32,
     next_receive_index: u32,
     next_change_index: u32,
     current_receive: Option<DerivedAddress>,
     now: u64,
 ) -> Result<WalletAccountMeta, WalletChainError> {
-    let (account_id, created_at, label) = match existing {
-        Some(WalletAccountMeta::Derived(meta)) => (
-            meta.account_id.clone(),
-            meta.created_at,
-            meta.label
-                .clone()
-                .or_else(|| Some(format!("BTC account {}", account_index + 1))),
-        ),
+    let mut meta = match existing {
+        Some(WalletAccountMeta::Derived(meta)) => meta.clone(),
         Some(_) => {
             return Err(WalletChainError::unsupported_account_model(
                 "Bitcoin derived metadata expected",
             ))
         }
-        None => (
-            new_account_id(),
+        None => derived_account_meta(
+            wallet_id,
+            network,
+            AccountScheme::BitcoinBip84Account,
+            account_index,
             now,
-            Some(format!("BTC account {}", account_index + 1)),
         ),
     };
-    Ok(WalletAccountMeta::Derived(DerivedAccountMetaV1 {
-        account_id,
-        wallet_id,
-        network,
-        wallet_mode,
-        mnemonic_standard: BIP39_MNEMONIC_STANDARD.to_string(),
-        account_model: BITCOIN_ACCOUNT_MODEL.to_string(),
-        derivation_profile: BITCOIN_DERIVATION_PROFILE.to_string(),
-        wallet_contract: None,
-        account_index: Some(account_index),
-        workchain: None,
-        label,
-        address: None,
-        raw_account: None,
-        public_key: None,
-        derivation_path: None,
-        current_receive_address: current_receive
-            .as_ref()
-            .map(|address| address.address.clone()),
-        current_receive_derivation_path: current_receive
-            .as_ref()
-            .map(|address| address.derivation_path.clone()),
-        next_receive_index: Some(next_receive_index),
-        next_change_index: Some(next_change_index),
-        created_at,
-        updated_at: now,
-    }))
+    meta.account_model = BITCOIN_ACCOUNT_MODEL.to_string();
+    meta.label = meta
+        .label
+        .or_else(|| Some(format!("BTC account {}", account_index + 1)));
+    meta.current_receive_address = current_receive
+        .as_ref()
+        .map(|address| address.address.clone());
+    meta.current_receive_derivation_path = current_receive
+        .as_ref()
+        .map(|address| address.derivation_path.clone());
+    meta.next_receive_index = Some(next_receive_index);
+    meta.next_change_index = Some(next_change_index);
+    meta.updated_at = now;
+    Ok(WalletAccountMeta::Derived(meta))
 }
 
 pub(super) fn bitcoin_account_index(account: &WalletAccountMeta) -> Result<u32, WalletChainError> {
@@ -125,7 +67,6 @@ pub(super) fn bitcoin_account_index(account: &WalletAccountMeta) -> Result<u32, 
         WalletAccountMeta::Derived(meta) => {
             if meta.account_model != BITCOIN_ACCOUNT_MODEL
                 || meta.derivation_profile != BITCOIN_DERIVATION_PROFILE
-                || meta.mnemonic_standard != BIP39_MNEMONIC_STANDARD
             {
                 return Err(WalletChainError::unsupported_account_model(
                     "Bitcoin derived account requires bip84 utxo metadata",

@@ -24,7 +24,6 @@ export class VideoPlayerBase extends ReatomLitElement {
   declare open: boolean
 
   protected readonly model = new VideoPlayerModel({
-    onAndroidNativeVideoReleased: () => this.close(),
   })
   protected readonly videoUrl = this.model.videoUrl
   protected readonly loading = this.model.loading

@@ -3,7 +3,7 @@ use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 
-use crate::core_adapter::types::{CoreAdapter, CoreMode};
+use crate::core_adapter::{CoreAdapter, CoreMode};
 
 struct ScriptedAdapter {
     commands: Vec<String>,

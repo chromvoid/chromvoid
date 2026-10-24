@@ -1,3 +1,4 @@
+use super::secrets::ensure_english_wordlist;
 use super::*;
 
 pub struct WalletBalanceSnapshot {
@@ -60,14 +61,20 @@ impl RpcRouter {
         let config = self.wallet_runtime_config.clone();
         self.with_wallet_balance_session(|session, storage| {
             let discover_addresses = request.discover_addresses.unwrap_or(false);
-            let input =
-                wallet_balance_input(session, storage, &request.account_id, discover_addresses)?;
+            let account = load_account_by_id(session, storage, &request.account_id)?;
+            let profile = registry
+                .enabled_profile(account.network(), &config)
+                .map_err(WalletCommandError::from)?;
+            let input = wallet_balance_input(
+                session,
+                storage,
+                profile.as_ref(),
+                account,
+                discover_addresses,
+            )?;
             let account_id = input.account.account_id().to_string();
             let network = input.account.network().clone();
             let account_snapshot = input.account.clone();
-            let profile = registry
-                .enabled_profile(&network, &config)
-                .map_err(WalletCommandError::from)?;
             let Some(task) = profile
                 .split_balance_task(input)
                 .map_err(WalletCommandError::from)?
@@ -157,12 +164,18 @@ impl RpcRouter {
         let config = self.wallet_runtime_config.clone();
         self.with_wallet_session_cleaned_after_preflight(|session, storage| {
             let discover_addresses = request.discover_addresses.unwrap_or(false);
-            let input =
-                wallet_balance_input(session, storage, &request.account_id, discover_addresses)?;
-            let account = input.account.clone();
+            let account = load_account_by_id(session, storage, &request.account_id)?;
             let profile = registry
                 .enabled_profile(account.network(), &config)
                 .map_err(WalletCommandError::from)?;
+            let input = wallet_balance_input(
+                session,
+                storage,
+                profile.as_ref(),
+                account,
+                discover_addresses,
+            )?;
+            let account = input.account.clone();
             let output = profile.balance(input).map_err(WalletCommandError::from)?;
             commit_balance_materializations(
                 session,
@@ -199,18 +212,20 @@ impl RpcRouter {
 fn wallet_balance_input(
     session: &VaultSession,
     storage: &Storage,
-    account_id: &str,
+    profile: &dyn crate::wallet::WalletChainProfile,
+    account: WalletAccountMeta,
     discover_addresses: bool,
 ) -> WalletResult<crate::wallet::WalletBalanceInput> {
-    let account = load_account_by_id(session, storage, account_id)?;
-    if discover_addresses && account.network().as_str() != "bitcoin" {
+    if discover_addresses && !profile.supports_restore_discovery() {
         return Err(WalletCommandError::invalid_input(
-            "address discovery is supported only for Bitcoin accounts",
+            "restore discovery is not supported for this network",
         ));
     }
     let wallet = load_wallet(session, storage, account.wallet_id())?;
     let secret = if discover_addresses {
-        Some(load_secret(session, storage, &wallet.secret_ref)?.payload)
+        let secret = load_secret(session, storage, &wallet.secret_ref)?.payload;
+        ensure_english_wordlist(&secret)?;
+        Some(secret)
     } else {
         None
     };
@@ -247,17 +262,20 @@ fn commit_balance_materializations(
         return Ok(());
     }
 
-    let wallet = if discovery_completed {
-        let mut wallet = load_wallet(session, storage, account.wallet_id())?;
-        wallet.bitcoin_discovery_pending = Some(false);
+    let mut wallet = load_wallet(session, storage, account.wallet_id())?;
+    if discovery_completed {
+        if account.network().as_str() == "bitcoin" {
+            wallet.bitcoin_discovery_pending = Some(false);
+        } else {
+            wallet
+                .account_discovery_pending
+                .retain(|network| network != account.network());
+        }
         wallet.updated_at = now_ms();
-        Some(wallet)
-    } else {
-        None
-    };
+    }
     let mut uow = begin_wallet_uow(session, storage, "wallet-balance-backfill");
-    materialize_profile_accounts(&mut uow, materializations)?;
-    if let Some(wallet) = wallet {
+    materialize_profile_accounts(&mut uow, materializations, &wallet)?;
+    if discovery_completed {
         write_json(
             &mut uow,
             &wallet_meta_path(&wallet.wallet_id),

@@ -49,7 +49,7 @@ export async function waitForAuthenticated(page: Page) {
         ),
       )
 
-      return rootReady && bodyReady && routeReady && !deepFind(document, 'welcome-page, no-license, no-connection')
+      return rootReady && bodyReady && routeReady && !deepFind(document, 'welcome-page, no-connection')
     },
     undefined,
     {timeout: 10_000},
@@ -174,30 +174,15 @@ export async function mockDeleteConfirmDialog(page: Page, confirmed: boolean) {
 
 export async function createFolder(page: Page, name: string) {
   await mockCreateFolderDialog(page, name)
-  const requested = await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (!element.shadowRoot) continue
-        const inner = deepFind(element.shadowRoot, selector)
-        if (inner) return inner
-      }
-      return null
-    }
-
-    const button = deepFind(document, '[data-action="create-dir"]') as HTMLElement | null
-    button?.click()
-    return Boolean(button)
-  })
-  if (!requested) {
-    throw new Error('Create folder action is unavailable')
-  }
+  // Real input keeps app updates outside evaluate's weakly held result promise in Chromium 149.
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {timeout: 10_000})
+  await page.locator('[data-action="create-dir"]').click()
 }
 
 export async function dispatchFileAction(page: Page, name: string, action: string) {
+  // This helper tests the synthetic file-action contract; yield a frame for the same GC boundary.
   await page.evaluate(
-    ({itemName, nextAction}) => {
+    async ({itemName, nextAction}) => {
       function deepCollect(root: Document | ShadowRoot, selector: string, acc: Element[] = []): Element[] {
         for (const el of root.querySelectorAll(selector)) {
           acc.push(el)
@@ -226,6 +211,7 @@ export async function dispatchFileAction(page: Page, name: string, action: strin
           },
         }),
       )
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     },
     {itemName: name, nextAction: action},
   )

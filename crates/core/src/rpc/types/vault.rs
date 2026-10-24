@@ -13,6 +13,7 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct VaultStatusResponse {
     pub is_unlocked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,10 +67,68 @@ pub struct MasterSetupResponse {
     pub created: bool,
 }
 
+/// Canonical `master:setup` wire request; never expose the password through Debug.
+#[derive(Clone, Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+pub struct MasterSetupRequest {
+    pub master_password: String,
+}
+
+impl std::fmt::Debug for MasterSetupRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MasterSetupRequest")
+            .field("master_password", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Canonical `master:rekey` wire request; never expose passwords through Debug.
+#[derive(Clone, Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct MasterRekeyRequest {
+    pub current_password: String,
+    pub new_master_password: String,
+}
+
+impl std::fmt::Debug for MasterRekeyRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MasterRekeyRequest")
+            .field("current_password", &"[redacted]")
+            .field("new_master_password", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Canonical `vault:rekey` wire request; Core owns validation and migration.
+#[derive(Clone, Serialize, Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct VaultRekeyRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+impl std::fmt::Debug for VaultRekeyRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("VaultRekeyRequest")
+            .field("current_password", &"[redacted]")
+            .field("new_password", &"[redacted]")
+            .finish()
+    }
+}
+
 /// master:rekey response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct MasterRekeyResponse {
     pub rewrapped_artifacts: Vec<String>,
     pub backup_recommended: bool,
@@ -89,6 +148,7 @@ pub struct BackupResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct VaultRekeyResponse {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub migrated_chunks: u64,
@@ -101,4 +161,28 @@ pub struct VaultRekeyResponse {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub duration_ms: u64,
     pub backup_recommended: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::rpc::types::RpcCommand;
+    use serde_json::json;
+
+    #[test]
+    fn rekey_wire_requests_preserve_the_existing_shape_and_redact_passwords() {
+        for (command, field) in [
+            ("vault:rekey", "new_password"),
+            ("master:rekey", "new_master_password"),
+        ] {
+            let input = json!({"command":command, "data":{
+                "current_password":"synthetic current secret", field:"synthetic new secret"
+            }});
+            let decoded: RpcCommand = serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&decoded).unwrap(), input);
+            let debug = format!("{decoded:?}");
+            assert!(!debug.contains("synthetic current secret"));
+            assert!(!debug.contains("synthetic new secret"));
+            assert!(debug.contains("[redacted]"));
+        }
+    }
 }

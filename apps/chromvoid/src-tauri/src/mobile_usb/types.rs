@@ -351,6 +351,8 @@ pub enum MobileUsbErrorCode {
     PairingDuplicate,
     #[serde(rename = "ERR_USB_MOBILE_HANDSHAKE_FAILED")]
     HandshakeFailed,
+    #[serde(rename = "ERR_USB_MOBILE_PHONE_NOT_RESPONDING")]
+    PhoneNotResponding,
     #[serde(rename = "ERR_USB_MOBILE_STALE_PAIRING")]
     StalePairing,
     #[serde(rename = "ERR_USB_MOBILE_SECRET_STORE_UNAVAILABLE")]
@@ -386,6 +388,7 @@ pub enum MobileUsbErrorCode {
 pub enum MobileUsbRecoveryAction {
     HideUsbEntry,
     ManualRetry,
+    RetryOrRepair,
     RetryScan,
     RetryPermission,
     WaitInFlight,
@@ -414,6 +417,7 @@ impl MobileUsbErrorCode {
             Self::NotPaired => "ERR_USB_MOBILE_NOT_PAIRED",
             Self::PairingDuplicate => "ERR_USB_MOBILE_PAIRING_DUPLICATE",
             Self::HandshakeFailed => "ERR_USB_MOBILE_HANDSHAKE_FAILED",
+            Self::PhoneNotResponding => "ERR_USB_MOBILE_PHONE_NOT_RESPONDING",
             Self::StalePairing => "ERR_USB_MOBILE_STALE_PAIRING",
             Self::SecretStoreUnavailable => "ERR_USB_MOBILE_SECRET_STORE_UNAVAILABLE",
             Self::SecretRefInvalid => "ERR_USB_MOBILE_SECRET_REF_INVALID",
@@ -453,6 +457,7 @@ impl MobileUsbErrorCode {
             Self::AmbiguousDiscovery => MobileUsbRecoveryAction::ListPaired,
             Self::NotPaired => MobileUsbRecoveryAction::PairHost,
             Self::PairingDuplicate => MobileUsbRecoveryAction::ConnectExisting,
+            Self::PhoneNotResponding => MobileUsbRecoveryAction::RetryOrRepair,
             Self::StalePairing | Self::SecretRefInvalid => MobileUsbRecoveryAction::RemoveAndRepair,
             Self::CableDisconnected => MobileUsbRecoveryAction::DisconnectBeforeRetry,
             Self::HostLocked => MobileUsbRecoveryAction::WaitForHostUnlock,

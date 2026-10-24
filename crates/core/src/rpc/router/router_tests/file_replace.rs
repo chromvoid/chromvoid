@@ -139,6 +139,79 @@ fn test_catalog_file_replace_same_larger_smaller_and_empty() {
     }
 }
 
+fn stored_chunk_size(router: &RpcRouter, node_id: u64) -> u32 {
+    router
+        .session
+        .as_ref()
+        .expect("session")
+        .catalog()
+        .find_by_id(node_id)
+        .expect("node")
+        .chunk_size
+}
+
+fn blob_chunk_exists(router: &RpcRouter, node_id: u64, index: u32) -> bool {
+    router
+        .storage
+        .chunk_exists(&catalog_blob_chunk_name(router, node_id, index))
+        .expect("chunk lookup")
+}
+
+#[test]
+fn test_catalog_file_replace_rewrites_tiny_chunks_at_the_default_size() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_test_router(&mut router);
+    // A note first written with 8 bytes keeps an 8-byte chunk.
+    let (node_id, source_revision) =
+        prepare_test_file_with_chunk_size(&mut router, "notes.md", b"original", 8);
+    assert_eq!(stored_chunk_size(&router, node_id), 8);
+
+    let grown: Vec<u8> = (0..40_000u32).map(|n| (n % 251) as u8).collect();
+    let result = replace_test_file(
+        &mut router,
+        node_id,
+        &grown,
+        Some(source_revision),
+        Some("fail_if_stale"),
+    );
+    let source_revision = result
+        .get("source_revision")
+        .and_then(|value| value.as_u64())
+        .expect("source revision");
+    assert_eq!(
+        stored_chunk_size(&router, node_id),
+        crate::types::DEFAULT_CHUNK_SIZE
+    );
+    assert_eq!(read_catalog_download(&mut router, node_id).1, grown);
+    // 40,000 bytes are three default chunks, not 5,000 of 8 bytes.
+    assert!(blob_chunk_exists(&router, node_id, 2));
+    assert!(!blob_chunk_exists(&router, node_id, 3));
+
+    // A file whose chunk is already large keeps it.
+    let (large, large_revision) =
+        prepare_test_file_with_chunk_size(&mut router, "large.bin", b"original", 65_536);
+    replace_test_file(
+        &mut router,
+        large,
+        &grown,
+        Some(large_revision),
+        Some("fail_if_stale"),
+    );
+    assert_eq!(stored_chunk_size(&router, large), 65_536);
+    assert_eq!(read_catalog_download(&mut router, large).1, grown);
+
+    // Shrinking again keeps the default size and drops the chunks past the end.
+    replace_test_file(
+        &mut router,
+        node_id,
+        b"short",
+        Some(source_revision),
+        Some("fail_if_stale"),
+    );
+    assert_eq!(read_catalog_download(&mut router, node_id).1, b"short");
+    assert!(!blob_chunk_exists(&router, node_id, 1));
+}
+
 #[test]
 fn test_catalog_file_replace_recovers_uncommitted_canonical_commit() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
@@ -175,6 +248,8 @@ fn test_catalog_file_replace_recovers_uncommitted_canonical_commit() {
     let (meta, bytes) = read_catalog_download(&mut recovered, node_id);
     assert_eq!(bytes, b"original");
     assert_eq!(meta.size, 8);
+    // The rewrite at the default chunk size never reached the catalog: the old size stands.
+    assert_eq!(stored_chunk_size(&recovered, node_id), 4);
     let metadata = recovered.handle(&RpcRequest::new(
         "catalog:source:metadata",
         serde_json::json!({"node_id": node_id}),
@@ -225,6 +300,11 @@ fn test_catalog_file_replace_recovers_committed_marker_cleanup() {
     let (meta, bytes) = read_catalog_download(&mut recovered, node_id);
     assert_eq!(bytes, b"changed");
     assert_eq!(meta.size, 7);
+    // The catalog saved the rewrite, and its default chunk size with it.
+    assert_eq!(
+        stored_chunk_size(&recovered, node_id),
+        crate::types::DEFAULT_CHUNK_SIZE
+    );
     let metadata = recovered.handle(&RpcRequest::new(
         "catalog:source:metadata",
         serde_json::json!({"node_id": node_id}),

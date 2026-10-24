@@ -5,7 +5,9 @@ import {css, nothing, type TemplateResult} from 'lit'
 
 import {i18n} from 'root/i18n'
 import {formatWalletAmount, shortenAddress} from './wallet-format'
+import {getWalletNetworkProfile} from './wallet-network'
 import {walletPageModel} from './wallet-page.model'
+import {PRIMARY_RECIPIENT_ID} from './wallet-send.model'
 import type {WalletPrepareResponse} from './wallet-page.types'
 
 export class WalletSendForm extends ReatomLitElement {
@@ -113,6 +115,21 @@ export class WalletSendForm extends ReatomLitElement {
       .hint {
         color: var(--app-editorial-text-tertiary, var(--cv-color-text-muted));
         font-size: var(--cv-font-size-xs);
+      }
+
+      .network-hint {
+        display: flex;
+        align-items: center;
+        gap: var(--app-spacing-1);
+        margin: 0;
+      }
+
+      .network-hint cv-icon {
+        color: var(--cv-color-success, var(--cv-color-accent));
+      }
+
+      .network-hint.mismatch {
+        color: var(--cv-color-danger, var(--cv-color-text-danger));
       }
 
       dd,
@@ -315,8 +332,8 @@ export class WalletSendForm extends ReatomLitElement {
             <dd><bdi dir="auto">${wallet.label}</bdi></dd>
           </div>
           <div>
-            <dt>${i18n('wallet:field:account')}</dt>
-            <dd><bdi dir="auto">${account.label ?? profile.label}</bdi></dd>
+            <dt>${i18n('wallet:field:network')}</dt>
+            <dd id="wallet-send-network"><span dir="ltr">${profile.label}</span></dd>
           </div>
           <div>
             <dt>${i18n('wallet:send:available')}</dt>
@@ -473,6 +490,7 @@ export class WalletSendForm extends ReatomLitElement {
           </div>
           ${addressError ? html`<span slot="error">${addressError}</span>` : nothing}
         </cv-field>
+        ${id === PRIMARY_RECIPIENT_ID ? this.renderDestinationNetworkHint(profile.network) : nothing}
         <cv-field .invalid=${Boolean(amountError)} required>
           <span slot="label">${i18n('wallet:field:amount')} (${profile.symbol})</span>
           <div class="field-action-row">
@@ -500,6 +518,26 @@ export class WalletSendForm extends ReatomLitElement {
         </cv-field>
       </section>
     `
+  }
+
+  /**
+   * Address-first feedback: the network is read from the pasted address. A mismatch means the
+   * address belongs to a network this wallet has no account for.
+   */
+  private renderDestinationNetworkHint(currentNetwork: string): TemplateResult | typeof nothing {
+    const mismatch = this.model.sendDestinationNetworkMismatch()
+    if (mismatch) {
+      const label = getWalletNetworkProfile(mismatch)?.label ?? mismatch
+      return html`<p class="hint network-hint mismatch" role="alert">
+        ${i18n('wallet:send:error:network-mismatch', {network: label})}
+      </p>`
+    }
+    const detected = this.model.sendDestinationNetwork()
+    if (!detected || detected !== currentNetwork) return nothing
+    const label = getWalletNetworkProfile(detected)?.label ?? detected
+    return html`<p class="hint network-hint" role="status">
+      <cv-icon name="check"></cv-icon>${i18n('wallet:send:network-detected', {network: label})}
+    </p>`
   }
 
   private renderRecipientPicker(): TemplateResult {
@@ -678,6 +716,18 @@ export class WalletSendForm extends ReatomLitElement {
                 </div>
               `
             : nothing}
+          ${preview.solana
+            ? html`
+                <div>
+                  <dt>${i18n('wallet:preview:recent-blockhash')}</dt>
+                  <dd dir="ltr">${preview.solana.recent_blockhash}</dd>
+                </div>
+                <div>
+                  <dt>${i18n('wallet:preview:valid-until-block')}</dt>
+                  <dd>${preview.solana.last_valid_block_height}</dd>
+                </div>
+              `
+            : nothing}
         </dl>
         ${this.model.preparedAmountBelowFee()
           ? html`<p class="feedback" role="alert">${i18n('wallet:preview:amount-below-fee')}</p>`
@@ -726,7 +776,9 @@ export class WalletSendForm extends ReatomLitElement {
   private handleAddressInput(event: Event): void {
     const input = event.currentTarget as HTMLInputElement
     const id = input.dataset['recipientId']
-    if (id) this.model.send.setRecipientAddress(id, input.value)
+    if (!id) return
+    this.model.send.setRecipientAddress(id, input.value)
+    if (id === PRIMARY_RECIPIENT_ID) void this.model.retargetSendToDestination()
   }
 
   private handleAmountInput(event: Event): void {

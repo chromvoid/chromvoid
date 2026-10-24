@@ -1,6 +1,6 @@
 pub mod connection;
 mod host_responder_task;
-pub mod ios_control;
+pub use chromvoid_network_runtime::ios_control;
 pub mod ios_lifecycle;
 pub mod ios_pairing;
 pub mod ios_peers;
@@ -10,11 +10,13 @@ pub mod mobile_acceptor;
 pub mod mobile_host;
 pub mod paired_peers;
 pub mod pairing;
-mod rustls_crypto;
+// Only the desktop stealth transport installs the provider explicitly.
+#[cfg(desktop)]
+pub(crate) use chromvoid_network_runtime::rustls_crypto;
 pub mod safety;
 pub mod server_profiles;
 pub mod signaling;
-pub mod wss_transport;
+pub use chromvoid_network_runtime::wss_transport;
 
 #[cfg(desktop)]
 pub mod fallback;

@@ -153,7 +153,6 @@ pub(crate) fn release_media_source(
         );
     }
 
-    stop_native_video_delivery(&args.source_token);
     state.media_streams.release(&args.source_token);
     rpc_ok(Value::Null)
 }
@@ -288,11 +287,9 @@ pub(crate) fn prepare_media_source_value(
     let (provider, transport_session_generation) = prepared_video_provider(adapter, platform);
     let deliveries = prepared_video_deliveries(
         &session,
-        &metadata.name,
         platform,
         metadata.media_info.as_ref(),
         loopback_base_url,
-        transport_session_generation,
     );
     if deliveries.is_empty() {
         manager.release(&session.token);
@@ -353,23 +350,11 @@ fn prepared_video_provider(
 
 fn prepared_video_deliveries(
     session: &crate::media_source::LocalMediaSourceSession,
-    name: &str,
     platform: &'static str,
     media_info: Option<&CatalogMediaInfo>,
     loopback_base_url: Option<String>,
-    transport_session_generation: Option<u64>,
 ) -> Vec<PreparedVideoDelivery> {
     let mut deliveries = Vec::new();
-
-    if cfg!(target_os = "android")
-        && crate::types::runtime_capabilities_for_current_target().supports_android_native_video
-        && start_native_video_delivery(session, name, transport_session_generation)
-    {
-        deliveries.push(PreparedVideoDelivery::NativeVideo {
-            platform,
-            native_source_token: session.token.clone(),
-        });
-    }
 
     if cfg!(desktop) && crate::types::media_http_stream_enabled_for_target() {
         if let Some(base_url) = loopback_base_url {
@@ -434,38 +419,6 @@ fn prepared_segment_range(range: &CatalogMediaSegmentRange) -> PreparedVideoSegm
         offset: range.offset,
         length: range.length,
         timestamp_us: range.timestamp_us,
-    }
-}
-
-fn start_native_video_delivery(
-    session: &crate::media_source::LocalMediaSourceSession,
-    name: &str,
-    transport_session_generation: Option<u64>,
-) -> bool {
-    if cfg!(target_os = "android") {
-        let source_json = serde_json::json!({
-            "streamId": session.token,
-            "nativeSourceToken": session.token,
-            "token": session.token,
-            "nodeId": session.node_id,
-            "name": name,
-            "mimeType": session.mime_type,
-            "size": session.size,
-            "sourceRevision": session.source_revision,
-            "mediaSourceGeneration": session.generation,
-            "transportSessionGeneration": transport_session_generation,
-            "appForegroundEpoch": 1,
-        })
-        .to_string();
-        return crate::mobile::android::start_video_playback(&source_json);
-    }
-
-    false
-}
-
-fn stop_native_video_delivery(source_token: &str) {
-    if cfg!(target_os = "android") {
-        let _ = crate::mobile::android::stop_video_playback(source_token);
     }
 }
 
@@ -757,6 +710,68 @@ mod tests {
                 }
             }
             RpcResult::Error { error, .. } => panic!("unexpected error: {error}"),
+        }
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn loopback_media_csp_allows_prepared_desktop_video_source() {
+        let _lock = env_lock();
+        let _guard = EnvGuard::unset("CHROMVOID_DISABLE_MEDIA_HTTP_STREAM");
+        let adapter = boxed_adapter(TestAdapter {
+            mode: CoreMode::Local,
+            unlocked: true,
+            metadata: success_metadata("movie.mp4", Some("video/mp4"), 456),
+        });
+        let result = prepare_media_source_value(
+            &adapter,
+            &LocalMediaSourceManager::new(),
+            PrepareMediaSourceArgs {
+                kind: "video".to_string(),
+                node_id: 9,
+                source_revision: None,
+                owner_token: None,
+                file_name: None,
+                mime_type: None,
+                last_modified: None,
+            },
+            Some("http://127.0.0.1:43210".to_string()),
+        );
+        let result = match result {
+            RpcResult::Success { result, .. } => result,
+            RpcResult::Error { error, .. } => panic!("unexpected error: {error}"),
+        };
+        let url = result
+            .deliveries
+            .iter()
+            .find_map(|delivery| match delivery {
+                PreparedVideoDelivery::LoopbackHttp { url, .. } => Some(url),
+                _ => None,
+            })
+            .expect("prepared video source must include loopback-http delivery");
+        let url = url::Url::parse(url).unwrap();
+        let loopback_source = format!("{}://{}:*", url.scheme(), url.host_str().unwrap());
+        for (name, json) in [
+            ("tauri.conf.json", include_str!("../../tauri.conf.json")),
+            (
+                "tauri.dev.conf.json",
+                include_str!("../../tauri.dev.conf.json"),
+            ),
+        ] {
+            let config: Value = serde_json::from_str(json).unwrap();
+            let csp = config["app"]["security"]["csp"].as_str().unwrap();
+            // The video element needs media-src; MSE segment fetches
+            // use the same loopback origin and need connect-src.
+            for directive in ["media-src", "connect-src"] {
+                assert!(
+                    csp.split(';').any(|entry| {
+                        let mut tokens = entry.split_whitespace();
+                        tokens.next() == Some(directive)
+                            && tokens.any(|source| source == loopback_source)
+                    }),
+                    "{name}: {directive} must allow {loopback_source} for {url}"
+                );
+            }
         }
     }
 

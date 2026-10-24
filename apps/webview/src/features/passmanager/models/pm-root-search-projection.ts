@@ -10,7 +10,7 @@ import {
 } from '@project/passmanager/select'
 import {groupEntries} from '@project/passmanager/sorting'
 import {pmModel} from '../password-manager.model'
-import {groupBy, sortDirection, sortField, type GroupBy, type SortDirection, type SortField} from '../components/list/sort-controls'
+import {groupBy, sortDirection, sortField, type GroupBy, type SortDirection, type SortField} from '../components/list/sort-controls.model'
 
 export type PMGroupHeaderRow = {
   kind: 'header'

@@ -1,5 +1,5 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest'
-import {writeClipboardText, copyWithAutoWipe, getTauriInternals} from './utils'
+import {writeSecretClipboardText, copyWithAutoWipe, getTauriInternals} from './utils'
 
 type TauriInternals = {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
@@ -13,7 +13,7 @@ function removeTauri(): void {
   delete (globalThis as unknown as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
 }
 
-describe('writeClipboardText', () => {
+describe('writeSecretClipboardText', () => {
   beforeEach(() => {
     removeTauri()
   })
@@ -25,23 +25,24 @@ describe('writeClipboardText', () => {
 
   // ── Tauri path ──────────────────────────────────────────────────
 
-  it('calls Tauri IPC with correct command and payload', async () => {
+  it('writes through the Tauri write_secret command, not write_text', async () => {
     const invoke = vi.fn().mockResolvedValue(undefined)
     installTauri(invoke)
 
-    await writeClipboardText('hello')
+    await writeSecretClipboardText('hello')
 
     expect(invoke).toHaveBeenCalledOnce()
-    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'hello'})
+    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_secret', {text: 'hello'})
+    expect(invoke).not.toHaveBeenCalledWith('plugin:clipboard-manager|write_text', expect.anything())
   })
 
-  it('calls Tauri IPC for empty string (wipe)', async () => {
+  it('calls Tauri write_secret for empty string (wipe)', async () => {
     const invoke = vi.fn().mockResolvedValue(undefined)
     installTauri(invoke)
 
-    await writeClipboardText('')
+    await writeSecretClipboardText('')
 
-    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: ''})
+    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_secret', {text: ''})
   })
 
   it('does not fall through to navigator.clipboard when Tauri succeeds', async () => {
@@ -55,7 +56,7 @@ describe('writeClipboardText', () => {
       configurable: true,
     })
 
-    await writeClipboardText('secret')
+    await writeSecretClipboardText('secret')
 
     expect(invoke).toHaveBeenCalledOnce()
     expect(browserWrite).not.toHaveBeenCalled()
@@ -65,7 +66,7 @@ describe('writeClipboardText', () => {
     const invoke = vi.fn().mockRejectedValue(new Error('ACL denied'))
     installTauri(invoke)
 
-    await expect(writeClipboardText('test')).rejects.toThrow('ACL denied')
+    await expect(writeSecretClipboardText('test')).rejects.toThrow('ACL denied')
   })
 
   // ── Browser fallback path ───────────────────────────────────────
@@ -78,7 +79,7 @@ describe('writeClipboardText', () => {
       configurable: true,
     })
 
-    await writeClipboardText('browser-text')
+    await writeSecretClipboardText('browser-text')
 
     expect(browserWrite).toHaveBeenCalledWith('browser-text')
   })
@@ -93,7 +94,7 @@ describe('writeClipboardText', () => {
     const execCommand = vi.fn().mockReturnValue(true)
     vi.spyOn(document, 'execCommand').mockImplementation(execCommand)
 
-    await writeClipboardText('legacy')
+    await writeSecretClipboardText('legacy')
 
     expect(execCommand).toHaveBeenCalledWith('copy')
   })
@@ -126,13 +127,13 @@ describe('copyWithAutoWipe', () => {
     vi.restoreAllMocks()
   })
 
-  it('copies text via Tauri IPC', async () => {
+  it('copies text as a secret via Tauri IPC', async () => {
     const invoke = vi.fn().mockResolvedValue(undefined)
     installTauri(invoke)
 
     await copyWithAutoWipe('password123', 0)
 
-    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'password123'})
+    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_secret', {text: 'password123'})
   })
 
   it('schedules a wipe after the specified delay', async () => {
@@ -142,12 +143,12 @@ describe('copyWithAutoWipe', () => {
     await copyWithAutoWipe('secret', 5000)
 
     expect(invoke).toHaveBeenCalledTimes(1)
-    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_text', {text: 'secret'})
+    expect(invoke).toHaveBeenCalledWith('plugin:clipboard-manager|write_secret', {text: 'secret'})
 
     await vi.advanceTimersByTimeAsync(5000)
 
     expect(invoke).toHaveBeenCalledTimes(2)
-    expect(invoke).toHaveBeenLastCalledWith('plugin:clipboard-manager|write_text', {text: ''})
+    expect(invoke).toHaveBeenLastCalledWith('plugin:clipboard-manager|write_secret', {text: ''})
   })
 
   it('does not schedule wipe when wipeMs is 0', async () => {
@@ -170,15 +171,15 @@ describe('copyWithAutoWipe', () => {
     await copyWithAutoWipe('second', 5000)
 
     expect(invoke).toHaveBeenCalledTimes(2)
-    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_text', {text: 'first'})
-    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_text', {text: 'second'})
+    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_secret', {text: 'first'})
+    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_secret', {text: 'second'})
 
     await vi.advanceTimersByTimeAsync(1999)
     expect(invoke).toHaveBeenCalledTimes(2)
 
     await vi.advanceTimersByTimeAsync(3001)
     expect(invoke).toHaveBeenCalledTimes(3)
-    expect(invoke).toHaveBeenLastCalledWith('plugin:clipboard-manager|write_text', {text: ''})
+    expect(invoke).toHaveBeenLastCalledWith('plugin:clipboard-manager|write_secret', {text: ''})
   })
 
   it('cancels a pending wipe after a successful no-wipe copy', async () => {
@@ -190,8 +191,8 @@ describe('copyWithAutoWipe', () => {
     await vi.advanceTimersByTimeAsync(5000)
 
     expect(invoke).toHaveBeenCalledTimes(2)
-    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_text', {text: 'first'})
-    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_text', {text: 'keep'})
+    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_secret', {text: 'first'})
+    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_secret', {text: 'keep'})
   })
 
   it('rejects when the initial clipboard write fails', async () => {
@@ -211,7 +212,7 @@ describe('copyWithAutoWipe', () => {
     await vi.advanceTimersByTimeAsync(5000)
 
     expect(invoke).toHaveBeenCalledTimes(2)
-    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_text', {text: 'secret'})
-    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_text', {text: ''})
+    expect(invoke).toHaveBeenNthCalledWith(1, 'plugin:clipboard-manager|write_secret', {text: 'secret'})
+    expect(invoke).toHaveBeenNthCalledWith(2, 'plugin:clipboard-manager|write_secret', {text: ''})
   })
 })

@@ -1,20 +1,20 @@
 import {render, type TemplateResult} from 'lit'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
-import {moduleAccessModel, type ModuleAccessState} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel, type ModuleAccessGate} from '../../src/core/modules/module-access.model'
 import {setLang} from '../../src/i18n'
 import {ChromVoidApp} from '../../src/routes/app.route.impl'
 
 type ModuleAccessRenderer = {
-  renderModuleAccessChecking: () => TemplateResult
-  renderModuleAccessState: (surface: 'remote', access: ModuleAccessState) => TemplateResult
+  renderModuleAccessGate: (gate: Exclude<ModuleAccessGate, {kind: 'open'}>) => TemplateResult
 }
 
-function createRenderer(): {app: ChromVoidApp; renderer: ModuleAccessRenderer; container: HTMLElement} {
+function renderGate(gate: Exclude<ModuleAccessGate, {kind: 'open'}>): HTMLElement {
   const app = new ChromVoidApp()
   const container = document.createElement('div')
   document.body.append(container)
-  return {app, renderer: app as unknown as ModuleAccessRenderer, container}
+  render((app as unknown as ModuleAccessRenderer).renderModuleAccessGate(gate), container, {host: app})
+  return container
 }
 
 afterEach(() => {
@@ -25,58 +25,44 @@ afterEach(() => {
 })
 
 describe('ChromVoidApp module access states', () => {
-  it('presents active Core resolution as a neutral live status', () => {
-    const {app, renderer, container} = createRenderer()
+  it('presents the availability check as a neutral live status', () => {
+    const container = renderGate({kind: 'checking'})
 
-    render(renderer.renderModuleAccessChecking(), container, {host: app})
-
-    const state = container.querySelector<HTMLElement>('.pro-access-state')
-    expect(state?.getAttribute('role')).toBe('status')
-    expect(container.textContent).toContain('Checking license')
-    expect(container.textContent).toContain('Reading the license state from the active Core')
-    expect(container.textContent).not.toContain('Pro license required')
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Checking availability')
     expect(container.querySelector('button')).toBeNull()
   })
 
-  it('offers retry diagnostics without presenting an upgrade prompt when entitlement is unavailable', () => {
+  it('offers a retry when availability could not be checked', () => {
     const refresh = vi.spyOn(moduleAccessModel, 'refresh').mockResolvedValue()
-    const {app, renderer, container} = createRenderer()
+    const container = renderGate({kind: 'check-failed'})
 
-    render(
-      renderer.renderModuleAccessState('remote', {
-        feature_key: 'remote',
-        status: 'entitlement_unavailable',
-        denial_code: 'ENTITLEMENT_UNAVAILABLE',
-      }),
-      container,
-      {host: app},
-    )
+    const alert = container.querySelector('[role="alert"]')
+    expect(alert?.textContent).toContain('Could not check availability')
+    expect(alert?.textContent).toContain('could not confirm whether this feature is available')
 
-    expect(container.querySelector('.pro-access-state')?.getAttribute('role')).toBe('alert')
-    expect(container.textContent).toContain('License status unavailable')
-    expect(container.textContent).toContain('Try again')
-    expect(container.textContent).not.toContain('Pro license required')
-    expect(container.textContent).not.toContain('Settings')
-
-    container.querySelector<HTMLButtonElement>('.pro-access-state__button')?.click()
+    const buttons = Array.from(container.querySelectorAll('button'))
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Try again'])
+    buttons[0]?.click()
     expect(refresh).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps Settings as the action for a resolved Pro lock', () => {
-    const {app, renderer, container} = createRenderer()
+  it('explains a module the release has disabled without offering any action', () => {
+    const container = renderGate({
+      kind: 'unavailable',
+      access: {feature_key: 'remote', status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
+    })
 
-    render(
-      renderer.renderModuleAccessState('remote', {
-        feature_key: 'remote',
-        status: 'locked_pro',
-        denial_code: 'PRO_REQUIRED',
-      }),
-      container,
-      {host: app},
-    )
+    expect(container.textContent).toContain('This feature is currently disabled')
+    expect(container.querySelector('button')).toBeNull()
+  })
 
-    expect(container.textContent).toContain('Pro license required')
-    expect(container.textContent).toContain('Settings')
-    expect(container.textContent).not.toContain('Try again')
+  it('explains a module the platform cannot run', () => {
+    const container = renderGate({
+      kind: 'unavailable',
+      access: {feature_key: 'remote', status: 'unsupported', denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM'},
+    })
+
+    expect(container.textContent).toContain('This feature is not available on this platform')
+    expect(container.querySelector('button')).toBeNull()
   })
 })

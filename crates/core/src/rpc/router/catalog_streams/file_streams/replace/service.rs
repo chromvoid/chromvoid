@@ -24,7 +24,16 @@ struct ReplaceTargetSnapshot {
     old_media_inspected_revision: u64,
     old_modtime: u64,
     old_source_revision: u64,
+    /// The node's chunk size as stored, 0 meaning the default; restored if the save fails.
+    old_node_chunk_size: u32,
     chunk_size: u32,
+}
+
+/// A file first written small keeps a chunk as small as its first content, down to one byte; a
+/// document that then grows would be stored in thousands of tiny chunks, each synced on its own.
+/// A replacement writes chunks of at least the default size and records that on the node.
+fn replacement_chunk_size(current: u32) -> u32 {
+    current.max(crate::types::DEFAULT_CHUNK_SIZE)
 }
 
 pub(super) fn replace_file(
@@ -53,6 +62,7 @@ pub(super) fn replace_file(
     if chunk_size == 0 {
         return Err(ReplaceCommandError::internal("Invalid chunk size"));
     }
+    let new_chunk_size = replacement_chunk_size(target.chunk_size);
 
     let node_id32: u32 = request
         .node_id
@@ -67,9 +77,15 @@ pub(super) fn replace_file(
         target.old_size,
         request.size,
         chunk_size,
+        new_chunk_size as u64,
         &content,
         target.old_source_revision,
     )?;
+    if new_chunk_size != target.chunk_size {
+        if let Some(node) = session.catalog_mut().find_by_id_mut(request.node_id) {
+            node.chunk_size = new_chunk_size;
+        }
+    }
 
     #[cfg(test)]
     if data
@@ -177,6 +193,7 @@ fn validate_target(
         old_media_inspected_revision: node.media_inspected_revision,
         old_modtime: node.modtime,
         old_source_revision: node.source_revision(),
+        old_node_chunk_size: node.chunk_size,
         chunk_size: if node.chunk_size == 0 {
             crate::types::DEFAULT_CHUNK_SIZE
         } else {
@@ -202,5 +219,6 @@ fn restore_after_finalization_failure(
         node.media_inspected_revision = target.old_media_inspected_revision;
         node.modtime = target.old_modtime;
         node.source_revision = target.old_source_revision;
+        node.chunk_size = target.old_node_chunk_size;
     }
 }

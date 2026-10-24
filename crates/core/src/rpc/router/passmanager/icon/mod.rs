@@ -1,6 +1,9 @@
 //! Icon subsystem for PassManager: thin RPC adapters over typed services.
 
 mod gc_service;
+mod import;
+mod import_image;
+mod index;
 mod normalize;
 mod request;
 mod service;
@@ -12,11 +15,14 @@ use super::super::domain_uow::DomainUnitOfWork;
 use crate::error::ErrorCode;
 use crate::vault::VaultSession;
 
+pub(super) use self::import::plan_import_assets;
+pub(super) use self::import_image::normalize_import_image;
 use self::request::{
     parse_icon_get_many_request, parse_icon_get_request, parse_icon_put_request,
     parse_icon_set_meta_request,
 };
 pub(super) use self::store::load_icon_index;
+pub(super) use self::types::PASSMANAGER_ICONS_DIR;
 pub(super) use self::types::PASSMANAGER_ICONS_ENABLED;
 
 pub(super) fn passmanager_icons_disabled_response() -> RpcResponse {

@@ -1,0 +1,35 @@
+[
+  {
+    "uri": "otpauth://totp/GitHub:user%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=GitHub&digits=6&period=30",
+    "label": "user@example.com",
+    "issuer": "GitHub",
+    "account": "user@example.com",
+    "type": "TOTP",
+    "algorithm": "SHA1",
+    "digits": 6,
+    "period": 30,
+    "counter": null
+  },
+  {
+    "uri": "otpauth://hotp/YubiKey?secret=JBSWY3DPEHPK3PXP&counter=7&algorithm=SHA256&digits=8",
+    "label": "YubiKey",
+    "issuer": "",
+    "account": "YubiKey",
+    "type": "HOTP",
+    "algorithm": "SHA256",
+    "digits": 8,
+    "period": 30,
+    "counter": "7"
+  },
+  {
+    "uri": "otpauth://totp/Acme:%D0%9F%D0%BE%D1%87%D1%82%D0%B0?secret=JBSWY3DPEHPK3PXP&issuer=Acme&image=https%3A%2F%2Fexample.com",
+    "label": "Почта",
+    "issuer": "Acme",
+    "account": "Почта",
+    "type": "TOTP",
+    "algorithm": "SHA1",
+    "digits": 6,
+    "period": 30,
+    "counter": null
+  }
+]

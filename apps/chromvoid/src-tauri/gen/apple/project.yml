@@ -101,13 +101,23 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 1.0.8
+        CFBundleShortVersionString: 2.0.0
         CFBundleVersion: "10"
         ChromVoidSharedKeychainAccessGroup: $(AppIdentifierPrefix)com.chromvoid.app.shared
         NSCameraUsageDescription: ChromVoid uses the camera to scan OTP setup QR codes.
         NSPhotoLibraryAddUsageDescription: ChromVoid saves selected images to your photo library when you choose Save to Photos.
         BGTaskSchedulerPermittedIdentifiers:
           - com.chromvoid.app.connection-refresh
+        # The iOS 27 SDK requires the UIScene life cycle. ChromVoid is a single-window
+        # app (one vault, one webview), so the system never connects a second scene.
+        # tao (0.37+) attaches its window to the TaoSceneDelegate scene whenever this
+        # manifest is present.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: TaoSceneDelegate
         UIBackgroundModes:
           - fetch
           - remote-notification
@@ -202,7 +212,7 @@ targets:
       path: chromvoid_CredentialProviderExtension/Info.plist
       properties:
         CFBundleDisplayName: ChromVoid
-        CFBundleShortVersionString: 1.0.8
+        CFBundleShortVersionString: 2.0.0
         CFBundleVersion: "10"
         ChromVoidSharedKeychainAccessGroup: $(AppIdentifierPrefix)com.chromvoid.app.shared
         NSExtension:
@@ -246,7 +256,7 @@ targets:
       path: chromvoid_ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: ChromVoid
-        CFBundleShortVersionString: 1.0.8
+        CFBundleShortVersionString: 2.0.0
         CFBundleVersion: "10"
         NSExtension:
           NSExtensionAttributes:

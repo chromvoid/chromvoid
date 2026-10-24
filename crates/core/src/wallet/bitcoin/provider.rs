@@ -87,6 +87,28 @@ pub struct BitcoinTransactionStatus {
     pub confirmations: u32,
 }
 
+/// One input (its spent previous output) or output of an address-history transaction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BitcoinTransactionIo {
+    /// `None` for coinbase inputs and non-standard scripts.
+    pub address: Option<String>,
+    pub value: u64,
+}
+
+/// A transaction touching one of the wallet's addresses, as returned by the provider's address
+/// history endpoint. The profile computes the account's net effect from `inputs`/`outputs`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BitcoinAddressTransaction {
+    pub txid: String,
+    pub confirmed: bool,
+    pub block_height: Option<u64>,
+    /// Block timestamp in seconds; `None` while the transaction sits in the mempool.
+    pub block_time: Option<u64>,
+    pub fee: u64,
+    pub inputs: Vec<BitcoinTransactionIo>,
+    pub outputs: Vec<BitcoinTransactionIo>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BitcoinProviderErrorKind {
     Unavailable,
@@ -145,6 +167,18 @@ pub trait BitcoinProvider: Send + Sync {
         &self,
         txid: &str,
     ) -> Result<Option<BitcoinTransactionStatus>, BitcoinProviderError>;
+
+    /// One page of the address's transaction history, newest first (mempool entries before
+    /// confirmed ones). `after_txid` continues the confirmed history after that transaction.
+    fn address_transactions(
+        &self,
+        _address: &str,
+        _after_txid: Option<&str>,
+    ) -> Result<Vec<BitcoinAddressTransaction>, BitcoinProviderError> {
+        Err(BitcoinProviderError::unavailable(
+            "Bitcoin transaction history unavailable",
+        ))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -192,6 +226,16 @@ impl BitcoinProvider for UnavailableBitcoinProvider {
         &self,
         _txid: &str,
     ) -> Result<Option<BitcoinTransactionStatus>, BitcoinProviderError> {
+        Err(BitcoinProviderError::unavailable(
+            "Bitcoin provider unavailable",
+        ))
+    }
+
+    fn address_transactions(
+        &self,
+        _address: &str,
+        _after_txid: Option<&str>,
+    ) -> Result<Vec<BitcoinAddressTransaction>, BitcoinProviderError> {
         Err(BitcoinProviderError::unavailable(
             "Bitcoin provider unavailable",
         ))

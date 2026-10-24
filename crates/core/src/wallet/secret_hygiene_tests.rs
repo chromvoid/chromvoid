@@ -6,13 +6,20 @@ use zeroize::Zeroizing;
 
 #[test]
 fn wallet_secret_payload_debug_redacts_secret_material() {
-    let hd_root = SecretPayloadV1::HdRoot {
-        mnemonic_standard: BIP39_MNEMONIC_STANDARD.to_string(),
-        mnemonic_entropy: "entropy-secret".to_string(),
-        wordlist: "english".to_string(),
-        mnemonic_words: Some(vec!["word-secret".to_string()]),
-        bip39_passphrase: Some("phrase-secret".to_string()),
-    };
+    let hd_root = SecretPayloadV1::hd_root_v2(
+        BIP39_MNEMONIC_STANDARD,
+        "entropy-secret".to_string(),
+        "english".to_string(),
+        None,
+        Some("phrase-secret".to_string()),
+    );
+    let rotation_root = SecretPayloadV1::hd_root_v2(
+        "rotation",
+        String::new(),
+        "english".to_string(),
+        Some(vec!["word-secret".to_string()]),
+        None,
+    );
     let imported = SecretPayloadV1::ImportedKey {
         network: WalletNetwork::from("bitcoin"),
         curve: "secp256k1".to_string(),
@@ -29,7 +36,8 @@ fn wallet_secret_payload_debug_redacts_secret_material() {
         submit_metadata: Some(serde_json::json!({"secret": "metadata-secret"})),
     };
 
-    let debug = format!("{hd_root:?}\n{imported:?}\n{prepared:?}\n{broadcast:?}");
+    let debug =
+        format!("{hd_root:?}\n{rotation_root:?}\n{imported:?}\n{prepared:?}\n{broadcast:?}");
     for secret in [
         "entropy-secret",
         "word-secret",
@@ -51,33 +59,53 @@ fn wallet_hd_root_secret_serializes_only_canonical_root_payload() {
     let secret = SecretBlobV1 {
         secret_id: "secret-test".to_string(),
         kind: "hd_root".to_string(),
-        payload_version: 1,
-        payload: SecretPayloadV1::HdRoot {
-            mnemonic_standard: BIP39_MNEMONIC_STANDARD.to_string(),
-            mnemonic_entropy: "001122".to_string(),
-            wordlist: "english".to_string(),
-            mnemonic_words: None,
-            bip39_passphrase: None,
-        },
+        payload_version: 2,
+        payload: SecretPayloadV1::hd_root_v2(
+            BIP39_MNEMONIC_STANDARD,
+            "001122".to_string(),
+            "english".to_string(),
+            None,
+            None,
+        ),
     };
 
     let json = serde_json::to_value(&secret).expect("serialize secret");
     let payload = json.get("payload").expect("payload");
     assert_eq!(
-        payload
+        payload.get("kind").and_then(|value| value.as_str()),
+        Some("hd_root_v2")
+    );
+    let recovery = payload.get("recovery").expect("recovery");
+    assert_eq!(
+        recovery
             .get("mnemonic_standard")
             .and_then(|value| value.as_str()),
         Some(BIP39_MNEMONIC_STANDARD)
     );
     assert_eq!(
-        payload
+        recovery
             .get("mnemonic_entropy")
             .and_then(|value| value.as_str()),
         Some("001122")
     );
-    assert!(payload.get("mnemonic").is_none());
-    assert!(payload.get("seed").is_none());
-    assert!(payload.get("master_xprv").is_none());
+    assert!(recovery.get("bip39_passphrase").is_none());
+    assert!(recovery.get("mnemonic_words").is_none());
+    assert!(payload.get("mnemonic_entropy").is_none());
+
+    let parsed: SecretBlobV1 = serde_json::from_value(json).expect("round trip");
+    let super::SecretPayloadV1::HdRootV2 {
+        recovery:
+            super::HdRootRecoveryMaterialV2::Bip39 {
+                mnemonic_entropy,
+                bip39_passphrase,
+            },
+        ..
+    } = parsed.payload
+    else {
+        panic!("expected BIP39 HD root");
+    };
+    assert_eq!(mnemonic_entropy, "001122");
+    assert_eq!(bip39_passphrase, None);
 }
 
 #[test]
@@ -140,23 +168,25 @@ fn wallet_operation_debug_redacts_canonical_payloads() {
             warnings: Vec::new(),
             ton: None,
             ethereum: None,
+            solana: None,
         },
         provider_snapshot: None,
         canonical_payload: "canonical-payload-secret".to_string(),
         materializations: Vec::new(),
+        valid_until: None,
     };
     let confirm = WalletConfirmInput {
         account,
         preparation_id: "prep".to_string(),
         canonical_payload: Zeroizing::new("canonical-confirm-secret".to_string()),
         provider_snapshot: None,
-        signing_secret: SecretPayloadV1::HdRoot {
-            mnemonic_standard: BIP39_MNEMONIC_STANDARD.to_string(),
-            mnemonic_entropy: "00112233445566778899aabbccddeeff".to_string(),
-            wordlist: "english".to_string(),
-            mnemonic_words: None,
-            bip39_passphrase: None,
-        },
+        signing_secret: SecretPayloadV1::hd_root_v2(
+            BIP39_MNEMONIC_STANDARD,
+            "00112233445566778899aabbccddeeff".to_string(),
+            "english".to_string(),
+            None,
+            None,
+        ),
     };
 
     let debug = format!("{prepare:?}\n{confirm:?}");

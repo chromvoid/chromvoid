@@ -1,6 +1,7 @@
 //! OTP handler free functions for PassManager.
 
 mod error;
+pub(super) mod records;
 mod request;
 mod service;
 
@@ -92,3 +93,5 @@ pub(super) fn handle_rename_secret(
         Err(error) => error.into_rpc_response(),
     }
 }
+
+pub(super) mod uri;

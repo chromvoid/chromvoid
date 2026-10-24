@@ -101,8 +101,8 @@ export class AudioPlayer extends ReatomLitElement {
           <cv-icon name="loader" size="s"></cv-icon>
         </div>
         <div class="native-preparing-copy">
-          <div class="native-preparing-title">${i18n('media:android-audio-preparing-title' as any)}</div>
-          <div class="native-preparing-detail">${i18n('media:android-audio-preparing-copy' as any)}</div>
+          <div class="native-preparing-title">${i18n('media:native-audio-preparing-title' as any)}</div>
+          <div class="native-preparing-detail">${i18n('media:native-audio-preparing-copy' as any)}</div>
         </div>
       </div>
     `

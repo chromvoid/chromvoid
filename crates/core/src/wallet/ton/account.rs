@@ -1,33 +1,19 @@
 use crate::rpc::types::{WalletAccountMeta, WalletNetwork};
-use crate::wallet::{
-    WalletChainError, BIP39_MNEMONIC_STANDARD, MULTICHAIN_WALLET_MODE,
-    TON_NATIVE_MNEMONIC_STANDARD, TON_ONLY_WALLET_MODE,
-};
+use crate::wallet::WalletChainError;
 
 use super::constants::{
     TON_ACCOUNT_MODEL, TON_BIP39_DERIVATION_PROFILE, TON_NATIVE_DERIVATION_PROFILE, TON_NETWORK,
-    TON_WALLET_CONTRACT, TON_WORKCHAIN,
+    TON_ROTATION_DERIVATION_PROFILE, TON_WALLET_CONTRACT, TON_WORKCHAIN,
 };
 use super::provider::TonProviderAccount;
 use super::transfer::parse_ton_address;
 
-pub(super) fn ton_derivation_profile(
-    wallet_mode: &str,
-    mnemonic_standard: &str,
-) -> Result<&'static str, WalletChainError> {
-    match (wallet_mode, mnemonic_standard) {
-        (TON_ONLY_WALLET_MODE, TON_NATIVE_MNEMONIC_STANDARD) => Ok(TON_NATIVE_DERIVATION_PROFILE),
-        (MULTICHAIN_WALLET_MODE, BIP39_MNEMONIC_STANDARD) => Ok(TON_BIP39_DERIVATION_PROFILE),
-        _ => Err(WalletChainError::invalid_input(
-            "TON wallet_mode and mnemonic_standard mismatch",
-        )),
-    }
-}
-
 fn is_supported_ton_derivation_profile(derivation_profile: &str) -> bool {
     matches!(
         derivation_profile,
-        TON_NATIVE_DERIVATION_PROFILE | TON_BIP39_DERIVATION_PROFILE
+        TON_NATIVE_DERIVATION_PROFILE
+            | TON_BIP39_DERIVATION_PROFILE
+            | TON_ROTATION_DERIVATION_PROFILE
     )
 }
 
@@ -56,7 +42,7 @@ pub(super) fn provider_account_from_meta(
             }
             if meta.wallet_contract.as_deref() != Some(TON_WALLET_CONTRACT) {
                 return Err(WalletChainError::unsupported_wallet_contract(
-                    "TON v1 requires Wallet V5R1",
+                    "TON accounts require the WalletTg contract",
                 ));
             }
             if meta.workchain != Some(TON_WORKCHAIN) {
@@ -81,7 +67,7 @@ pub(super) fn provider_account_from_meta(
             }
             if meta.wallet_contract.as_deref() != Some(TON_WALLET_CONTRACT) {
                 return Err(WalletChainError::unsupported_wallet_contract(
-                    "TON v1 requires Wallet V5R1",
+                    "TON accounts require the WalletTg contract",
                 ));
             }
             if meta.workchain != Some(TON_WORKCHAIN) {

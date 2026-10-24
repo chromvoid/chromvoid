@@ -1,8 +1,5 @@
 import {SURFACE_IDS} from 'root/app/navigation/navigation.types'
-import {
-  MODULE_ACCESS_STATUSES,
-  PRO_FEATURE_KEYS,
-} from 'root/core/pro/module-access.model'
+import {MODULE_ACCESS_STATUSES, MODULE_KEYS} from 'root/core/modules/module-access.model'
 import {RUNTIME_CAPABILITY_KEYS} from 'root/core/runtime/runtime-capabilities'
 
 import {GUIDANCE_SURFACE_IDS} from './guidance.constants'
@@ -24,7 +21,7 @@ const SELECTOR_LIKE_ANCHOR = /^(?:[.#]|\[|\/html\b|body\s*>|.+\s>\s.+)/
 
 const validSurfaces = new Set<string>(GUIDANCE_SURFACE_IDS)
 const validCapabilities = new Set<string>(RUNTIME_CAPABILITY_KEYS)
-const validFeatures = new Set<string>(PRO_FEATURE_KEYS)
+const validModules = new Set<string>(MODULE_KEYS)
 const validStatuses = new Set<string>(MODULE_ACCESS_STATUSES)
 const dashboardSurfaces = new Set<string>(SURFACE_IDS)
 
@@ -67,8 +64,8 @@ export function validateGuidanceRegistry(input: GuidanceValidationInput): Guidan
     }
 
     if (definition.moduleAccessGate) {
-      if (!validFeatures.has(definition.moduleAccessGate.feature)) {
-        errors.push(`Unknown Pro feature for ${definition.id}: ${definition.moduleAccessGate.feature}`)
+      if (!validModules.has(definition.moduleAccessGate.feature)) {
+        errors.push(`Unknown module for ${definition.id}: ${definition.moduleAccessGate.feature}`)
       }
 
       for (const status of definition.moduleAccessGate.statuses) {
@@ -108,7 +105,6 @@ export function validateGuidanceRegistry(input: GuidanceValidationInput): Guidan
         definition.bodyKey,
         definition.primaryActionKey,
         definition.secondaryActionKey,
-        ...Object.values(definition.bodyKeyByModuleAccessStatus ?? {}),
       ]
       for (const key of textKeys) {
         if (key && !input.hasI18nKey(key)) {

@@ -79,30 +79,15 @@ pub(in crate::rpc::router::passmanager) fn normalized_payment_card_meta(
         }
     }
 
-    let mut out = serde_json::Map::new();
-    out.insert(
-        "cardholder_name".to_string(),
-        serde_json::Value::String(cardholder_name.to_string()),
-    );
-    out.insert(
-        "exp_month".to_string(),
-        serde_json::Value::Number(exp_month.into()),
-    );
-    out.insert(
-        "exp_year".to_string(),
-        serde_json::Value::Number(exp_year.into()),
-    );
-    out.insert(
-        "brand".to_string(),
-        serde_json::Value::String(brand.to_string()),
-    );
-    if let Some(last4) = last4 {
-        out.insert(
-            "last4".to_string(),
-            serde_json::Value::String(last4.to_string()),
-        );
-    }
-    Ok(Some(serde_json::Value::Object(out)))
+    serde_json::to_value(crate::rpc::types::PaymentCardMetadata {
+        cardholder_name: cardholder_name.to_string(),
+        exp_month,
+        exp_year,
+        brand: brand.to_string(),
+        last4: last4.map(ToString::to_string),
+    })
+    .map(Some)
+    .map_err(|_| PassmanagerCommandError::internal("Failed to encode payment card metadata"))
 }
 
 pub(in crate::rpc::router::passmanager) fn sanitize_entry_meta_for_wire(
@@ -165,7 +150,7 @@ pub(in crate::rpc::router::passmanager::entry) fn set_wire_group_path(
     meta.insert("groupPath".to_string(), group_path);
 }
 
-pub(in crate::rpc::router::passmanager::entry) fn sync_entry_group_path_meta_uow(
+pub(in crate::rpc::router::passmanager) fn sync_entry_group_path_meta_uow(
     session: &VaultSession,
     storage: &crate::storage::Storage,
     uow: &mut DomainUnitOfWork<'_>,

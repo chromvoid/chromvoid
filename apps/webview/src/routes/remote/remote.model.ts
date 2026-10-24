@@ -136,6 +136,7 @@ export type MobileUsbErrorCode =
   | 'ERR_USB_MOBILE_NOT_PAIRED'
   | 'ERR_USB_MOBILE_PAIRING_DUPLICATE'
   | 'ERR_USB_MOBILE_HANDSHAKE_FAILED'
+  | 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'
   | 'ERR_USB_MOBILE_STALE_PAIRING'
   | 'ERR_USB_MOBILE_SECRET_STORE_UNAVAILABLE'
   | 'ERR_USB_MOBILE_SECRET_REF_INVALID'
@@ -154,6 +155,7 @@ export type MobileUsbErrorCode =
 export type MobileUsbRecoveryAction =
   | 'hide_usb_entry'
   | 'manual_retry'
+  | 'retry_or_repair'
   | 'retry_scan'
   | 'retry_permission'
   | 'wait_in_flight'

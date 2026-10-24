@@ -4,6 +4,8 @@ import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {
   getWalletNetworkProfile,
+  isKnownWalletNetwork,
+  walletNetworkRank,
   walletNetworkReady,
   walletNetworkUnavailableReason,
   type WalletFeeTier,
@@ -93,10 +95,40 @@ export class WalletPageModel {
     return walletId ? this.accounts().filter((account) => account.wallet_id === walletId) : []
   }, 'wallet.walletAccounts')
 
+  /**
+   * The selected wallet as one multichain account: every network account in display order.
+   * The overview, Send and Receive surfaces work on this list; picking an account only
+   * decides which network's details are expanded.
+   */
+  readonly walletAssets = computed(
+    () => [...this.walletAccounts()].sort((a, b) => walletNetworkRank(a.network) - walletNetworkRank(b.network)),
+    'wallet.walletAssets',
+  )
+
   readonly selectedAccount = computed(() => {
     const selectedId = this.selectedAccountId()
     return this.walletAccounts().find((account) => walletAccountId(account) === selectedId) ?? null
   }, 'wallet.selectedAccount')
+
+  /** True when at least one network account of the wallet can build a transfer right now. */
+  readonly anyAccountTransactionReady = computed(
+    () => this.walletAccounts().some((account) => this.accountTransactionReady(account)),
+    'wallet.anyAccountTransactionReady',
+  )
+
+  /**
+   * Network Core recognised for the primary Send destination (`wallet:address:detect`), or null
+   * while the address is empty, unrecognised or still being checked.
+   */
+  readonly sendDestinationNetwork = atom<WalletKnownNetwork | null>(null, 'wallet.sendDestinationNetwork')
+  private sendDetectionSequence = 0
+
+  /** Detected destination network that has no account in the selected wallet. */
+  readonly sendDestinationNetworkMismatch = computed(() => {
+    const network = this.sendDestinationNetwork()
+    if (!network) return null
+    return this.walletAccounts().some((account) => account.network === network) ? null : network
+  }, 'wallet.sendDestinationNetworkMismatch')
 
   readonly selectedBalance = computed(() => {
     const selectedId = this.selectedAccountId()
@@ -127,8 +159,7 @@ export class WalletPageModel {
         accountId: account.account_id,
         profile,
         providerReady:
-          this.networkProviderReady(account.network) &&
-          !(account.network === 'bitcoin' && this.selectedRecoveryDiscoveryPending()),
+          this.networkProviderReady(account.network) && !this.balanceController.accountDiscoveryPending(account),
         cachedSpendable: this.selectedBalance()?.balance.spendable ?? null,
       }
     },
@@ -280,6 +311,72 @@ export class WalletPageModel {
     return this.balances()[accountId] ?? null
   }
 
+  accountBalanceLoading(accountId: string): boolean {
+    return this.balanceController.loadingAccountIds().has(accountId)
+  }
+
+  accountTransactionReady(account: WalletAccount): boolean {
+    return this.networkProviderReady(account.network) && !this.balanceController.accountDiscoveryPending(account)
+  }
+
+  /** The account Send should start from: the selected one when it is usable, else the first usable one. */
+  private sendReadyAccountId(): string | null {
+    const selected = this.selectedAccount()
+    if (selected && this.accountTransactionReady(selected)) return selected.account_id
+    return this.walletAssets().find((account) => this.accountTransactionReady(account))?.account_id ?? null
+  }
+
+  /**
+   * Asks Core which network accepts the primary destination. Only the latest lookup is applied,
+   * so fast typing never leaves a stale answer behind.
+   */
+  async detectSendDestination(): Promise<WalletKnownNetwork | null> {
+    const address = this.send.destination().trim()
+    const sequence = ++this.sendDetectionSequence
+    if (!address) {
+      this.sendDestinationNetwork.set(null)
+      return null
+    }
+    let network: WalletKnownNetwork | null = null
+    try {
+      const result = await wrap(this.rpcPort.rpc('wallet:address:detect', {address}))
+      network = result.network && isKnownWalletNetwork(result.network) ? result.network : null
+    } catch {
+      network = null
+    }
+    if (sequence !== this.sendDetectionSequence) return this.sendDestinationNetwork()
+    this.sendDestinationNetwork.set(network)
+    return network
+  }
+
+  /**
+   * Address-first Send: when the primary destination belongs to another network of the same
+   * wallet, switch the sender account to it and carry the draft over. Resolves to true when
+   * the account changed.
+   */
+  async retargetSendToDestination(): Promise<boolean> {
+    const network = await this.detectSendDestination()
+    if (this.prepared()) return false
+    if (!network) return false
+    const current = this.selectedAccount()
+    if (!current || current.network === network) return false
+    const target = this.walletAssets().find((account) => account.network === network)
+    if (!target) return false
+    const draft = {
+      destination: this.send.destination(),
+      amount: this.send.amount(),
+      comment: this.send.comment(),
+      feeTier: this.send.feeTier(),
+    }
+    this.selectAccount(target.account_id)
+    this.send.setDestination(draft.destination)
+    this.sendDestinationNetwork.set(network)
+    if (draft.amount) this.send.setAmount(draft.amount)
+    if (draft.comment && getWalletNetworkProfile(network)?.supportsComment) this.send.setComment(draft.comment)
+    if (draft.feeTier !== 'standard') this.send.setFeeTier(draft.feeTier)
+    return true
+  }
+
   displayAccountBalance(account: WalletAccount): string {
     return formatAccountBalance(account, this.accountBalance(account.account_id))
   }
@@ -355,6 +452,7 @@ export class WalletPageModel {
   setMainTab(tab: WalletMainTab): void {
     const previous = this.mainTab()
     if (previous !== tab) this.clearMainTabSensitiveState(previous)
+    if (tab === 'send' && previous !== 'send') this.selectSendReadyAccount()
     const setupFlow = this.setupFlow()
     if (setupFlow) this.clearSetupSensitiveState(setupFlow)
     this.mainTab.set(tab)
@@ -386,6 +484,7 @@ export class WalletPageModel {
   }
 
   openMobileSend(): void {
+    this.selectSendReadyAccount()
     if (!this.toolbarContext().canSend) return
     this.error.set(null)
     this.notice.set(null)
@@ -740,6 +839,13 @@ export class WalletPageModel {
     this.clearRecoverySecrets()
   }
 
+  /** Before opening Send, move to a network account that can actually transfer, if the selected one cannot. */
+  private selectSendReadyAccount(): void {
+    if (this.prepared() || this.preparing() || this.confirming()) return
+    const accountId = this.sendReadyAccountId()
+    if (accountId && accountId !== this.selectedAccountId()) this.selectAccount(accountId)
+  }
+
   private selectCreated(walletId: string, accountId: string | null): void {
     this.selectedWalletId.set(walletId)
     this.selectAccountInternal(accountId)
@@ -797,6 +903,8 @@ export class WalletPageModel {
   private clearContextSensitiveState(): void {
     const prepared = this.prepared()
     this.send.reset()
+    this.sendDetectionSequence += 1
+    this.sendDestinationNetwork.set(null)
     if (prepared) {
       void this.rpcPort
         .rpc('wallet:transaction:cancel', {preparation_id: prepared.preparation_id})

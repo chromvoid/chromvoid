@@ -140,7 +140,6 @@ pub(crate) struct RuntimeCapabilities {
     pub(crate) supports_volume: bool,
     pub(crate) supports_gateway: bool,
     pub(crate) supports_network_remote: bool,
-    pub(crate) supports_external_pro: bool,
     pub(crate) supports_mobile_usb_remote: bool,
     pub(crate) supports_biometric: bool,
     pub(crate) supports_autofill: bool,
@@ -157,13 +156,7 @@ pub(crate) struct RuntimeCapabilities {
     pub(crate) supports_mobile_backup_restore: bool,
     pub(crate) supports_photo_library_save: bool,
     pub(crate) supports_credential_provider_passkeys_lite: bool,
-    pub(crate) supports_android_native_video: bool,
-    pub(crate) android_native_audio_playback_rollout_enabled: bool,
-    pub(crate) supports_android_native_upload: bool,
-    pub(crate) supports_android_share_import: bool,
-    pub(crate) supports_android_native_otp_qr_scan: bool,
     pub(crate) supports_storage_root_selection: bool,
-    pub(crate) supports_android_saf_backup_restore: bool,
 }
 
 #[cfg(desktop)]
@@ -364,8 +357,6 @@ pub(crate) fn rpc_err<T>(error: impl Into<String>, code: Option<String>) -> RpcR
 pub(crate) fn runtime_capabilities_for_current_target() -> RuntimeCapabilities {
     let platform = if cfg!(target_os = "ios") {
         "ios"
-    } else if cfg!(target_os = "android") {
-        "android"
     } else if cfg!(target_os = "macos") {
         "macos"
     } else if cfg!(target_os = "windows") {
@@ -376,79 +367,60 @@ pub(crate) fn runtime_capabilities_for_current_target() -> RuntimeCapabilities {
         "unknown"
     };
 
-    let supports_android_native_video = android_native_video_enabled_for_target();
-    let android_native_audio_playback_rollout_enabled =
-        android_native_audio_playback_enabled_for_target();
-    let supports_android_native_upload = cfg!(target_os = "android");
-    let supports_android_share_import = cfg!(target_os = "android");
-    let supports_android_native_otp_qr_scan = cfg!(target_os = "android");
-    let supports_android_saf_backup_restore = cfg!(target_os = "android");
-
     RuntimeCapabilities {
         platform: platform.to_string(),
         desktop: cfg!(desktop),
         mobile: cfg!(mobile),
         supports_native_path_io: cfg!(desktop),
         supports_open_external: cfg!(desktop)
-            || cfg!(target_os = "android")
             || ios_native_feature_enabled_for_target("CHROMVOID_DISABLE_IOS_OPEN_EXTERNAL", true),
-        supports_native_share: cfg!(target_os = "android")
-            || ios_native_feature_enabled_for_target("CHROMVOID_DISABLE_IOS_NATIVE_SHARE", true),
+        supports_native_share: ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_NATIVE_SHARE",
+            true,
+        ),
         supports_volume: cfg!(desktop),
         supports_gateway: cfg!(desktop),
         supports_network_remote: cfg!(desktop) || cfg!(mobile),
-        // Tauri's mobile Xcode script activates `ios` additively and can retain Cargo defaults.
-        // The iOS distribution must therefore win even if `external-pro` arrived through `default`.
-        supports_external_pro: cfg!(all(feature = "external-pro", not(feature = "ios"))),
         supports_mobile_usb_remote: mobile_usb_remote_enabled_for_target(),
         // Availability for the mobile biometric app gate only.
         supports_biometric: mobile::biometric_bridge_available(),
-        supports_autofill: cfg!(target_os = "macos")
-            || mobile::autofill_extension_ready()
-            || mobile::autofill_bridge_available(),
+        supports_autofill: cfg!(target_os = "macos") || mobile::autofill_extension_ready(),
         supports_media_stream_protocol: media_stream_protocol_enabled_for_target(),
         supports_media_http_stream: media_http_stream_enabled_for_target(),
         supports_mse_video_playback: mse_video_playback_enabled_for_target(),
         supports_desktop_native_video_playback: desktop_native_video_enabled_for_target(),
-        supports_mobile_native_video_playback: supports_android_native_video,
-        supports_native_audio_playback: android_native_audio_playback_rollout_enabled
-            || ios_native_feature_enabled_for_target(
-                "CHROMVOID_DISABLE_IOS_NATIVE_AUDIO_PLAYBACK",
-                true,
-            ),
-        supports_native_video_playback: supports_android_native_video
-            || ios_native_feature_enabled_for_target(
-                "CHROMVOID_DISABLE_IOS_NATIVE_VIDEO_PLAYBACK",
-                true,
-            ),
-        supports_native_file_upload: supports_android_native_upload
-            || ios_native_feature_enabled_for_target("CHROMVOID_DISABLE_IOS_NATIVE_UPLOAD", true),
-        supports_share_import: supports_android_share_import
-            || ios_native_feature_enabled_for_target("CHROMVOID_DISABLE_IOS_SHARE_IMPORT", true),
-        supports_native_otp_qr_scan: supports_android_native_otp_qr_scan
-            || ios_native_feature_enabled_for_target(
-                "CHROMVOID_DISABLE_IOS_NATIVE_OTP_QR_SCAN",
-                true,
-            ),
-        supports_mobile_backup_restore: supports_android_saf_backup_restore
-            || ios_native_feature_enabled_for_target(
-                "CHROMVOID_DISABLE_IOS_MOBILE_BACKUP_RESTORE",
-                true,
-            ),
-        supports_photo_library_save: cfg!(target_os = "android")
-            || ios_native_feature_enabled_for_target(
-                "CHROMVOID_DISABLE_IOS_PHOTO_LIBRARY_SAVE",
-                true,
-            ),
+        supports_mobile_native_video_playback: false,
+        supports_native_audio_playback: ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_NATIVE_AUDIO_PLAYBACK",
+            true,
+        ),
+        supports_native_video_playback: ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_NATIVE_VIDEO_PLAYBACK",
+            true,
+        ),
+        supports_native_file_upload: ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_NATIVE_UPLOAD",
+            true,
+        ),
+        supports_share_import: ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_SHARE_IMPORT",
+            true,
+        ),
+        supports_native_otp_qr_scan: ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_NATIVE_OTP_QR_SCAN",
+            true,
+        ),
+        supports_mobile_backup_restore: ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_MOBILE_BACKUP_RESTORE",
+            true,
+        ),
+        supports_photo_library_save: ios_native_feature_enabled_for_target(
+            "CHROMVOID_DISABLE_IOS_PHOTO_LIBRARY_SAVE",
+            true,
+        ),
         supports_credential_provider_passkeys_lite:
             credential_provider_passkeys_lite_supported_for_target(),
-        supports_android_native_video,
-        android_native_audio_playback_rollout_enabled,
-        supports_android_native_upload,
-        supports_android_share_import,
-        supports_android_native_otp_qr_scan,
         supports_storage_root_selection: cfg!(desktop),
-        supports_android_saf_backup_restore,
     }
 }
 
@@ -506,7 +478,7 @@ const IOS_NATIVE_FEATURE_ROLLBACK_GATES: &[IosNativeFeatureRollbackGate] = &[
 ];
 
 pub(crate) fn media_stream_protocol_enabled_for_target() -> bool {
-    if !(cfg!(desktop) || cfg!(target_os = "android")) {
+    if !cfg!(desktop) {
         return false;
     }
 
@@ -527,26 +499,6 @@ fn desktop_native_video_enabled_for_target() -> bool {
         && std::env::var("CHROMVOID_DISABLE_DESKTOP_NATIVE_VIDEO").as_deref() != Ok("1")
 }
 
-fn android_native_video_enabled_for_target() -> bool {
-    if !cfg!(target_os = "android") {
-        return false;
-    }
-
-    std::env::var("CHROMVOID_DISABLE_ANDROID_NATIVE_VIDEO").as_deref() != Ok("1")
-}
-
-fn android_native_audio_playback_enabled_for_target() -> bool {
-    if !cfg!(target_os = "android") {
-        return false;
-    }
-
-    if std::env::var("CHROMVOID_DISABLE_ANDROID_NATIVE_AUDIO_PLAYBACK").as_deref() == Ok("1") {
-        return false;
-    }
-
-    true
-}
-
 fn ios_native_feature_enabled_for_target(disable_env: &str, bridge_available: bool) -> bool {
     let known_gate = IOS_NATIVE_FEATURE_ROLLBACK_GATES.iter().any(|gate| {
         let _capability = gate.capability;
@@ -565,11 +517,6 @@ fn ios_native_feature_enabled_for_target(disable_env: &str, bridge_available: bo
 }
 
 fn credential_provider_passkeys_lite_supported_for_target() -> bool {
-    #[cfg(target_os = "android")]
-    {
-        return true;
-    }
-
     #[cfg(target_os = "ios")]
     {
         return ios_native_feature_enabled_for_target(
@@ -583,7 +530,7 @@ fn credential_provider_passkeys_lite_supported_for_target() -> bool {
         return mobile::credential_provider_passkeys_lite_supported();
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
         false
     }
@@ -652,7 +599,7 @@ mod runtime_capabilities_tests {
     }
 
     #[test]
-    fn media_stream_protocol_capability_defaults_to_desktop_and_android_targets() {
+    fn media_stream_protocol_capability_defaults_to_desktop_targets() {
         let _lock = ENV_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -660,7 +607,7 @@ mod runtime_capabilities_tests {
 
         assert_eq!(
             runtime_capabilities_for_current_target().supports_media_stream_protocol,
-            cfg!(desktop) || cfg!(target_os = "android"),
+            cfg!(desktop),
         );
     }
 
@@ -670,32 +617,6 @@ mod runtime_capabilities_tests {
             runtime_capabilities_for_current_target().supports_mobile_usb_remote,
             cfg!(desktop),
         );
-    }
-
-    #[test]
-    fn external_pro_capability_follows_the_distribution_feature() {
-        assert_eq!(
-            runtime_capabilities_for_current_target().supports_external_pro,
-            cfg!(all(feature = "external-pro", not(feature = "ios"))),
-        );
-    }
-
-    #[test]
-    fn external_pro_feature_is_excluded_from_ios_and_enabled_elsewhere() {
-        let manifest = include_str!("../Cargo.toml");
-        let features = manifest
-            .split_once("[features]")
-            .expect("Cargo.toml must define a features section")
-            .1
-            .split_once("\n[")
-            .expect("features section must be followed by another section")
-            .0;
-
-        assert!(features.contains("external-pro = []"));
-        assert!(features.contains("desktop = [\n    \"external-pro\","));
-        assert!(features.contains("android = [\"mobile\", \"external-pro\"]"));
-        assert!(features.contains("ios = [\"mobile\"]"));
-        assert!(!features.contains("ios = [\"mobile\", \"external-pro\"]"));
     }
 
     #[test]
@@ -713,7 +634,7 @@ mod runtime_capabilities_tests {
             let _guard = EnvGuard::set("CHROMVOID_DISABLE_MEDIA_STREAM_PROTOCOL", "0");
             assert_eq!(
                 runtime_capabilities_for_current_target().supports_media_stream_protocol,
-                cfg!(desktop) || cfg!(target_os = "android"),
+                cfg!(desktop),
             );
         }
     }
@@ -749,132 +670,18 @@ mod runtime_capabilities_tests {
     }
 
     #[test]
-    fn android_native_video_capability_defaults_to_android_target_with_disable_gate() {
-        let _lock = ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        {
-            let _guard = EnvGuard::unset("CHROMVOID_DISABLE_ANDROID_NATIVE_VIDEO");
-            let _ios_guard = EnvGuard::unset("CHROMVOID_DISABLE_IOS_NATIVE_VIDEO_PLAYBACK");
-            assert_eq!(
-                runtime_capabilities_for_current_target().supports_android_native_video,
-                cfg!(target_os = "android"),
-            );
-            assert_eq!(
-                runtime_capabilities_for_current_target().supports_native_video_playback,
-                cfg!(any(target_os = "android", target_os = "ios")),
-            );
-        }
-
-        {
-            let _guard = EnvGuard::set("CHROMVOID_DISABLE_ANDROID_NATIVE_VIDEO", "1");
-            let _ios_guard = EnvGuard::unset("CHROMVOID_DISABLE_IOS_NATIVE_VIDEO_PLAYBACK");
-            let caps = runtime_capabilities_for_current_target();
-            assert!(!caps.supports_android_native_video);
-            assert_eq!(caps.supports_native_video_playback, cfg!(target_os = "ios"));
-        }
-    }
-
-    #[test]
-    fn android_native_audio_rollout_defaults_to_android_target() {
-        let _lock = ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _enable_guard = EnvGuard::unset("CHROMVOID_ENABLE_ANDROID_NATIVE_AUDIO_PLAYBACK");
-        let _disable_guard = EnvGuard::unset("CHROMVOID_DISABLE_ANDROID_NATIVE_AUDIO_PLAYBACK");
-        let _ios_disable_guard = EnvGuard::unset("CHROMVOID_DISABLE_IOS_NATIVE_AUDIO_PLAYBACK");
-
+    fn native_mobile_capabilities_are_ios_only() {
         let caps = runtime_capabilities_for_current_target();
 
-        assert_eq!(
-            caps.android_native_audio_playback_rollout_enabled,
-            cfg!(target_os = "android"),
-        );
-        assert_eq!(
-            caps.supports_native_audio_playback,
-            cfg!(any(target_os = "android", target_os = "ios")),
-        );
-    }
-
-    #[test]
-    fn android_native_audio_rollout_uses_disable_precedence() {
-        let _lock = ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        {
-            let _enable_guard =
-                EnvGuard::set("CHROMVOID_ENABLE_ANDROID_NATIVE_AUDIO_PLAYBACK", "1");
-            let _disable_guard = EnvGuard::unset("CHROMVOID_DISABLE_ANDROID_NATIVE_AUDIO_PLAYBACK");
-            let _ios_disable_guard = EnvGuard::unset("CHROMVOID_DISABLE_IOS_NATIVE_AUDIO_PLAYBACK");
-            let caps = runtime_capabilities_for_current_target();
-            assert_eq!(
-                caps.android_native_audio_playback_rollout_enabled,
-                cfg!(target_os = "android"),
-            );
-            assert_eq!(
-                caps.supports_native_audio_playback,
-                cfg!(any(target_os = "android", target_os = "ios")),
-            );
-        }
-
-        {
-            let _enable_guard =
-                EnvGuard::set("CHROMVOID_ENABLE_ANDROID_NATIVE_AUDIO_PLAYBACK", "1");
-            let _disable_guard =
-                EnvGuard::set("CHROMVOID_DISABLE_ANDROID_NATIVE_AUDIO_PLAYBACK", "1");
-            let _ios_disable_guard = EnvGuard::unset("CHROMVOID_DISABLE_IOS_NATIVE_AUDIO_PLAYBACK");
-            let caps = runtime_capabilities_for_current_target();
-            assert!(!caps.android_native_audio_playback_rollout_enabled);
-            assert_eq!(caps.supports_native_audio_playback, cfg!(target_os = "ios"));
-        }
-    }
-
-    #[test]
-    fn android_only_mobile_capabilities_default_to_android_target() {
-        let caps = runtime_capabilities_for_current_target();
-
-        assert_eq!(
-            caps.supports_android_native_upload,
-            cfg!(target_os = "android"),
-        );
-        assert_eq!(
-            caps.supports_native_file_upload,
-            cfg!(any(target_os = "android", target_os = "ios")),
-        );
-        assert_eq!(
-            caps.supports_android_share_import,
-            cfg!(target_os = "android"),
-        );
-        assert_eq!(
-            caps.supports_share_import,
-            cfg!(any(target_os = "android", target_os = "ios")),
-        );
-        assert_eq!(
-            caps.supports_android_native_otp_qr_scan,
-            cfg!(target_os = "android"),
-        );
-        assert_eq!(
-            caps.supports_native_otp_qr_scan,
-            cfg!(any(target_os = "android", target_os = "ios")),
-        );
-        assert_eq!(
-            caps.supports_android_saf_backup_restore,
-            cfg!(target_os = "android"),
-        );
-        assert_eq!(
-            caps.supports_mobile_backup_restore,
-            cfg!(any(target_os = "android", target_os = "ios")),
-        );
-        assert_eq!(
-            caps.supports_photo_library_save,
-            cfg!(any(target_os = "android", target_os = "ios")),
-        );
+        assert_eq!(caps.supports_native_file_upload, cfg!(target_os = "ios"),);
+        assert_eq!(caps.supports_share_import, cfg!(target_os = "ios"),);
+        assert_eq!(caps.supports_native_otp_qr_scan, cfg!(target_os = "ios"),);
+        assert_eq!(caps.supports_mobile_backup_restore, cfg!(target_os = "ios"),);
+        assert_eq!(caps.supports_photo_library_save, cfg!(target_os = "ios"),);
         #[cfg(not(target_os = "macos"))]
         assert_eq!(
             caps.supports_credential_provider_passkeys_lite,
-            cfg!(any(target_os = "android", target_os = "ios")),
+            cfg!(target_os = "ios"),
         );
     }
 

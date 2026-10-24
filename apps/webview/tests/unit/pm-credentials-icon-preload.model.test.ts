@@ -6,7 +6,7 @@ import {pmCredentialsIconPreloadModel} from '../../src/features/passmanager/mode
 import {pmIconStore} from '../../src/features/passmanager/models/pm-icon-store'
 import {clearPassmanagerRoot, setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
-import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls.model'
 
 function createRoot(): ManagerRoot {
   return new ManagerRoot({} as never)

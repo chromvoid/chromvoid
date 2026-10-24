@@ -1,4 +1,5 @@
 import {describe, expect, it} from 'vitest'
+import auditV1Cases from './credential-audit-v1-cases.json'
 
 import {
   CREDENTIAL_SECURITY_AUDIT_ALGORITHM_VERSION,
@@ -263,4 +264,21 @@ describe('createCredentialAuditResult()', () => {
     expect(serialized).not.toContain(password)
     expect(serialized).not.toContain('serializable-secret')
   })
+})
+
+// Shared compatibility oracle: Core must preserve these artifact-v1 semantics.
+it('matches the shared native audit compatibility fixtures', () => {
+  const result = createCredentialAuditResult(
+    auditV1Cases.entries.map((entry): CredentialAuditEntryInput => {
+      if (entry.entryType !== 'login' && entry.entryType !== 'payment_card')
+        throw new Error('Invalid fixture')
+      return {...entry, entryType: entry.entryType}
+    }),
+  )
+  expect([...result.entries.values()]).toEqual(auditV1Cases.expected)
+  expect([result.weakPasswordCount, result.reusedPasswordCount, result.twoFactorCount]).toEqual([
+    auditV1Cases.counts.weak,
+    auditV1Cases.counts.reused,
+    auditV1Cases.counts.otp,
+  ])
 })

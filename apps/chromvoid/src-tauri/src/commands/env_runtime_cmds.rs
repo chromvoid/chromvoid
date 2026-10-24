@@ -377,21 +377,25 @@ fn guard_env_runtime_adapter(
         ));
     }
     let capabilities = crate::types::runtime_capabilities_for_current_target();
-    crate::pro::guard_pro_feature_for_adapter(
+    crate::module_access::guard_module_for_adapter(
         adapter,
-        chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+        crate::module_access::MODULE_ENV_RUNTIME,
         &capabilities,
     )
-    .map_err(|error| match error {
+    .map_err(env_runtime_module_denial)
+}
+
+fn env_runtime_module_denial(error: RpcResult<serde_json::Value>) -> EnvRuntimeError {
+    match error {
         RpcResult::Error { error, code, .. } => EnvRuntimeError::new(
             crate::env_runtime::EnvRuntimeErrorCode::from_feature(code.as_deref()),
             error,
         ),
         RpcResult::Success { .. } => EnvRuntimeError::new(
-            crate::env_runtime::EnvRuntimeErrorCode::PRO_REQUIRED,
-            "ChromVoid Pro is required",
+            crate::env_runtime::EnvRuntimeErrorCode::INTERNAL,
+            "Env Runtime access guard returned an invalid response",
         ),
-    })
+    }
 }
 
 fn run_core_env_runtime_rpc_with_adapter(
@@ -705,21 +709,12 @@ pub(crate) fn env_runtime_cli_install_for_paths(
     paths: &ProductCliPaths,
 ) -> RpcResult<ProductCliInstallStatus> {
     let capabilities = crate::types::runtime_capabilities_for_current_target();
-    if let Err(error) = crate::pro::guard_pro_feature_for_adapter(
+    if let Err(error) = crate::module_access::guard_module_for_adapter(
         adapter,
-        chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+        crate::module_access::MODULE_ENV_RUNTIME,
         &capabilities,
     ) {
-        return match error {
-            RpcResult::Error { error, code, .. } => env_error(EnvRuntimeError::new(
-                crate::env_runtime::EnvRuntimeErrorCode::from_feature(code.as_deref()),
-                error,
-            )),
-            RpcResult::Success { .. } => env_error(EnvRuntimeError::new(
-                crate::env_runtime::EnvRuntimeErrorCode::INTERNAL,
-                "Env Runtime access guard returned an invalid response",
-            )),
-        };
+        return env_error(env_runtime_module_denial(error));
     }
     if !adapter.is_unlocked() {
         return env_error(EnvRuntimeError::new(
@@ -740,19 +735,9 @@ pub(crate) fn env_runtime_cli_install_for_paths(
 }
 
 fn env_runtime_mutation_guard<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {
-    crate::pro::guard_pro_feature(state, chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME)
+    crate::module_access::guard_module(state, crate::module_access::MODULE_ENV_RUNTIME)
         .err()
-        .map(|error| match error {
-            RpcResult::Error { error, code, .. } => RpcResult::Error {
-                ok: false,
-                error,
-                code,
-            },
-            RpcResult::Success { .. } => rpc_err(
-                "Env Runtime requires ChromVoid Pro",
-                Some("PRO_REQUIRED".to_string()),
-            ),
-        })
+        .map(crate::module_access::denial_result)
 }
 
 fn env_runtime_unlocked_guard<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {

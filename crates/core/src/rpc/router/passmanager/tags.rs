@@ -1,3 +1,6 @@
+mod catalog;
+pub(super) use catalog::{delete, read_page, resolve_selected_keys, save};
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};

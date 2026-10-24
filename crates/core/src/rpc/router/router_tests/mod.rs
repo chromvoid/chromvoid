@@ -9,6 +9,7 @@ pub(super) use std::sync::Arc;
 pub(super) use std::time::Duration;
 pub(super) use tempfile::TempDir;
 
+mod attachments;
 mod cache_invalidation;
 mod catalog_crud;
 mod derivatives;

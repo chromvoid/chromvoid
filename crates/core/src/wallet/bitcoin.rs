@@ -1,6 +1,7 @@
 mod account;
 mod constants;
 mod discovery;
+mod history;
 mod keys;
 mod payload;
 mod profile;
@@ -16,7 +17,7 @@ pub use constants::{
 };
 pub use profile::BitcoinChainProfile;
 pub use provider::{
-    BitcoinAddressStats, BitcoinAddressStatus, BitcoinBroadcastResult, BitcoinFeeEstimates,
-    BitcoinProvider, BitcoinProviderError, BitcoinProviderErrorKind, BitcoinTransactionStatus,
-    BitcoinUtxo, UnavailableBitcoinProvider,
+    BitcoinAddressStats, BitcoinAddressStatus, BitcoinAddressTransaction, BitcoinBroadcastResult,
+    BitcoinFeeEstimates, BitcoinProvider, BitcoinProviderError, BitcoinProviderErrorKind,
+    BitcoinTransactionIo, BitcoinTransactionStatus, BitcoinUtxo, UnavailableBitcoinProvider,
 };

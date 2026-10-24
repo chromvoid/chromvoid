@@ -480,7 +480,7 @@ export class FileDetailsPanel extends ReatomLitElement {
     const primaryOpenUsesSystem =
       format.openBehavior.kind === "preview" &&
       format.openBehavior.mode === "fallback" &&
-      (platform === "macos" || platform === "android");
+      platform === "macos";
     const showShareButton = isMobile && canShareFiles();
     const openButtonLabel =
       primaryOpenUsesSystem && this.externalOpenPending

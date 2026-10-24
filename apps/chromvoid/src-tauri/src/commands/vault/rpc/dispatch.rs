@@ -1,6 +1,6 @@
+use chromvoid_client_runtime::rpc_data::clear_rpc_strings;
 use serde_json::Value;
 use tracing::info;
-use zeroize::Zeroize as _;
 
 use crate::app_state::AppState;
 use crate::core_rpc_dispatcher::{command_policy, CoreRpcDispatchError, CoreRpcDispatchOutcome};
@@ -19,11 +19,15 @@ use super::result::{bounded_env_runtime_command, rpc_response_to_result};
 fn should_reconcile_ssh_agent_after_success(command: &str) -> bool {
     matches!(
         command,
-        "passmanager:ssh:key:update"
+        "passmanager:ssh:keygen"
+            | "passmanager:ssh:key:import"
+            | "passmanager:ssh:key:edit"
+            | "passmanager:ssh:key:update"
             | "passmanager:ssh:key:delete"
             | "passmanager:ssh:secret:save"
             | "passmanager:ssh:secret:delete"
             | "passmanager:root:import"
+            | "passmanager:import:commit"
     )
 }
 
@@ -75,26 +79,21 @@ fn env_runtime_reauth_denial_code(command: &str, response: &RpcResponse) -> Opti
 }
 
 fn zeroize_sensitive_rpc_data(command: &str, data: &mut Value) {
-    if !matches!(
-        command,
-        "env_runtime:secret:create"
-            | "env_runtime:secret:update"
-            | "env_runtime:secret:reveal"
-            | "passmanager:entry:create"
-    ) {
+    if !command.starts_with("passmanager:import:")
+        && !matches!(
+            command,
+            "env_runtime:secret:create"
+                | "env_runtime:secret:update"
+                | "env_runtime:secret:reveal"
+                | "passmanager:entry:create"
+                | "passmanager:ssh:key:import"
+                | "passmanager:ssh:key:export"
+        )
+    {
         return;
     }
 
-    fn zeroize_strings(value: &mut Value) {
-        match value {
-            Value::String(value) => value.zeroize(),
-            Value::Array(values) => values.iter_mut().for_each(zeroize_strings),
-            Value::Object(values) => values.values_mut().for_each(zeroize_strings),
-            Value::Null | Value::Bool(_) | Value::Number(_) => {}
-        }
-    }
-
-    zeroize_strings(data);
+    clear_rpc_strings(data);
 }
 
 fn env_runtime_boundary_error(
@@ -138,9 +137,9 @@ fn guard_env_runtime_access_at_dispatch(
         return None;
     }
     let capabilities = crate::types::runtime_capabilities_for_current_target();
-    crate::pro::guard_pro_feature_for_adapter(
+    crate::module_access::guard_module_for_adapter(
         adapter,
-        chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+        crate::module_access::MODULE_ENV_RUNTIME,
         &capabilities,
     )
     .err()
@@ -175,9 +174,9 @@ pub(crate) async fn rpc_dispatch(
         return Ok(rpc_err(message, Some(code.to_string())));
     }
     if command.starts_with("env_runtime:") && command != "env_runtime:status" {
-        if let Err(error) = crate::pro::guard_pro_feature_async(
+        if let Err(error) = crate::module_access::guard_module_async(
             &state,
-            chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME,
+            crate::module_access::MODULE_ENV_RUNTIME,
         )
         .await
         {
@@ -347,7 +346,7 @@ pub(crate) async fn rpc_dispatch(
                 // The adapter can switch while this request is queued. Repeat
                 // the local-Core and module checks under the same lock used by
                 // `handle` so Env Runtime can never be forwarded remotely or
-                // mutate after entitlement/rollout access was withdrawn.
+                // mutate after module access was withdrawn.
                 if let Some(error) =
                     guard_env_runtime_access_at_dispatch(&command_bg, adapter.as_mut())
                 {
@@ -676,6 +675,24 @@ mod tests {
     #[test]
     fn ssh_agent_reconcile_triggers_for_root_ssh_mutations() {
         assert!(should_reconcile_ssh_agent_after_success(
+            "passmanager:import:commit"
+        ));
+        assert!(!should_reconcile_ssh_agent_after_success(
+            "passmanager:import:review"
+        ));
+        assert!(should_reconcile_ssh_agent_after_success(
+            "passmanager:ssh:key:edit"
+        ));
+        assert!(should_reconcile_ssh_agent_after_success(
+            "passmanager:ssh:keygen"
+        ));
+        assert!(should_reconcile_ssh_agent_after_success(
+            "passmanager:ssh:key:import"
+        ));
+        assert!(!should_reconcile_ssh_agent_after_success(
+            "passmanager:ssh:key:export"
+        ));
+        assert!(should_reconcile_ssh_agent_after_success(
             "passmanager:ssh:key:update"
         ));
         assert!(should_reconcile_ssh_agent_after_success(
@@ -830,12 +847,32 @@ mod tests {
     }
 
     #[test]
+    fn ssh_exchange_logs_never_include_private_payloads() {
+        for command in [
+            "passmanager:ssh:key:import",
+            "passmanager:ssh:key:export",
+            "passmanager:import:append",
+            "passmanager:import:review",
+        ] {
+            let data = json!({"chunk_base64": "file-body-marker", "source_password": "database-password-marker", "private_key": "private-key-marker", "passphrase": "passphrase-marker"});
+            assert_eq!(
+                crate::helpers::redact_rpc_data(command, &data),
+                json!("<redacted>")
+            );
+        }
+    }
+
+    #[test]
     fn sensitive_rpc_payloads_are_zeroized_after_core_handle() {
         for command in [
             "env_runtime:secret:create",
             "env_runtime:secret:update",
             "env_runtime:secret:reveal",
             "passmanager:entry:create",
+            "passmanager:ssh:key:import",
+            "passmanager:ssh:key:export",
+            "passmanager:import:append",
+            "passmanager:import:review",
         ] {
             let mut data = json!({
                 "id": "secret-id",

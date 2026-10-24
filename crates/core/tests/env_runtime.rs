@@ -6,7 +6,6 @@ use chromvoid_core::env_runtime::{
     AgentProfileMetadataV1, AgentSecretMetadataV1, EnvRuntimeErrorCode,
     PrivateSpawnResolutionRequestV1,
 };
-use chromvoid_core::license::{BuildPolicy, LicenseStore};
 use chromvoid_core::rpc::types::{
     EnvSecretRevealResponse, RpcCommand, RpcCommandResult, RpcRequest, RpcResponse,
 };
@@ -72,6 +71,20 @@ fn create_profile(router: &mut RpcRouter, slug: &str, variables: Value) -> Agent
     ))
 }
 
+/// `env_runtime:status` reports vault state and counts only; module access is
+/// decided outside Core.
+fn assert_status_fields(status: &RpcResponse) {
+    let fields = status
+        .result()
+        .and_then(Value::as_object)
+        .map(|object| object.keys().map(String::as_str).collect::<Vec<_>>())
+        .expect("env_runtime:status result object");
+    assert_eq!(
+        fields,
+        vec!["profile_count", "secret_count", "vault_unlocked"]
+    );
+}
+
 #[test]
 fn env_runtime_crud_references_revisions_and_private_resolution() {
     let (mut router, _temp) = setup_env_router();
@@ -81,10 +94,7 @@ fn env_runtime_crud_references_revisions_and_private_resolution() {
         status.result().and_then(|v| v.get("vault_unlocked")),
         Some(&json!(true))
     );
-    assert_eq!(
-        status.result().and_then(|v| v.get("pro_enabled")),
-        Some(&json!(true))
-    );
+    assert_status_fields(&status);
     assert_eq!(
         status.result().and_then(|v| v.get("secret_count")),
         Some(&json!(0))
@@ -426,7 +436,7 @@ fn env_runtime_validates_inputs_hides_storage_and_has_no_public_resolver() {
 }
 
 #[test]
-fn env_runtime_records_persist_and_private_resolution_is_pro_gated() {
+fn env_runtime_records_persist_and_resolve_without_any_licence() {
     let (mut router, temp, keystore) = create_test_router_with_keystore();
     setup_master_and_unlock(&mut router);
     let secret = create_secret(&mut router, "Persistent", "persistent-value");
@@ -438,11 +448,28 @@ fn env_runtime_records_persist_and_private_resolution_is_pro_gated() {
     drop(router);
 
     let storage = Storage::new(temp.path()).expect("reopen storage");
-    let mut reopened = RpcRouter::new(storage).with_keystore(keystore.clone());
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore);
     assert_rpc_ok(&unlock_vault(&mut reopened, VAULT_PASSWORD));
+
+    let status = rpc(&mut reopened, "env_runtime:status", json!({}));
+    assert_rpc_ok(&status);
+    assert_status_fields(&status);
+    assert_eq!(
+        status.result().and_then(|value| value.get("secret_count")),
+        Some(&json!(1))
+    );
+    assert_eq!(
+        status.result().and_then(|value| value.get("profile_count")),
+        Some(&json!(1))
+    );
+    let secrets: Vec<AgentSecretMetadataV1> =
+        decode_result(&rpc(&mut reopened, "env_runtime:secret:list", json!({})));
+    assert_eq!(secrets.len(), 1);
+    assert_eq!(secrets[0].id, secret.id);
+
     let lease = reopened
         .resolve_for_tauri_spawn(PrivateSpawnResolutionRequestV1 {
-            profile_id: profile.id.clone(),
+            profile_id: profile.id,
             expected_profile_revision: profile.revision,
         })
         .expect("persisted private resolution");
@@ -450,38 +477,6 @@ fn env_runtime_records_persist_and_private_resolution_is_pro_gated() {
         lease.iter().collect::<Vec<_>>(),
         vec![("PERSISTENT_TOKEN", "persistent-value")]
     );
-    drop(reopened);
-
-    let storage = Storage::new(temp.path()).expect("reopen storage with license");
-    let license_store = LicenseStore::new(temp.path().join("license"), BuildPolicy::Enforce);
-    let mut unlicensed = RpcRouter::new(storage)
-        .with_keystore(keystore)
-        .with_license_store(license_store);
-    assert_rpc_ok(&unlock_vault(&mut unlicensed, VAULT_PASSWORD));
-
-    let status = rpc(&mut unlicensed, "env_runtime:status", json!({}));
-    assert_rpc_ok(&status);
-    assert_eq!(
-        status.result().and_then(|value| value.get("pro_enabled")),
-        Some(&json!(false))
-    );
-    assert_eq!(
-        status.result().and_then(|value| value.get("secret_count")),
-        Some(&Value::Null)
-    );
-    assert_rpc_error(
-        &rpc(&mut unlicensed, "env_runtime:secret:list", json!({})),
-        "PRO_REQUIRED",
-    );
-    let private = unlicensed.resolve_for_tauri_spawn(PrivateSpawnResolutionRequestV1 {
-        profile_id: profile.id,
-        expected_profile_revision: profile.revision,
-    });
-    let private_error = match private {
-        Ok(_) => panic!("private resolver must enforce Pro"),
-        Err(error) => error,
-    };
-    assert_eq!(private_error.code(), EnvRuntimeErrorCode::ProRequired);
 }
 
 #[test]

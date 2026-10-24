@@ -35,15 +35,16 @@ pub(super) fn replace_chunks(
     node_id32: u32,
     old_size: u64,
     new_size: u64,
-    chunk_size: u64,
+    old_chunk_size: u64,
+    new_chunk_size: u64,
     content: &[u8],
     old_source_revision: u64,
 ) -> ReplaceResult<ChunkReplacement> {
     let chunk_name = |part_index: u32| -> String {
         crate::crypto::blob_chunk_name(vault_key, node_id32, part_index)
     };
-    let old_count = chunk_count(old_size, chunk_size)?;
-    let new_count = chunk_count(new_size, chunk_size)?;
+    let old_count = chunk_count(old_size, old_chunk_size)?;
+    let new_count = chunk_count(new_size, new_chunk_size)?;
     let max_count = old_count.max(new_count);
 
     let mut backups = Vec::with_capacity(max_count as usize);
@@ -69,7 +70,7 @@ pub(super) fn replace_chunks(
     }
 
     let mut encrypted_chunks: Vec<(String, Vec<u8>)> = Vec::with_capacity(new_count as usize);
-    for (index, plaintext) in content.chunks(chunk_size as usize).enumerate() {
+    for (index, plaintext) in content.chunks(new_chunk_size as usize).enumerate() {
         let index: u32 = index
             .try_into()
             .map_err(|_| ReplaceCommandError::internal("Invalid chunk index"))?;

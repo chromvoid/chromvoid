@@ -1,27 +1,24 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {
-  ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS,
-  ANDROID_MEDIA3_START_ACK_TIMEOUT_MS,
-  ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS,
+  NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS,
   MEDIA_PLAYBACK_WAVEFORM_BAR_COUNT,
   MEDIA_PLAYBACK_WAVEFORM_LEVEL_COUNT,
   mediaPlaybackModel,
 } from '../../src/features/media/models/media-playback.model'
-import {ANDROID_MEDIA3_COMMAND_TIMEOUT_MS} from '../../src/features/media/models/android-media3-playback-driver'
 import {
   dispatchMediaStreamError,
   resetMediaStreamOwnerRegistryForTests,
 } from '../../src/features/media/models/media-stream-owner-registry'
 import {
-  MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES,
+  MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES,
   MAX_MEDIA_BLOB_FALLBACK_BYTES,
   invalidateFileBlobCache,
 } from '../../src/features/media/components/file-loader'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {runtimeModeModel} from '../../src/core/runtime/runtime-mode.model'
-import type {AndroidAudioCommand} from '../../src/core/transport/transport'
+import type {NativeAudioCommand} from '../../src/core/transport/transport'
 import type {ResolvedAudioTrack} from '../../src/features/media/models/media-playback.model'
 
 const originalCreateObjectURL = URL.createObjectURL
@@ -54,15 +51,6 @@ function seedSeekableAudioState(): void {
   mediaPlaybackModel.duration.set(75)
 }
 
-function enableAndroidNativeAudio(): void {
-  setRuntimeCapabilities({
-    platform: 'android',
-    mobile: true,
-    android_native_audio_playback_rollout_enabled: true,
-  })
-  runtimeModeModel.setCoreMode('local')
-}
-
 function enableIosNativeAudio(): void {
   setRuntimeCapabilities({
     platform: 'ios',
@@ -72,7 +60,7 @@ function enableIosNativeAudio(): void {
   runtimeModeModel.setCoreMode('local')
 }
 
-function androidAudioTrack(overrides: Partial<ResolvedAudioTrack> = {}): ResolvedAudioTrack {
+function nativeAudioTrack(overrides: Partial<ResolvedAudioTrack> = {}): ResolvedAudioTrack {
   return {
     id: 301,
     name: 'private-track-name.mp3',
@@ -298,14 +286,14 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.progressValue()).toBe(0)
   })
 
-  it('marks Android native audio as preparing while playback waits for native readiness', () => {
+  it('marks native audio as preparing while playback waits for native readiness', () => {
     mediaPlaybackModel.sessionKind.set('audio')
     mediaPlaybackModel.tracks.set([
-      androidAudioTrack(),
-      androidAudioTrack({id: 302, name: 'second-track.mp3', sourceRevision: 78}),
+      nativeAudioTrack(),
+      nativeAudioTrack({id: 302, name: 'second-track.mp3', sourceRevision: 78}),
     ])
     mediaPlaybackModel.currentIndex.set(0)
-    mediaPlaybackModel.driverKind.set('android-media3')
+    mediaPlaybackModel.driverKind.set('ios-avplayer')
     mediaPlaybackModel.nativeSessionId.set('native-1')
     mediaPlaybackModel.loadingState.set('loading')
     mediaPlaybackModel.playbackState.set('buffering')
@@ -313,7 +301,7 @@ describe('mediaPlaybackModel', () => {
 
     expect(mediaPlaybackModel.nativeAudioPreparing()).toBe(true)
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId: 'native-1',
       trackId: 301,
@@ -340,12 +328,12 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.nativeAudioPreparing()).toBe(false)
   })
 
-  it('delays Android native audio preparation status visibility', async () => {
+  it('delays native audio preparation status visibility', async () => {
     vi.useFakeTimers()
     mediaPlaybackModel.sessionKind.set('audio')
-    mediaPlaybackModel.tracks.set([androidAudioTrack()])
+    mediaPlaybackModel.tracks.set([nativeAudioTrack()])
     mediaPlaybackModel.currentIndex.set(0)
-    mediaPlaybackModel.driverKind.set('android-media3')
+    mediaPlaybackModel.driverKind.set('ios-avplayer')
     mediaPlaybackModel.nativeSessionId.set('native-1')
     mediaPlaybackModel.loadingState.set('loading')
     mediaPlaybackModel.playbackState.set('buffering')
@@ -355,26 +343,26 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.nativeAudioPreparingStatusVisible()).toBe(false)
 
     await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS - 1)
+    await vi.advanceTimersByTimeAsync(NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS - 1)
     expect(mediaPlaybackModel.nativeAudioPreparingStatusVisible()).toBe(false)
 
     await vi.advanceTimersByTimeAsync(1)
     expect(mediaPlaybackModel.nativeAudioPreparingStatusVisible()).toBe(true)
   })
 
-  it('cancels Android native audio preparation status before the delay elapses', async () => {
+  it('cancels native audio preparation status before the delay elapses', async () => {
     vi.useFakeTimers()
     mediaPlaybackModel.sessionKind.set('audio')
-    mediaPlaybackModel.tracks.set([androidAudioTrack()])
+    mediaPlaybackModel.tracks.set([nativeAudioTrack()])
     mediaPlaybackModel.currentIndex.set(0)
-    mediaPlaybackModel.driverKind.set('android-media3')
+    mediaPlaybackModel.driverKind.set('ios-avplayer')
     mediaPlaybackModel.nativeSessionId.set('native-1')
     mediaPlaybackModel.loadingState.set('loading')
     mediaPlaybackModel.playbackState.set('buffering')
     mediaPlaybackModel.playbackIntent.set('play')
 
     await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(ANDROID_NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS - 1)
+    await vi.advanceTimersByTimeAsync(NATIVE_AUDIO_PREPARING_STATUS_DELAY_MS - 1)
     mediaPlaybackModel.loadingState.set('loaded')
     mediaPlaybackModel.playbackState.set('playing')
     await Promise.resolve()
@@ -446,7 +434,7 @@ describe('mediaPlaybackModel', () => {
 
   it('loads remote USB audio through a media stream when blob fallback is too large', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_media_stream_protocol: false,
     })
@@ -457,7 +445,7 @@ describe('mediaPlaybackModel', () => {
       url: 'chromvoid-media://localhost/stream-15',
       name: 'remote-track.mp3',
       mimeType: 'audio/mpeg',
-      size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+      size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1,
       sourceRevision: 1780561243303,
       expiresAt: 123456,
     })
@@ -485,7 +473,7 @@ describe('mediaPlaybackModel', () => {
           id: 15,
           name: 'remote-track.mp3',
           mimeType: 'audio/mpeg',
-          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+          size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1,
           sourceRevision: 1780561243303,
         },
       ],
@@ -509,9 +497,9 @@ describe('mediaPlaybackModel', () => {
     expect(releaseMediaStream).toHaveBeenCalledTimes(1)
   })
 
-  it('stays fallback-limited when remote stream transport and Android native playback are unavailable', async () => {
+  it('stays fallback-limited when remote stream transport and native playback are unavailable', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_media_stream_protocol: false,
     })
@@ -555,89 +543,14 @@ describe('mediaPlaybackModel', () => {
       kind: 'blob-fallback-limited',
       trackId: 14,
       sourceSize: 9_990_144,
-      fallbackLimitBytes: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES,
+      fallbackLimitBytes: MAX_MEDIA_BLOB_FALLBACK_BYTES,
     })
     expect(download).not.toHaveBeenCalled()
-  })
-
-  it('plays oversized remote USB audio through Android Media3 when native playback is available', async () => {
-    setRuntimeCapabilities({
-      platform: 'android',
-      mobile: true,
-      supports_media_stream_protocol: false,
-      android_native_audio_playback_rollout_enabled: true,
-    })
-    runtimeModeModel.setCoreMode({remote: {host: {host_id: 'host-1', type: 'mobile_usb'}}})
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue({
-      accepted: true,
-      tracks: [
-        {
-          trackId: 14,
-          mimeType: 'audio/mpeg',
-          size: 9_990_144,
-          sourceRevision: 1_780_561_242_976,
-        },
-      ],
-    })
-    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
-
-    initAppContext(
-      createMockAppContext({
-        ws: {
-          kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-        catalog: {
-          api: {
-            download,
-          },
-        } as any,
-      }),
-    )
-
-    await mediaPlaybackModel.startAudioSession(
-      [
-        {
-          id: 14,
-          name: 'remote-fixed.mp3',
-          mimeType: 'audio/mpeg',
-          size: 9_990_144,
-          sourceRevision: 1_780_561_242_976,
-        },
-      ],
-      0,
-      {autoplay: true},
-    )
-
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.loadingState()).toBe('loading')
-    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.sourceUrl()).toBeNull()
-    expect(mediaPlaybackModel.playbackState()).toBe('buffering')
-    expect(mediaPlaybackModel.playbackIntent()).toBe('play')
-    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
-      command: 'startSession',
-      nativeSessionId: expect.any(String),
-      tracks: [
-        {
-          trackId: 14,
-          systemTitle: 'ChromVoid audio',
-          mimeType: 'audio/mpeg',
-          size: 9_990_144,
-          sourceRevision: 1_780_561_242_976,
-        },
-      ],
-      index: 0,
-      autoplay: true,
-    })
-    expect(download).not.toHaveBeenCalled()
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(true)
   })
 
   it('keeps remote USB audio streaming available after stream failures', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_media_stream_protocol: false,
     })
@@ -650,7 +563,7 @@ describe('mediaPlaybackModel', () => {
         url: 'chromvoid-media://localhost/stream-15',
         name: 'remote-track-15.mp3',
         mimeType: 'audio/mpeg',
-        size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+        size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1,
         sourceRevision: 1780561243303,
         expiresAt: 123456,
       })
@@ -660,7 +573,7 @@ describe('mediaPlaybackModel', () => {
         url: 'chromvoid-media://localhost/stream-16',
         name: 'remote-track-16.mp3',
         mimeType: 'audio/mpeg',
-        size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+        size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1,
         sourceRevision: 1780561244303,
         expiresAt: 123456,
       })
@@ -670,7 +583,7 @@ describe('mediaPlaybackModel', () => {
         url: 'chromvoid-media://localhost/stream-17',
         name: 'remote-track-17.mp3',
         mimeType: 'audio/mpeg',
-        size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+        size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1,
         sourceRevision: 1780561245303,
         expiresAt: 123456,
       })
@@ -698,7 +611,7 @@ describe('mediaPlaybackModel', () => {
           id: 15,
           name: 'remote-track-15.mp3',
           mimeType: 'audio/mpeg',
-          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+          size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1,
           sourceRevision: 1780561243303,
         },
       ],
@@ -722,7 +635,7 @@ describe('mediaPlaybackModel', () => {
           id: 16,
           name: 'remote-track-16.mp3',
           mimeType: 'audio/mpeg',
-          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+          size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1,
           sourceRevision: 1780561244303,
         },
       ],
@@ -755,7 +668,7 @@ describe('mediaPlaybackModel', () => {
           id: 17,
           name: 'remote-track-17.mp3',
           mimeType: 'audio/mpeg',
-          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1,
+          size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1,
           sourceRevision: 1780561245303,
         },
       ],
@@ -770,85 +683,6 @@ describe('mediaPlaybackModel', () => {
     expect(prepareMediaStream).toHaveBeenCalledTimes(3)
     expect(releaseMediaStream).toHaveBeenCalledTimes(2)
     expect(download).not.toHaveBeenCalled()
-  })
-
-  it('selects Android Media3 playback when local Android native audio is available', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
-    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
-    initAppContext(
-      createMockAppContext({
-        ws: {
-          kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-        catalog: {
-          api: {
-            download,
-          },
-        } as any,
-      }),
-    )
-
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
-
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.androidNativeAudioActive()).toBe(true)
-    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.sourceUrl()).toBeNull()
-    expect(mediaPlaybackModel.loadingState()).toBe('loading')
-    expect(mediaPlaybackModel.audioArtworkLoadAllowed()).toBe(false)
-    expect(download).not.toHaveBeenCalled()
-
-    const startCommand = sendAndroidAudioCommand.mock.calls[0]?.[0]
-    expect(startCommand).toMatchObject({
-      command: 'startSession',
-      tracks: [
-        {
-          trackId: 301,
-          systemTitle: 'ChromVoid audio',
-          mimeType: 'audio/mpeg',
-          size: 1234,
-          sourceRevision: 77,
-        },
-      ],
-      index: 0,
-      autoplay: false,
-    })
-    expect(startCommand.nativeSessionId).toBe(mediaPlaybackModel.nativeSessionId())
-    expect(JSON.stringify(startCommand)).not.toContain('private-track-name')
-
-    mediaPlaybackModel.requestPlay()
-    await Promise.resolve()
-
-    expect(sendAndroidAudioCommand).toHaveBeenLastCalledWith({
-      command: 'play',
-      nativeSessionId: startCommand.nativeSessionId,
-    })
-
-    mediaPlaybackModel.handleMediaTimeUpdate(0, 120)
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
-      event: 'state',
-      nativeSessionId: startCommand.nativeSessionId,
-      trackId: 301,
-      sourceRevision: 77,
-      index: 0,
-      playbackState: 'playing',
-      playbackIntent: 'play',
-      loadingState: 'loaded',
-      positionMs: 0,
-      durationMs: 120_000,
-    })
-    expect(mediaPlaybackModel.audioArtworkLoadAllowed()).toBe(true)
-
-    mediaPlaybackModel.seekTo(42)
-    await Promise.resolve()
-
-    expect(sendAndroidAudioCommand).toHaveBeenLastCalledWith({
-      command: 'seekTo',
-      nativeSessionId: startCommand.nativeSessionId,
-      positionMs: 42_000,
-    })
   })
 
   it('selects iOS AVPlayer playback when local iOS native audio is available', async () => {
@@ -879,7 +713,7 @@ describe('mediaPlaybackModel', () => {
       }),
     )
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
 
     expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
     expect(mediaPlaybackModel.nativeAudioActive()).toBe(true)
@@ -916,7 +750,7 @@ describe('mediaPlaybackModel', () => {
       }),
     )
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0, {autoplay: true})
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0, {autoplay: true})
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
     expect(nativeSessionId).toBeTruthy()
 
@@ -940,13 +774,13 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.duration()).toBe(120)
   })
 
-  it('accepts Android native state events that arrive before startSession resolves', async () => {
-    enableAndroidNativeAudio()
+  it('accepts native state events that arrive before startSession resolves', async () => {
+    enableIosNativeAudio()
     const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {})
     try {
-      const sendAndroidAudioCommand = vi.fn(async (command: AndroidAudioCommand) => {
+      const sendNativeAudioCommand = vi.fn(async (command: NativeAudioCommand) => {
         if (command.command === 'startSession') {
-          mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+          mediaPlaybackModel.handleNativeAudioPlayerEvent({
             event: 'state',
             nativeSessionId: command.nativeSessionId,
             trackId: 301,
@@ -965,17 +799,17 @@ describe('mediaPlaybackModel', () => {
         createMockAppContext({
           ws: {
             kind: 'tauri',
-            sendAndroidAudioCommand,
+            sendNativeAudioCommand,
           } as any,
         }),
       )
 
-      await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+      await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
 
-      const startCommand = sendAndroidAudioCommand.mock.calls[0]?.[0]
+      const startCommand = sendNativeAudioCommand.mock.calls[0]?.[0]
       expect(mediaPlaybackModel.nativeSessionId()).toBe(startCommand.nativeSessionId)
-      expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-      expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
+      expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
+      expect(mediaPlaybackModel.sourceKind()).toBe('ios-avplayer')
       expect(mediaPlaybackModel.playbackState()).toBe('paused')
       expect(mediaPlaybackModel.loadingState()).toBe('loaded')
       expect(mediaPlaybackModel.currentTime()).toBe(12)
@@ -983,18 +817,16 @@ describe('mediaPlaybackModel', () => {
 
       const trace = consoleInfo.mock.calls.flat().map(String).join('\n')
       expect(trace).toContain('eventApplied')
-      expect(trace).toContain('startAckAlreadyReceived')
       expect(trace).not.toContain('stale_session')
-      expect(trace).not.toContain('startAckWatchdogStarted')
     } finally {
       consoleInfo.mockRestore()
     }
   })
 
-  it('keeps a newer Android audio session when an older start resolves late', async () => {
-    enableAndroidNativeAudio()
+  it('keeps a newer native audio session when an older start resolves late', async () => {
+    enableIosNativeAudio()
     let resolveFirstStart: (() => void) | undefined
-    const sendAndroidAudioCommand = vi.fn((command: AndroidAudioCommand) => {
+    const sendNativeAudioCommand = vi.fn((command: NativeAudioCommand) => {
       if (command.command === 'startSession' && command.tracks[0]?.trackId === 301) {
         return new Promise<undefined>((resolve) => {
           resolveFirstStart = () => resolve(undefined)
@@ -1007,20 +839,20 @@ describe('mediaPlaybackModel', () => {
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
 
-    const firstStart = mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
-    await waitFor(() => sendAndroidAudioCommand.mock.calls.length === 1)
+    const firstStart = mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
+    await waitFor(() => sendNativeAudioCommand.mock.calls.length === 1)
     await waitFor(() => mediaPlaybackModel.nativeSessionId() !== null)
     const firstNativeSessionId = mediaPlaybackModel.nativeSessionId()
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 302, sourceRevision: 78})], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack({id: 302, sourceRevision: 78})], 0)
     const secondNativeSessionId = mediaPlaybackModel.nativeSessionId()
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'stop',
       nativeSessionId: firstNativeSessionId,
     })
@@ -1032,14 +864,14 @@ describe('mediaPlaybackModel', () => {
 
     expect(mediaPlaybackModel.currentTrack()?.id).toBe(302)
     expect(mediaPlaybackModel.nativeSessionId()).toBe(secondNativeSessionId)
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
   })
 
-  it('keeps a newer Android audio session when an older native failure stop resolves late', async () => {
-    enableAndroidNativeAudio()
+  it('keeps a newer native audio session when an older native failure stop resolves late', async () => {
+    enableIosNativeAudio()
     let resolveFirstStop: (() => void) | undefined
     let stopCalls = 0
-    const sendAndroidAudioCommand = vi.fn((command: AndroidAudioCommand) => {
+    const sendNativeAudioCommand = vi.fn((command: NativeAudioCommand) => {
       if (command.command === 'stop') {
         stopCalls += 1
         if (stopCalls === 1) {
@@ -1055,15 +887,15 @@ describe('mediaPlaybackModel', () => {
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
     const firstNativeSessionId = mediaPlaybackModel.nativeSessionId()
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'error',
       nativeSessionId: firstNativeSessionId,
       trackId: 301,
@@ -1073,7 +905,7 @@ describe('mediaPlaybackModel', () => {
     })
     await waitFor(() => stopCalls === 1)
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 302, sourceRevision: 78})], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack({id: 302, sourceRevision: 78})], 0)
     const secondNativeSessionId = mediaPlaybackModel.nativeSessionId()
 
     resolveFirstStop?.()
@@ -1082,12 +914,12 @@ describe('mediaPlaybackModel', () => {
 
     expect(mediaPlaybackModel.currentTrack()?.id).toBe(302)
     expect(mediaPlaybackModel.nativeSessionId()).toBe(secondNativeSessionId)
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
   })
 
-  it('starts Android Media3 with only a local track id and reconciles native source metadata', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue({
+  it('starts native with only a local track id and reconciles native source metadata', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue({
       accepted: true,
       tracks: [
         {
@@ -1102,14 +934,14 @@ describe('mediaPlaybackModel', () => {
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
 
     await mediaPlaybackModel.startAudioSession(
       [
-        androidAudioTrack({
+        nativeAudioTrack({
           mimeType: undefined,
           size: undefined,
           sourceRevision: undefined,
@@ -1119,12 +951,13 @@ describe('mediaPlaybackModel', () => {
       0,
     )
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    const startCommand = sendAndroidAudioCommand.mock.calls[0]?.[0]
+    const startCommand = sendNativeAudioCommand.mock.calls[0]?.[0]
 
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
     expect(startCommand.tracks[0]).toEqual({
       trackId: 301,
       systemTitle: 'ChromVoid audio',
+      mimeType: 'audio/mpeg',
     })
     expect(mediaPlaybackModel.currentTrack()).toMatchObject({
       id: 301,
@@ -1133,7 +966,7 @@ describe('mediaPlaybackModel', () => {
       sourceRevision: 88,
     })
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId,
       trackId: 301,
@@ -1150,21 +983,21 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.currentTime()).toBe(2)
   })
 
-  it('passes audio media-info playback MIME to Android native start', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('passes audio media-info playback MIME to native start', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
 
     await mediaPlaybackModel.startAudioSession(
       [
-        androidAudioTrack({
+        nativeAudioTrack({
           mimeType: undefined,
           mediaInfo: {
             kind: 'audio',
@@ -1177,7 +1010,7 @@ describe('mediaPlaybackModel', () => {
       0,
     )
 
-    const startCommand = sendAndroidAudioCommand.mock.calls[0]?.[0]
+    const startCommand = sendNativeAudioCommand.mock.calls[0]?.[0]
     expect(startCommand.tracks[0]).toMatchObject({
       trackId: 301,
       mimeType: 'audio/mp4',
@@ -1186,21 +1019,21 @@ describe('mediaPlaybackModel', () => {
     })
   })
 
-  it('infers Android native audio MIME from extension when source metadata is complete', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('infers native audio MIME from extension when source metadata is complete', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({mimeType: 'application/octet-stream'})], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack({mimeType: 'application/octet-stream'})], 0)
 
-    const startCommand = sendAndroidAudioCommand.mock.calls[0]?.[0]
+    const startCommand = sendNativeAudioCommand.mock.calls[0]?.[0]
     expect(startCommand.tracks[0]).toMatchObject({
       trackId: 301,
       mimeType: 'audio/mpeg',
@@ -1209,15 +1042,15 @@ describe('mediaPlaybackModel', () => {
     })
   })
 
-  it('falls back to Web audio and disables native audio when Android native start fails', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockRejectedValue(new Error('native start failed'))
+  it('falls back to Web audio and disables native audio when native start fails', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockRejectedValue(new Error('native start failed'))
     const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
         catalog: {
           api: {
@@ -1227,25 +1060,25 @@ describe('mediaPlaybackModel', () => {
       }),
     )
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 302})], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack({id: 302})], 0)
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledTimes(1)
+    expect(sendNativeAudioCommand).toHaveBeenCalledTimes(1)
     expect(mediaPlaybackModel.driverKind()).toBe('web-audio-element')
     expect(mediaPlaybackModel.nativeSessionId()).toBeNull()
     expect(mediaPlaybackModel.sourceKind()).toBe('blob')
     expect(download).toHaveBeenCalledTimes(1)
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(false)
+    expect(runtimeModeModel.canUseNativeAudioPlayback({transportKind: 'tauri'})).toBe(false)
   })
 
-  it('falls back to Web audio when Android native start is rejected', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue({accepted: false})
+  it('falls back to Web audio when native start is rejected', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue({accepted: false})
     const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
         catalog: {
           api: {
@@ -1255,64 +1088,33 @@ describe('mediaPlaybackModel', () => {
       }),
     )
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 302})], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack({id: 302})], 0)
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledTimes(1)
+    expect(sendNativeAudioCommand).toHaveBeenCalledTimes(1)
     expect(mediaPlaybackModel.driverKind()).toBe('web-audio-element')
     expect(mediaPlaybackModel.nativeSessionId()).toBeNull()
     expect(mediaPlaybackModel.sourceKind()).toBe('blob')
     expect(download).toHaveBeenCalledTimes(1)
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(false)
+    expect(runtimeModeModel.canUseNativeAudioPlayback({transportKind: 'tauri'})).toBe(false)
   })
 
-  it('falls back to Web audio when Android native command times out', async () => {
-    vi.useFakeTimers()
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockImplementation(() => new Promise(() => {}))
-    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
-    initAppContext(
-      createMockAppContext({
-        ws: {
-          kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-        catalog: {
-          api: {
-            download,
-          },
-        } as any,
-      }),
-    )
-
-    const start = mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 302})], 0)
-    await vi.advanceTimersByTimeAsync(ANDROID_MEDIA3_COMMAND_TIMEOUT_MS)
-    await start
-
-    expect(sendAndroidAudioCommand).toHaveBeenCalledTimes(1)
-    expect(mediaPlaybackModel.driverKind()).toBe('web-audio-element')
-    expect(mediaPlaybackModel.nativeSessionId()).toBeNull()
-    expect(mediaPlaybackModel.sourceKind()).toBe('blob')
-    expect(download).toHaveBeenCalledTimes(1)
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(false)
-  })
-
-  it('keeps Android native diagnostics redacted and summarized', async () => {
-    enableAndroidNativeAudio()
+  it('keeps native diagnostics redacted and summarized', async () => {
+    enableIosNativeAudio()
     const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {})
     try {
-      const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+      const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
       initAppContext(
         createMockAppContext({
           ws: {
             kind: 'tauri',
-            sendAndroidAudioCommand,
+            sendNativeAudioCommand,
           } as any,
         }),
       )
 
-      await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+      await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
       const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-      mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+      mediaPlaybackModel.handleNativeAudioPlayerEvent({
         event: 'state',
         nativeSessionId,
         trackId: 301,
@@ -1325,9 +1127,7 @@ describe('mediaPlaybackModel', () => {
       })
 
       const trace = consoleInfo.mock.calls.flat().map(String).join('\n')
-      expect(trace).toContain('commandSend')
-      expect(trace).toContain('startAckWatchdogStarted')
-      expect(trace).toContain('startAckReceived')
+      expect(trace).toContain('eventApplied')
       expect(trace).not.toContain('spectrumBinCount')
       expect(trace).not.toContain('eventSpectrum')
       expect(trace).not.toContain('private-track-name')
@@ -1339,250 +1139,9 @@ describe('mediaPlaybackModel', () => {
     }
   })
 
-  it('falls back to Web audio when Android native start never reports state', async () => {
-    vi.useFakeTimers()
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
-    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
-    initAppContext(
-      createMockAppContext({
-        ws: {
-          kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-        catalog: {
-          api: {
-            download,
-          },
-        } as any,
-      }),
-    )
-
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 302})], 0)
-    const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
-      event: 'state',
-      nativeSessionId: 'stale-session',
-      trackId: 302,
-      sourceRevision: 77,
-      index: 0,
-      playbackState: 'playing',
-    })
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({event: 'state'})
-    mediaPlaybackModel.requestPlay()
-    await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(ANDROID_MEDIA3_START_ACK_TIMEOUT_MS)
-
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
-      command: 'stop',
-      nativeSessionId,
-    })
-    expect(mediaPlaybackModel.driverKind()).toBe('web-audio-element')
-    expect(mediaPlaybackModel.nativeSessionId()).toBeNull()
-    expect(mediaPlaybackModel.sourceKind()).toBe('blob')
-    expect(mediaPlaybackModel.playbackIntent()).toBe('play')
-    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
-    expect(download).toHaveBeenCalledTimes(1)
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(true)
-    sendAndroidAudioCommand.mockClear()
-    download.mockClear()
-
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
-
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.nativeSessionId()).not.toBeNull()
-    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith(expect.objectContaining({command: 'startSession'}))
-    expect(download).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    {label: 'oversized', size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1},
-    {label: 'unknown-size', size: undefined},
-  ])('keeps Android native audio preparing when $label start has no Web blob fallback', async ({size}) => {
-    vi.useFakeTimers()
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
-    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
-    initAppContext(
-      createMockAppContext({
-        ws: {
-          kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-        catalog: {
-          api: {
-            download,
-          },
-        } as any,
-      }),
-    )
-
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 601, size})], 0, {
-      autoplay: true,
-    })
-    const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-
-    await vi.advanceTimersByTimeAsync(ANDROID_MEDIA3_START_ACK_TIMEOUT_MS)
-
-    expect(sendAndroidAudioCommand).not.toHaveBeenCalledWith({
-      command: 'stop',
-      nativeSessionId,
-    })
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.nativeSessionId()).toBe(nativeSessionId)
-    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.loadingState()).toBe('loading')
-    expect(mediaPlaybackModel.playbackState()).toBe('buffering')
-    expect(mediaPlaybackModel.playbackIntent()).toBe('play')
-    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
-    expect(download).not.toHaveBeenCalled()
-  })
-
-  it('falls back to Web audio when Android native playback never becomes ready', async () => {
-    vi.useFakeTimers()
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
-    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
-    initAppContext(
-      createMockAppContext({
-        ws: {
-          kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-        catalog: {
-          api: {
-            download,
-          },
-        } as any,
-      }),
-    )
-
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 302})], 0)
-    const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
-      event: 'state',
-      nativeSessionId,
-      trackId: 302,
-      sourceRevision: 77,
-      index: 0,
-      playbackState: 'buffering',
-      playbackIntent: 'pause',
-      loadingState: 'loading',
-      positionMs: 0,
-    })
-
-    mediaPlaybackModel.requestPlay()
-    await Promise.resolve()
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
-      event: 'state',
-      nativeSessionId,
-      trackId: 302,
-      sourceRevision: 77,
-      index: 0,
-      playbackState: 'buffering',
-      playbackIntent: 'play',
-      loadingState: 'loading',
-      positionMs: 0,
-    })
-    await vi.advanceTimersByTimeAsync(ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS)
-
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
-      command: 'stop',
-      nativeSessionId,
-    })
-    expect(mediaPlaybackModel.driverKind()).toBe('web-audio-element')
-    expect(mediaPlaybackModel.nativeSessionId()).toBeNull()
-    expect(mediaPlaybackModel.sourceKind()).toBe('blob')
-    expect(mediaPlaybackModel.playbackIntent()).toBe('play')
-    expect(download).toHaveBeenCalledTimes(1)
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(true)
-    sendAndroidAudioCommand.mockClear()
-    download.mockClear()
-
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
-
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.nativeSessionId()).not.toBeNull()
-    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith(expect.objectContaining({command: 'startSession'}))
-    expect(download).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    {label: 'oversized', size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1},
-    {label: 'unknown-size', size: undefined},
-  ])('keeps Android native audio preparing when $label playback has no Web blob fallback', async ({size}) => {
-    vi.useFakeTimers()
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
-    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
-    initAppContext(
-      createMockAppContext({
-        ws: {
-          kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-        catalog: {
-          api: {
-            download,
-          },
-        } as any,
-      }),
-    )
-
-    await mediaPlaybackModel.startAudioSession(
-      [androidAudioTrack({id: 501, size}), androidAudioTrack({id: 502, size: 2048, sourceRevision: 78})],
-      0,
-      {autoplay: true},
-    )
-    const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
-      event: 'state',
-      nativeSessionId,
-      trackId: 501,
-      sourceRevision: 77,
-      index: 0,
-      playbackState: 'buffering',
-      playbackIntent: 'play',
-      loadingState: 'loading',
-      positionMs: 0,
-    })
-
-    await vi.advanceTimersByTimeAsync(ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS)
-
-    expect(sendAndroidAudioCommand).not.toHaveBeenCalledWith({
-      command: 'stop',
-      nativeSessionId,
-    })
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.nativeSessionId()).toBe(nativeSessionId)
-    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.loadingState()).toBe('loading')
-    expect(mediaPlaybackModel.playbackState()).toBe('buffering')
-    expect(mediaPlaybackModel.playbackIntent()).toBe('play')
-    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(true)
-    expect(download).not.toHaveBeenCalled()
-
-    sendAndroidAudioCommand.mockClear()
-    await mediaPlaybackModel.selectTrack(1)
-
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
-      command: 'selectTrack',
-      nativeSessionId,
-      index: 1,
-    })
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.playbackIssue()).toBeNull()
-    expect(download).not.toHaveBeenCalled()
-  })
-
-  it('restarts Android native audio when track selection command fails', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn((command: AndroidAudioCommand) => {
+  it('restarts native audio when track selection command fails', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn((command: NativeAudioCommand) => {
       if (command.command === 'selectTrack') {
         return Promise.reject(new Error('select failed'))
       }
@@ -1592,12 +1151,12 @@ describe('mediaPlaybackModel', () => {
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
     await mediaPlaybackModel.startAudioSession(
-      [androidAudioTrack({id: 401, sourceRevision: 91}), androidAudioTrack({id: 402, sourceRevision: 92})],
+      [nativeAudioTrack({id: 401, sourceRevision: 91}), nativeAudioTrack({id: 402, sourceRevision: 92})],
       0,
       {autoplay: true},
     )
@@ -1605,33 +1164,33 @@ describe('mediaPlaybackModel', () => {
 
     await mediaPlaybackModel.selectTrack(1)
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'selectTrack',
       nativeSessionId,
       index: 1,
     })
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'stop',
       nativeSessionId,
     })
     expect(
-      sendAndroidAudioCommand.mock.calls.filter(
-        ([command]) => (command as AndroidAudioCommand).command === 'startSession',
+      sendNativeAudioCommand.mock.calls.filter(
+        ([command]) => (command as NativeAudioCommand).command === 'startSession',
       ),
     ).toHaveLength(2)
     expect(mediaPlaybackModel.currentIndex()).toBe(1)
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
     expect(mediaPlaybackModel.nativeSessionId()).not.toBe(nativeSessionId)
-    expect(mediaPlaybackModel.sourceKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.sourceKind()).toBe('ios-avplayer')
     expect(mediaPlaybackModel.loadingState()).toBe('loading')
     expect(mediaPlaybackModel.playbackIntent()).toBe('play')
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(true)
+    expect(runtimeModeModel.canUseNativeAudioPlayback({transportKind: 'tauri'})).toBe(true)
   })
 
-  it('does not show fallback-limited after a ready Android session restarts on track select failure', async () => {
+  it('does not show fallback-limited after a ready native session restarts on track select failure', async () => {
     vi.useFakeTimers()
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn((command: AndroidAudioCommand) => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn((command: NativeAudioCommand) => {
       if (command.command === 'selectTrack') {
         return Promise.reject(new Error('select failed'))
       }
@@ -1642,7 +1201,7 @@ describe('mediaPlaybackModel', () => {
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
         catalog: {
           api: {
@@ -1653,11 +1212,11 @@ describe('mediaPlaybackModel', () => {
     )
     await mediaPlaybackModel.startAudioSession(
       [
-        androidAudioTrack({id: 701, size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 1}),
-        androidAudioTrack({
+        nativeAudioTrack({id: 701, size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 1}),
+        nativeAudioTrack({
           id: 702,
           name: 'second-track.mp3',
-          size: MAX_ANDROID_AUDIO_BLOB_FALLBACK_BYTES + 2,
+          size: MAX_NATIVE_AUDIO_BLOB_FALLBACK_BYTES + 2,
           sourceRevision: 78,
         }),
       ],
@@ -1665,7 +1224,7 @@ describe('mediaPlaybackModel', () => {
       {autoplay: true},
     )
     const firstNativeSessionId = mediaPlaybackModel.nativeSessionId()
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId: firstNativeSessionId,
       trackId: 701,
@@ -1677,27 +1236,27 @@ describe('mediaPlaybackModel', () => {
       positionMs: 2_000,
       durationMs: 75_000,
     })
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
 
     await mediaPlaybackModel.selectTrack(1)
     const restartedNativeSessionId = mediaPlaybackModel.nativeSessionId()
-    await vi.advanceTimersByTimeAsync(ANDROID_MEDIA3_START_ACK_TIMEOUT_MS)
+    await vi.runOnlyPendingTimersAsync()
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'selectTrack',
       nativeSessionId: firstNativeSessionId,
       index: 1,
     })
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'stop',
       nativeSessionId: firstNativeSessionId,
     })
-    expect(sendAndroidAudioCommand).not.toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).not.toHaveBeenCalledWith({
       command: 'stop',
       nativeSessionId: restartedNativeSessionId,
     })
     expect(mediaPlaybackModel.currentIndex()).toBe(1)
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
     expect(mediaPlaybackModel.nativeSessionId()).toBe(restartedNativeSessionId)
     expect(mediaPlaybackModel.loadingState()).toBe('loading')
     expect(mediaPlaybackModel.playbackState()).toBe('buffering')
@@ -1706,64 +1265,21 @@ describe('mediaPlaybackModel', () => {
     expect(download).not.toHaveBeenCalled()
   })
 
-  it('keeps Android native playback when it reports playing before readiness timeout', async () => {
-    vi.useFakeTimers()
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
-    const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
+  it('reconciles matching native audio state events', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-        catalog: {
-          api: {
-            download,
-          },
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
-    const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    mediaPlaybackModel.requestPlay()
-    await Promise.resolve()
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
-      event: 'state',
-      nativeSessionId,
-      trackId: 301,
-      sourceRevision: 77,
-      index: 0,
-      playbackState: 'playing',
-      playbackIntent: 'play',
-      loadingState: 'loaded',
-      positionMs: 1_000,
-      durationMs: 10_000,
-    })
-    await vi.advanceTimersByTimeAsync(ANDROID_MEDIA3_PLAYBACK_READY_TIMEOUT_MS)
-
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
-    expect(mediaPlaybackModel.nativeSessionId()).toBe(nativeSessionId)
-    expect(mediaPlaybackModel.playbackState()).toBe('playing')
-    expect(download).not.toHaveBeenCalled()
-  })
-
-  it('reconciles matching Android native audio state events', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
-    initAppContext(
-      createMockAppContext({
-        ws: {
-          kind: 'tauri',
-          sendAndroidAudioCommand,
-        } as any,
-      }),
-    )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId,
       trackId: 301,
@@ -1787,22 +1303,22 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.canSeek()).toBe(true)
   })
 
-  it('ignores Android native audio spectrum payloads instead of applying UI state', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('ignores native audio spectrum payloads instead of applying UI state', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
     const before = mediaPlaybackModel.waveformDisplayBars()
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'spectrum',
       nativeSessionId,
       trackId: 301,
@@ -1876,21 +1392,21 @@ describe('mediaPlaybackModel', () => {
     expect('spectrumActive' in mediaPlaybackModel).toBe(false)
   })
 
-  it('ignores stale and malformed Android native audio events', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('ignores stale and malformed native audio events', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId: 'stale-session',
       trackId: 301,
@@ -1899,17 +1415,17 @@ describe('mediaPlaybackModel', () => {
       playbackState: 'playing',
       positionMs: 10_000,
     })
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'released',
       nativeSessionId: 'stale-session',
       reason: 'service_destroyed',
     })
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'error',
       nativeSessionId: 'stale-session',
       code: 'ERR_NATIVE_AUDIO_SOURCE_READ',
     })
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId,
       trackId: 999,
@@ -1918,7 +1434,7 @@ describe('mediaPlaybackModel', () => {
       playbackState: 'playing',
       positionMs: 20_000,
     })
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId,
       trackId: 301,
@@ -1927,7 +1443,7 @@ describe('mediaPlaybackModel', () => {
       playbackState: 'playing',
       positionMs: 30_000,
     })
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId,
       trackId: 301,
@@ -1936,26 +1452,26 @@ describe('mediaPlaybackModel', () => {
       playbackState: 'playing',
       positionMs: 40_000,
     })
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({event: 'state'})
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({event: 'state'})
 
     expect(mediaPlaybackModel.playbackState()).toBe('paused')
     expect(mediaPlaybackModel.currentTime()).toBe(0)
   })
 
-  it('records a native service issue when current Android service is destroyed during intended playback', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('records a native service issue when current native service is destroyed during intended playback', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0, {autoplay: true})
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0, {autoplay: true})
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId,
       trackId: 301,
@@ -1968,7 +1484,7 @@ describe('mediaPlaybackModel', () => {
       durationMs: 120_000,
     })
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'released',
       nativeSessionId,
       trackId: 301,
@@ -1981,27 +1497,27 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.nativeSessionId()).toBeNull()
     expect(mediaPlaybackModel.playbackState()).toBe('stopped')
     expect(mediaPlaybackModel.playbackIssue()).toMatchObject({
-      kind: 'android-native-service-stopped',
+      kind: 'native-service-stopped',
       trackId: 301,
       sourceRevision: 77,
     })
   })
 
-  it('clears native state without issue when Android reports system stop release', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('clears native state without issue when the native player reports system stop release', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0, {autoplay: true})
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0, {autoplay: true})
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'released',
       nativeSessionId,
       reason: 'system_stop',
@@ -2014,15 +1530,15 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.playbackIssue()).toBeNull()
   })
 
-  it('stops native playback on Android native source errors without starting Web audio', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('stops native playback on native source errors without starting Web audio', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
         catalog: {
           api: {
@@ -2031,11 +1547,11 @@ describe('mediaPlaybackModel', () => {
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'error',
       nativeSessionId,
       trackId: 301,
@@ -2045,7 +1561,7 @@ describe('mediaPlaybackModel', () => {
     })
     await waitFor(() => mediaPlaybackModel.playbackState() === 'error')
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'stop',
       nativeSessionId,
     })
@@ -2054,10 +1570,10 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.sourceKind()).toBe('none')
     expect(mediaPlaybackModel.loadingState()).toBe('error')
     expect(mediaPlaybackModel.playbackIssue()).toMatchObject({
-      kind: 'android-native-error',
+      kind: 'native-error',
       nativeCode: 'ERR_NATIVE_AUDIO_VAULT_LOCKED',
     })
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(true)
+    expect(runtimeModeModel.canUseNativeAudioPlayback({transportKind: 'tauri'})).toBe(true)
     expect(download).not.toHaveBeenCalled()
   })
 
@@ -2065,14 +1581,14 @@ describe('mediaPlaybackModel', () => {
     {label: 'source read', code: 'ERR_NATIVE_AUDIO_SOURCE_READ'},
     {label: 'decoder', code: 'ERROR_CODE_DECODING_FAILED'},
   ])('falls back to Web audio and quarantines native on terminal $label errors', async ({code}) => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     const download = vi.fn().mockImplementation(async () => streamOf(new TextEncoder().encode('fallback')))
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
         catalog: {
           api: {
@@ -2081,11 +1597,11 @@ describe('mediaPlaybackModel', () => {
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0, {autoplay: true})
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0, {autoplay: true})
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'error',
       nativeSessionId,
       trackId: 301,
@@ -2095,7 +1611,7 @@ describe('mediaPlaybackModel', () => {
     })
     await waitFor(() => mediaPlaybackModel.sourceKind() === 'blob')
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'stop',
       nativeSessionId,
     })
@@ -2104,28 +1620,28 @@ describe('mediaPlaybackModel', () => {
     expect(mediaPlaybackModel.playbackIssue()).toBeNull()
     expect(mediaPlaybackModel.playbackIntent()).toBe('play')
     expect(download).toHaveBeenCalledTimes(1)
-    expect(runtimeModeModel.canUseAndroidNativeAudio({transportKind: 'tauri'})).toBe(false)
+    expect(runtimeModeModel.canUseNativeAudioPlayback({transportKind: 'tauri'})).toBe(false)
   })
 
-  it('advances native playback on matching Android ended events', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('advances native playback on matching native ended events', async () => {
+    enableIosNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
     await mediaPlaybackModel.startAudioSession(
-      [androidAudioTrack(), androidAudioTrack({id: 302, sourceRevision: 78})],
+      [nativeAudioTrack(), nativeAudioTrack({id: 302, sourceRevision: 78})],
       0,
     )
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
 
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'ended',
       nativeSessionId,
       trackId: 301,
@@ -2136,7 +1652,7 @@ describe('mediaPlaybackModel', () => {
 
     expect(mediaPlaybackModel.currentTrack()?.id).toBe(302)
     expect(mediaPlaybackModel.playbackIntent()).toBe('play')
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'selectTrack',
       nativeSessionId,
       index: 1,

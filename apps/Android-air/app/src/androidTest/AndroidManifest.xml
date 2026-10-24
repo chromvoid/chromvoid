@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- A WebView navigates only with it; the probe answers its one page itself. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The passkey probe names a website's origin for a password sign-in, as a browser does. -->
+    <uses-permission android:name="android.permission.CREDENTIAL_MANAGER_SET_ORIGIN" />
+    <application>
+        <!-- A login page in another app's process, for the autofill route: this test
+             package, not ChromVoid, is the app that asks to be filled. Exported only so the
+             instrumentation, running as ChromVoid, may start it; it exists only in the test APK. -->
+        <activity
+            android:name="com.chromvoid.air.probe.AutofillProbeActivity"
+            android:exported="true"
+            android:label="Autofill probe" />
+        <!-- A website's passkey sign-in, asked of Credential Manager by this test package. -->
+        <activity
+            android:name="com.chromvoid.air.probe.PasskeyProbeActivity"
+            android:exported="true"
+            android:label="Passkey probe" />
+    </application>
+</manifest>

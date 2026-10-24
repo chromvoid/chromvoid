@@ -9,7 +9,7 @@ declare global {
 test('S21: create folder via UI', async () => {
   const page = globalThis.__E2E_PAGE__!
   await page.goto('http://localhost:4400/index.html')
-  await page.waitForSelector('chromvoid-app')
+  await page.getByTestId('app-root').waitFor()
 
   await waitForAuthenticated(page)
 

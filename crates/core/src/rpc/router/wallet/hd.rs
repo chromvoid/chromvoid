@@ -2,6 +2,9 @@ use bip39::{Language, Mnemonic};
 use zeroize::Zeroizing;
 
 use super::super::state::WalletMnemonicDraft;
+use crate::wallet::rotation_mnemonic::{
+    generate_rotation_half, normalize_rotation_words, validate_rotation_mnemonic,
+};
 use crate::wallet::ton_mnemonic::{
     generate_ton_native_mnemonic, normalize_ton_native_words, validate_ton_native_mnemonic,
 };
@@ -40,6 +43,12 @@ impl RpcRouter {
 
         let mnemonic = if mnemonic_standard == TON_NATIVE_MNEMONIC_STANDARD {
             match generate_ton_native_mnemonic() {
+                Ok(words) => words,
+                Err(error) => return WalletCommandError::from(error).into_rpc_response(),
+            }
+        } else if mnemonic_standard == ROTATION_MNEMONIC_STANDARD {
+            // A new rotation wallet starts in its initial form: one 12-word anchor half.
+            match generate_rotation_half() {
                 Ok(words) => words,
                 Err(error) => return WalletCommandError::from(error).into_rpc_response(),
             }
@@ -252,6 +261,20 @@ impl RpcRouter {
                                 .iter()
                                 .any(|network| network.as_str() == "bitcoin"),
                     ),
+                    // A restored phrase may already own derived accounts beyond index 0 on
+                    // account-based networks; they are discovered lazily (SPEC-217 FR-016).
+                    account_discovery_pending: if request.mnemonic.is_some() {
+                        profiles
+                            .iter()
+                            .filter(|(network, profile)| {
+                                network.as_str() != "bitcoin"
+                                    && profile.supports_restore_discovery()
+                            })
+                            .map(|(network, _)| network.clone())
+                            .collect()
+                    } else {
+                        Vec::new()
+                    },
                     secret_ref: secret_id,
                     created_at: now,
                     updated_at: now,
@@ -268,20 +291,28 @@ impl RpcRouter {
                 let mut accounts = Vec::new();
                 for (network, profile) in profiles {
                     let materialization = profile
-                        .materialize_hd_account(WalletHdAccountMaterializeInput {
-                            wallet_id: wallet_id.clone(),
+                        .materialize_hd_account(hd_account_input(
+                            &wallet,
+                            &secret.payload,
                             network,
-                            account_index: 0,
-                            wallet_mode: wallet_mode.to_string(),
-                            mnemonic_standard: mnemonic_standard.to_string(),
-                            mnemonic_entropy: mnemonic_entropy.to_string(),
-                            mnemonic_words: mnemonic_words.clone(),
-                            wordlist: request.wordlist.clone(),
-                            bip39_passphrase: request.bip39_passphrase.clone(),
+                            0,
                             now,
-                        })
+                        )?)
                         .map_err(WalletCommandError::from)?;
-                    accounts.push(materialize_profile_account(&mut uow, materialization)?);
+                    let account = materialize_profile_account(&mut uow, materialization, &wallet)?;
+                    // A restored Bitcoin account gets its address from discovery instead.
+                    let account = if wallet.bitcoin_discovery_pending == Some(true) {
+                        account
+                    } else {
+                        allocate_first_receive_address(
+                            &mut uow,
+                            profile.as_ref(),
+                            account,
+                            &secret.payload,
+                            now,
+                        )?
+                    };
+                    accounts.push(account);
                 }
 
                 let mut index = load_index(session, &storage)?;
@@ -369,37 +400,22 @@ impl RpcRouter {
     }
 }
 
+/// New wallets have exactly one shape: the universal rotation root (`multichain` +
+/// `rotation`, 12 words). Every other mode/standard combination is a restore-only path.
 fn validate_wallet_mode_and_standard(
     wallet_mode: &str,
     mnemonic_standard: &str,
     word_count: u8,
 ) -> WalletResult<()> {
-    match wallet_mode {
-        MULTICHAIN_WALLET_MODE => {
-            if mnemonic_standard != BIP39_MNEMONIC_STANDARD {
-                return Err(WalletCommandError::invalid_input(
-                    "multichain wallet_mode requires mnemonic_standard=bip39",
-                ));
-            }
-            if word_count != 12 && word_count != 24 {
-                return Err(WalletCommandError::invalid_input(
-                    "word_count must be 12 or 24 for bip39",
-                ));
-            }
-        }
-        TON_ONLY_WALLET_MODE => {
-            if mnemonic_standard != TON_NATIVE_MNEMONIC_STANDARD {
-                return Err(WalletCommandError::invalid_input(
-                    "ton_only wallet_mode requires mnemonic_standard=ton_native",
-                ));
-            }
-            if word_count != 24 {
-                return Err(WalletCommandError::invalid_input(
-                    "word_count must be 24 for ton_only",
-                ));
-            }
-        }
-        _ => return Err(WalletCommandError::invalid_input("unsupported wallet_mode")),
+    if wallet_mode != MULTICHAIN_WALLET_MODE || mnemonic_standard != ROTATION_MNEMONIC_STANDARD {
+        return Err(WalletCommandError::invalid_input(
+            "new wallets use the universal profile: wallet_mode=multichain, mnemonic_standard=rotation",
+        ));
+    }
+    if word_count != 12 {
+        return Err(WalletCommandError::invalid_input(
+            "word_count must be 12 for a new universal wallet",
+        ));
     }
     Ok(())
 }
@@ -411,21 +427,31 @@ fn validate_wallet_mode_networks(
 ) -> WalletResult<()> {
     match wallet_mode {
         MULTICHAIN_WALLET_MODE => {
-            if mnemonic_standard != BIP39_MNEMONIC_STANDARD {
+            if mnemonic_standard != BIP39_MNEMONIC_STANDARD
+                && mnemonic_standard != ROTATION_MNEMONIC_STANDARD
+            {
                 return Err(WalletCommandError::invalid_input(
-                    "multichain wallet_mode requires mnemonic_standard=bip39",
+                    "multichain wallet_mode requires mnemonic_standard=bip39 or rotation",
                 ));
             }
+            // A rotation root behaves like any multichain wallet: the 12 anchor words open every
+            // network, and a BIP39 passphrase is an optional extra for the non-TON accounts.
         }
         TON_ONLY_WALLET_MODE => {
-            if mnemonic_standard != TON_NATIVE_MNEMONIC_STANDARD {
+            if mnemonic_standard != TON_NATIVE_MNEMONIC_STANDARD
+                && mnemonic_standard != ROTATION_MNEMONIC_STANDARD
+            {
                 return Err(WalletCommandError::invalid_input(
-                    "ton_only wallet_mode requires mnemonic_standard=ton_native",
+                    "ton_only wallet_mode requires mnemonic_standard=ton_native or rotation",
                 ));
             }
-            if request.bip39_passphrase.is_some() {
+            if request
+                .bip39_passphrase
+                .as_deref()
+                .is_some_and(|passphrase| !passphrase.is_empty())
+            {
                 return Err(WalletCommandError::invalid_input(
-                    "bip39_passphrase is allowed only for multichain bip39 wallets",
+                    "bip39_passphrase is allowed only for multichain wallets",
                 ));
             }
             if request.supported_networks.len() != 1
@@ -454,6 +480,12 @@ fn mnemonic_secret_material(
         let words = normalize_ton_native_words(mnemonic);
         validate_ton_native_mnemonic(&words).map_err(WalletCommandError::from)?;
         return Ok((Zeroizing::new(String::new()), Some(words)));
+    }
+    if mnemonic_standard == ROTATION_MNEMONIC_STANDARD {
+        let words = normalize_rotation_words(mnemonic);
+        validate_rotation_mnemonic(&words).map_err(WalletCommandError::from)?;
+        let anchor_entropy = crate::wallet::rotation_anchor_entropy_hex(&words);
+        return Ok((Zeroizing::new(anchor_entropy), Some(words)));
     }
     if mnemonic_standard != BIP39_MNEMONIC_STANDARD {
         return Err(WalletCommandError::invalid_input(

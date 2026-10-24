@@ -9,12 +9,11 @@ import {
 import {isPlayableVideoMediaFile} from 'root/utils/file-format-registry'
 import type {FileMediaInfo} from 'root/core/catalog/media-info'
 import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
-import type {AndroidVideoPlayerEvent, MediaStreamErrorEvent} from 'root/core/transport/transport'
+import type {MediaStreamErrorEvent} from 'root/core/transport/transport'
 import {getMediaStreamLoadabilityTimeoutMs} from 'root/features/media/models/media-stream-loadability'
 import {
   registerInFlightMediaStreamLoad,
   registerMediaStreamOwner,
-  type AndroidVideoSourceIdentity,
   type MediaStreamLifecycleReleaseContext,
   type MediaStreamLifecycleReleaseReason,
   type MediaStreamOwner,
@@ -36,7 +35,6 @@ import {
   loadingVideoSourceState,
   readyVideoSourceState,
   videoSourceStateFromLoadError,
-  videoSourceStateFromNativeErrorCode,
   type VideoSourceFailureReason,
   type VideoSourceState,
 } from 'root/features/media/models/video-source-state'
@@ -199,21 +197,6 @@ export class VideoPreviewModel implements MediaStreamOwner {
     }
 
     this.failCurrentSource()
-  }
-
-  handleAndroidVideoPlayerEvent(event: AndroidVideoPlayerEvent): void {
-    const source = this.currentSource
-    const eventToken = event.nativeSourceToken ?? event.token
-    if (!source || this.nativeVideoToken(source) !== eventToken) return
-
-    if (event.event === 'error') {
-      this.failCurrentSource(sourceFailureReason(videoSourceStateFromNativeErrorCode(event.error)))
-      return
-    }
-
-    if (event.event === 'released') {
-      this.invalidateCurrentLoad({resetRetryCount: false})
-    }
   }
 
   handleVideoPlaybackEvent(video: HTMLVideoElement): void {
@@ -405,11 +388,7 @@ export class VideoPreviewModel implements MediaStreamOwner {
     }))
 
     if (ownerId) {
-      this.unregisterStreamOwner = registerMediaStreamOwner(
-        ownerId,
-        this,
-        this.androidVideoSourceIdentity(source),
-      )
+      this.unregisterStreamOwner = registerMediaStreamOwner(ownerId, this)
     }
 
     if (isHandoffSafeVideoSource(source)) {
@@ -600,22 +579,6 @@ export class VideoPreviewModel implements MediaStreamOwner {
     return null
   }
 
-  private androidVideoSourceIdentity(source: FileSourceLoadResult): AndroidVideoSourceIdentity | undefined {
-    if (
-      source.kind !== 'video-source' ||
-      source.delivery !== 'native-video' ||
-      source.mediaSourceGeneration == null ||
-      source.sourceRevision == null
-    ) {
-      return undefined
-    }
-    return {
-      mediaSourceGeneration: source.mediaSourceGeneration,
-      sourceRevision: source.sourceRevision,
-      transportSessionGeneration: source.transportSessionGeneration,
-      appForegroundEpoch: source.appForegroundEpoch,
-    }
-  }
 }
 
 function sourceFailureReason(state: VideoSourceState): VideoSourceFailureReason {

@@ -1,12 +1,13 @@
 import type {Page} from 'playwright'
 
+// Seed deterministic wallet state directly; let Lit/Reatom flush on a frame before evaluate returns.
 export async function seedWalletFixture(
   page: Page,
   options: {multipleWallets?: boolean} = {},
 ): Promise<void> {
   const multipleWallets = options.multipleWallets ?? false
 
-  await page.evaluate((includeSecondWallet) => {
+  await page.evaluate(async (includeSecondWallet) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -155,23 +156,32 @@ export async function seedWalletFixture(
     model.confirming.set(false)
     model.error.set(null)
     model.notice.set(null)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, multipleWallets)
 
   await page.waitForFunction(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (element.shadowRoot) {
-          const inner = deepFind(element.shadowRoot, selector)
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
       return null
     }
 
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as HTMLElement | null
-    const desktopToolbar = deepFind(document, 'desktop-shell-toolbar.wallet-desktop-toolbar')
-    return toolbar?.shadowRoot?.querySelector('.title')?.textContent?.trim() === 'Personal Wallet' || Boolean(desktopToolbar)
+    const toolbar = deepFind(document, '[data-testid="mobile-toolbar"]') as HTMLElement | null
+    const desktopToolbar = deepFind(document, '[data-testid="desktop-toolbar"][data-surface="wallet"]')
+    return deepFind(toolbar, '.title')?.textContent?.trim() === 'Personal Wallet' || Boolean(desktopToolbar)
   })
 }

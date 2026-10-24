@@ -108,7 +108,7 @@ impl DurableTxParticipant for RestoreParticipant<'_> {
         _vault_key: Option<&[u8; KEY_SIZE]>,
         record: &DurableTxRecord<Self::Payload>,
     ) -> Result<()> {
-        rollback_restore_payload(storage, self.keystore, &record.payload, false)
+        rollback_restore_payload(storage, self.keystore, &record.payload, false, false)
     }
 
     fn recover_committing(
@@ -121,7 +121,13 @@ impl DurableTxParticipant for RestoreParticipant<'_> {
         if payload.pepper_committed && restore_payload_complete(storage, payload)? {
             return Ok(());
         }
-        rollback_restore_payload(storage, self.keystore, payload, payload.pepper_committed)
+        rollback_restore_payload(
+            storage,
+            self.keystore,
+            payload,
+            payload.pepper_committed,
+            true,
+        )
     }
 }
 
@@ -153,25 +159,35 @@ pub(in crate::rpc::router::restore) fn delete_restore_transaction(storage: &Stor
 }
 
 pub(in crate::rpc::router) fn recover_restore_transaction(router: &mut RpcRouter) -> Result<()> {
+    router
+        .storage_mutation_guard
+        .check()
+        .map_err(|_| Error::StorageAdoptionRequired)?;
     let keystore = router.keystore.as_deref();
     tx_store(&router.storage, keystore).recover_participant()
 }
 
 pub(in crate::rpc::router) fn rollback_restore_transaction_marker(
     router: &mut RpcRouter,
-) -> Result<()> {
+) -> Result<bool> {
+    router
+        .storage_mutation_guard
+        .check()
+        .map_err(|_| Error::StorageAdoptionRequired)?;
     let keystore = router.keystore.as_deref();
     let store = tx_store(&router.storage, keystore);
     let Some(record) = store.read_participant_record()? else {
-        return Ok(());
+        return Ok(false);
     };
     rollback_restore_payload(
         &router.storage,
         keystore,
         &record.payload,
         record.payload.pepper_committed,
+        record.phase == DurableTxPhase::Committing,
     )?;
-    store.delete()
+    store.delete()?;
+    Ok(true)
 }
 
 fn restore_payload_complete(
@@ -196,6 +212,7 @@ fn rollback_restore_payload(
     keystore: Option<&dyn Keystore>,
     payload: &RestoreTransactionPayload,
     require_keystore: bool,
+    clear_pepper: bool,
 ) -> Result<()> {
     if require_keystore && keystore.is_none() {
         return Err(Error::KeystoreUnavailable(
@@ -203,13 +220,16 @@ fn rollback_restore_payload(
         ));
     }
     for chunk_name in &payload.expected_chunks {
-        let _ = storage.delete_chunk(chunk_name);
+        storage.delete_chunk(chunk_name)?;
     }
     for artifact in &payload.written_artifacts {
-        let _ = storage.remove_artifact(artifact.storage_artifact());
+        storage.remove_artifact(artifact.storage_artifact())?;
     }
-    if let Some(keystore) = keystore {
-        let _ = crate::crypto::StoragePepper::delete(keystore);
+    if clear_pepper {
+        if let Some(keystore) = keystore {
+            crate::crypto::StoragePepper::delete(keystore)
+                .map_err(|error| Error::KeystoreUnavailable(error.to_string()))?;
+        }
     }
     storage.sync()
 }

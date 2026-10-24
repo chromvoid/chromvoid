@@ -6,7 +6,7 @@ import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {encodeNavigationSnapshotToUrl} from '../../src/app/navigation/navigation-url-codec'
 import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
-import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
+import {resetRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
 import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 import {pmSelectionModeModel} from '../../src/features/passmanager/models/pm-selection-mode.model'
 import {pmModel} from '../../src/features/passmanager/password-manager.model'
@@ -328,41 +328,6 @@ describe('NavigationModel history sync', () => {
     expect(navigationModel.currentSurface()).toBe('remote')
 
     unregister()
-  })
-
-  it('replaces Android mobile top-level surface history so back cannot traverse files to passwords', () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true})
-    const tracker = installHistoryTracker()
-
-    navigationModel.navigateToSurface('passwords')
-
-    expect(navigationModel.currentSurface()).toBe('passwords')
-    expect(window.location.search).toContain('surface=passwords')
-    expect(tracker.pushStateSpy).not.toHaveBeenCalled()
-    expect(tracker.replaceStateSpy).toHaveBeenCalledTimes(1)
-
-    window.history.back()
-
-    expect(tracker.backSpy).toHaveBeenCalledTimes(1)
-    expect(navigationModel.currentSurface()).toBe('passwords')
-    expect(navigationModel.snapshot().passwords).toEqual({kind: 'root'})
-  })
-
-  it('keeps Android mobile same-surface route history for hierarchical back inside passwords', () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true})
-    const tracker = installHistoryTracker()
-
-    navigationModel.navigateToSurface('passwords')
-    navigationModel.openPassmanagerRoute({kind: 'group', groupPath: 'Group A'})
-
-    expect(tracker.pushStateSpy).toHaveBeenCalledTimes(1)
-    expect(navigationModel.snapshot().passwords).toEqual({kind: 'group', groupPath: 'Group A'})
-
-    window.history.back()
-
-    expect(tracker.backSpy).toHaveBeenCalledTimes(1)
-    expect(navigationModel.currentSurface()).toBe('passwords')
-    expect(navigationModel.snapshot().passwords).toEqual({kind: 'root'})
   })
 
   it('ignores stale browser history entries after reset', () => {

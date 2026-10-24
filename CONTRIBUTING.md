@@ -36,7 +36,7 @@ High-level layout:
 
 ```text
 apps/       Desktop app, WebView UI, browser extension, relay
-backend/    Backend services, landing pages, licensing, payments
+backend/    Backend services, landing pages, blog, admin
 crates/     Rust core, protocol, FUSE, CLI, platform bridges
 packages/   Shared TypeScript packages and UI libraries
 tests/      Integration and E2E tests

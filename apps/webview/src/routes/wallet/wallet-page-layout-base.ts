@@ -4,9 +4,10 @@ import {nothing, type TemplateResult} from 'lit'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import {i18n} from 'root/i18n'
 import {walletPageModel} from './wallet-page.model'
-import type {WalletFeeTier} from './wallet-network'
+import {getWalletNetworkProfile, type WalletFeeTier} from './wallet-network'
 import {
   walletAccountLabel,
+  type WalletAccount,
   type WalletMainTab,
   type WalletSetupFlow,
   type WalletSummary,
@@ -74,14 +75,16 @@ export abstract class WalletPageLayoutBase extends ReatomLitElement {
   }
 
   protected handleAccountRailKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-    const accounts = this.model.walletAccounts()
+    const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown'
+    const backward = event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+    if (!forward && !backward) return
+    const accounts = this.model.walletAssets()
     const currentIndex = accounts.findIndex(
       (account) => account.account_id === this.model.selectedAccountId(),
     )
     if (currentIndex < 0 || accounts.length < 2) return
     event.preventDefault()
-    const direction = event.key === 'ArrowRight' ? 1 : -1
+    const direction = forward ? 1 : -1
     const nextIndex = (currentIndex + direction + accounts.length) % accounts.length
     const account = accounts[nextIndex]
     if (account) this.model.selectAccount(account.account_id)
@@ -94,10 +97,6 @@ export abstract class WalletPageLayoutBase extends ReatomLitElement {
 
   protected handleOpenWalletSwitcher(): void {
     this.model.openOverlay('wallet-switcher')
-  }
-
-  protected handleOpenAddAccount(): void {
-    this.model.openOverlay('add-account')
   }
 
   protected handleOpenImportWallet(): void {
@@ -163,6 +162,7 @@ export abstract class WalletPageLayoutBase extends ReatomLitElement {
 
     return html`
       <div class="receive-content">
+        ${this.renderReceiveNetworkChips(account)}
         <dl class="receive-context-list">
           <div>
             <dt>${i18n('wallet:field:wallet')}</dt>
@@ -228,6 +228,97 @@ export abstract class WalletPageLayoutBase extends ReatomLitElement {
         ${notice ? html`<div class="receive-feedback" role="status">${notice}</div>` : nothing}
         ${error ? html`<div class="receive-error" role="alert">${error}</div>` : nothing}
       </div>
+    `
+  }
+
+  /** One Receive surface for the whole wallet: pick the network, the address follows. */
+  protected renderReceiveNetworkChips(selected: WalletAccount): TemplateResult | typeof nothing {
+    const assets = this.model.walletAssets()
+    if (assets.length < 2) return nothing
+    return html`
+      <div class="receive-network-chips" role="group" aria-label=${i18n('wallet:receive:choose-network')}>
+        ${assets.map((account) => {
+          const profile = getWalletNetworkProfile(account.network)
+          const active = account.account_id === selected.account_id
+          return html`
+            <button
+              class="receive-network-chip"
+              data-account-id=${account.account_id}
+              aria-pressed=${active ? 'true' : 'false'}
+              @click=${this.handleAccountClick}
+            >
+              <span class="network-mark">${profile?.symbol.slice(0, 1) ?? '?'}</span>
+              <span dir="ltr">${profile?.label ?? account.network}</span>
+            </button>
+          `
+        })}
+      </div>
+    `
+  }
+
+  /**
+   * A wallet-level list of the network accounts with their balances; selecting one expands its
+   * details. Adding a second account of a network is an advanced move and lives in the network
+   * details, not here.
+   */
+  protected renderAssetList(): TemplateResult {
+    const assets = this.model.walletAssets()
+    return html`
+      <div
+        class="asset-list"
+        role="listbox"
+        aria-label=${i18n('wallet:overview:assets')}
+        @keydown=${this.handleAccountRailKeydown}
+      >
+        ${assets.map((account) => this.renderAssetRow(account))}
+      </div>
+    `
+  }
+
+  /** "Add account" for the network shown in the details; derives directly, no picker. */
+  protected renderAddAccountAction(network: string, className: string): TemplateResult | typeof nothing {
+    if (!this.model.canDeriveAccount(network)) return nothing
+    return html`
+      <button
+        class=${className}
+        data-network=${network}
+        @click=${this.handleDeriveAccount}
+        ?disabled=${this.model.deriveAccountLoading()}
+      >
+        <cv-icon name="plus"></cv-icon>${i18n('wallet:action:add-account')}
+      </button>
+    `
+  }
+
+  protected renderAssetRow(account: WalletAccount): TemplateResult {
+    const selected = this.model.selectedAccountId() === account.account_id
+    const profile = getWalletNetworkProfile(account.network)
+    const loading = this.model.accountBalanceLoading(account.account_id)
+    const reason = this.model.networkUnavailableReason(account.network)
+    return html`
+      <button
+        class="asset-row ${selected ? 'selected' : ''}"
+        role="option"
+        aria-selected=${selected}
+        data-account-id=${account.account_id}
+        @click=${this.handleAccountClick}
+      >
+        <span class="network-mark">${profile?.symbol.slice(0, 1) ?? '?'}</span>
+        <span class="asset-copy">
+          <strong dir="ltr">${profile?.label ?? account.network}</strong>
+          <span class="asset-meta"
+            ><bdi dir="auto">${walletAccountLabel(account)}</bdi>${reason
+              ? html` · <span class="asset-warning">${i18n('wallet:network:disabled')}</span>`
+              : nothing}</span
+          >
+        </span>
+        <span class="asset-balance">
+          <strong>${this.model.displayAccountBalance(account)}</strong>
+          ${loading
+            ? html`<cv-icon class="loading-spinner" name="loader-circle" aria-label=${i18n('wallet:balance:loading')}></cv-icon>`
+            : nothing}
+        </span>
+      </button>
     `
   }
 

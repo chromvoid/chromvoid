@@ -29,7 +29,7 @@ pub(in crate::rpc::router::restore) fn handle_restore_local_commit(
     }
 }
 
-fn restore_local_commit(
+pub(super) fn restore_local_commit(
     router: &mut RpcRouter,
     data: &serde_json::Value,
 ) -> RestoreResult<serde_json::Value> {

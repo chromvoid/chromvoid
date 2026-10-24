@@ -10,11 +10,11 @@ import {
 import {i18n, langState, langsAvailable, setLang} from 'root/i18n'
 import {tauriInvoke} from 'root/core/transport/tauri/ipc'
 import {getAppContext, tryGetAppContext} from 'root/shared/services/app-context'
+import {legalDocumentsModel} from 'root/shared/services/legal-documents.model'
 import {isTauriRuntime} from 'root/core/runtime/runtime'
 import {runtimeCapabilitiesAtom} from 'root/core/runtime/runtime-capabilities'
 import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
-import {moduleAccessModel} from 'root/core/pro/module-access.model'
-import type {ModuleAccessState} from 'root/core/pro/module-access.model'
+import {moduleAccessModel} from 'root/core/modules/module-access.model'
 import {biometricAppGateModel} from 'root/routes/biometric-app-gate/biometric-app-gate.model'
 import {passmanagerMaintenanceModel} from 'root/features/passmanager/models/passmanager-maintenance.model'
 import {normalizeMarkdownAttachmentFolderPath} from 'root/features/file-manager/services/markdown-attachment-settings'
@@ -40,19 +40,6 @@ type SshAgentStatus = {
   identities_count: number
 }
 
-type AndroidQuickLockTileStatus = {
-  supported: boolean
-  requestSupported: boolean
-  enabled: boolean
-}
-
-type AndroidQuickLockTileRequestResult = {
-  requested: boolean
-  supported: boolean
-  enabled: boolean
-  status: string
-}
-
 export type SettingsPreferenceKey = keyof SessionSettings
 
 function isOk<T>(res: RpcResult<T>): res is RpcOk<T> {
@@ -63,6 +50,7 @@ class SettingsPageModel {
   private passwordImportTaskRequest = 0
 
   readonly vaultRekey = vaultRekeyModel
+  readonly legalDocuments = legalDocumentsModel
   readonly currentLanguage = computed(() => langState())
   readonly languageOptions = computed(() => langsAvailable.map(([value, label]) => ({value, label})))
   readonly currentLanguageLabel = computed(
@@ -82,15 +70,6 @@ class SettingsPageModel {
         const savedSettings = await wrap(saveSessionSettings(input.settings))
         this.settings.set(savedSettings)
         biometricAppGateModel.applySessionSettings(savedSettings)
-        if (this.isAndroidRuntime()) {
-          this.androidQuickLockTileStatus.set({
-            ...(this.androidQuickLockTileStatus() ?? {
-              supported: false,
-              requestSupported: false,
-            }),
-            enabled: savedSettings.android_quick_lock_tile_enabled,
-          })
-        }
         return savedSettings
       } catch (error) {
         this.failedPreference.set(input.key)
@@ -120,40 +99,7 @@ class SettingsPageModel {
     null,
     'settings.credentialProviderNativeStatus',
   )
-  readonly androidQuickLockTileStatus = atom<AndroidQuickLockTileStatus | null>(null)
   readonly sshAgentStatus = atom<SshAgentStatus | null>(null)
-  readonly supportsExternalPro = computed(
-    () => moduleAccessModel.supportsExternalPro(),
-    'settings.supportsExternalPro',
-  )
-  readonly activationCodeDraft = atom('')
-  readonly activationCodeError = atom('', 'settings.activationCodeError')
-  readonly licenseActive = computed(() => moduleAccessModel.entitlement()?.licensed === true)
-  readonly licenseSeatStatus = computed(() => moduleAccessModel.licenseSeatStatus())
-  readonly licenseSeatBusy = computed(() => moduleAccessModel.licenseSeatLoading())
-  readonly releaseCurrentSeatDisabled = computed(
-    () =>
-      moduleAccessModel.licenseSeatLoading() ||
-      moduleAccessModel.licenseSeatStatus()?.current_device_active === false,
-  )
-  readonly licenseActivationBusy = computed(() => moduleAccessModel.loading())
-  readonly licenseActivationDisabled = computed(() => moduleAccessModel.loading())
-  readonly licenseCabinetOpenDisabled = computed(
-    () => moduleAccessModel.loading() || this.licenseSeatStatus()?.current_device_active !== true,
-  )
-  readonly licenseActivationErrorLabel = computed(() => {
-    if (this.activationCodeError()) return this.activationCodeError()
-    const message = moduleAccessModel.error() || moduleAccessModel.licenseSeatError()
-    if (!message) return ''
-    if (
-      message.startsWith('Unknown license key id') ||
-      message.startsWith('No trusted license public key configured')
-    ) {
-      return i18n('settings:license-public-key-missing')
-    }
-    return message
-  })
-  readonly licenseActivationErrorHidden = computed(() => !this.licenseActivationErrorLabel())
   readonly autoLockSummary = computed(() => this.autoLockLabel(this.settings().auto_lock_timeout_secs))
   readonly credentialProviderSummary = computed(() => {
     const platform = runtimeCapabilitiesAtom().platform
@@ -163,10 +109,8 @@ class SettingsPageModel {
       if (selected === false) return i18n('settings:provider-missing-macos')
       return i18n('settings:provider-unknown-macos')
     }
-    if (platform === 'ios') return i18n('settings:provider-unknown-ios')
-    if (selected === true) return i18n('settings:provider-selected')
-    if (selected === false) return i18n('settings:provider-missing')
-    return i18n('settings:provider-unknown')
+    // iOS does not report the selected provider; its settings show it.
+    return i18n('settings:provider-unknown-ios')
   })
   readonly credentialProviderStatusState = computed<'selected' | 'missing' | 'unknown'>(() => {
     const selected = this.credentialProviderSelected()
@@ -178,7 +122,7 @@ class SettingsPageModel {
       nativeStatus: this.credentialProviderNativeStatus(),
       selected: this.credentialProviderSelected(),
       localCoreMode: runtimeModeModel.localCoreMode(),
-      accessStatus: this.credentialProviderAccess().status,
+      accessStatus: moduleAccessModel.featureAccess('credential-provider')?.status ?? null,
       vaultOpen: Boolean(getAppContext().state.data()?.StorageOpened),
     })
   }, 'settings.macosOneTimeCodeAutofillStatus')
@@ -190,14 +134,26 @@ class SettingsPageModel {
   readonly credentialProviderSettingsActionDisabled = computed(
     () =>
       runtimeCapabilitiesAtom().platform !== 'macos' &&
-      this.credentialProviderAccess().status !== 'enabled',
+      !moduleAccessModel.isFeatureEnabled('credential-provider'),
     'settings.credentialProviderSettingsActionDisabled',
   )
+  readonly credentialProviderAccessNotice = computed(() => {
+    const gate = moduleAccessModel.featureGate('credential-provider')
+    switch (gate.kind) {
+      case 'unavailable':
+        return gate.access.status === 'disabled_by_rollout'
+          ? i18n('module-access:disabled-title')
+          : i18n('settings:credential-provider-unsupported')
+      case 'check-failed':
+        return i18n('module-access:check-failed-detail')
+      default:
+        return ''
+    }
+  }, 'settings.credentialProviderAccessNotice')
   readonly credentialProviderDescription = computed(() => {
     const platform = runtimeCapabilitiesAtom().platform
     if (platform === 'macos') return i18n('settings:provider-description-macos')
-    if (platform === 'ios') return i18n('settings:provider-description-ios')
-    return i18n('settings:provider-description')
+    return i18n('settings:provider-description-ios')
   })
   readonly credentialProviderActionLabel = computed(() => {
     const platform = runtimeCapabilitiesAtom().platform
@@ -206,7 +162,7 @@ class SettingsPageModel {
         ? i18n('settings:provider-enable-macos')
         : i18n('settings:provider-manage-macos')
     }
-    return i18n(platform === 'ios' ? 'settings:provider-open-ios' : 'settings:provider-open')
+    return i18n('settings:provider-open-ios')
   })
   readonly credentialProviderSteps = computed<readonly [string, string]>(() => {
     const platform = runtimeCapabilitiesAtom().platform
@@ -216,12 +172,8 @@ class SettingsPageModel {
         i18n('settings:provider-step-2-macos'),
       ] as const
     }
-    if (platform === 'ios') {
-      return [i18n('settings:provider-step-1-ios'), i18n('settings:provider-step-2-ios')] as const
-    }
-    return [i18n('settings:provider-step-1'), i18n('settings:provider-step-2')] as const
+    return [i18n('settings:provider-step-1-ios'), i18n('settings:provider-step-2-ios')] as const
   })
-  readonly licenseSummary = computed(() => this.licenseStatusLabel())
 
   async load(): Promise<void> {
     try {
@@ -234,117 +186,12 @@ class SettingsPageModel {
     }
     if (!isTauriRuntime()) return
     await this.refreshCredentialProviderStatus()
-    await this.refreshAndroidQuickLockTileStatus()
     await this.refreshSshAgentStatus()
-    await moduleAccessModel.refresh()
-    if (this.licenseActive()) {
-      await moduleAccessModel.refreshLicenseSeatStatus()
-    }
   }
 
   setLanguage(value: string): void {
     if (!this.languageOptions().some((option) => option.value === value)) return
     setLang(value as Lang)
-  }
-
-  licenseStatusState(): 'selected' | 'missing' | 'unknown' {
-    const entitlement = moduleAccessModel.entitlement()
-    if (!entitlement) return 'unknown'
-    return entitlement.licensed ? 'selected' : 'missing'
-  }
-
-  licenseStatusLabel(): string {
-    const entitlement = moduleAccessModel.entitlement()
-    if (!entitlement) return i18n('settings:license-status-unknown')
-    return entitlement.licensed ? i18n('settings:license-status-pro') : i18n('settings:license-status-free')
-  }
-
-  licenseDetailLabel(): string {
-    const entitlement = moduleAccessModel.entitlement()
-    if (!entitlement) return moduleAccessModel.error() || i18n('settings:license-state-unavailable')
-    return `${entitlement.source_core} · ${entitlement.build_policy}`
-  }
-
-  licenseSeatUsageLabel(): string {
-    const status = moduleAccessModel.licenseSeatStatus()
-    if (!status && moduleAccessModel.licenseSeatError()) return i18n('settings:license-seats-unavailable')
-    if (!status) return i18n('settings:license-seats-loading')
-    return i18n('settings:license-seats-usage', {
-      used: status.seats_used,
-      total: status.seat_limit,
-      free: status.seats_available,
-    })
-  }
-
-  licenseSeatsUsedLabel(): string {
-    const status = moduleAccessModel.licenseSeatStatus()
-    if (!status && moduleAccessModel.licenseSeatError()) return i18n('settings:license-seats-unavailable')
-    if (!status) return i18n('settings:license-seats-loading')
-    return `${status.seats_used} / ${status.seat_limit}`
-  }
-
-  licenseSeatsAvailableLabel(): string {
-    const status = moduleAccessModel.licenseSeatStatus()
-    if (!status && moduleAccessModel.licenseSeatError()) return i18n('settings:license-seats-unavailable')
-    if (!status) return i18n('settings:license-seats-loading')
-    return String(status.seats_available)
-  }
-
-  licensePurchaseIdLabel(): string {
-    return moduleAccessModel.licenseSeatStatus()?.purchase_id ?? ''
-  }
-
-  setActivationCodeDraft(value: string): void {
-    if (!this.supportsExternalPro()) return
-    moduleAccessModel.clearError()
-    this.activationCodeError.set('')
-    this.activationCodeDraft.set(value)
-  }
-
-  async activateLicense(): Promise<boolean> {
-    if (!this.supportsExternalPro()) return false
-    const activationCode = this.activationCodeDraft().trim()
-    if (!activationCode) {
-      this.activationCodeError.set(i18n('dialogs:field-required'))
-      return false
-    }
-    const ok = await wrap(moduleAccessModel.activateWithActivationCode(activationCode))
-    if (ok) {
-      this.activationCodeDraft.set('')
-      getAppContext().store.pushNotification('success', i18n('settings:license-activated'))
-    } else {
-      getAppContext().store.pushNotification(
-        'error',
-        moduleAccessModel.error() || i18n('settings:license-activation-failed'),
-      )
-    }
-    return ok
-  }
-
-  async releaseCurrentSeat(): Promise<void> {
-    if (!this.supportsExternalPro()) return
-    const ok = await moduleAccessModel.releaseCurrentSeat()
-    if (ok) {
-      getAppContext().store.pushNotification('success', i18n('settings:license-release-seat-success'))
-    } else {
-      getAppContext().store.pushNotification(
-        'error',
-        moduleAccessModel.licenseSeatError() || i18n('settings:license-release-seat-failed'),
-      )
-    }
-  }
-
-  async openLicenseCabinet(): Promise<void> {
-    if (!this.supportsExternalPro()) return
-    const handoff = await moduleAccessModel.createLicenseCabinetHandoff()
-    if (!handoff) {
-      getAppContext().store.pushNotification(
-        'error',
-        moduleAccessModel.error() || i18n('settings:license-cabinet-open-failed'),
-      )
-      return
-    }
-    window.open(handoff.cabinet_url, '_blank', 'noopener,noreferrer')
   }
 
   async setAutoLockTimeout(rawValue: string): Promise<boolean> {
@@ -399,21 +246,6 @@ class SettingsPageModel {
     })
   }
 
-  async setAndroidVaultStatusNotificationEnabled(checked: boolean): Promise<void> {
-    await this.saveSettings('android_vault_status_notification_enabled', {
-      ...this.settings(),
-      android_vault_status_notification_enabled: checked,
-    })
-  }
-
-  async setAndroidQuickLockTileEnabled(checked: boolean): Promise<void> {
-    const saved = await this.saveSettings('android_quick_lock_tile_enabled', {
-      ...this.settings(),
-      android_quick_lock_tile_enabled: checked,
-    })
-    if (saved) await this.refreshAndroidQuickLockTileStatus()
-  }
-
   async setConfirmFileDeletion(checked: boolean): Promise<void> {
     await this.saveSettings('confirm_file_deletion', {
       ...this.settings(),
@@ -445,10 +277,6 @@ class SettingsPageModel {
 
   isIosRuntime(): boolean {
     return runtimeCapabilitiesAtom().platform === 'ios'
-  }
-
-  isAndroidRuntime(): boolean {
-    return runtimeCapabilitiesAtom().platform === 'android'
   }
 
   isMacosRuntime(): boolean {
@@ -500,10 +328,6 @@ class SettingsPageModel {
     return caps.mobile && caps.supports_autofill
   }
 
-  credentialProviderAccess(): ModuleAccessState {
-    return moduleAccessModel.featureAccess('credential-provider')
-  }
-
   showsMacosOtpCapabilities(): boolean {
     return runtimeCapabilitiesAtom().platform === 'macos'
   }
@@ -521,11 +345,10 @@ class SettingsPageModel {
   }
 
   showsCredentialProviderSection(): boolean {
-    return this.supportsExternalPro() && this.supportsCredentialProviderAutofill()
+    return this.supportsCredentialProviderAutofill()
   }
 
   isRouteAvailable(route: SettingsRoute): boolean {
-    if (route.kind === 'license') return this.supportsExternalPro()
     if (route.kind === 'autofill') return this.showsCredentialProviderSection()
     return true
   }
@@ -556,58 +379,6 @@ class SettingsPageModel {
       console.warn('Failed to query credential provider status', error)
       this.credentialProviderSelected.set(null)
       this.credentialProviderNativeStatus.set(null)
-    }
-  }
-
-  async refreshAndroidQuickLockTileStatus(): Promise<void> {
-    if (!isTauriRuntime() || !this.isAndroidRuntime()) {
-      this.androidQuickLockTileStatus.set(null)
-      return
-    }
-
-    try {
-      const res = await wrap(
-        tauriInvoke<RpcResult<AndroidQuickLockTileStatus>>('android_quick_lock_tile_status'),
-      )
-      if (!isOk(res)) {
-        throw new Error(res.error || i18n('settings:android-quick-lock-tile-status-failed'))
-      }
-      this.androidQuickLockTileStatus.set(res.result)
-    } catch (error) {
-      console.warn('Failed to query Android quick lock tile status', error)
-      this.androidQuickLockTileStatus.set(null)
-    }
-  }
-
-  async requestAndroidQuickLockTile(): Promise<void> {
-    if (!isTauriRuntime() || !this.isAndroidRuntime()) return
-
-    try {
-      const res = await wrap(
-        tauriInvoke<RpcResult<AndroidQuickLockTileRequestResult>>('android_request_quick_lock_tile'),
-      )
-      if (!isOk(res)) {
-        throw new Error(res.error || i18n('settings:android-quick-lock-tile-request-failed'))
-      }
-      if (res.result.requested) {
-        getAppContext().store.pushNotification('success', i18n('settings:android-quick-lock-tile-requested'))
-      } else if (!res.result.supported) {
-        getAppContext().store.pushNotification(
-          'warning',
-          i18n('settings:android-quick-lock-tile-unsupported'),
-        )
-      } else {
-        getAppContext().store.pushNotification(
-          'warning',
-          i18n('settings:android-quick-lock-tile-request-failed'),
-        )
-      }
-      await this.refreshAndroidQuickLockTileStatus()
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : i18n('settings:android-quick-lock-tile-request-failed')
-      console.warn(message, error)
-      getAppContext().store.pushNotification('error', message)
     }
   }
 

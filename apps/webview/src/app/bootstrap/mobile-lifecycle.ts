@@ -1,7 +1,6 @@
 import {
   MOBILE_FILE_PICKER_LIFECYCLE_END_EVENT,
   MOBILE_FILE_PICKER_LIFECYCLE_START_EVENT,
-  type MobileFilePickerLifecycleStartDetail,
 } from '@chromvoid/password-import/ui/mobile-file-picker-lifecycle'
 import {tauriInvoke} from '../../core/transport/tauri/ipc'
 import {biometricAppGateModel} from '../../routes/biometric-app-gate/biometric-app-gate.model'
@@ -15,12 +14,11 @@ import {
 } from '../../features/file-manager/models/file-thumbnail-cache.model'
 import {releaseMediaSourcesForAppBackground} from '../../features/media/models/media-lifecycle'
 import {mediaPlaybackModel} from '../../features/media/models/media-playback.model'
-import {redactAndroidNativeSessionId} from '../../features/media/models/android-media3-playback-driver'
+import {redactNativeSessionId} from '../../features/media/models/audio-playback-driver'
 import {
-  ANDROID_NATIVE_VIDEO_LIFECYCLE_END_EVENT,
-  ANDROID_NATIVE_VIDEO_LIFECYCLE_START_EVENT,
-  type AndroidNativeVideoLifecycleStartDetail,
-} from '../../features/media/models/android-native-video-lifecycle'
+  NATIVE_OTP_QR_SCANNER_LIFECYCLE_END_EVENT,
+  NATIVE_OTP_QR_SCANNER_LIFECYCLE_START_EVENT,
+} from '../../features/passmanager/components/card/entry-otp-create/entry-otp-native-scanner-lifecycle'
 
 type MobileNotifyBackgroundResult = {
   locked?: boolean
@@ -29,6 +27,10 @@ type MobileNotifyBackgroundResult = {
 type RpcResult<T> =
   | {ok: true; result: T}
   | {ok: false; error?: string; code?: string}
+
+type ExternalActivityLifecycleStartDetail = {
+  timeoutMs?: number
+}
 
 /**
  * Mobile background/foreground lifecycle: privacy mask, biometric gate,
@@ -107,17 +109,7 @@ export const setupMobileLifecycle = (ws: TransportLike, store: Store) => {
   let surfaceHidden = typeof document !== 'undefined' ? document.visibilityState !== 'visible' : false
 
   const handleExternalActivityStart = (event: Event) => {
-    const detail = (event as CustomEvent<MobileFilePickerLifecycleStartDetail | undefined>).detail
-    const timeoutMs =
-      typeof detail?.timeoutMs === 'number' && detail.timeoutMs > 0 ? detail.timeoutMs : 30_000
-
-    externalActivityDepth += 1
-    externalActivityDeadline = now() + timeoutMs
-  }
-
-  const handleAndroidNativeVideoStart = (event: Event) => {
-    const detail = (event as CustomEvent<AndroidNativeVideoLifecycleStartDetail | undefined>)
-      .detail
+    const detail = (event as CustomEvent<ExternalActivityLifecycleStartDetail | undefined>).detail
     const timeoutMs =
       typeof detail?.timeoutMs === 'number' && detail.timeoutMs > 0 ? detail.timeoutMs : 30_000
 
@@ -171,7 +163,7 @@ export const setupMobileLifecycle = (ws: TransportLike, store: Store) => {
         playbackIntent: mediaPlaybackModel.playbackIntent(),
         playbackState: mediaPlaybackModel.playbackState(),
         driverKind: mediaPlaybackModel.driverKind(),
-        nativeSessionId: redactAndroidNativeSessionId(mediaPlaybackModel.nativeSessionId()),
+        nativeSessionId: redactNativeSessionId(mediaPlaybackModel.nativeSessionId()),
         loadingState: mediaPlaybackModel.loadingState(),
       })
       void releaseMediaSourcesForAppBackground({preserveAudioSession}).catch((error) => {
@@ -186,7 +178,7 @@ export const setupMobileLifecycle = (ws: TransportLike, store: Store) => {
           playbackIntent: mediaPlaybackModel.playbackIntent(),
           playbackState: mediaPlaybackModel.playbackState(),
           driverKind: mediaPlaybackModel.driverKind(),
-          nativeSessionId: redactAndroidNativeSessionId(mediaPlaybackModel.nativeSessionId()),
+          nativeSessionId: redactNativeSessionId(mediaPlaybackModel.nativeSessionId()),
           loadingState: mediaPlaybackModel.loadingState(),
         })
         if (locked && mediaPlaybackModel.sessionKind() === 'audio') {
@@ -239,8 +231,11 @@ export const setupMobileLifecycle = (ws: TransportLike, store: Store) => {
 
   window.addEventListener(MOBILE_FILE_PICKER_LIFECYCLE_START_EVENT, handleExternalActivityStart)
   window.addEventListener(MOBILE_FILE_PICKER_LIFECYCLE_END_EVENT, handleExternalActivityEnd)
-  window.addEventListener(ANDROID_NATIVE_VIDEO_LIFECYCLE_START_EVENT, handleAndroidNativeVideoStart)
-  window.addEventListener(ANDROID_NATIVE_VIDEO_LIFECYCLE_END_EVENT, handleExternalActivityEnd)
+  window.addEventListener(
+    NATIVE_OTP_QR_SCANNER_LIFECYCLE_START_EVENT,
+    handleExternalActivityStart,
+  )
+  window.addEventListener(NATIVE_OTP_QR_SCANNER_LIFECYCLE_END_EVENT, handleExternalActivityEnd)
   document.addEventListener('visibilitychange', syncFromVisibility)
   document.addEventListener('freeze', syncHidden)
   document.addEventListener('pause', syncHidden)

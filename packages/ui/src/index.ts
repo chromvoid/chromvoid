@@ -1,3 +1,3 @@
 export {findFirstFocusableElement} from './a11y/accessibility'
 export {WillChangeManager, withWillChangeCleanup} from './utils'
-export {CVFeatureBadgeInProgress, CVFeatureBadgePro} from './components'
+export {CVFeatureBadgeInProgress} from './components'

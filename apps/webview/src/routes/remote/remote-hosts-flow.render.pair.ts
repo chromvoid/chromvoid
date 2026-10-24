@@ -2,7 +2,6 @@ import {html, nothing, type TemplateResult} from 'lit'
 
 import {i18n} from 'root/i18n'
 
-import type {MobileHostTransportKind} from './remote-hosts-flow.model'
 import {
   createRenderContext,
   getHostPlatformName,
@@ -10,11 +9,6 @@ import {
   type RemoteHostsFlowPanelOptions,
   type RemoteHostsFlowRenderContext,
 } from './remote-hosts-flow.render.shared'
-
-function formatMobileHostTransport(transport: MobileHostTransportKind): string {
-  if (transport === 'usb_mobile') return i18n('remote:transport-usb-mobile')
-  return i18n('remote:transport-wss-relay')
-}
 
 function renderMobileHostTransportPanel(ctx: RemoteHostsFlowRenderContext): TemplateResult | typeof nothing {
   const transports = ctx.model.mobileHostTransports()
@@ -27,50 +21,10 @@ function renderMobileHostTransportPanel(ctx: RemoteHostsFlowRenderContext): Temp
         ${transports.map(
           (transport) => html`
             <span class="mode-badge status-success" data-mobile-host-transport=${transport}>
-              ${formatMobileHostTransport(transport)}
+              ${i18n('remote:transport-wss-relay')}
             </span>
           `,
         )}
-        ${transports.includes('usb_mobile')
-          ? html`
-              <span class="mode-badge status-neutral" data-mobile-host-usb-fallback="disabled">
-                ${i18n('remote:network-fallback-disabled')}
-              </span>
-            `
-          : nothing}
-      </div>
-    </div>
-  `
-}
-
-function renderAndroidUsbHostPanel(ctx: RemoteHostsFlowRenderContext): TemplateResult | typeof nothing {
-  if (!ctx.model.mobileHostTransports().includes('usb_mobile')) return nothing
-
-  const activeUsbPeer = ctx.model
-    .hostStatus()
-    ?.connected_peers.find((peer) => peer.transport_type === 'usb_mobile')
-
-  return html`
-    <div
-      class="remote-presence-panel"
-      data-mobile-host-usb="android_aoa"
-      data-mobile-host-usb-state=${activeUsbPeer ? 'connected' : 'waiting_accessory'}
-    >
-      <div class="remote-field-label">${i18n('remote:mobile-host-usb-title')}</div>
-      <div class="remote-peer-badges">
-        <span class="mode-badge status-success" data-mobile-host-transport="usb_mobile">
-          ${i18n('remote:transport-usb-mobile')}
-        </span>
-        <span class="mode-badge status-success" data-mobile-host-usb-bridge="android_aoa">
-          ${i18n('remote:transport-android-aoa')}
-        </span>
-        <span class="mode-badge status-neutral" data-mobile-host-usb-fallback="disabled">
-          ${i18n('remote:network-fallback-disabled')}
-        </span>
-      </div>
-      <div class="step-desc">${i18n('remote:mobile-host-usb-desc')}</div>
-      <div class="mode-badge status-${activeUsbPeer ? 'success' : 'warning'}" role="status">
-        ${activeUsbPeer ? i18n('remote:mobile-host-usb-connected') : i18n('remote:mobile-host-usb-waiting')}
       </div>
     </div>
   `
@@ -178,7 +132,7 @@ export function renderMobileHostPanel(ctx: RemoteHostsFlowRenderContext): Templa
       <div class="step-title">${i18n('remote:mobile-host-title', {platform: platformName})}</div>
       <div class="step-desc">${i18n('network-pair:intro-mobile', {platform: platformName})}</div>
 
-      ${renderMobileHostTransportPanel(ctx)} ${renderAndroidUsbHostPanel(ctx)}
+      ${renderMobileHostTransportPanel(ctx)}
 
       <label class="remote-field">
         <span class="remote-field-label">${i18n('network-pair:mobile-label', {platform: platformName})}</span>

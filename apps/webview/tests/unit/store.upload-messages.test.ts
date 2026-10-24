@@ -219,7 +219,7 @@ describe('Store upload status messages', () => {
 
   it('updates native upload tasks from selected, progress, and completed events', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_file_upload: true,
     })

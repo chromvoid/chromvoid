@@ -112,10 +112,6 @@ export class WelcomeHeroSection extends ReatomLitElement {
         display: block;
       }
 
-      :host([layout='desktop']) .hero-icon-shell {
-        display: none;
-      }
-
       :host([layout='desktop']) .hero-kicker {
         min-block-size: auto;
         min-inline-size: 0;
@@ -165,7 +161,6 @@ export class WelcomeHeroSection extends ReatomLitElement {
       }
 
       :host([layout='desktop']) .hero.locked-vault .hero-icon-shell {
-        display: grid;
         inline-size: 66px;
         block-size: 66px;
         margin-block-end: 10px;
@@ -176,31 +171,6 @@ export class WelcomeHeroSection extends ReatomLitElement {
         justify-items: center;
         margin-inline: auto;
         text-align: center;
-      }
-
-      @keyframes shake {
-        0%,
-        100% {
-          transform: translateX(0);
-        }
-        10%,
-        30%,
-        50%,
-        70%,
-        90% {
-          transform: translateX(-4px);
-        }
-        20%,
-        40%,
-        60%,
-        80% {
-          transform: translateX(4px);
-        }
-      }
-
-      .animate-shake {
-        animation: shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-        color: var(--cv-color-danger);
       }
 
       :host([layout='mobile']) .hero {
@@ -436,6 +406,7 @@ export class WelcomeHeroSection extends ReatomLitElement {
     const setupStep = this.model.effectiveStep()
     const isLockedVault = !this.model.isNeedInit() && setupStep === null
     const isMobileLockedVault = this.layout === 'mobile' && isLockedVault
+    const showIcon = this.layout === 'mobile' || isLockedVault
     const isMobileFirstRun =
       this.layout === 'mobile' &&
       this.model.isNeedInit() &&
@@ -453,13 +424,13 @@ export class WelcomeHeroSection extends ReatomLitElement {
           : ''}"
       >
         <div class="hero-mark">
-          <div class="hero-icon-shell" aria-hidden="true">
-            <welcome-chromvoid-icon
-              animated
-              class=${this.model.shakeError() ? 'animate-shake' : ''}
-              .model=${this.model.icon}
-            ></welcome-chromvoid-icon>
-          </div>
+          ${showIcon
+            ? html`
+                <div class="hero-icon-shell" aria-hidden="true">
+                  <welcome-chromvoid-icon animated .model=${this.model.icon}></welcome-chromvoid-icon>
+                </div>
+              `
+            : nothing}
 
           <div class="hero-kicker">${isMobileLockedVault ? i18n('welcome:device-locked') : eyebrow}</div>
         </div>

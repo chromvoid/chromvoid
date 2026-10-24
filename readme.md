@@ -62,7 +62,7 @@ This monorepo contains the ChromVoid application code, shared packages, and supp
 ```text
 chromvoid/
 ├── apps/                 # Desktop app, WebView UI, browser extension, relay
-├── backend/              # Backend services, landing pages, licensing, payments
+├── backend/              # Backend services, landing pages, blog, admin
 ├── crates/               # Rust core, protocol, FUSE, CLI, platform bridges
 ├── packages/             # Shared TypeScript packages and UI libraries
 └── tests/                # Integration and E2E tests
@@ -82,3 +82,7 @@ The codebase is organized around a Rust core, a shared WebView application UI, b
 ChromVoid uses a mixed `AGPL-3.0-only + Commercial` licensing model, with some standalone reusable packages under permissive licenses.
 
 See [LICENSING.md](LICENSING.md) for the authoritative path-level license matrix. Package-level license fields remain authoritative where they are present.
+
+## Infrastructure
+
+Production infrastructure and deployment are maintained in a separate, private repository.

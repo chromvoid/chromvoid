@@ -3,7 +3,6 @@
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
-import {resolveLicensePublicKeyEnv} from './license-public-key-env.mjs'
 import {resolveDevSigningEnvironment} from './macos-signing.mjs'
 import {loadWalletEnvFromRoot} from './wallet-env.mjs'
 
@@ -12,13 +11,7 @@ const appRoot = path.resolve(scriptDir, '..')
 const repoRoot = path.resolve(appRoot, '..', '..')
 loadWalletEnvFromRoot(repoRoot)
 
-let childEnv = resolveLicensePublicKeyEnv({
-  appRoot,
-  env: process.env,
-  onFileResolved: (filePath) => {
-    console.log(`[tauri-dev-runner] using license public key from ${filePath}`)
-  },
-})
+let childEnv = {...process.env}
 
 if (process.platform === 'darwin') {
   const identityResult = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], {

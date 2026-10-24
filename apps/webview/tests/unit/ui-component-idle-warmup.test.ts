@@ -8,7 +8,7 @@ import {
   startUiComponentIdleWarmup,
 } from '../../src/app/bootstrap/ui-component-idle-warmup'
 import {SURFACE_IDS} from '../../src/app/navigation/navigation.types'
-import {moduleAccessModel, type ModuleAccessState} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel, type ModuleAccessState} from '../../src/core/modules/module-access.model'
 import {
   resetRuntimeCapabilities,
   setRuntimeCapabilities,
@@ -37,10 +37,10 @@ async function flushWarmupPromises(): Promise<void> {
   await Promise.resolve()
 }
 
-const LOCKED_GATEWAY_STATE: ModuleAccessState = {
+const DISABLED_GATEWAY_STATE: ModuleAccessState = {
   feature_key: 'browser-extension',
-  status: 'locked_pro',
-  denial_code: 'PRO_REQUIRED',
+  status: 'disabled_by_rollout',
+  denial_code: 'FEATURE_DISABLED_BY_ROLLOUT',
 }
 
 const ENABLED_GATEWAY_STATE: ModuleAccessState = {
@@ -176,20 +176,20 @@ describe('UI component idle warmup', () => {
     expect(schedule).toHaveBeenCalledTimes(1)
   })
 
-  it('defers locked gated surfaces and retries them after access becomes enabled', async () => {
+  it('defers gated surfaces that cannot open and retries them after access becomes enabled', async () => {
     const {schedule, scheduled} = createScheduler()
     const run = vi.fn().mockResolvedValue(undefined)
     const tasks = [createTask('surface:gateway', run)]
 
     setRuntimeCapabilities({supports_gateway: true})
-    moduleAccessModel.rawStates.set([LOCKED_GATEWAY_STATE])
+    moduleAccessModel.resolution.set({phase: 'resolved', states: [DISABLED_GATEWAY_STATE]})
 
     startUiComponentIdleWarmup({tasks, schedule})
 
     expect(schedule).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
 
-    moduleAccessModel.rawStates.set([ENABLED_GATEWAY_STATE])
+    moduleAccessModel.resolution.set({phase: 'resolved', states: [ENABLED_GATEWAY_STATE]})
     await flushWarmupPromises()
 
     expect(schedule).toHaveBeenCalledTimes(1)

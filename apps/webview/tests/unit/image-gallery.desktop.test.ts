@@ -71,7 +71,7 @@ function queryViewer<T extends Element = Element>(element: ImageGallery, selecto
 describe('image-gallery desktop actions', () => {
   beforeEach(() => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_photo_library_save: true,
     })

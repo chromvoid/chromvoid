@@ -8,6 +8,8 @@
  */
 
 // === Generated from Rust Core (snake_case naming) ===
+export type {CatalogAttachmentRequest} from './generated/CatalogAttachmentRequest'
+export type {CatalogAttachmentResponse} from './generated/CatalogAttachmentResponse'
 export type {NodeType} from './generated/NodeType'
 export type {ErrorCode} from './generated/ErrorCode'
 export type {CatalogNode} from './generated/CatalogNode'

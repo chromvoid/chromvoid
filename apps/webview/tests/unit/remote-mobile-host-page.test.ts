@@ -107,9 +107,9 @@ describe('mobile Remote host page', () => {
     expect(container.textContent).not.toContain('Sync Status')
   })
 
-  it('renders Android pairing with a visible link, PIN, and Copy/Share actions', () => {
+  it('renders pairing with a visible link, PIN, and Copy/Share actions', () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       desktop: false,
       supports_network_remote: true,
@@ -118,15 +118,15 @@ describe('mobile Remote host page', () => {
     model.hostStatus.set(
       createStatus({
         phase: 'Pairing',
-        platform: 'android',
-        device_label: 'ChromVoid Android',
+        platform: 'ios',
+        device_label: 'ChromVoid iPhone',
         pairing_pin: '654321',
         pairing_offer: {
           session_id: 'secret-session',
           relay_base_url: 'https://relay.chromvoid.com',
-          device_label: 'ChromVoid Android',
+          device_label: 'ChromVoid iPhone',
           expires_at_ms: Date.now() + 60_000,
-          platform: 'android',
+          platform: 'ios',
         },
       }),
     )
@@ -144,9 +144,9 @@ describe('mobile Remote host page', () => {
     )
 
     expect(container.querySelector('[data-mobile-host-state="pairing"]')).not.toBeNull()
-    expect(container.querySelector('[data-mobile-host-path="usb"]')?.getAttribute('data-path-state')).toBe(
-      'ready',
-    )
+    expect(
+      container.querySelector('[data-mobile-host-path="network"]')?.getAttribute('data-path-state'),
+    ).toBe('preparing')
     expect(container.textContent).toContain('654321')
     expect(container.querySelector('[data-mobile-host-action="share"]')).not.toBeNull()
     expect(container.querySelector('[data-mobile-host-action="copy"]')).not.toBeNull()
@@ -165,65 +165,6 @@ describe('mobile Remote host page', () => {
     expect(onShareOffer).toHaveBeenCalledTimes(1)
     expect(onCopyOffer).toHaveBeenCalledTimes(1)
     expect(onStop).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps USB available and connected while Android Network Remote is off', async () => {
-    setRuntimeCapabilities({
-      platform: 'android',
-      mobile: true,
-      desktop: false,
-      supports_network_remote: true,
-    })
-    const currentStatus = createStatus({
-      phase: 'Idle',
-      platform: 'android',
-      device_label: 'ChromVoid Android',
-      connected_peers: [
-        {
-          peer_id: 'peer-usb-id',
-          label: 'Cable desktop',
-          connected_at_ms: Date.now(),
-          transport_type: 'usb_mobile',
-        },
-      ],
-    })
-    tauriInvoke.mockImplementation(async (command: string) => {
-      if (command === 'mobile_host_status') return currentStatus
-      if (command === 'mobile_host_list_paired_computers') {
-        return [
-          {
-            peer_id: 'peer-usb-id',
-            label: 'Cable desktop',
-            platform: 'macos',
-            pairing_transport: 'usb_mobile',
-            paired_at_ms: Date.now() - 10_000,
-            last_seen_ms: Date.now(),
-          },
-        ]
-      }
-      throw new Error(`Unexpected command: ${command}`)
-    })
-    const model = new RemoteHostsFlowModel()
-    model.connect()
-    await vi.waitFor(() => expect(model.pairedComputers.loaded()).toBe(true))
-    const container = renderPage(createContext(model))
-
-    expect(container.querySelector('[data-mobile-host-state="off"]')).not.toBeNull()
-    expect(
-      container.querySelector('[data-mobile-host-path="network"]')?.getAttribute('data-path-state'),
-    ).toBe('after-start')
-    expect(container.querySelector('[data-mobile-host-path="usb"]')?.getAttribute('data-path-state')).toBe(
-      'connected',
-    )
-    expect(container.querySelector('[data-mobile-host-transport="usb_mobile"]')).not.toBeNull()
-    expect(container.querySelector('[data-mobile-host-action="start"]')?.textContent).toContain(
-      'Start Network Remote',
-    )
-    expect(container.querySelector('[data-mobile-host-action="stop"]')).toBeNull()
-    expect(container.textContent).toContain('Network Remote is off')
-    expect(container.textContent).toContain('USB is still available')
-    expect(container.textContent).toContain('tap Allow')
-    model.disconnect()
   })
 
   it('promotes Copy when the system share sheet is unavailable', () => {
@@ -259,13 +200,13 @@ describe('mobile Remote host page', () => {
 
   it('lists paired computers with visible revoke actions and keeps identifiers in closed details', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_network_remote: true,
     })
     const currentStatus = createStatus({
       phase: 'Ready',
-      platform: 'android',
+      platform: 'ios',
       connected_peers: [
         {
           peer_id: 'peer-network-id',

@@ -45,7 +45,7 @@ describe('PMEntryCreateBase switch integration', () => {
   beforeEach(() => {
     resetRuntimeCapabilities()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_otp_qr_scan: true,
     })

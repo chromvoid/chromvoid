@@ -26,7 +26,7 @@ async function getMobileLayout(page: SettingsPage) {
 describe('settings page mobile section navigation', () => {
   beforeEach(() => {
     resetRuntimeCapabilities()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     initAppContext(createMockAppContext())
     navigationModel.snapshot.set({
       surface: 'settings',
@@ -50,17 +50,17 @@ describe('settings page mobile section navigation', () => {
     document.body.append(page)
     await page.updateComplete
     const layout = await getMobileLayout(page)
-    const licenseRow = layout.shadowRoot?.querySelector<HTMLButtonElement>(
-      '[data-settings-route="license"]',
+    const filesRow = layout.shadowRoot?.querySelector<HTMLButtonElement>(
+      '[data-settings-route="files"]',
     )
 
-    expect(licenseRow).not.toBeNull()
-    licenseRow?.click()
+    expect(filesRow).not.toBeNull()
+    filesRow?.click()
     await layout.updateComplete
 
-    expect(navigationModel.settingsRoute()).toEqual({kind: 'license'})
-    expect(layout.shadowRoot?.querySelector('#settings-mobile-heading')?.textContent).toBe('License')
-    expect(layout.shadowRoot?.querySelector('.license-input')).not.toBeNull()
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'files'})
+    expect(layout.shadowRoot?.querySelector('#settings-mobile-heading')?.textContent).toBe('Files & storage')
+    expect(layout.shadowRoot?.querySelector('cv-switch[aria-label="Show dotfiles in Files"]')).not.toBeNull()
   })
 
   it('renders settings content without a page-local header', async () => {

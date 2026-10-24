@@ -1,5 +1,3 @@
-mod android_audio;
-mod android_quick_lock;
 mod backup;
 mod debug;
 mod lifecycle;
@@ -12,8 +10,6 @@ mod rpc;
 mod session;
 mod strength;
 
-pub(crate) use android_audio::*;
-pub(crate) use android_quick_lock::*;
 pub(crate) use backup::*;
 pub(crate) use debug::*;
 pub(crate) use lifecycle::*;

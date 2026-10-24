@@ -9,10 +9,7 @@ import {
   GUIDANCE_SURFACE_IDS,
   GUIDANCE_TRIGGER_IDS,
 } from '../../src/core/guidance/guidance.constants'
-import {
-  MODULE_ACCESS_STATUSES,
-  PRO_FEATURE_KEYS,
-} from '../../src/core/pro/module-access.model'
+import {MODULE_ACCESS_STATUSES, MODULE_KEYS} from '../../src/core/modules/module-access.model'
 import {RUNTIME_CAPABILITY_KEYS} from '../../src/core/runtime/runtime-capabilities'
 
 describe('guidance runtime contracts', () => {
@@ -36,7 +33,6 @@ describe('guidance runtime contracts', () => {
     expect(ROUTE_IDS).toEqual([
       'loading',
       'welcome',
-      'no-license',
       'dashboard',
       'task-progress',
       'no-connection',
@@ -51,7 +47,6 @@ describe('guidance runtime contracts', () => {
       'supports_volume',
       'supports_gateway',
       'supports_network_remote',
-      'supports_external_pro',
       'supports_mobile_usb_remote',
       'supports_biometric',
       'supports_autofill',
@@ -68,18 +63,12 @@ describe('guidance runtime contracts', () => {
       'supports_mobile_backup_restore',
       'supports_photo_library_save',
       'supports_credential_provider_passkeys_lite',
-      'supports_android_native_video',
-      'android_native_audio_playback_rollout_enabled',
-      'supports_android_native_upload',
-      'supports_android_share_import',
-      'supports_android_native_otp_qr_scan',
       'supports_storage_root_selection',
-      'supports_android_saf_backup_restore',
     ])
   })
 
-  it('exports Pro feature and module access status keys used by guidance validation', () => {
-    expect(PRO_FEATURE_KEYS).toEqual([
+  it('exports module keys and module access statuses used by guidance validation', () => {
+    expect(MODULE_KEYS).toEqual([
       'remote',
       'credential-provider',
       'ssh-agent',
@@ -92,8 +81,6 @@ describe('guidance runtime contracts', () => {
     expect(MODULE_ACCESS_STATUSES).toEqual([
       'unsupported',
       'disabled_by_rollout',
-      'entitlement_unavailable',
-      'locked_pro',
       'enabled',
     ])
   })

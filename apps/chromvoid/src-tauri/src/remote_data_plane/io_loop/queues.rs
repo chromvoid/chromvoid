@@ -1,5 +1,5 @@
 use crate::core_adapter::RemoteRpcPriority;
-use crate::remote_data_plane::models::RemoteIoRequest;
+use crate::remote_data_plane::RemoteIoRequest;
 use std::collections::VecDeque;
 
 #[derive(Default)]

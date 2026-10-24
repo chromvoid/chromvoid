@@ -10,21 +10,23 @@ use crate::rpc::types::{
     WalletAddressBookCreateResponse, WalletAddressBookDeleteRequest,
     WalletAddressBookDeleteResponse, WalletAddressBookEntry, WalletAddressBookListRequest,
     WalletAddressBookListResponse, WalletAddressBookUpdateRequest, WalletAddressBookUpdateResponse,
-    WalletAddressesDeriveRequest, WalletBackupExportRequest, WalletBackupExportResponse,
-    WalletBalanceGetRequest, WalletBalanceGetResponse, WalletConfirmStatus, WalletHdCreateRequest,
-    WalletHdCreateResponse, WalletHdGenerateMnemonicRequest, WalletHdGenerateMnemonicResponse,
-    WalletImportCreateRequest, WalletImportCreateResponse, WalletListRequest, WalletListResponse,
-    WalletNetwork, WalletSpendAuthorizationCreateRequest, WalletSpendAuthorizationCreateResponse,
+    WalletAddressDetectRequest, WalletAddressDetectResponse, WalletAddressesDeriveRequest,
+    WalletBackupExportRequest, WalletBackupExportResponse, WalletBalanceGetRequest,
+    WalletBalanceGetResponse, WalletConfirmStatus, WalletHdCreateRequest, WalletHdCreateResponse,
+    WalletHdGenerateMnemonicRequest, WalletHdGenerateMnemonicResponse, WalletImportCreateRequest,
+    WalletImportCreateResponse, WalletListRequest, WalletListResponse, WalletNetwork,
+    WalletSpendAuthorizationCreateRequest, WalletSpendAuthorizationCreateResponse,
     WalletSpendAuthorizationRevokeRequest, WalletSpendAuthorizationRevokeResponse,
     WalletSpendAuthorizationScope, WalletStatusRequest, WalletStatusResponse,
-    WalletTransactionCancelRequest, WalletTransactionCancelResponse,
-    WalletTransactionConfirmRequest, WalletTransactionConfirmResponse, WalletTransactionEntry,
-    WalletTransactionPrepareRequest, WalletTransactionPrepareResponse,
-    WalletTransactionQuoteRequest, WalletTransactionQuoteResponse,
-    WalletTransactionRebroadcastRequest, WalletTransactionRebroadcastResponse,
-    WalletTransactionsListRequest, WalletTransactionsListResponse,
-    WalletTransactionsRefreshRequest, WalletTransactionsRefreshResponse,
-    WalletTransactionsSyncRequest, WalletTransactionsSyncResponse,
+    WalletTonRotateKeyRequest, WalletTonRotateKeyResponse, WalletTransactionCancelRequest,
+    WalletTransactionCancelResponse, WalletTransactionConfirmRequest,
+    WalletTransactionConfirmResponse, WalletTransactionEntry, WalletTransactionPrepareRequest,
+    WalletTransactionPrepareResponse, WalletTransactionQuoteRequest,
+    WalletTransactionQuoteResponse, WalletTransactionRebroadcastRequest,
+    WalletTransactionRebroadcastResponse, WalletTransactionsListRequest,
+    WalletTransactionsListResponse, WalletTransactionsRefreshRequest,
+    WalletTransactionsRefreshResponse, WalletTransactionsSyncRequest,
+    WalletTransactionsSyncResponse,
 };
 use crate::storage::Storage;
 use crate::vault::VaultSession;
@@ -33,12 +35,13 @@ use crate::wallet::{
     new_mnemonic_draft_id, new_preparation_id, new_secret_id, new_tx_ref, new_wallet_id, now_ms,
     parse_hex, BroadcastArtifactV2, BroadcastSubmitAttemptV1, PreparationRecordV1,
     PreparationStateV1, PreparedIntentV1, SecretBlobV1, SecretPayloadV1,
-    WalletHdAccountMaterializeInput, WalletImportedAccountMaterializeInput, WalletMetaV1,
+    WalletImportedAccountMaterializeInput, WalletKeyRotationInput, WalletMetaV1,
     WalletOperationIdempotencyRecordV1, WalletProviderObservationOutcomeV1,
-    WalletProviderObservationV1, WalletReconciliationEvidenceV1, WalletTelemetryEvent,
-    WalletTelemetryMetric, WalletTxStatus, BIP39_ENGLISH_WORDLIST, BIP39_MNEMONIC_STANDARD,
-    MNEMONIC_DRAFT_TTL_MS, MULTICHAIN_WALLET_MODE, PREPARATION_TTL_MS,
-    TON_NATIVE_MNEMONIC_STANDARD, TON_ONLY_WALLET_MODE, WALLET_ROOT, WALLET_SCHEMA_VERSION,
+    WalletProviderObservationV1, WalletReconciliationEvidenceV1, WalletSecretReconcileInput,
+    WalletTelemetryEvent, WalletTelemetryMetric, WalletTxStatus, BIP39_ENGLISH_WORDLIST,
+    BIP39_MNEMONIC_STANDARD, MNEMONIC_DRAFT_TTL_MS, MULTICHAIN_WALLET_MODE, PREPARATION_TTL_MS,
+    ROTATION_MNEMONIC_STANDARD, TON_NATIVE_MNEMONIC_STANDARD, TON_ONLY_WALLET_MODE, WALLET_ROOT,
+    WALLET_SCHEMA_VERSION,
 };
 
 use super::state::RpcRouter;
@@ -63,14 +66,15 @@ mod parse;
 mod paths;
 mod preparations;
 mod provider;
+mod rotation;
 mod secrets;
 mod store;
 mod transaction_handlers;
 mod transactions;
 
 use accounts::{
-    materialize_profile_account, materialize_profile_accounts, materialize_profile_addresses,
-    restore_hd_secret_material,
+    allocate_first_receive_address, hd_account_input, materialize_profile_account,
+    materialize_profile_accounts, materialize_profile_addresses,
 };
 use error::{WalletCommandError, WalletResult};
 use parse::{
@@ -88,9 +92,6 @@ use preparations::{
     PreparedTransactionInput,
 };
 use provider::invalid_input;
-use secrets::{
-    ensure_ton_native_secret_words_for_account, ensure_ton_native_secret_words_for_wallet,
-};
 use store::{
     begin_wallet_uow, commit_wallet_uow, delete_path, ensure_wallet_dirs,
     ensure_wallet_wallet_dirs, load_account_addresses, load_account_by_id, load_accounts,

@@ -3,7 +3,6 @@ import {html, ReatomLitElement} from '@chromvoid/uikit/reatom-lit'
 import {css, nothing} from 'lit'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
-import type {HostPathTokenGrant} from 'root/core/transport/transport'
 import {
   isRealFileListItem,
   type FileListVisibleRange,
@@ -174,12 +173,6 @@ export class FileManager extends ReatomLitElement {
     this.ensureModel().setSelectionMode(enabled)
   }
 
-  private handleMobileCommand(e: CustomEvent<{actionId?: string}>) {
-    const actionId = e.detail?.actionId
-    if (typeof actionId !== 'string') return
-    this.ensureModel().executeMobileCommand(actionId)
-  }
-
   private handleViewportStateChange(e: CustomEvent<FileListViewportSnapshot>) {
     this.ensureModel().saveFileListViewportSnapshot(e.detail)
   }
@@ -201,28 +194,6 @@ export class FileManager extends ReatomLitElement {
     }
 
     return this.ensureModel().handleMobileBack()
-  }
-
-  private handleCreateDir() {
-    void this.ensureModel().handleCreateDir()
-  }
-
-  private onUploadRequested(e: CustomEvent) {
-    const files: FileList | undefined = e.detail?.files
-    if (files && files.length > 0) {
-      void this.ensureModel().handleFileUpload(files)
-    }
-  }
-
-  private onUploadPathsRequested(e: CustomEvent) {
-    const files: HostPathTokenGrant[] | undefined = e.detail?.files
-    if (Array.isArray(files) && files.length > 0) {
-      void this.ensureModel().handlePathUpload(files)
-    }
-  }
-
-  private onNativeUploadRequested() {
-    void this.ensureModel().handleNativeUpload()
   }
 
   private handleEmptyAction(event: CustomEvent<{action?: string}>) {
@@ -270,14 +241,6 @@ export class FileManager extends ReatomLitElement {
   private endFilePickerSession() {
     this.filePickerSession?.end()
     this.filePickerSession = null
-  }
-
-  private handleDeleteSelected() {
-    void this.ensureModel().handleDeleteSelected()
-  }
-
-  private handleClearSelection() {
-    getAppContext().store.setSelectedItems([])
   }
 
   private handleItemAction(e: CustomEvent) {
@@ -396,6 +359,7 @@ export class FileManager extends ReatomLitElement {
       ${isMobileLayout
         ? html`
             <workspace-dashboard-header
+              data-testid="workspace-header"
               slot="header"
               surface="files"
               .currentPath=${model.currentPath()}
@@ -408,16 +372,6 @@ export class FileManager extends ReatomLitElement {
               .mobileViewMode=${model.mobileEffectiveViewMode()}
               .mobileAddActions=${model.getMobileAddActions()}
               .mobileSelectionActions=${model.getMobileSelectionBarActions()}
-              @navigate=${this.handleNavigate}
-              @filters-change=${this.handleFiltersChange}
-              @create-dir=${this.handleCreateDir}
-              @upload-requested=${this.onUploadRequested}
-              @upload-paths-requested=${this.onUploadPathsRequested}
-              @native-upload-requested=${this.onNativeUploadRequested}
-              @delete-selected=${this.handleDeleteSelected}
-              @clear-selection=${this.handleClearSelection}
-              @mobile-command=${this.handleMobileCommand}
-              @selection-mode-requested=${this.handleSelectionModeRequested}
             ></workspace-dashboard-header>
           `
         : nothing}

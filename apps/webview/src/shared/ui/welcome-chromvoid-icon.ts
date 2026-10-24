@@ -3,7 +3,7 @@ import {css, type PropertyValues} from 'lit'
 import {unsafeSVG} from 'lit/directives/unsafe-svg.js'
 import chromvoidIconSvg from 'root/assets/chromvoid-icon.svg?raw'
 
-export type WelcomeChromvoidIconAnimationState = 'idle' | 'active'
+export type WelcomeChromvoidIconAnimationState = 'idle' | 'active' | 'finishing' | 'opened'
 export type WelcomeChromvoidIconVariant = 'hero' | 'mark'
 
 export type WelcomeChromvoidIconAnimationModel = {
@@ -45,6 +45,7 @@ export class WelcomeChromvoidIcon extends ReatomLitElement {
         inline-size: 100%;
         block-size: 100%;
         border-radius: inherit;
+        opacity: 0.9;
         filter: none;
       }
 
@@ -56,12 +57,6 @@ export class WelcomeChromvoidIcon extends ReatomLitElement {
 
       .welcome-icon svg #spiralFill {
         fill: var(--cv-color-text);
-      }
-
-      .welcome-icon.idle,
-      .welcome-icon.active {
-        opacity: 0.9;
-        filter: saturate(0.92) brightness(0.94);
       }
 
       :host([variant='mark']) .welcome-icon {
@@ -103,9 +98,7 @@ export class WelcomeChromvoidIcon extends ReatomLitElement {
     const state = this.animated && this.model ? this.model.state() : 'idle'
 
     return html`
-      <div class="welcome-icon ${state}" data-icon-state=${state}>
-        ${unsafeSVG(chromvoidIconSvg)}
-      </div>
+      <div class="welcome-icon ${state}" data-icon-state=${state}>${unsafeSVG(chromvoidIconSvg)}</div>
     `
   }
 

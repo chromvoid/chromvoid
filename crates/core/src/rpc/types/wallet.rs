@@ -12,6 +12,7 @@ use ts_rs::TS;
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[cfg_attr(feature = "ts-bindings", ts(type = "string"))]
 #[serde(transparent)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletNetwork(String);
 
 impl WalletNetwork {
@@ -46,6 +47,7 @@ impl fmt::Display for WalletNetwork {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub enum WalletFeeTier {
     Slow,
     Standard,
@@ -56,6 +58,7 @@ pub enum WalletFeeTier {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletFeePolicy {
     pub tier: WalletFeeTier,
 }
@@ -64,6 +67,7 @@ pub struct WalletFeePolicy {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionOutput {
     pub address: String,
     pub amount: String,
@@ -75,6 +79,7 @@ pub struct WalletTransactionOutput {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionQuoteOutput {
     pub address: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,6 +91,7 @@ pub struct WalletTransactionQuoteOutput {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletWarning {
     pub code: String,
     pub message: String,
@@ -94,6 +100,7 @@ pub struct WalletWarning {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletPreview {
     pub amount_unit: String,
     pub outputs: Vec<WalletTransactionOutput>,
@@ -104,12 +111,15 @@ pub struct WalletPreview {
     pub ton: Option<TonTransactionPreviewV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ethereum: Option<EthereumTransactionPreviewV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solana: Option<SolanaTransactionPreviewV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct EthereumTransactionPreviewV1 {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub nonce: u64,
@@ -125,6 +135,19 @@ pub struct EthereumTransactionPreviewV1 {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct SolanaTransactionPreviewV1 {
+    pub recent_blockhash: String,
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub last_valid_block_height: u64,
+    pub destination_rent_exempt_minimum: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct TonTransactionPreviewV1 {
     pub wallet_contract: String,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
@@ -141,6 +164,7 @@ pub struct TonTransactionPreviewV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletBalance {
     pub spendable: String,
     pub pending_in: String,
@@ -152,6 +176,7 @@ pub struct WalletBalance {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletSummary {
     pub wallet_id: String,
     pub kind: String,
@@ -162,6 +187,10 @@ pub struct WalletSummary {
     pub supported_networks: Vec<WalletNetwork>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bitcoin_discovery_pending: Option<bool>,
+    /// Restored account-based networks (Ethereum, Solana) still awaiting used-account discovery
+    /// via `wallet:balance:get { discover_addresses: true }`; absent once every network is done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_discovery_pending: Option<Vec<WalletNetwork>>,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub created_at: u64,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
@@ -172,6 +201,7 @@ pub struct WalletSummary {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub enum WalletAccountMeta {
     Imported(ImportedAccountMetaV1),
     Derived(DerivedAccountMetaV1),
@@ -181,6 +211,7 @@ pub enum WalletAccountMeta {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct ImportedAccountMetaV1 {
     pub account_id: String,
     pub wallet_id: String,
@@ -209,6 +240,7 @@ pub struct ImportedAccountMetaV1 {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct DerivedAccountMetaV1 {
     pub account_id: String,
     pub wallet_id: String,
@@ -332,6 +364,18 @@ impl WalletAccountMeta {
         }
     }
 
+    /// Address to receive on right now: the allocated receive address for account-per-address
+    /// models, else the account address itself.
+    pub fn current_receive_address(&self) -> Option<&str> {
+        match self {
+            Self::Imported(meta) => Some(meta.address.as_str()),
+            Self::Derived(meta) => meta
+                .current_receive_address
+                .as_deref()
+                .or(meta.address.as_deref()),
+        }
+    }
+
     pub fn next_change_index(&self) -> Option<u32> {
         match self {
             Self::Imported(_) => None,
@@ -378,6 +422,7 @@ impl WalletAccountMeta {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub enum WalletConfirmStatus {
     Pending,
     BroadcastUnknown,
@@ -396,6 +441,7 @@ impl WalletConfirmStatus {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub enum WalletTransactionDirection {
     Incoming,
     Outgoing,
@@ -405,6 +451,7 @@ pub enum WalletTransactionDirection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionEntry {
     pub tx_ref: String,
     pub wallet_id: String,
@@ -445,6 +492,7 @@ pub struct WalletStatusRequest {}
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub enum WalletProviderStatus {
     Ready,
     Unavailable,
@@ -454,6 +502,7 @@ pub enum WalletProviderStatus {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub enum WalletCapabilityState {
     Ready,
     Disabled,
@@ -463,6 +512,7 @@ pub enum WalletCapabilityState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletCapabilityStatus {
     pub id: String,
     pub state: WalletCapabilityState,
@@ -473,6 +523,7 @@ pub struct WalletCapabilityStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletNetworkStatus {
     pub network: WalletNetwork,
     pub enabled: bool,
@@ -487,6 +538,7 @@ pub struct WalletNetworkStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletStatusResponse {
     pub initialized: bool,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
@@ -506,6 +558,7 @@ pub struct WalletListRequest {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletListResponse {
     pub wallets: Vec<WalletSummary>,
 }
@@ -514,6 +567,7 @@ pub struct WalletListResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletHdGenerateMnemonicRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wallet_mode: Option<String>,
@@ -528,6 +582,7 @@ pub struct WalletHdGenerateMnemonicRequest {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletHdGenerateMnemonicResponse {
     pub mnemonic_draft_id: String,
     pub mnemonic: Vec<String>,
@@ -559,6 +614,7 @@ impl fmt::Debug for WalletHdGenerateMnemonicResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletHdCreateRequest {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -606,6 +662,7 @@ impl fmt::Debug for WalletHdCreateRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletHdCreateResponse {
     pub wallet_id: String,
     pub accounts: Vec<WalletAccountMeta>,
@@ -615,6 +672,7 @@ pub struct WalletHdCreateResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletImportCreateRequest {
     pub label: String,
     pub network: WalletNetwork,
@@ -642,6 +700,7 @@ impl fmt::Debug for WalletImportCreateRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletImportCreateResponse {
     pub wallet_id: String,
     pub account_id: String,
@@ -651,6 +710,7 @@ pub struct WalletImportCreateResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAccountsListRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wallet_id: Option<String>,
@@ -659,6 +719,7 @@ pub struct WalletAccountsListRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAccountsListResponse {
     pub accounts: Vec<WalletAccountMeta>,
     #[serde(default)]
@@ -669,6 +730,7 @@ pub struct WalletAccountsListResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAccountsDeriveRequest {
     pub wallet_id: String,
     pub network: WalletNetwork,
@@ -677,6 +739,7 @@ pub struct WalletAccountsDeriveRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAccountsDeriveResponse {
     pub account_id: String,
 }
@@ -685,6 +748,7 @@ pub struct WalletAccountsDeriveResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressesDeriveRequest {
     pub account_id: String,
     pub purpose: String,
@@ -693,6 +757,7 @@ pub struct WalletAddressesDeriveRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressesDeriveResponse {
     pub account_id: String,
     pub purpose: String,
@@ -707,6 +772,7 @@ pub struct WalletAddressesDeriveResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletBalanceGetRequest {
     pub account_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -716,6 +782,7 @@ pub struct WalletBalanceGetRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletBalanceGetResponse {
     pub account_id: String,
     pub network: WalletNetwork,
@@ -728,6 +795,7 @@ pub struct WalletBalanceGetResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionPrepareRequest {
     pub account_id: String,
     pub network: WalletNetwork,
@@ -742,6 +810,7 @@ pub struct WalletTransactionPrepareRequest {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionQuoteRequest {
     pub account_id: String,
     pub network: WalletNetwork,
@@ -754,6 +823,7 @@ pub struct WalletTransactionQuoteRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionQuoteResponse {
     pub account_id: String,
     pub network: WalletNetwork,
@@ -770,6 +840,7 @@ pub struct WalletTransactionQuoteResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionPrepareResponse {
     pub preparation_id: String,
     pub wallet_id: String,
@@ -784,6 +855,7 @@ pub struct WalletTransactionPrepareResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionConfirmRequest {
     pub preparation_id: String,
     pub accepted_warnings: Vec<String>,
@@ -796,6 +868,7 @@ pub struct WalletTransactionConfirmRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionConfirmResponse {
     pub tx_ref: String,
     pub network: WalletNetwork,
@@ -808,6 +881,7 @@ pub struct WalletTransactionConfirmResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressBookEntry {
     pub entry_id: String,
     pub label: String,
@@ -828,6 +902,7 @@ pub struct WalletAddressBookListRequest {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressBookListResponse {
     pub entries: Vec<WalletAddressBookEntry>,
 }
@@ -836,6 +911,7 @@ pub struct WalletAddressBookListResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressBookCreateRequest {
     pub label: String,
     pub network: WalletNetwork,
@@ -845,6 +921,7 @@ pub struct WalletAddressBookCreateRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressBookCreateResponse {
     pub entry: WalletAddressBookEntry,
 }
@@ -853,6 +930,7 @@ pub struct WalletAddressBookCreateResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressBookUpdateRequest {
     pub entry_id: String,
     pub label: String,
@@ -863,6 +941,7 @@ pub struct WalletAddressBookUpdateRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressBookUpdateResponse {
     pub entry: WalletAddressBookEntry,
 }
@@ -871,13 +950,39 @@ pub struct WalletAddressBookUpdateResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressBookDeleteRequest {
     pub entry_id: String,
+}
+
+/// Address-first Send: asks every registered chain profile whether it accepts the address.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct WalletAddressDetectRequest {
+    pub address: String,
+}
+
+/// `network` and `normalized_address` are set only when exactly one registered network accepts
+/// the address; `candidates` lists every accepting network (sorted) so a client can still ask
+/// the user when formats overlap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct WalletAddressDetectResponse {
+    pub address: String,
+    pub network: Option<WalletNetwork>,
+    pub normalized_address: Option<String>,
+    pub candidates: Vec<WalletNetwork>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletAddressBookDeleteResponse {
     pub entry_id: String,
 }
@@ -953,6 +1058,7 @@ pub struct WalletSpendAuthorizationRevokeResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionCancelRequest {
     pub preparation_id: String,
 }
@@ -960,6 +1066,7 @@ pub struct WalletTransactionCancelRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionCancelResponse {
     pub cancelled: bool,
 }
@@ -968,6 +1075,7 @@ pub struct WalletTransactionCancelResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionRebroadcastRequest {
     pub tx_ref: String,
     pub master_password: String,
@@ -986,6 +1094,7 @@ impl fmt::Debug for WalletTransactionRebroadcastRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionRebroadcastResponse {
     pub tx_ref: String,
     pub network: WalletNetwork,
@@ -1000,6 +1109,7 @@ pub struct WalletTransactionRebroadcastResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionsListRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wallet_id: Option<String>,
@@ -1017,6 +1127,7 @@ pub struct WalletTransactionsListRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionsListResponse {
     pub transactions: Vec<WalletTransactionEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1027,6 +1138,7 @@ pub struct WalletTransactionsListResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionsRefreshRequest {
     pub tx_ref: String,
 }
@@ -1034,6 +1146,7 @@ pub struct WalletTransactionsRefreshRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionsRefreshResponse {
     pub tx_ref: String,
     pub network: WalletNetwork,
@@ -1048,6 +1161,7 @@ pub struct WalletTransactionsRefreshResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionsSyncRequest {
     pub account_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1058,6 +1172,7 @@ pub struct WalletTransactionsSyncRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletTransactionsSyncResponse {
     pub account_id: String,
     pub network: WalletNetwork,
@@ -1071,6 +1186,7 @@ pub struct WalletTransactionsSyncResponse {
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletBackupExportRequest {
     pub wallet_id: String,
     pub master_password: String,
@@ -1089,6 +1205,7 @@ impl fmt::Debug for WalletBackupExportRequest {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct WalletBackupExportResponse {
     pub wallet_id: String,
     pub export_kind: String,
@@ -1116,6 +1233,73 @@ impl fmt::Debug for WalletBackupExportResponse {
                 "bip39_passphrase",
                 &self.bip39_passphrase.as_ref().map(|_| "[redacted]"),
             )
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct WalletTonRotateKeyRequest {
+    pub account_id: String,
+    pub master_password: String,
+}
+
+impl fmt::Debug for WalletTonRotateKeyRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WalletTonRotateKeyRequest")
+            .field("account_id", &self.account_id)
+            .field("master_password", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Result of an on-chain WalletTg signing-key rotation (TEP-0003 Rotation mnemonic).
+/// `mnemonic` is the complete 24-word phrase that recovers the account once the rotation
+/// is confirmed; the previous phrase stays valid until then.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct WalletTonRotateKeyResponse {
+    pub wallet_id: String,
+    pub account_id: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_ref: Option<String>,
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub seqno: u32,
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub valid_until: u32,
+    pub new_public_key: String,
+    pub mnemonic: Vec<String>,
+    pub wordlist: String,
+    pub mnemonic_standard: String,
+}
+
+impl fmt::Debug for WalletTonRotateKeyResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WalletTonRotateKeyResponse")
+            .field("wallet_id", &self.wallet_id)
+            .field("account_id", &self.account_id)
+            .field("status", &self.status)
+            .field("tx_hash", &self.tx_hash)
+            .field("message_ref", &self.message_ref)
+            .field("seqno", &self.seqno)
+            .field("valid_until", &self.valid_until)
+            .field("new_public_key", &self.new_public_key)
+            .field(
+                "mnemonic",
+                &format!("[redacted; {} words]", self.mnemonic.len()),
+            )
+            .field("wordlist", &self.wordlist)
+            .field("mnemonic_standard", &self.mnemonic_standard)
             .finish()
     }
 }

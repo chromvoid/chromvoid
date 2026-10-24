@@ -9,6 +9,9 @@ pub fn account_summary_from_meta(meta: &WalletMetaV1) -> crate::rpc::types::Wall
         mnemonic_standard: meta.mnemonic_standard.clone(),
         supported_networks: meta.supported_networks.clone(),
         bitcoin_discovery_pending: meta.needs_bitcoin_discovery().then_some(true),
+        account_discovery_pending: (meta.kind == "hd"
+            && !meta.account_discovery_pending.is_empty())
+        .then(|| meta.account_discovery_pending.clone()),
         created_at: meta.created_at,
         updated_at: meta.updated_at,
     }
@@ -28,6 +31,7 @@ mod tests {
             mnemonic_standard: "bip39".to_string(),
             supported_networks: vec![WalletNetwork::from("bitcoin")],
             bitcoin_discovery_pending: discovery_pending,
+            account_discovery_pending: Vec::new(),
             secret_ref: "secret-1".to_string(),
             created_at: 1,
             updated_at: 1,
@@ -46,5 +50,20 @@ mod tests {
         let summary = account_summary_from_meta(&bitcoin_hd_wallet(Some(false)));
 
         assert_eq!(summary.bitcoin_discovery_pending, None);
+        assert_eq!(summary.account_discovery_pending, None);
+    }
+
+    #[test]
+    fn restored_account_networks_surface_until_discovered() {
+        let mut meta = bitcoin_hd_wallet(Some(false));
+        meta.account_discovery_pending = vec![WalletNetwork::from("ethereum")];
+        assert!(meta.needs_account_discovery(&WalletNetwork::from("ethereum")));
+        assert!(!meta.needs_account_discovery(&WalletNetwork::from("solana")));
+        let summary = account_summary_from_meta(&meta);
+
+        assert_eq!(
+            summary.account_discovery_pending,
+            Some(vec![WalletNetwork::from("ethereum")])
+        );
     }
 }

@@ -32,6 +32,10 @@ pub struct TonProviderSnapshot {
     pub estimated_fee: Option<u128>,
 }
 
+/// Current signing public key stored by the on-chain wallet contract (`get_public_key`).
+/// `None` when the account is not deployed or the provider cannot run get-methods.
+pub type TonProviderPublicKey = Option<[u8; 32]>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TonFeeEstimateRequest {
     pub account: TonProviderAccount,
@@ -137,6 +141,15 @@ pub trait TonProvider: Send + Sync {
     ) -> Result<TonProviderSnapshot, TonProviderError>;
 
     fn account_state(&self, address: &str) -> Result<TonProviderAccountState, TonProviderError>;
+
+    /// The wallet contract's current signing key (`get_public_key`), when the provider can
+    /// run get-methods. Providers without that surface report `None`.
+    fn public_key(
+        &self,
+        _account: &TonProviderAccount,
+    ) -> Result<TonProviderPublicKey, TonProviderError> {
+        Ok(None)
+    }
 
     fn estimate_transfer_fee(
         &self,

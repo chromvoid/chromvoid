@@ -85,6 +85,7 @@ const MOBILE_USB_ERROR_RECOVERY_ACTIONS: Record<MobileUsbErrorCode, MobileUsbRec
   ERR_USB_MOBILE_NOT_PAIRED: 'pair_host',
   ERR_USB_MOBILE_PAIRING_DUPLICATE: 'connect_existing',
   ERR_USB_MOBILE_HANDSHAKE_FAILED: 'manual_retry',
+  ERR_USB_MOBILE_PHONE_NOT_RESPONDING: 'retry_or_repair',
   ERR_USB_MOBILE_STALE_PAIRING: 'remove_and_repair',
   ERR_USB_MOBILE_SECRET_STORE_UNAVAILABLE: 'manual_retry',
   ERR_USB_MOBILE_SECRET_REF_INVALID: 'remove_and_repair',
@@ -170,6 +171,8 @@ export class RemoteUsbFlowModel {
   readonly pairingApprovalSubmitAttempted = atom(false, 'remote.usb.pairingApprovalSubmitAttempted')
   readonly pairingApprovalPinFocusRequest = atom(0, 'remote.usb.pairingApprovalPinFocusRequest')
   readonly lastFailedAction = atom<DesktopUsbAction | null>(null, 'remote.usb.lastFailedAction')
+  // Unlike lastActiveHost, this identity belongs to the current connect attempt.
+  private readonly connectTargetHostId = atom<string | null>(null, 'remote.usb.connectTargetHostId')
   private readonly repairScanHostId = atom<string | null>(null, 'remote.usb.repairScanHostId')
   private inventoryActive = false
   private inventoryGeneration = 0
@@ -200,6 +203,23 @@ export class RemoteUsbFlowModel {
     const code = this.lastErrorCode() ?? this.status()?.error_code ?? null
     return code === this.dismissedErrorCode() ? null : code
   })
+  readonly silentPhoneRecoveryHostId = computed(
+    () =>
+      this.activeErrorCode() === 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING' && this.pendingAction() !== 'connect'
+        ? this.connectTargetHostId()
+        : null,
+    'remote.usb.silentPhoneRecoveryHostId',
+  )
+  readonly silentPhoneRecoveryHost = computed<MobileUsbHostView | null>(() => {
+    const hostId = this.silentPhoneRecoveryHostId()
+    if (!hostId) return null
+    const status = this.status()
+    return (
+      this.pairedHosts().find((host) => host.host_id === hostId)
+      ?? status?.paired_hosts.find((host) => host.host_id === hostId)
+      ?? (status?.active_host?.host_id === hostId ? status.active_host : null)
+    )
+  }, 'remote.usb.silentPhoneRecoveryHost')
   readonly recoveryAction = computed<MobileUsbRecoveryAction | null>(() => {
     const code = this.activeErrorCode()
     if (code) return MOBILE_USB_ERROR_RECOVERY_ACTIONS[code]
@@ -339,6 +359,7 @@ export class RemoteUsbFlowModel {
         canConfirmPairing: this.canConfirmPairing(),
         recoveryAction: this.recoveryAction(),
         lastFailedAction: this.lastFailedAction(),
+        silentPhoneHostId: this.silentPhoneRecoveryHostId(),
         activeHost: this.status()?.active_host ?? null,
         repairScanPending: this.repairScanHostId() !== null,
         scannedHosts: this.scannedHostViews(),
@@ -516,7 +537,8 @@ export class RemoteUsbFlowModel {
   async removePaired(hostId: string): Promise<boolean> {
     if (this.blockIfUnavailable()) return false
     if (!hostId.trim()) return false
-    const removeAndRepair = this.recoveryAction() === 'remove_and_repair'
+    const recoveryAction = this.recoveryAction()
+    const repairAfterRemoval = recoveryAction === 'remove_and_repair' || recoveryAction === 'retry_or_repair'
     const removed = await wrap(
       this.run({kind: 'remove', hostId}, async () => {
         this.pairedHosts.set(await wrap(mobileUsbRemovePaired(hostId)))
@@ -525,7 +547,7 @@ export class RemoteUsbFlowModel {
         )
       }),
     )
-    if (removed && removeAndRepair) {
+    if (removed && repairAfterRemoval) {
       this.repairScanHostId.set(hostId)
       this.clearRemovedHostRecoveryStatus(hostId)
     }
@@ -537,6 +559,7 @@ export class RemoteUsbFlowModel {
     this.dismissedErrorCode.set(this.activeErrorCode())
     this.errorText.set(null)
     this.lastErrorCode.set(null)
+    this.connectTargetHostId.set(null)
   }
 
   clearLastActiveHost(): void {
@@ -558,6 +581,9 @@ export class RemoteUsbFlowModel {
     const previousPairingAttemptId = this.status()?.pairing_approval?.attempt_id ?? null
     this.dismissedErrorCode.set(null)
     this.status.set(status)
+    if (status.session_state !== 'connecting_usb_mobile' && status.session_state !== 'error') {
+      this.connectTargetHostId.set(null)
+    }
     if (status.active_host) {
       this.lastActiveHost.set(status.active_host)
     }
@@ -591,6 +617,9 @@ export class RemoteUsbFlowModel {
     const backendOperationRunning = this.inFlight() !== null
     const readOnlyAction = action.kind === 'refresh_status' || action.kind === 'load_paired'
     if (this.busy() || (backendOperationRunning && !readOnlyAction)) return false
+    if (!readOnlyAction) {
+      this.connectTargetHostId.set(action.kind === 'connect' ? action.hostId : null)
+    }
     this.busy.set(true)
     this.pendingAction.set(action.kind)
     this.errorText.set(null)
@@ -633,7 +662,7 @@ export class RemoteUsbFlowModel {
     const hostId = this.repairScanHostId()
     if (!hostId) return status
     const recoveryAction = status.error_code ? MOBILE_USB_ERROR_RECOVERY_ACTIONS[status.error_code] : null
-    if (recoveryAction !== 'remove_and_repair') return status
+    if (recoveryAction !== 'remove_and_repair' && recoveryAction !== 'retry_or_repair') return status
 
     return {
       ...status,

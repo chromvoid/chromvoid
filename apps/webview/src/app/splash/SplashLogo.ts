@@ -2,20 +2,16 @@ import {isStartupContentReady, STARTUP_CONTENT_READY_EVENT} from '../bootstrap/s
 import {markStartupSplashActive, markStartupSplashReleased} from '../bootstrap/startup-splash'
 import {markStartupTimeline} from '../bootstrap/startup-timeline'
 
-const DEFAULT_MIN_VISIBLE_MS = 1_600
 const DEFAULT_CONTENT_READY_TIMEOUT_MS = 10_000
-const DEFAULT_EXIT_DURATION_MS = 220
+const DEFAULT_EXIT_DURATION_MS = 250
 const REDUCED_MOTION_EXIT_DURATION_MS = 120
 const NATIVE_HANDOFF_PAINT_FRAMES = 6
-const IMAGE_READY_TIMEOUT_MS = 700
 
 export interface SplashLogoOptions {
   contentReadyTimeoutMs?: number
   exitDurationMs?: number
-  minVisibleMs?: number
   reducedMotion?: boolean
   root?: HTMLElement | null
-  startedAt?: number
 }
 
 export interface SplashLogoController {
@@ -45,29 +41,22 @@ const noopController: SplashLogoController = {
 class BrowserSplashLogoController implements SplashLogoController {
   private readonly contentReadyTimeoutMs: number
   private readonly exitDurationMs: number
-  private readonly minVisibleMs: number
   private readonly nativeSplash: boolean
   private readonly reducedMotion: boolean
   private readonly root: HTMLElement
-  private readonly startedAt: number
   private destroyed = false
   private contentReadyTimerId = 0
   private exitTimerId = 0
-  private releaseTimerId = 0
   private released = false
-  private minVisibleElapsed = false
   private nativeReadyNotified = false
   private nativeReleaseNotified = false
-  private startupContentReady = false
   private startupContentReadyHandler?: () => void
 
   constructor(root: HTMLElement, options: SplashLogoOptions) {
     this.root = root
     this.contentReadyTimeoutMs = options.contentReadyTimeoutMs ?? DEFAULT_CONTENT_READY_TIMEOUT_MS
-    this.minVisibleMs = options.minVisibleMs ?? DEFAULT_MIN_VISIBLE_MS
     this.nativeSplash = hasNativeSplashBridge()
     this.reducedMotion = options.reducedMotion ?? prefersReducedMotion()
-    this.startedAt = options.startedAt ?? 0
     this.exitDurationMs = this.nativeSplash
       ? 0
       : this.reducedMotion
@@ -80,19 +69,17 @@ class BrowserSplashLogoController implements SplashLogoController {
     markStartupSplashActive(this.nativeSplash ? 'native-bridge' : 'web')
     markStartupTimeline('web.splash.controller-created', {
       contentReadyTimeoutMs: this.contentReadyTimeoutMs,
-      minVisibleMs: this.minVisibleMs,
       mode: this.nativeSplash ? 'native' : 'web',
       reducedMotion: this.reducedMotion,
     })
     this.scheduleNativeReadySignal()
     this.scheduleStartupContentReady()
-    this.scheduleRelease()
   }
 
   release(): void {
     if (this.destroyed || this.released) return
     this.released = true
-    window.clearTimeout(this.releaseTimerId)
+    this.teardownStartupContentReady()
     this.root.dataset['splashState'] = 'exiting'
     markStartupTimeline('web.splash.release-start', {
       exitDurationMs: this.exitDurationMs,
@@ -111,49 +98,29 @@ class BrowserSplashLogoController implements SplashLogoController {
     if (this.destroyed) return
     this.destroyed = true
     this.teardownStartupContentReady()
-    window.clearTimeout(this.releaseTimerId)
     window.clearTimeout(this.exitTimerId)
-  }
-
-  private scheduleRelease(): void {
-    const elapsed = Math.max(0, performance.now() - this.startedAt)
-    const delay = Math.max(0, this.minVisibleMs - elapsed)
-    markStartupTimeline('web.splash.min-visible-scheduled', {
-      delayMs: Math.round(delay),
-      elapsedMs: Math.round(elapsed),
-    })
-    this.releaseTimerId = window.setTimeout(() => {
-      this.minVisibleElapsed = true
-      markStartupTimeline('web.splash.min-visible-elapsed')
-      this.releaseWhenReady()
-    }, delay)
   }
 
   private scheduleStartupContentReady(): void {
     if (isStartupContentReady()) {
-      this.startupContentReady = true
       markStartupTimeline('web.splash.content-ready-already-marked')
+      this.release()
       return
     }
 
     const markReady = (source: 'event' | 'timeout') => {
       if (this.destroyed || this.released) return
-      this.startupContentReady = true
       markStartupTimeline('web.splash.content-ready-observed', {source})
-      this.teardownStartupContentReady()
-      this.releaseWhenReady()
+      this.release()
     }
 
     this.startupContentReadyHandler = () => markReady('event')
     document.addEventListener(STARTUP_CONTENT_READY_EVENT, this.startupContentReadyHandler, {once: true})
 
-    const elapsed = Math.max(0, performance.now() - this.startedAt)
-    const delay = Math.max(0, this.contentReadyTimeoutMs - elapsed)
-    markStartupTimeline('web.splash.content-ready-waiting', {
-      delayMs: Math.round(delay),
-      elapsedMs: Math.round(elapsed),
-    })
-    this.contentReadyTimerId = window.setTimeout(() => markReady('timeout'), delay)
+    // The safety release guards against readiness that never arrives. Count it from here, not from
+    // navigation start, so a slow load cannot spend it before the first screen is able to render.
+    markStartupTimeline('web.splash.content-ready-waiting', {delayMs: this.contentReadyTimeoutMs})
+    this.contentReadyTimerId = window.setTimeout(() => markReady('timeout'), this.contentReadyTimeoutMs)
   }
 
   private teardownStartupContentReady(): void {
@@ -164,25 +131,10 @@ class BrowserSplashLogoController implements SplashLogoController {
     }
   }
 
-  private releaseWhenReady(): void {
-    if (!this.minVisibleElapsed || !this.startupContentReady) {
-      markStartupTimeline('web.splash.release-waiting', {
-        minVisibleElapsed: this.minVisibleElapsed,
-        startupContentReady: this.startupContentReady,
-      })
-      return
-    }
-
-    markStartupTimeline('web.splash.release-conditions-met')
-    this.release()
-  }
-
   private scheduleNativeReadySignal(): void {
-    const visualReady = this.nativeSplash ? Promise.resolve() : waitForLogoImage(this.root)
     markStartupTimeline('web.splash.visual-ready-wait-start', {nativeSplash: this.nativeSplash})
 
-    void visualReady
-      .then(waitForTwoAnimationFrames)
+    void waitForAnimationFrames(2)
       .then(() => this.notifyNativeReady())
       .catch(() => this.notifyNativeReady())
   }
@@ -238,30 +190,6 @@ function hasNativeSplashBridge(): boolean {
   return typeof window.ChromVoidSplash?.domReady === 'function'
 }
 
-function waitForLogoImage(root: HTMLElement): Promise<void> {
-  const image = root.querySelector<HTMLImageElement>('[data-splash-logo-image]')
-  if (!image || (image.complete && image.naturalWidth > 0)) {
-    return Promise.resolve()
-  }
-
-  const imageReady =
-    typeof image.decode === 'function'
-      ? image.decode().then(
-          () => undefined,
-          () => undefined,
-        )
-      : new Promise<void>((resolve) => {
-          image.addEventListener('load', () => resolve(), {once: true})
-          image.addEventListener('error', () => resolve(), {once: true})
-        })
-
-  return Promise.race([imageReady, delay(IMAGE_READY_TIMEOUT_MS)])
-}
-
-function waitForTwoAnimationFrames(): Promise<void> {
-  return waitForAnimationFrames(2)
-}
-
 function waitForAnimationFrames(count: number): Promise<void> {
   if (count <= 0) {
     return Promise.resolve()
@@ -288,12 +216,6 @@ function requestAnimationFrameFallback(callback: FrameRequestCallback): void {
   }
 
   window.setTimeout(() => callback(performance.now()), 16)
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
 }
 
 async function notifyTauriSplashReady(): Promise<void> {

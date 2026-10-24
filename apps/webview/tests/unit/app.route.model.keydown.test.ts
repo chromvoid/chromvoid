@@ -9,7 +9,7 @@ import {ChromVoidAppModel} from '../../src/routes/app.route.model'
 import {atom} from '@reatom/core'
 import {clearAppContext, createMockAppContext, getAppContext, initAppContext} from '../../src/shared/services/app-context'
 
-type RouteName = 'dashboard' | 'welcome' | 'no-connection' | 'no-license'
+type RouteName = 'dashboard' | 'welcome' | 'no-connection'
 
 function setupContext() {
   navigationModel.disconnect()

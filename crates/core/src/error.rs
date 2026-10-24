@@ -32,6 +32,9 @@ pub enum Error {
     #[error("Storage pepper required")]
     StoragePepperRequired,
 
+    #[error("Storage adoption must finish before this action")]
+    StorageAdoptionRequired,
+
     #[error("Storage pepper invalid: {0}")]
     StoragePepperInvalid(String),
 
@@ -174,6 +177,12 @@ pub enum ErrorCode {
     SyncStaleState,
     SyncCompacting,
 
+    // Credential file import (distinct from vault authentication)
+    CredentialImportPasswordRequired,
+    CredentialImportPasswordInvalid,
+    CredentialImportTooLarge,
+    CredentialImportBusy,
+
     // Admin
     InvalidMasterKey,
     InvalidMasterPassword,
@@ -285,6 +294,10 @@ impl ErrorCode {
             Self::SyncConflict => "SYNC_CONFLICT",
             Self::SyncStaleState => "SYNC_STALE_STATE",
             Self::SyncCompacting => "SYNC_COMPACTING",
+            Self::CredentialImportPasswordRequired => "CREDENTIAL_IMPORT_PASSWORD_REQUIRED",
+            Self::CredentialImportPasswordInvalid => "CREDENTIAL_IMPORT_PASSWORD_INVALID",
+            Self::CredentialImportTooLarge => "CREDENTIAL_IMPORT_TOO_LARGE",
+            Self::CredentialImportBusy => "CREDENTIAL_IMPORT_BUSY",
             Self::InvalidMasterKey => "INVALID_MASTER_KEY",
             Self::InvalidMasterPassword => "INVALID_MASTER_PASSWORD",
             Self::ConfirmRequired => "CONFIRM_REQUIRED",

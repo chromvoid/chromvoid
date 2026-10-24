@@ -25,7 +25,9 @@ pub(super) async fn connect_paired_ios_peer(
         "mode_switch: iOS remote connect start peer_id={} relay_url={}",
         peer.peer_id, peer.relay_url
     );
-    let resolution = resolve_ios_presence(app, &peer.relay_url, &peer.peer_id).await?;
+    // An Android phone registers no push to be woken with; its host is on or it is not.
+    let wake = peer.platform != "android";
+    let resolution = resolve_ios_presence(app, &peer.relay_url, &peer.peer_id, wake).await?;
     let presence = resolution.presence;
     info!(
         "mode_switch: iOS presence resolved peer_id={} source={} wake_attempted={} room_id={} status={} expires_at_ms={}",
@@ -81,6 +83,7 @@ async fn resolve_ios_presence(
     app: &tauri::AppHandle,
     relay_url: &str,
     peer_id: &str,
+    wake: bool,
 ) -> Result<IosPresenceResolution, String> {
     let mut last_error: Option<String> = None;
 
@@ -111,23 +114,25 @@ async fn resolve_ios_presence(
         );
     }
 
-    let _ = app.emit(
-        "connection:status",
-        serde_json::json!({ "phase": "waking_ios_host", "peer_id": peer_id }),
-    );
-    match crate::network::send_wake(relay_url, peer_id).await {
-        Ok(response) => {
-            info!(
-                "mode_switch: iOS wake sent peer_id={} accepted={} status={}",
-                peer_id, response.accepted, response.status
-            );
-        }
-        Err(error) => {
-            warn!(
-                "mode_switch: iOS wake failed peer_id={} error={}",
-                peer_id, error
-            );
-            last_error = Some(error);
+    if wake {
+        let _ = app.emit(
+            "connection:status",
+            serde_json::json!({ "phase": "waking_ios_host", "peer_id": peer_id }),
+        );
+        match crate::network::send_wake(relay_url, peer_id).await {
+            Ok(response) => {
+                info!(
+                    "mode_switch: iOS wake sent peer_id={} accepted={} status={}",
+                    peer_id, response.accepted, response.status
+                );
+            }
+            Err(error) => {
+                warn!(
+                    "mode_switch: iOS wake failed peer_id={} error={}",
+                    peer_id, error
+                );
+                last_error = Some(error);
+            }
         }
     }
 
@@ -140,8 +145,8 @@ async fn resolve_ios_presence(
                 );
                 return Ok(IosPresenceResolution {
                     presence,
-                    source: "wake_presence",
-                    wake_attempted: true,
+                    source: if wake { "wake_presence" } else { "presence" },
+                    wake_attempted: wake,
                 });
             }
             Ok(presence) => {

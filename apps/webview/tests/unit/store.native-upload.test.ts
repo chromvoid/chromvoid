@@ -77,7 +77,7 @@ describe('Store native upload', () => {
 
   it('creates all selected file tasks from native events and keeps overall progress batch-scoped', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_file_upload: true,
     })
@@ -140,7 +140,7 @@ describe('Store native upload', () => {
 
   it('ignores unknown-size in-flight bytes in aggregate progress until completion supplies a total', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_file_upload: true,
     })
@@ -212,7 +212,7 @@ describe('Store native upload', () => {
 
   it('warns once when an image native upload completes with at-risk import provenance', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_file_upload: true,
     })
@@ -253,7 +253,7 @@ describe('Store native upload', () => {
 
   it('starts shared files import through the root parent path', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_file_upload: true,
       supports_share_import: true,
@@ -308,7 +308,7 @@ describe('Store native upload', () => {
 
   it('returns a partial decision when shared import fails after completed files', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_file_upload: true,
       supports_share_import: true,
@@ -362,7 +362,7 @@ describe('Store native upload', () => {
 
   it('fails shared import before completion by marking selected tasks failed', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_file_upload: true,
       supports_share_import: true,
@@ -399,7 +399,7 @@ describe('Store native upload', () => {
 
   it('keeps selected picker upload failures in the transfer panel without an error toast', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_file_upload: true,
       supports_share_import: true,

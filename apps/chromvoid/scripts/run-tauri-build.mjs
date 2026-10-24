@@ -4,7 +4,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
-import {resolveLicensePublicKeyEnv} from './license-public-key-env.mjs'
 import {findDeveloperIdApplicationIdentity} from './macos-signing.mjs'
 import {loadWalletEnvFromRoot} from './wallet-env.mjs'
 
@@ -308,13 +307,7 @@ const tauriArgs = [
 const child = spawn(tauriBinary, tauriArgs, {
   cwd: appRoot,
   env: {
-    ...resolveLicensePublicKeyEnv({
-      appRoot,
-      env: process.env,
-      onFileResolved: (filePath) => {
-        console.log(`[tauri-build-runner] using license public key from ${filePath}`)
-      },
-    }),
+    ...process.env,
     ...(process.platform === 'darwin'
       ? {
           MACOSX_DEPLOYMENT_TARGET: macosMinimumVersion,

@@ -1,7 +1,0 @@
-/src/main/java/com/chromvoid/app/generated
-/src/main/jniLibs/**/*.so
-/src/main/assets/
-/tauri.build.gradle.kts
-/tauri.build.gradle
-/proguard-tauri.pro
-/tauri.properties

@@ -104,7 +104,6 @@ const MOBILE_KEYBOARD_ROOT_ATTRIBUTES = [
   'style',
   'data-mobile-keyboard-expanded',
   'data-native-keyboard-insets',
-  'data-android-native-keyboard-insets',
   'data-ios-native-keyboard-insets',
   'data-mobile-keyboard-native-resize',
 ] as const

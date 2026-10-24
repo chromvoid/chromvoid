@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The wallet reads balances and sends transfers through its networks' providers;
+         the host reaches trusted computers through its relay. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- While the host serves a computer, a connected-device foreground service keeps the
+         process running and its notification shows it. Android 14 asks a connected-device
+         service for one network, Bluetooth or USB permission: network state is the one used. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- A desktop reaches the vault over a USB cable with the phone as its accessory. -->
+    <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
+
+    <!-- Only for scanning a one-time code's QR code; typing the key needs no camera. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:name=".AirApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.ChromVoidAir">
+
+        <!-- Both windows are drawn edge to edge and resize for the keyboard, which the screens pad
+             themselves: panning would move the whole screen up and leave a gap above the keys. -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.ChromVoidAir">
+            <!-- Files shared from another app, held in memory until the person saves them. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <!-- A KeePass database opened with ChromVoid: saved to Files, or imported into Passwords. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/x-keepass2" />
+            </intent-filter>
+            <!-- A ChromVoid desktop turned the phone into its USB accessory; the filter names it. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_HANDSHAKE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+                android:resource="@xml/usb_accessory_filter" />
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_HANDSHAKE"
+                android:resource="@xml/usb_accessory_filter" />
+        </activity>
+
+        <!-- Keep the previous client's launcher component so pinned icons survive an update. -->
+        <activity-alias
+            android:name="com.chromvoid.app.MainActivity"
+            android:exported="true"
+            android:targetActivity="com.chromvoid.air.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- The USB accessory's permission answer, its detach, and a desktop's question answered
+             from a notification. The debug handshake reaches only a debug build. -->
+        <receiver
+            android:name="com.chromvoid.app.MobileUsbAccessoryReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.chromvoid.app.action.USB_ACCESSORY_PERMISSION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="com.chromvoid.app.MobileUsbApprovalActionReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.chromvoid.app.MobileUsbAccessorySystemReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.chromvoid.app.action.USB_ACCESSORY_DEBUG_HANDSHAKE" />
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED" />
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_HANDSHAKE" />
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_DETACHED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Autofill for other apps' login pages: it offers the vault's matching logins and
+             reads a password only when one is chosen. The person selects it in the system's
+             autofill settings; only the system may bind it. -->
+        <service
+            android:name="com.chromvoid.app.ChromVoidAutofillService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+
+        <!-- Reads the chosen login's password for the fill; nothing but the service starts it. -->
+        <activity
+            android:name="com.chromvoid.app.ChromVoidAutofillAuthActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Locks the vault from Quick Settings; it shows only whether the vault is open. -->
+        <service
+            android:name="com.chromvoid.app.VaultQuickSettingsTileService"
+            android:exported="true"
+            android:icon="@android:drawable/ic_lock_lock"
+            android:label="@string/vault_quick_lock_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+
+        <!-- The status notification's Lock; only this app's own pending intent reaches it. -->
+        <receiver
+            android:name="com.chromvoid.app.VaultQuickLockReceiver"
+            android:exported="false" />
+
+        <!-- The unlock another app's request asks for while the vault is locked - a fill, a
+             sign-in, a passkey to create; it answers that request once the vault is open. -->
+        <activity
+            android:name=".ProviderUnlockActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.ChromVoidAir"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Credential Manager (Android 14+): passkeys and passwords for other apps. The
+             person enables it in the system's password settings; only the system may bind it. -->
+        <service
+            android:name="com.chromvoid.app.ChromVoidCredentialProviderService"
+            tools:targetApi="34"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/credential_provider" />
+        </service>
+
+        <!-- The provider's own steps: nothing but the system's pending intents starts them. -->
+        <activity
+            android:name="com.chromvoid.app.ChromVoidPasswordGetActivity"
+            android:exported="false"
+            tools:targetApi="34"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name="com.chromvoid.app.ChromVoidPasskeyGetActivity"
+            android:exported="false"
+            tools:targetApi="34"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name="com.chromvoid.app.ChromVoidPasskeyCreateActivity"
+            android:exported="false"
+            tools:targetApi="34"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Runs only while the host is on; its action stops the host. Never exported. -->
+        <service
+            android:name="com.chromvoid.app.ConnectionForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- Copies of vault files offered to another app by a one-time grant; never exported. -->
+        <provider
+            android:name=".session.FileShareProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <activity
+            android:name="com.chromvoid.app.OtpQrScannerActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.ChromVoidAir.Scanner" />
+        <!-- Take Photo for Files: turning the phone keeps the photo just taken. -->
+        <activity
+            android:name=".PhotoCaptureActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.ChromVoidAir.Scanner" />
+    </application>
+</manifest>

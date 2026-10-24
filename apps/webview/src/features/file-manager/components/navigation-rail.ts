@@ -262,10 +262,7 @@ export class NavigationRail extends ReatomLitElement {
 
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item .label,
       :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .theme-toggle .label,
-      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item .hint,
-      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions))
-        .item
-        cv-icon[slot='suffix'] {
+      :host(:not([expanded]):not(.mobile-nav-rail):not(.mobile-nav-actions)) .item .hint {
         flex: 0 0 0;
         inline-size: 0;
         min-inline-size: 0;
@@ -507,10 +504,8 @@ export class NavigationRail extends ReatomLitElement {
     const isSshKeys = navigationRailModel.isSshKeysActive()
     const isPasskeys = navigationRailModel.isPasskeysActive()
     const isWallet = navigationRailModel.isWalletActive()
-    const supportsSshKeys = navigationRailModel.supportsSshKeys()
     const supportsPasskeys = navigationRailModel.supportsPasskeys()
     const supportsWallet = navigationRailModel.supportsWallet()
-    const walletAccess = navigationRailModel.walletAccess()
 
     return html`
       <nav class="nav main-nav" aria-label=${i18n('navigation:main')}>
@@ -550,7 +545,7 @@ export class NavigationRail extends ReatomLitElement {
           <cv-icon slot="prefix" name="shield-check"></cv-icon>
           <span class="label">${i18n('navigation:otp-codes' as any)}</span>
         </cv-button>
-        ${isMobileLayout && supportsSshKeys
+        ${isMobileLayout
           ? html`
               <cv-button
                 unstyled
@@ -586,9 +581,6 @@ export class NavigationRail extends ReatomLitElement {
               >
                 <cv-icon slot="prefix" name="wallet"></cv-icon>
                 <span class="label">${i18n('navigation:wallet')}</span>
-                ${navigationRailModel.isLocked(walletAccess)
-                  ? html`<cv-icon slot="suffix" name="lock"></cv-icon>`
-                  : ''}
               </cv-button>
             `
           : nothing}
@@ -600,9 +592,6 @@ export class NavigationRail extends ReatomLitElement {
     const supportsStorage = navigationRailModel.supportsStorage()
     const supportsRemote = navigationRailModel.supportsRemote()
     const supportsExtensions = navigationRailModel.supportsExtensions()
-    const storageAccess = navigationRailModel.storageAccess()
-    const remoteAccess = navigationRailModel.remoteAccess()
-    const extensionsAccess = navigationRailModel.extensionsAccess()
     const isStorage = navigationRailModel.isStorageActive()
     const isRemote = navigationRailModel.isRemoteActive()
     const isExtensions = navigationRailModel.isExtensionsActive()
@@ -635,9 +624,6 @@ export class NavigationRail extends ReatomLitElement {
               <cv-button unstyled class="item ${isStorage ? 'active' : ''}" @click=${this.handleStorageClick}>
                 <cv-icon slot="prefix" name="hard-drive"></cv-icon>
                 <span class="label">${i18n('navigation:storage')}</span>
-                ${navigationRailModel.isLocked(storageAccess)
-                  ? html`<cv-icon slot="suffix" name="lock"></cv-icon>`
-                  : ''}
               </cv-button>
             `
           : ''}
@@ -646,9 +632,6 @@ export class NavigationRail extends ReatomLitElement {
               <cv-button unstyled class="item ${isRemote ? 'active' : ''}" @click=${this.handleRemoteClick}>
                 <cv-icon slot="prefix" name="wifi"></cv-icon>
                 <span class="label">${i18n('navigation:remote')}</span>
-                ${navigationRailModel.isLocked(remoteAccess)
-                  ? html`<cv-icon slot="suffix" name="lock"></cv-icon>`
-                  : ''}
               </cv-button>
             `
           : ''}
@@ -661,9 +644,6 @@ export class NavigationRail extends ReatomLitElement {
               >
                 <cv-icon slot="prefix" name="puzzle"></cv-icon>
                 <span class="label">${i18n('navigation:extensions')}</span>
-                ${navigationRailModel.isLocked(extensionsAccess)
-                  ? html`<cv-icon slot="suffix" name="lock"></cv-icon>`
-                  : ''}
               </cv-button>
             `
           : ''}

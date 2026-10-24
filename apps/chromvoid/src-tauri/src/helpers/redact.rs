@@ -4,10 +4,13 @@ pub(crate) fn redact_rpc_data(command: &str, data: &Value) -> Value {
     // Env Runtime payloads can contain secret material, raw references, env
     // names, paths, arguments, and untrusted reasons. Redact the entire domain
     // so newly added fields cannot silently become loggable.
-    if command.starts_with("env_runtime:") {
+    if command.starts_with("env_runtime:") || command.starts_with("passmanager:import:") {
         return Value::String("<redacted>".to_string());
     }
-    if command == "passmanager:entry:create" {
+    if matches!(
+        command,
+        "passmanager:entry:create" | "passmanager:ssh:key:import" | "passmanager:ssh:key:export"
+    ) {
         return Value::String("<redacted>".to_string());
     }
 

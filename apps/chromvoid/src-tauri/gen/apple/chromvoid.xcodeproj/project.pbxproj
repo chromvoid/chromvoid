@@ -231,7 +231,7 @@
 		4E64604F7A61B2EB123702F9 /* keyboard.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = keyboard.rs; sourceTree = "<group>"; };
 		4F1827D61E247DAB75C07ACC /* tests.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = tests.rs; sourceTree = "<group>"; };
 		4FE41C77DF7E636BD31DBFD3 /* media_inspect.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = media_inspect.rs; sourceTree = "<group>"; };
-		4FFED7224EE23F690D09A1AE /* pro.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = pro.rs; sourceTree = "<group>"; };
+		4FFED7224EE23F690D09A1AE /* module_access.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = module_access.rs; sourceTree = "<group>"; };
 		50028129A59ECD878CD9AF9C /* swap.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = swap.rs; sourceTree = "<group>"; };
 		503F7FEDFA330902FC2CB37A /* normalize.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = normalize.rs; sourceTree = "<group>"; };
 		50BC46499A41BBBAAF3455D8 /* ios_pairing.rs */ = {isa = PBXFileReference; lastKnownFileType = text; path = ios_pairing.rs; sourceTree = "<group>"; };
@@ -1256,7 +1256,7 @@
 				5DE4BC8A9798C41B259EFA30 /* ios_keep_awake.rs */,
 				4E24BD0DFF79395ECAB2CE98 /* lib.rs */,
 				0404AC5E10B4F8DB50BD9EF5 /* main.rs */,
-				4FFED7224EE23F690D09A1AE /* pro.rs */,
+				4FFED7224EE23F690D09A1AE /* module_access.rs */,
 				0BE64E5A7EE4B27821E3DAB4 /* session_settings_tests.rs */,
 				C07F4AAD50A402A5CA365C11 /* session_settings.rs */,
 				E1D5A486FD0ADEE66E274848 /* setup.rs */,
@@ -1622,7 +1622,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"${CHROMVOID_XCODE_SKIP_RUST_BUILD:-0}\" = \"1\" ]; then\n  echo \"Skipping Rust build because CHROMVOID_XCODE_SKIP_RUST_BUILD=1\"\n  exit 0\nfi\nexport APPLE_DEVELOPMENT_TEAM='LHWC37D5KT'\nexport CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01='BnIHXDgX8A4iqZVbLmXD1cdlSEHN_-sU7CRWfi8PtvY'\nbun run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+			shellScript = "if [ \"${CHROMVOID_XCODE_SKIP_RUST_BUILD:-0}\" = \"1\" ]; then\n  echo \"Skipping Rust build because CHROMVOID_XCODE_SKIP_RUST_BUILD=1\"\n  exit 0\nfi\nexport APPLE_DEVELOPMENT_TEAM='LHWC37D5KT'\nbun run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
 		};
 /* End PBXShellScriptBuildPhase section */
 

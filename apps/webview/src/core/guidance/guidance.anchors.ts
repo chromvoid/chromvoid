@@ -19,12 +19,8 @@ export const knownGuidanceAnchors: readonly KnownGuidanceAnchor[] = [
   {id: 'passkeys.manage', surface: 'passkeys', owner: 'passkeys'},
   {id: 'remote.pair-device', surface: 'remote', owner: 'remote'},
   {id: 'gateway.start-pairing', surface: 'gateway', owner: 'gateway'},
-  {id: 'pro.access-state', surface: 'remote', owner: 'module-access'},
-  {id: 'pro.access-state', surface: 'gateway', owner: 'module-access'},
-  {id: 'pro.access-state', surface: 'remote-storage', owner: 'module-access'},
   {id: 'remote-storage.mount', surface: 'remote-storage', owner: 'remote-storage'},
   {id: 'settings.ssh-agent', surface: 'settings', owner: 'settings'},
-  {id: 'settings.mobile-autofill', surface: 'settings', owner: 'settings'},
 ]
 
 export function getGuidanceAnchorKey(surface: GuidanceSurfaceId, anchorId: string): string {

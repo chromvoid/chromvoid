@@ -262,7 +262,7 @@ describe('dialogService', () => {
   it('stabilizes mobile password input dialog without autofocus', async () => {
     setupLayout('mobile')
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
     })
     const resultPromise = dialogService.showInputDialog({
@@ -291,8 +291,6 @@ describe('dialogService', () => {
     expect(syncPasswordInputDialogKeyboardOffset(336)).toBe(336)
     expect(syncPasswordInputDialogKeyboardOffset(103)).toBe(336)
     expect(syncPasswordInputDialogKeyboardOffset(0)).toBe(0)
-    expect(syncPasswordInputDialogKeyboardOffset(240, {phase: 'progress', source: 'android-native'})).toBe(240)
-    expect(syncPasswordInputDialogKeyboardOffset(120, {phase: 'progress', source: 'android-native'})).toBe(120)
 
     const focusSpy = vi.fn()
     input!.focus = focusSpy
@@ -395,38 +393,6 @@ describe('dialogService', () => {
     inputSurface?.dispatchEvent(new Event('cv-after-hide', {bubbles: true, composed: true}))
     await expect(resultPromise).resolves.toBeNull()
     expect(document.documentElement.hasAttribute(PASSWORD_INPUT_DIALOG_KEYBOARD_STABILIZATION_ATTR)).toBe(false)
-  })
-
-  it('uses native android IME insets instead of provisional password offset', async () => {
-    setupLayout('mobile')
-    setRuntimeCapabilities({
-      platform: 'android',
-      mobile: true,
-    })
-    const resultPromise = dialogService.showInputDialog({
-      title: 'Unlock vault',
-      label: 'Vault password',
-      type: 'password',
-      required: true,
-    })
-
-    await waitFor(() => document.querySelector('cv-input-dialog') !== null, 'mobile password dialog to mount')
-    const inputDialog = document.querySelector('cv-input-dialog') as HTMLElement & {
-      shadowRoot: ShadowRoot | null
-      close: (value?: string | null) => void
-    }
-
-    await waitFor(() => Boolean(inputDialog.shadowRoot?.querySelector('cv-bottom-sheet')), 'mobile password input sheet')
-
-    expect(document.documentElement.hasAttribute(PASSWORD_INPUT_DIALOG_KEYBOARD_STABILIZATION_ATTR)).toBe(true)
-
-    expect(syncPasswordInputDialogKeyboardOffset(96, {phase: 'progress', source: 'android-native'})).toBe(96)
-    expect(syncPasswordInputDialogKeyboardOffset(48, {phase: 'progress', source: 'android-native'})).toBe(48)
-
-    const inputSheet = inputDialog.shadowRoot?.querySelector('cv-bottom-sheet') as TestSurface | null
-    inputDialog.close(null)
-    inputSheet?.dispatchEvent(new Event('cv-after-hide', {bubbles: true, composed: true}))
-    await expect(resultPromise).resolves.toBeNull()
   })
 
   it('preserves confirmed input result when the shell emits a close change before hide', async () => {

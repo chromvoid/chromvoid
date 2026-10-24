@@ -76,6 +76,12 @@ impl StorageTempArtifact {
     pub(crate) fn open(&self) -> Result<File> {
         File::open(self.path()).map_err(Error::StorageIo)
     }
+
+    /// Transfers ownership to an open, unnamed file, outside namespace cleanup.
+    pub(crate) fn into_reader(self) -> Result<File> {
+        let file = self.open()?;
+        Ok(tempfile::NamedTempFile::from_parts(file, self.path).into_file())
+    }
 }
 
 impl FlatStorageBackend {

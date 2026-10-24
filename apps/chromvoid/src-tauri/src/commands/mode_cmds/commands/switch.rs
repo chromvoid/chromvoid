@@ -11,6 +11,7 @@ use crate::core_adapter::{
     RemoteRpcPriority,
 };
 use crate::core_rpc_dispatcher::{command_policy, CoreRpcDispatcher, CoreRpcPriority};
+use crate::mobile_usb::MobileUsbController;
 use crate::mode_transition_coordinator::ModeTransitionOperation;
 use crate::remote_io_runtime::RemoteIoStopReason;
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
@@ -226,9 +227,10 @@ fn mode_switch_peer_store_blocking_err(
     error
 }
 
-async fn prepare_mode_switch(
+pub(crate) async fn prepare_mode_switch(
     dispatcher: CoreRpcDispatcher,
     adapter_handle: Arc<std::sync::Mutex<Box<dyn CoreAdapter>>>,
+    mobile_usb_runtime: &MobileUsbController,
     target: String,
 ) -> Result<(CoreMode, bool, bool), String> {
     let command_start = dispatcher.begin_command(command_policy("vault:lock"));
@@ -256,9 +258,14 @@ async fn prepare_mode_switch(
                 }
 
                 let was_unlocked = adapter.is_unlocked();
-                if adapter.mobile_usb_session_requires_approval() {
+                if matches!(
+                    &previous_mode,
+                    CoreMode::Remote {
+                        host: RemoteHost::MobileUsb { .. }
+                    }
+                ) {
                     info!(
-                        "mode_switch: skipping remote vault lock before pre-approval mobile USB teardown"
+                        "mode_switch: disconnecting mobile USB session without locking host vault"
                     );
                     return Ok((previous_mode, was_unlocked, false));
                 }
@@ -307,11 +314,23 @@ async fn prepare_mode_switch(
         .await
         .map_err(|error| format!("Mode switch preconditions failed: {error}"))?;
 
-    phase.value
+    let result = phase.value?;
+    if matches!(
+        &result.0,
+        CoreMode::Remote {
+            host: RemoteHost::MobileUsb { .. }
+        }
+    ) {
+        mobile_usb_runtime
+            .disconnect_user()
+            .await
+            .map_err(|error| format!("Mobile USB disconnect before mode switch failed: {error}"))?;
+    }
+    Ok(result)
 }
 
 /// Switches between Local and Remote mode with full state machine:
-/// 1. Auto-lock vault if unlocked
+/// 1. Disconnect mobile USB sessions or auto-lock other unlocked vaults
 /// 2. Transition to Switching state
 /// 3. Drain in-flight RPCs (5s timeout, then fail-fast)
 /// 4. Swap CoreAdapter
@@ -338,14 +357,23 @@ pub(crate) async fn mode_switch(
         .mode_transition_coordinator
         .try_begin(ModeTransitionOperation::ModeSwitch)?;
 
-    // Step 1: capture the current adapter and auto-lock on the dedicated Core RPC worker.
+    // Step 1: disconnect mobile USB sessions or auto-lock on the dedicated Core RPC worker.
     // Remote adapters use blocking channel operations and must not run on Tokio's async thread.
     let (previous_mode, _was_unlocked, auto_locked) = prepare_mode_switch(
         state.core_rpc_dispatcher.clone(),
         state.adapter.clone(),
+        &state.mobile_usb_runtime,
         target_lower.clone(),
     )
     .await?;
+    if matches!(
+        &previous_mode,
+        CoreMode::Remote {
+            host: RemoteHost::MobileUsb { .. }
+        }
+    ) {
+        crate::mobile_usb::emit_mobile_usb_status_changed(&app, &state);
+    }
 
     // Step 2: Store transition metadata and emit switching state
     let now_ms = now_ms();
@@ -382,7 +410,6 @@ pub(crate) async fn mode_switch(
             .lock()
             .map_err(|_| "Storage root mutex poisoned".to_string())?
             .clone();
-        let license_root = state.license_root.clone();
 
         match target_lower.as_str() {
             "local" => {
@@ -391,12 +418,8 @@ pub(crate) async fn mode_switch(
                 let _ = app.emit("sync:status", serde_json::json!({ "phase": "cleared" }));
                 info!("mode_switch: sync state cleared for Local mode");
 
-                let local_adapter = LocalCoreAdapter::new_with_license_store(
-                    storage_root.clone(),
-                    license_root,
-                    crate::pro::current_build_policy(),
-                )
-                .map_err(|e| e.to_string())?;
+                let local_adapter =
+                    LocalCoreAdapter::new(storage_root.clone()).map_err(|e| e.to_string())?;
                 {
                     let mut adapter = state
                         .adapter
@@ -519,25 +542,14 @@ pub(crate) async fn mode_switch(
                         );
                     remote.probe_capabilities();
                     let caps = crate::types::runtime_capabilities_for_current_target();
-                    crate::pro::guard_pro_feature_for_adapter(
+                    crate::module_access::guard_module_for_adapter(
                         &mut remote,
-                        chromvoid_core::license::PRO_FEATURE_REMOTE,
+                        crate::module_access::MODULE_REMOTE,
                         &caps,
                     )
-                    .map_err(|error| match error {
-                        crate::types::RpcResult::Error { error, code, .. } => {
-                            format!(
-                                "{}: {}",
-                                code.unwrap_or_else(|| "PRO_REQUIRED".to_string()),
-                                error
-                            )
-                        }
-                        crate::types::RpcResult::Success { .. } => {
-                            "Pro license required".to_string()
-                        }
-                    })?;
+                    .map_err(crate::module_access::denial_reason)?;
 
-                    // Touch last_seen after entitlement is accepted, before swapping adapter.
+                    // Touch last_seen after module access is confirmed, before swapping adapter.
                     if let Err(error) = touch_remote_mode_peer_best_effort(
                         state.catalog_blocking_io_runtime.clone(),
                         storage_root.clone(),
@@ -833,18 +845,41 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remote_auto_lock_runs_off_async_runtime_without_poisoning_adapter() {
+    async fn network_remote_auto_lock_runs_off_async_runtime_without_poisoning_adapter() {
+        struct UnusedMobileUsbSessionStarter;
+
+        #[async_trait::async_trait]
+        impl crate::mobile_usb::MobileUsbSessionStarter for UnusedMobileUsbSessionStarter {
+            async fn start_session(
+                &self,
+                _request: crate::mobile_usb::MobileUsbStartSessionRequest,
+            ) -> Result<crate::mobile_usb::MobileUsbSessionHandle, crate::mobile_usb::MobileUsbError>
+            {
+                panic!("network mode switch must not start a mobile USB session");
+            }
+
+            async fn disconnect_user(&self) -> Result<(), crate::mobile_usb::MobileUsbError> {
+                panic!("network mode switch must not disconnect a mobile USB session");
+            }
+        }
+
         let dispatcher = CoreRpcDispatcher::try_new().expect("core RPC dispatcher");
+        let root = tempfile::tempdir().expect("pairing store root");
+        let mobile_usb_runtime = MobileUsbController::new(
+            Arc::new(crate::mobile_usb::UnsupportedMobileUsbBridge),
+            Arc::new(crate::mobile_usb::JsonMobileUsbPairingStore::new(
+                root.path(),
+            )),
+            Arc::new(crate::mobile_usb::KeyringMobileUsbSecretStore::default()),
+            Arc::new(UnusedMobileUsbSessionStarter),
+        );
         let (request_tx, mut request_rx) = tokio::sync::mpsc::channel(1);
         let mut remote = RemoteCoreAdapter::from_remote_sender(
-            RemoteHost::MobileUsb {
-                host_id: "usb-host".to_string(),
-                label: Some("Test phone".to_string()),
-                platform: "android".to_string(),
+            RemoteHost::TauriRemoteWss {
+                peer_id: "network-host".to_string(),
             },
             request_tx,
         );
-        remote.mark_mobile_usb_session_approved();
         remote.apply_startup_state(Vec::new(), true);
         let adapter: Arc<std::sync::Mutex<Box<dyn CoreAdapter>>> =
             Arc::new(std::sync::Mutex::new(Box::new(remote)));
@@ -860,16 +895,20 @@ mod tests {
                 .is_ok());
         });
 
-        let (previous_mode, was_unlocked, auto_locked) =
-            prepare_mode_switch(dispatcher.clone(), adapter.clone(), "local".to_string())
-                .await
-                .expect("remote preconditions");
+        let (previous_mode, was_unlocked, auto_locked) = prepare_mode_switch(
+            dispatcher.clone(),
+            adapter.clone(),
+            &mobile_usb_runtime,
+            "local".to_string(),
+        )
+        .await
+        .expect("remote preconditions");
 
         responder.join().expect("remote responder");
         assert!(matches!(
             previous_mode,
             CoreMode::Remote {
-                host: RemoteHost::MobileUsb { .. }
+                host: RemoteHost::TauriRemoteWss { .. }
             }
         ));
         assert!(was_unlocked);
@@ -878,44 +917,6 @@ mod tests {
             .lock()
             .expect("adapter remains healthy")
             .is_unlocked());
-        dispatcher
-            .shutdown_with_timeout(std::time::Duration::from_secs(1))
-            .expect("dispatcher shutdown");
-    }
-
-    #[tokio::test]
-    async fn pre_approval_mobile_usb_switch_skips_remote_vault_lock() {
-        let dispatcher = CoreRpcDispatcher::try_new().expect("core RPC dispatcher");
-        let (request_tx, mut request_rx) = tokio::sync::mpsc::channel(1);
-        let mut remote = RemoteCoreAdapter::from_remote_sender(
-            RemoteHost::MobileUsb {
-                host_id: "usb-host".to_string(),
-                label: Some("Test phone".to_string()),
-                platform: "android".to_string(),
-            },
-            request_tx,
-        );
-        remote.apply_startup_state(Vec::new(), true);
-        let adapter: Arc<std::sync::Mutex<Box<dyn CoreAdapter>>> =
-            Arc::new(std::sync::Mutex::new(Box::new(remote)));
-
-        let (previous_mode, was_unlocked, auto_locked) =
-            prepare_mode_switch(dispatcher.clone(), adapter.clone(), "local".to_string())
-                .await
-                .expect("pre-approval mobile USB preconditions");
-
-        assert!(matches!(
-            previous_mode,
-            CoreMode::Remote {
-                host: RemoteHost::MobileUsb { .. }
-            }
-        ));
-        assert!(was_unlocked);
-        assert!(!auto_locked);
-        assert!(matches!(
-            request_rx.try_recv(),
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
-        ));
         dispatcher
             .shutdown_with_timeout(std::time::Duration::from_secs(1))
             .expect("dispatcher shutdown");

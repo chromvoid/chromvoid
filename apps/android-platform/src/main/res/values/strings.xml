@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings for the shared platform surfaces: notifications, the quick
+     settings tile, the credential provider, autofill and the QR scanner.
+     The application keeps only what its own manifest and screens name. -->
+<resources>
+    <string name="autofill_runtime_not_ready">ChromVoid AutoFill is temporarily unavailable.</string>
+    <string name="autofill_unsupported_request">ChromVoid could not understand this autofill request.</string>
+    <string name="autofill_save_missing_required_data">ChromVoid needs a domain and password before it can save a login.</string>
+    <string name="autofill_choose_otp">Choose one-time code</string>
+    <string name="provider_unlock_title">Unlock ChromVoid</string>
+    <string name="autofill_otp_copied">OTP copied — paste it into the field</string>
+    <string name="biometric_prompt_title">Unlock ChromVoid</string>
+    <string name="biometric_prompt_subtitle">Confirm local access to continue</string>
+    <string name="passkey_get_title">Use ChromVoid passkey</string>
+    <string name="passkey_create_title">Create ChromVoid passkey</string>
+    <string name="passkey_prompt_subtitle">Confirm local access to continue</string>
+    <string name="passkey_create_entry_title">Create passkey with ChromVoid</string>
+    <string name="connection_channel_name">Connection Service</string>
+    <string name="connection_channel_description">Keeps the desktop connection alive in the background</string>
+    <string name="connection_notification_title">Connected to %1$s</string>
+    <string name="connection_notification_text">ChromVoid is sharing data with your desktop</string>
+    <string name="connection_disconnect_action">Disconnect</string>
+    <string name="connection_listening_title">ChromVoid host is on</string>
+    <string name="connection_listening_text">Trusted computers can connect to this device</string>
+    <string name="connection_stop_host_action">Stop host</string>
+    <string name="usb_approval_channel_name">USB approval requests</string>
+    <string name="usb_approval_channel_description">Approval prompts for USB desktop connections</string>
+    <string name="usb_approval_pairing_title">USB pairing request</string>
+    <string name="usb_approval_pairing_text">Open ChromVoid to view the PIN and confirm pairing</string>
+    <string name="usb_approval_session_title">USB connection request</string>
+    <string name="usb_approval_session_text">Allow or deny access for the connected computer</string>
+    <string name="usb_approval_allow_action">Allow</string>
+    <string name="usb_approval_deny_action">Deny</string>
+    <string name="usb_approval_show_pin_action">Show PIN</string>
+    <string name="vault_status_channel_name">Vault Status</string>
+    <string name="vault_status_channel_description">Shows when the vault is unlocked</string>
+    <string name="vault_status_notification_title">Vault unlocked</string>
+    <string name="vault_status_notification_text">ChromVoid vault is open</string>
+    <string name="vault_status_lock_action">Lock</string>
+    <string name="vault_quick_lock_tile_label">ChromVoid Lock</string>
+    <string name="vault_quick_lock_tile_unlocked">Vault unlocked</string>
+    <string name="vault_quick_lock_tile_locked">Vault locked</string>
+    <string name="media_playback_channel_name">Audio Playback</string>
+    <string name="media_playback_channel_description">Audio playback controls</string>
+    <string name="media_playback_notification_text">Playing in ChromVoid</string>
+    <string name="media_playback_play_action">Play</string>
+    <string name="media_playback_pause_action">Pause</string>
+    <string name="media_playback_previous_action">Previous</string>
+    <string name="media_playback_next_action">Next</string>
+    <string name="media_playback_stop_action">Stop</string>
+    <string name="otp_qr_cancel">Cancel</string>
+    <string name="otp_qr_torch">Torch</string>
+    <string name="otp_qr_torch_on">Torch on</string>
+    <string name="otp_qr_choose_image">Choose image</string>
+    <string name="otp_qr_status_scanning">Scanning QR code</string>
+    <string name="otp_qr_status_focusing">Focusing</string>
+    <string name="otp_qr_status_image">Reading image</string>
+</resources>

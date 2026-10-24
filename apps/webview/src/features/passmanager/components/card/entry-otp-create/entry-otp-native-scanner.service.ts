@@ -6,6 +6,10 @@ import {
   runtimeCapabilitiesAtom,
 } from 'root/core/runtime/runtime-capabilities'
 import {tauriInvoke, tauriListen, type UnlistenFn} from 'root/core/transport/tauri/ipc'
+import {
+  notifyNativeOtpQrScannerLifecycleEnd,
+  notifyNativeOtpQrScannerLifecycleStart,
+} from './entry-otp-native-scanner-lifecycle'
 
 export type OtpQrNativeScanStatus =
   | 'success'
@@ -55,6 +59,7 @@ export function canScanOtpQrReactive(): boolean {
 
 export async function scanOtpQr(scanId: string): Promise<string> {
   let unlisten: UnlistenFn | undefined
+  let lifecycleStarted = false
   let resolveEvent: (value: string) => void = () => undefined
   let rejectEvent: (error: unknown) => void = () => undefined
 
@@ -85,6 +90,8 @@ export async function scanOtpQr(scanId: string): Promise<string> {
         ),
       )
     })
+    notifyNativeOtpQrScannerLifecycleStart()
+    lifecycleStarted = true
     const response = await tauriInvoke<RpcResult<null>>('native_otp_qr_scan_start', {scanId})
     unwrapRpcResult(response, 'Native OTP QR scanner is unavailable')
     return await eventResult
@@ -92,6 +99,9 @@ export async function scanOtpQr(scanId: string): Promise<string> {
     throw normalizeStartError(error)
   } finally {
     safeUnlisten(unlisten)
+    if (lifecycleStarted) {
+      notifyNativeOtpQrScannerLifecycleEnd()
+    }
   }
 }
 

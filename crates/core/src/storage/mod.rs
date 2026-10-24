@@ -5,10 +5,12 @@
 //! - Salt file management
 //! - Chunk read/write/delete operations
 
+pub mod atomic_file;
 mod backend;
 mod chunk;
 mod flat;
 mod format;
+pub mod json_file;
 
 pub(crate) use backend::{StorageArtifact, StorageErasePreview, StorageTempNamespace};
 pub use chunk::EncryptedChunk;

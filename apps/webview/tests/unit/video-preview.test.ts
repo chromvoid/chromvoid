@@ -554,7 +554,7 @@ describe('video-preview', () => {
   it('releases native video-source for matching lifecycle context without loadability fallback', async () => {
     vi.useFakeTimers()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_video_playback: true,
     })

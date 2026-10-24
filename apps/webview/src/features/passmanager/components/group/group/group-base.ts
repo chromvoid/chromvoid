@@ -10,7 +10,7 @@ import {ScrollEdgeAffordanceModel} from 'root/shared/ui/scroll-edge-affordance.m
 import type {PMWorkspaceContextItem, PMWorkspaceHeaderDensity} from '../../card/pm-workspace-header'
 import type {PMSummaryRailItem, PMSummaryRailTone} from '../../summary-rail'
 import type {PMEntryListItemViewMode} from '../../card/entry-list-item'
-import {groupBy, type GroupBy} from '../../list/sort-controls'
+import {groupBy, type GroupBy} from '../../list/sort-controls.model'
 import {pmEntryMoveModel, type PMDragPayload} from '../../../models/pm-entry-move-model'
 import {pmListViewportModel} from '../../../models/pm-list-viewport.model'
 import {

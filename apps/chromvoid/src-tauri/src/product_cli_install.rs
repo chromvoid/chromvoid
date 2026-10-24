@@ -427,7 +427,6 @@ mod tests {
     use std::process::{Command, Output};
     use std::sync::{Mutex, OnceLock};
 
-    use chromvoid_core::license::{BuildPolicy, EntitlementSnapshot, LicensePlan};
     use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
     use chromvoid_core::rpc::{RpcInputStream, RpcReply};
     use serde_json::Value;
@@ -477,7 +476,6 @@ mod tests {
     struct CliAccessAdapter {
         mode: CoreMode,
         unlocked: bool,
-        entitlement: EntitlementSnapshot,
     }
 
     impl CoreAdapter for CliAccessAdapter {
@@ -489,14 +487,8 @@ mod tests {
             self.unlocked
         }
 
-        fn handle(&mut self, request: &RpcRequest) -> RpcResponse {
-            if request.command == "license:status" {
-                RpcResponse::success(
-                    serde_json::to_value(&self.entitlement).expect("serialize entitlement"),
-                )
-            } else {
-                RpcResponse::error("unexpected command", Some("TEST"))
-            }
+        fn handle(&mut self, _request: &RpcRequest) -> RpcResponse {
+            RpcResponse::error("unexpected command", Some("TEST"))
         }
 
         fn handle_with_stream(
@@ -516,24 +508,6 @@ mod tests {
         }
 
         fn set_master_key(&mut self, _key: Option<String>) {}
-    }
-
-    fn entitlement(pro: bool) -> EntitlementSnapshot {
-        EntitlementSnapshot {
-            licensed: pro,
-            plan: if pro {
-                LicensePlan::Pro
-            } else {
-                LicensePlan::Free
-            },
-            feature_keys: if pro {
-                vec![chromvoid_core::license::PRO_FEATURE_ENV_RUNTIME.to_string()]
-            } else {
-                Vec::new()
-            },
-            source_core: "local".to_string(),
-            build_policy: BuildPolicy::Enforce,
-        }
     }
 
     fn fixture() -> (tempfile::TempDir, ProductCliPaths) {
@@ -612,8 +586,8 @@ mod tests {
     fn privileged_denials_do_not_mutate_the_isolated_cli_home() {
         let _lock = environment_lock().lock().expect("environment lock");
         let _environment = EnvironmentGuard::set(&[
-            ("CHROMVOID_PRO_ROLLOUT_ENABLED", "1"),
-            ("CHROMVOID_PRO_DISABLED_FEATURES", ""),
+            ("CHROMVOID_MODULE_ROLLOUT_ENABLED", "1"),
+            ("CHROMVOID_DISABLED_MODULES", ""),
             ("CHROMVOID_ENV_RUNTIME_V1_ENABLED", "1"),
         ]);
         let remote = CoreMode::Remote {
@@ -626,30 +600,14 @@ mod tests {
                 "rollout",
                 CoreMode::Local,
                 true,
-                true,
                 false,
                 "FEATURE_DISABLED_BY_ROLLOUT",
             ),
-            (
-                "remote",
-                remote,
-                true,
-                true,
-                true,
-                "REMOTE_CORE_UNSUPPORTED",
-            ),
-            ("pro", CoreMode::Local, true, false, true, "PRO_REQUIRED"),
-            (
-                "locked",
-                CoreMode::Local,
-                false,
-                true,
-                true,
-                "VAULT_REQUIRED",
-            ),
+            ("remote", remote, true, true, "REMOTE_CORE_UNSUPPORTED"),
+            ("locked", CoreMode::Local, false, true, "VAULT_REQUIRED"),
         ];
 
-        for (name, mode, unlocked, pro, rollout_enabled, expected_code) in cases {
+        for (name, mode, unlocked, rollout_enabled, expected_code) in cases {
             // SAFETY: serialized by `environment_lock` and restored by the
             // outer guard after all cases complete.
             unsafe {
@@ -659,11 +617,7 @@ mod tests {
                 )
             };
             let (_root, paths) = fixture();
-            let mut adapter = CliAccessAdapter {
-                mode,
-                unlocked,
-                entitlement: entitlement(pro),
-            };
+            let mut adapter = CliAccessAdapter { mode, unlocked };
 
             let result = crate::commands::env_runtime_cmds::env_runtime_cli_install_for_paths(
                 &mut adapter,

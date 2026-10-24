@@ -8,6 +8,24 @@ use std::collections::BTreeMap;
 pub(super) fn parse_root_import_payload(
     data: &Value,
 ) -> Result<RootImportPayload<'_>, RootImportError> {
+    parse_payload(data, false)
+}
+
+pub(super) fn parse_root_import_preview_payload(
+    data: &Value,
+) -> Result<RootImportPayload<'_>, RootImportError> {
+    parse_payload(data, true)
+}
+
+fn parse_payload(data: &Value, preview: bool) -> Result<RootImportPayload<'_>, RootImportError> {
+    // Versioned credential documents share these fields; unknown versions must not lose data silently.
+    if let Some(version) = data.get("version") {
+        if !matches!(version.as_u64(), Some(1..=4)) {
+            return Err(RootImportError::empty_payload(
+                "Unsupported credential document version",
+            ));
+        }
+    }
     let import_mode = optional_str_any(data, "mode", &[]).unwrap_or("merge");
     if !matches!(import_mode, "merge" | "replace" | "restore") {
         return Err(RootImportError::empty_payload(
@@ -18,7 +36,7 @@ pub(super) fn parse_root_import_payload(
     let allow_destructive =
         optional_bool_any(data, "allow_destructive", &["allowDestructive"]).unwrap_or(false);
     let requires_destructive = matches!(import_mode, "replace" | "restore");
-    if requires_destructive && !allow_destructive {
+    if requires_destructive && !allow_destructive && !preview {
         return Err(RootImportError::access_denied(
             "destructive root import requires allow_destructive=true",
         ));
@@ -39,6 +57,13 @@ pub(super) fn parse_root_import_payload(
         None => &[],
     };
 
+    let icons = match data.get("icons") {
+        Some(value) => value
+            .as_array()
+            .map(Vec::as_slice)
+            .ok_or_else(|| RootImportError::empty_payload("icons must be object[]"))?,
+        None => &[],
+    };
     let imported_tags = parse_tags(data)?;
     let imported_entry_tags = super::super::tags::extract_entry_tags(entries);
     let imported_catalog =
@@ -48,10 +73,11 @@ pub(super) fn parse_root_import_payload(
         folders,
         entries,
         ssh_keys,
+        icons,
         imported_tag_meta: parse_tag_meta(data, &imported_catalog),
         imported_tags,
         imported_group_meta: parse_group_meta(data)?,
-        should_clear_existing: requires_destructive && allow_destructive,
+        should_clear_existing: requires_destructive,
     })
 }
 

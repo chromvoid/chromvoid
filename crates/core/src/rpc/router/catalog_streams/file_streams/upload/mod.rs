@@ -1,5 +1,6 @@
 use std::io;
 use std::time::Instant;
+use zeroize::Zeroizing;
 
 mod catalog_update;
 mod context;
@@ -33,8 +34,18 @@ use tx::{
     UploadSessionTransaction,
 };
 
-pub(in crate::rpc::router) fn handle_abort_upload(router: &mut RpcRouter) -> RpcResponse {
-    match abort_pending_upload_session(router) {
+pub(in crate::rpc::router) fn handle_abort_upload(
+    router: &mut RpcRouter,
+    data: &serde_json::Value,
+) -> RpcResponse {
+    let expected_node_id = match data.get("node_id") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(value) => match value.as_u64() {
+            Some(node_id) => Some(node_id),
+            None => return UploadCommandError::empty_payload("node_id").into_rpc_response(),
+        },
+    };
+    match abort_pending_upload_session(router, expected_node_id) {
         Ok(aborted) => RpcResponse::success(serde_json::json!({ "aborted": aborted })),
         Err(error) => error.into_rpc_response(),
     }
@@ -73,13 +84,16 @@ fn handle_upload_result(
     };
 
     let read_started = Instant::now();
-    let content = read_stream_exact_limited(stream, request.size, MAX_SINGLE_RPC_STREAM_BYTES)
-        .map_err(|error| match error.kind() {
-            io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData => {
-                UploadCommandError::internal("Size mismatch")
-            }
-            _ => UploadCommandError::internal(format!("Failed to read stream: {error}")),
-        })?;
+    let content = Zeroizing::new(
+        read_stream_exact_limited(stream, request.size, MAX_SINGLE_RPC_STREAM_BYTES).map_err(
+            |error| match error.kind() {
+                io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidData => {
+                    UploadCommandError::internal("Size mismatch")
+                }
+                _ => UploadCommandError::internal(format!("Failed to read stream: {error}")),
+            },
+        )?,
+    );
     let stream_read_elapsed = read_started.elapsed();
     let mut transaction = match target {
         UploadTarget::Pending(transaction) => transaction,

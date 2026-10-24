@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::Emitter;
 
@@ -6,45 +5,8 @@ use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
 
 use crate::app_state::AppState;
 use crate::helpers::*;
-use crate::media_stream::format::ERR_MEDIA_UNSUPPORTED;
 use crate::mobile;
 use crate::types::*;
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AndroidMediaSessionSnapshot {
-    active: bool,
-    track_id: u64,
-    title: String,
-    playback_state: String,
-    position_ms: u64,
-    duration_ms: u64,
-    can_seek: bool,
-    has_previous: bool,
-    has_next: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AndroidVideoStartArgs {
-    node_id: u64,
-    file_name: String,
-    mime_type: Option<String>,
-    last_modified: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AndroidVideoStartResult {
-    started: bool,
-    stream_id: String,
-    source_token: String,
-    native_source_token: String,
-    token: String,
-    mime_type: String,
-    size: u64,
-    source_revision: u64,
-}
 
 #[cfg(desktop)]
 use crate::commands::volume_ops::perform_volume_teardown;
@@ -54,14 +16,6 @@ pub(crate) async fn mobile_notify_background(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Value> {
-    let invalidated = crate::mobile::android::invalidate_all_password_save_requests(
-        &state.android_password_save_runtime,
-        "mobile_background",
-    );
-    if invalidated > 0 {
-        crate::mobile::android::notify_password_save_review_result(None, "dismissed", false);
-    }
-
     let mut locked = false;
     let should_lock_on_background = match state.session_settings.lock() {
         Ok(settings) => settings.lock_on_mobile_background || settings.lock_on_sleep,
@@ -72,26 +26,16 @@ pub(crate) async fn mobile_notify_background(
     };
 
     tracing::info!(
-        "mobile_notify_background: should_lock_on_background={} invalidated_password_save_requests={}",
+        "mobile_notify_background: should_lock_on_background={}",
         should_lock_on_background,
-        invalidated
     );
 
-    let quick_lock_unlocked =
-        match mobile_background_lock_phase(&app, &state, should_lock_on_background).await {
-            Ok(phase) => {
-                locked = phase.locked;
-                phase.unlocked
-            }
-            Err(error) => {
-                tracing::warn!("mobile_notify_background: lock phase failed: {error}");
-                false
-            }
-        };
+    match mobile_background_lock_phase(&app, &state, should_lock_on_background).await {
+        Ok(phase) => locked = phase.locked,
+        Err(error) => tracing::warn!("mobile_notify_background: lock phase failed: {error}"),
+    }
 
     if locked {
-        #[cfg(target_os = "android")]
-        super::stop_mobile_usb_host_sessions_for_vault_lock();
         super::release_mobile_native_sessions(&app, &state, "mobile_background");
         state.media_streams.clear();
         #[cfg(desktop)]
@@ -121,7 +65,6 @@ pub(crate) async fn mobile_notify_background(
         Err(_) => tracing::warn!("mobile_notify_background: foreground mutex poisoned"),
     }
     sync_mobile_ios_idle_timer_phase(&app, &state, "mobile_notify_background").await;
-    super::sync_android_vault_quick_lock_with_unlocked(&app, &state, quick_lock_unlocked);
 
     // Best-effort: save connection state for foreground reconnect (iOS lifecycle).
     crate::network::ios_lifecycle::handle_background_suspend(Some(&app));
@@ -159,7 +102,6 @@ async fn sync_mobile_ios_idle_timer_phase(
 
 struct MobileBackgroundLockPhase {
     locked: bool,
-    unlocked: bool,
 }
 
 async fn mobile_background_lock_phase(
@@ -195,10 +137,7 @@ async fn mobile_background_lock_phase(
                 adapter.is_unlocked(),
                 locked
             );
-            Ok(MobileBackgroundLockPhase {
-                locked,
-                unlocked: adapter.is_unlocked(),
-            })
+            Ok(MobileBackgroundLockPhase { locked })
         })
         .await
     {
@@ -231,7 +170,6 @@ pub(crate) async fn mobile_notify_foreground(
     };
 
     tracing::info!("mobile_notify_foreground: unlocked={}", unlocked);
-    super::sync_android_vault_quick_lock_with_unlocked(&app, &state, unlocked);
 
     let _ = app.emit(
         "mobile:foreground",
@@ -244,32 +182,6 @@ pub(crate) async fn mobile_notify_foreground(
         Err(_) => tracing::warn!("mobile_notify_foreground: storage root mutex poisoned"),
     }
 
-    #[cfg(target_os = "android")]
-    {
-        match state.storage_root.lock() {
-            Ok(storage_root) => {
-                let storage_root = storage_root.clone();
-                let task_lifecycle = state.task_lifecycle.clone();
-                let android_host_runtime = state.android_host_runtime.clone();
-                let mobile_acceptor_runtime = state.mobile_acceptor_runtime.clone();
-                let adapter = state.adapter.clone();
-                if let Err(error) = crate::network::mobile_host::schedule_android_host_mode_resume(
-                    task_lifecycle,
-                    android_host_runtime,
-                    mobile_acceptor_runtime,
-                    Some(adapter),
-                    storage_root,
-                    "mobile_notify_foreground",
-                ) {
-                    tracing::warn!(
-                        "mobile_notify_foreground: android mobile host resume was not scheduled: {}",
-                        error
-                    );
-                }
-            }
-            Err(_) => tracing::warn!("mobile_notify_foreground: storage root mutex poisoned"),
-        }
-    }
     Ok(rpc_ok(serde_json::json!({ "unlocked": unlocked })))
 }
 
@@ -300,89 +212,6 @@ async fn mobile_foreground_unlocked_phase(
 }
 
 #[tauri::command]
-#[cfg(mobile)]
-pub(crate) fn android_password_save_finish(
-    state: tauri::State<'_, AppState>,
-    token: String,
-    outcome: String,
-) -> RpcResult<Value> {
-    let Some(outcome) = crate::mobile::android::AndroidPasswordSaveOutcome::parse(&outcome) else {
-        return rpc_err(
-            "android_password_save_finish: invalid outcome",
-            Some("BAD_REQUEST".to_string()),
-        );
-    };
-
-    match crate::mobile::android::finish_password_save_request(
-        &state.android_password_save_runtime,
-        &token,
-        outcome,
-    ) {
-        Ok(finished) => {
-            crate::mobile::android::notify_password_save_review_result(
-                Some(&token),
-                match outcome {
-                    crate::mobile::android::AndroidPasswordSaveOutcome::Saved => "saved",
-                    crate::mobile::android::AndroidPasswordSaveOutcome::Dismissed => "dismissed",
-                },
-                finished,
-            );
-            rpc_ok(serde_json::json!({ "finished": finished }))
-        }
-        Err(error) => rpc_err(error, Some("INTERNAL".to_string())),
-    }
-}
-
-#[tauri::command]
-pub(crate) fn android_media_session_update(
-    _app: tauri::AppHandle,
-    snapshot: AndroidMediaSessionSnapshot,
-) -> RpcResult<Value> {
-    let Ok(snapshot_json) = serde_json::to_string(&snapshot) else {
-        return rpc_err(
-            "android_media_session_update: failed to serialize snapshot",
-            Some("BAD_REQUEST".to_string()),
-        );
-    };
-
-    let updated = crate::mobile::android::update_media_session(&snapshot_json);
-    rpc_ok(serde_json::json!({ "updated": updated }))
-}
-
-#[tauri::command]
-pub(crate) fn android_media_session_stop(_app: tauri::AppHandle) -> RpcResult<Value> {
-    let stopped = crate::mobile::android::stop_media_session();
-    rpc_ok(serde_json::json!({ "stopped": stopped }))
-}
-
-#[tauri::command]
-pub(crate) async fn android_video_start(
-    _state: tauri::State<'_, AppState>,
-    _args: AndroidVideoStartArgs,
-) -> TauriRpcResult<AndroidVideoStartResult> {
-    Ok(rpc_error(
-        "android_video_start is retired; use prepare_media_source with native-video delivery",
-        Some(ERR_MEDIA_UNSUPPORTED.to_string()),
-    ))
-}
-
-#[tauri::command]
-pub(crate) fn android_video_stop(
-    state: tauri::State<'_, AppState>,
-    token: String,
-) -> RpcResult<Value> {
-    if !token.trim().is_empty() {
-        if cfg!(target_os = "android") {
-            let _ = crate::mobile::android::stop_video_playback(&token);
-        } else if cfg!(target_os = "ios") {
-            let _ = crate::mobile::ios::native_bridge::stop_video_playback(&token);
-        }
-        state.media_streams.release(&token);
-    }
-    rpc_ok(serde_json::json!({ "stopped": true }))
-}
-
-#[tauri::command]
 pub(crate) async fn mobile_biometric_auth(
     state: tauri::State<'_, AppState>,
     reason: Option<String>,
@@ -390,16 +219,8 @@ pub(crate) async fn mobile_biometric_auth(
     // App-gate only: this verifies local device presence and must not unlock vault state.
     let prompt = biometric_prompt(reason);
 
-    #[cfg(target_os = "android")]
-    let auth_result = {
-        let runtime = state.android_biometric_runtime.clone();
-        crate::mobile::android::authenticate_with_biometric(&runtime, &prompt).await
-    };
-
-    #[cfg(not(target_os = "android"))]
     let _ = state;
 
-    #[cfg(not(target_os = "android"))]
     let auth_result = mobile::authenticate_with_biometric(&prompt).await;
 
     Ok(biometric_auth_result(auth_result))
@@ -419,14 +240,6 @@ fn biometric_auth_result(result: Result<(), mobile::BiometricAuthError>) -> RpcR
             let code = e.code().to_string();
             rpc_err(e.into_message(), Some(code))
         }
-    }
-}
-
-fn rpc_error<T>(error: impl Into<String>, code: Option<String>) -> RpcResult<T> {
-    RpcResult::Error {
-        ok: false,
-        error: error.into(),
-        code,
     }
 }
 
@@ -474,56 +287,9 @@ async fn passkeys_core_rpc(
 }
 
 #[tauri::command]
-pub(crate) fn android_autofill_provider_status() -> RpcResult<Value> {
-    match crate::mobile::android::autofill_provider_selected() {
-        Ok(selected) => rpc_ok(serde_json::json!({
-            "platform": "android",
-            "selected": selected,
-            "available": true,
-            "passkeysLiteAvailable": true,
-            "passkeysLiteReason": Value::Null,
-            "settingsAction": "open_credential_provider_settings",
-        })),
-        Err(error) => rpc_err(error, Some("UNSUPPORTED".to_string())),
-    }
-}
-
-#[tauri::command]
-pub(crate) async fn android_open_autofill_provider_settings(
-    state: tauri::State<'_, AppState>,
-) -> TauriRpcResult<Value> {
-    if let Err(error) = crate::pro::guard_pro_feature_async(
-        &state,
-        chromvoid_core::license::PRO_FEATURE_CREDENTIAL_PROVIDER,
-    )
-    .await
-    {
-        return Ok(error);
-    }
-    Ok(
-        match crate::mobile::android::open_autofill_provider_settings() {
-            Ok(true) => rpc_ok(serde_json::json!({
-                "opened": true,
-                "settingsAction": "open_credential_provider_settings",
-            })),
-            Ok(false) => rpc_err(
-                "Failed to open Android credential provider settings",
-                Some("UNAVAILABLE".to_string()),
-            ),
-            Err(error) => rpc_err(error, Some("UNSUPPORTED".to_string())),
-        },
-    )
-}
-
-#[tauri::command]
 pub(crate) async fn credential_provider_status(app: tauri::AppHandle) -> RpcResult<Value> {
     #[cfg(not(target_os = "macos"))]
     let _ = &app;
-
-    #[cfg(target_os = "android")]
-    {
-        return android_autofill_provider_status();
-    }
 
     #[cfg(target_os = "ios")]
     {
@@ -572,7 +338,7 @@ pub(crate) async fn credential_provider_status(app: tauri::AppHandle) -> RpcResu
         };
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
+    #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
         rpc_err(
             "Credential Provider is not available on this platform",
@@ -586,17 +352,10 @@ pub(crate) async fn open_credential_provider_settings(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Value> {
-    #[cfg(target_os = "android")]
     {
-        let _ = app;
-        return android_open_autofill_provider_settings(state).await;
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        if let Err(error) = crate::pro::guard_pro_feature_async(
+        if let Err(error) = crate::module_access::guard_module_async(
             &state,
-            chromvoid_core::license::PRO_FEATURE_CREDENTIAL_PROVIDER,
+            crate::module_access::MODULE_CREDENTIAL_PROVIDER,
         )
         .await
         {
@@ -652,8 +411,28 @@ pub(crate) async fn open_credential_provider_settings(
     }
 }
 
+fn take_passkeys_from_list_response(mut value: Value) -> Vec<Value> {
+    match value.get_mut("passkeys") {
+        Some(passkeys) => match passkeys.as_array_mut() {
+            Some(passkeys) => std::mem::take(passkeys),
+            None => {
+                tracing::warn!(
+                    "[credential-provider-passkeys] command=list phase=malformed_response field=passkeys"
+                );
+                Vec::new()
+            }
+        },
+        None => {
+            tracing::warn!(
+                "[credential-provider-passkeys] command=list phase=malformed_response missing=passkeys"
+            );
+            Vec::new()
+        }
+    }
+}
+
 #[tauri::command]
-pub(crate) async fn android_passkeys_list(
+pub(crate) async fn credential_provider_passkeys_list(
     state: tauri::State<'_, AppState>,
 ) -> TauriRpcResult<Value> {
     let started_at = std::time::Instant::now();
@@ -689,35 +468,8 @@ pub(crate) async fn android_passkeys_list(
     Ok(rpc_ok(serde_json::json!({ "passkeys": passkeys })))
 }
 
-fn take_passkeys_from_list_response(mut value: Value) -> Vec<Value> {
-    match value.get_mut("passkeys") {
-        Some(passkeys) => match passkeys.as_array_mut() {
-            Some(passkeys) => std::mem::take(passkeys),
-            None => {
-                tracing::warn!(
-                    "[credential-provider-passkeys] command=list phase=malformed_response field=passkeys"
-                );
-                Vec::new()
-            }
-        },
-        None => {
-            tracing::warn!(
-                "[credential-provider-passkeys] command=list phase=malformed_response missing=passkeys"
-            );
-            Vec::new()
-        }
-    }
-}
-
 #[tauri::command]
-pub(crate) async fn credential_provider_passkeys_list(
-    state: tauri::State<'_, AppState>,
-) -> TauriRpcResult<Value> {
-    android_passkeys_list(state).await
-}
-
-#[tauri::command]
-pub(crate) async fn android_passkey_delete(
+pub(crate) async fn credential_provider_passkey_delete(
     state: tauri::State<'_, AppState>,
     credential_id: String,
 ) -> TauriRpcResult<Value> {
@@ -749,14 +501,6 @@ pub(crate) async fn android_passkey_delete(
             Ok(rpc_err(error, code))
         }
     }
-}
-
-#[tauri::command]
-pub(crate) async fn credential_provider_passkey_delete(
-    state: tauri::State<'_, AppState>,
-    credential_id: String,
-) -> TauriRpcResult<Value> {
-    android_passkey_delete(state, credential_id).await
 }
 
 #[tauri::command]

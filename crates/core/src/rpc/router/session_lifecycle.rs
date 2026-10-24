@@ -39,6 +39,7 @@ pub(in crate::rpc::router) struct LongRunningSessionTtls {
     pub(in crate::rpc::router) backup_local_ms: u64,
     pub(in crate::rpc::router) restore_local_ms: u64,
     pub(in crate::rpc::router) vault_export_ms: u64,
+    pub(in crate::rpc::router) credential_import_ms: u64,
 }
 
 impl Default for LongRunningSessionTtls {
@@ -47,6 +48,7 @@ impl Default for LongRunningSessionTtls {
             backup_local_ms: LONG_RUNNING_SESSION_IDLE_TTL_MS,
             restore_local_ms: LONG_RUNNING_SESSION_IDLE_TTL_MS,
             vault_export_ms: LONG_RUNNING_SESSION_IDLE_TTL_MS,
+            credential_import_ms: LONG_RUNNING_SESSION_IDLE_TTL_MS,
         }
     }
 }
@@ -57,6 +59,8 @@ pub(super) struct LongRunningSessions {
     pub(super) backup_local_max_size: Option<u64>,
     pub(super) restore_local: Option<RestoreLocalSession>,
     pub(super) vault_export: Option<VaultExportSession>,
+    pub(super) credential_import:
+        Option<super::passmanager::import_session::CredentialImportSession>,
     pub(super) ttls: LongRunningSessionTtls,
 }
 

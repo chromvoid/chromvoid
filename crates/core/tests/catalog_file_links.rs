@@ -188,3 +188,107 @@ fn catalog_file_links_resolve_returns_items_for_absolute_visible_file_paths() {
         assert!(result.get("item").is_none());
     }
 }
+
+#[test]
+fn document_links_follow_source_identity_and_preserve_ambiguity_and_visibility() {
+    let (mut router, _temp_dir) = create_test_router();
+    unlock_vault(&mut router, "test_password");
+    for name in ["one", "two", ".hidden"] {
+        assert_rpc_ok(&create_dir(&mut router, name));
+    }
+    let source = upload_file(
+        &mut router,
+        Some("/one"),
+        "Origin.md",
+        b"# Origin".to_vec(),
+        Some("text/markdown"),
+    );
+    let source_id = source;
+    let first = upload_file(
+        &mut router,
+        Some("/one"),
+        "Sibling.md",
+        vec![],
+        Some("text/markdown"),
+    );
+    let second = upload_file(
+        &mut router,
+        Some("/two"),
+        "Sibling.md",
+        vec![],
+        Some("text/markdown"),
+    );
+    let unique = upload_file(
+        &mut router,
+        Some("/two"),
+        "Unique.markdown",
+        vec![],
+        Some("text/markdown"),
+    );
+    upload_file(
+        &mut router,
+        Some("/.hidden"),
+        "Hidden.md",
+        vec![],
+        Some("text/markdown"),
+    );
+    let file = upload_file(
+        &mut router,
+        Some("/two"),
+        "Guide.pdf",
+        vec![],
+        Some("application/pdf"),
+    );
+    let resolve = |router: &mut chromvoid_core::rpc::RpcRouter, path: &str, kind: &str| {
+        let result = router.handle(&RpcRequest::new(
+            "catalog:document:resolve-link",
+            serde_json::json!({"source_node_id":source_id,"path":path,"kind":kind}),
+        ));
+        assert_rpc_ok(&result);
+        result.result().unwrap().clone()
+    };
+    assert_eq!(
+        resolve(&mut router, "sibling", "note")["item"]["node_id"],
+        first
+    );
+    assert_eq!(
+        resolve(&mut router, "two/Unique", "note")["item"]["node_id"],
+        unique
+    );
+    assert_eq!(
+        resolve(&mut router, "/two/Guide.pdf", "file")["item"]["node_id"],
+        file
+    );
+    assert_eq!(
+        resolve(&mut router, "elsewhere/Sibling", "note")["kind"],
+        "ambiguous"
+    );
+    assert_eq!(resolve(&mut router, "Hidden", "note")["kind"], "missing");
+    assert_eq!(
+        resolve(&mut router, "/one/../two/Guide.pdf", "file")["kind"],
+        "missing"
+    );
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "catalog:move",
+        serde_json::json!({"node_id":source_id,"new_parent_path":"/two","replace_existing":false}),
+    )));
+    assert_eq!(
+        resolve(&mut router, "Sibling", "note")["item"]["node_id"],
+        second
+    );
+    assert_eq!(
+        resolve(&mut router, "../one/Sibling.md", "note")["item"]["node_id"],
+        first
+    );
+    let invalid = router.handle(&RpcRequest::new(
+        "catalog:document:resolve-link",
+        serde_json::json!({"source_node_id":0,"path":"Sibling","kind":"note"}),
+    ));
+    assert!(!invalid.is_ok());
+    lock_vault(&mut router);
+    let locked = router.handle(&RpcRequest::new(
+        "catalog:document:resolve-link",
+        serde_json::json!({"source_node_id":source_id,"path":"Sibling","kind":"note"}),
+    ));
+    assert!(!locked.is_ok());
+}

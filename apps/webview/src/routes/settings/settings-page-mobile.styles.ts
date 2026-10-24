@@ -61,6 +61,7 @@ export const settingsPageMobileStyles = [
       font: inherit;
     }
 
+    a:focus-visible,
     button:focus-visible,
     input:focus-visible {
       outline: 2px solid var(--cv-color-focus-ring, var(--cv-color-info));
@@ -72,8 +73,7 @@ export const settingsPageMobileStyles = [
     .task,
     .detail-stack,
     .sheet-list,
-    .sheet-form,
-    .license-stack {
+    .sheet-form {
       display: grid;
       min-inline-size: 0;
     }
@@ -81,8 +81,7 @@ export const settingsPageMobileStyles = [
     .overview,
     .detail,
     .task,
-    .detail-stack,
-    .license-stack {
+    .detail-stack {
       gap: var(--app-spacing-4);
     }
 
@@ -121,6 +120,7 @@ export const settingsPageMobileStyles = [
       color: inherit;
       background: transparent;
       text-align: start;
+      text-decoration: none;
       cursor: pointer;
     }
 
@@ -168,7 +168,6 @@ export const settingsPageMobileStyles = [
 
     .overview-summary,
     .row-description,
-    .supporting-copy,
     .sheet-option-description {
       color: var(--cv-color-text-muted);
       font-size: var(--cv-font-size-xs);
@@ -296,7 +295,6 @@ export const settingsPageMobileStyles = [
     }
 
     .inline-actions,
-    .license-actions,
     .sheet-actions {
       display: flex;
       flex-wrap: wrap;
@@ -305,8 +303,6 @@ export const settingsPageMobileStyles = [
     }
 
     .inline-actions,
-    .license-stack,
-    .supporting-copy,
     .route-callout,
     .provider-steps,
     settings-vault-rekey-form {
@@ -335,7 +331,6 @@ export const settingsPageMobileStyles = [
       color: var(--cv-color-danger, var(--cv-color-text-danger));
     }
 
-    .license-input,
     .sheet-input {
       box-sizing: border-box;
       inline-size: 100%;
@@ -345,32 +340,6 @@ export const settingsPageMobileStyles = [
       border-radius: var(--cv-radius-2);
       color: var(--cv-color-text);
       background: var(--cv-color-surface-2);
-    }
-
-    .license-metrics {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: var(--app-spacing-2);
-    }
-
-    .license-metric {
-      display: grid;
-      gap: var(--app-spacing-1);
-      padding: var(--app-spacing-3);
-      border: 1px solid var(--cv-color-border-muted);
-      border-radius: var(--cv-radius-2);
-      background: var(--cv-color-surface-2);
-    }
-
-    .license-metric strong {
-      font-size: var(--cv-font-size-sm);
-    }
-
-    .license-code {
-      overflow-wrap: anywhere;
-      color: var(--cv-color-text);
-      font-family: var(--cv-font-family-mono, ui-monospace, monospace);
-      font-size: var(--cv-font-size-xs);
     }
 
     .import-success,

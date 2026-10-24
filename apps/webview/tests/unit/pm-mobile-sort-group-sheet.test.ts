@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, it} from 'vitest'
 
-import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls.model'
 import {PMMobileSortGroupSheet} from '../../src/features/passmanager/components/list/mobile-sort-group-sheet'
 import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 

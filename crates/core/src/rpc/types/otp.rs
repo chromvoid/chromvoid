@@ -24,6 +24,7 @@ pub struct OtpGenerateResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct OtpPreviewResponse {
     pub otp: String,
     pub period: u32,

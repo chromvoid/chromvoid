@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ChromVoid Air</string>
+
+    <string name="session_lock">Закрыть</string>
+
+    <string name="bridge_probe_title">Нативный мост</string>
+    <string name="bridge_probe_checking">Проверяем нативный мост…</string>
+    <string name="bridge_probe_ready">Нативный мост готов</string>
+    <string name="bridge_probe_failed">Нативный мост недоступен</string>
+    <string name="bridge_probe_retry">Повторить</string>
+    <string name="presence_prompt_title">Подтвердите, что это вы</string>
+    <string name="credential_provider_subtitle">Пароли и ключи доступа из вашего хранилища</string>
+    <string name="login_offer_channel">Логины для сохранения</string>
+    <string name="login_offer_title">Сохранить логин для %1$s?</string>
+    <string name="login_offer_text">Откройте ChromVoid Air, чтобы проверить его и сохранить в хранилище.</string>
+</resources>

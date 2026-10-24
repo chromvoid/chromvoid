@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::core_adapter::remote::RemoteCoreAdapter;
-    use crate::core_adapter::types::{
+    use crate::core_adapter::{
         ConnectionState, CoreAdapter, CoreMode, DeferredReply, RemoteHost, RemoteRpcPriority,
     };
     use chromvoid_core::rpc::types::{RpcRequest, RpcResponse};
@@ -385,5 +385,95 @@ mod tests {
 
         assert!(locked_response.is_ok());
         assert!(!adapter.is_unlocked());
+    }
+    #[test]
+    fn credential_import_remote_adapter_uses_the_local_core_reviewed_transaction() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use serde_json::{json, Value};
+        let root = tempfile::tempdir().expect("synthetic import vault");
+        let mut local = crate::core_adapter::LocalCoreAdapter::new_with_test_keystore(
+            root.path().join("vault"),
+        )
+        .expect("test adapter");
+        local.set_master_key(Some("synthetic import master".into()));
+        assert!(local
+            .handle(&RpcRequest::new(
+                "master:setup",
+                json!({"master_password":"synthetic import master"})
+            ))
+            .is_ok());
+        assert!(local
+            .handle(&RpcRequest::new(
+                "vault:unlock",
+                json!({"password":"synthetic import vault"})
+            ))
+            .is_ok());
+        let (tx, mut rx) = mpsc::channel::<crate::remote_data_plane::RemoteIoRequest>(4);
+        let worker = std::thread::spawn(move || {
+            while let Some(request) = rx.blocking_recv() {
+                // Exercise the serialized request boundary as on the device-peer transport.
+                let wire = serde_json::to_vec(&request.request).expect("request wire");
+                assert!(wire.len() < 1024 * 1024);
+                let decoded: RpcRequest = serde_json::from_slice(&wire).expect("decode request");
+                let response = local.handle(&decoded);
+                local.save().expect("save synthetic vault");
+                let response_wire = serde_json::to_vec(&response).expect("response wire");
+                let response: RpcResponse =
+                    serde_json::from_slice(&response_wire).expect("decode response");
+                // Reply through the real adapter channel, without a parser or transaction mock.
+                let _ = request.reply_tx.send(RpcReply::Json(response));
+            }
+        });
+        let mut remote = RemoteCoreAdapter::from_remote_sender(
+            RemoteHost::TauriRemoteWss {
+                peer_id: "synthetic-host".into(),
+            },
+            tx,
+        );
+        let call = |remote: &mut RemoteCoreAdapter, command: &str, data: Value| {
+            let response = remote.handle(&RpcRequest::new(command, data));
+            assert!(response.is_ok(), "{command}: {:?}", response.code());
+            response.result().expect("result").clone()
+        };
+        let bytes = include_bytes!("../../../../../../crates/core/tests/passmanager_domain_rpc/fixtures/bitwarden-credentials.json");
+        let id = call(
+            &mut remote,
+            "passmanager:import:start",
+            json!({"byte_count":bytes.len(),"mode":"merge"}),
+        )["import_id"]
+            .clone();
+        call(
+            &mut remote,
+            "passmanager:import:append",
+            json!({"import_id":id,"offset":0,"chunk_base64":STANDARD.encode(bytes)}),
+        );
+        let preview = call(
+            &mut remote,
+            "passmanager:import:review",
+            json!({"import_id":id,"source_password":null}),
+        );
+        assert_eq!(preview["entry_count"], 5);
+        assert_eq!(preview["created_entry_count"], 5);
+        assert!(preview.get("entries").is_none());
+        let before = call(&mut remote, "passmanager:root:export", json!({}));
+        assert_eq!(before["root"]["entries"], json!([]));
+        call(
+            &mut remote,
+            "passmanager:import:commit",
+            json!({"import_id":id,"confirm":true}),
+        );
+        let after = call(&mut remote, "passmanager:root:export", json!({}));
+        assert_eq!(after["root"]["entries"].as_array().unwrap().len(), 5);
+        assert_eq!(
+            remote
+                .handle(&RpcRequest::new(
+                    "passmanager:import:commit",
+                    json!({"import_id":id,"confirm":true})
+                ))
+                .code(),
+            Some("NODE_NOT_FOUND")
+        );
+        drop(remote);
+        worker.join().expect("host worker");
     }
 }

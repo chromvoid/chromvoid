@@ -43,8 +43,6 @@ function decodeSettingsRoute(url: URL): SettingsRoute {
       return {kind: 'files'}
     case 'passwords':
       return {kind: 'passwords'}
-    case 'license':
-      return {kind: 'license'}
     case 'vault-rekey':
       return {kind: 'vault-rekey'}
     case 'password-import':

@@ -1,0 +1,36 @@
+@import "./brand.css";
+
+/* Accepted ChromVoid palette: graphite and ice blue. See business/brand/color-system.md.
+   Opt-in Air study mapping; shipping theme entrypoints do not import this file. */
+.air-design {
+  color-scheme: light;
+  --app-air-canvas: var(--app-brand-light-canvas);
+  --app-air-surface: var(--app-brand-light-surface);
+  --app-air-surface-secondary: var(--app-brand-light-surface-secondary);
+  --app-air-foreground: var(--app-brand-light-foreground);
+  --app-air-muted: var(--app-brand-light-muted);
+  --app-air-border: var(--app-brand-light-border);
+  --app-air-accent: var(--app-brand-light-accent);
+  --app-air-on-accent: var(--app-brand-light-on-accent);
+  --app-air-accent-container: var(--app-brand-light-accent-container);
+  --app-air-accent-container-foreground: var(--app-brand-light-accent-container-foreground);
+  --app-air-display-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.air-design[data-theme='dark'] {
+  color-scheme: dark;
+  --app-air-canvas: var(--app-brand-dark-canvas);
+  --app-air-surface: var(--app-brand-dark-surface);
+  --app-air-surface-secondary: var(--app-brand-dark-surface-secondary);
+  --app-air-foreground: var(--app-brand-dark-foreground);
+  --app-air-muted: var(--app-brand-dark-muted);
+  --app-air-border: var(--app-brand-dark-border);
+  --app-air-accent: var(--app-brand-dark-accent);
+  --app-air-on-accent: var(--app-brand-dark-on-accent);
+  --app-air-accent-container: var(--app-brand-dark-accent-container);
+  --app-air-accent-container-foreground: var(--app-brand-dark-accent-container-foreground);
+}
+
+.air-design[data-concept='archive'] {
+  --app-air-display-family: Georgia, 'Times New Roman', serif;
+}

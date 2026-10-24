@@ -49,7 +49,6 @@ import {
   REMOTE_MEDIA_STREAM_LOADABILITY_TIMEOUT_MS,
 } from '../../src/features/media/models/media-stream-loadability'
 import {
-  dispatchAndroidVideoPlayerEvent,
   dispatchMediaStreamError,
   releaseAllMediaStreamOwnersForLifecycle,
   resetMediaStreamOwnerRegistryForTests,
@@ -723,148 +722,7 @@ describe('video-player base media stream lifecycle', () => {
     expect(element.currentErrorMessage()).toBe(i18n('media:video-load-failed' as any))
   })
 
-  it('ignores stale Android native events and releases the active native source on error', async () => {
-    const nativeSource = createFileSource('', {
-      kind: 'video-source',
-      delivery: 'native-video',
-      streamId: 'stream-android-video',
-      sourceToken: 'stream-android-video',
-      nativeSourceToken: 'android-video-token',
-      size: 100,
-    })
-    loadFileSourceById.mockResolvedValueOnce(nativeSource)
-
-    const element = appendOpenPlayer(44, 'native.mp4', 100)
-
-    await vi.waitFor(() => {
-      expect(element.currentLoading()).toBe(false)
-      expect(element.currentSourceKind()).toBe('video-source')
-      expect(element.currentSourceDelivery()).toBe('native-video')
-    })
-
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'stale-video-token',
-      event: 'error',
-      error: 'ERR_STALE',
-    })
-
-    expect(nativeSource.release).not.toHaveBeenCalled()
-    expect(element.currentSourceKind()).toBe('video-source')
-    expect(element.currentSourceDelivery()).toBe('native-video')
-
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'android-video-token',
-      event: 'playing',
-    })
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'android-video-token',
-      event: 'paused',
-    })
-
-    expect(writeAndroidUnlockDebugMock).toHaveBeenCalledWith(
-      'media-telemetry',
-      'media.playback.playing',
-      expect.objectContaining({
-        event: 'playing',
-      }),
-    )
-    expect(writeAndroidUnlockDebugMock).toHaveBeenCalledWith(
-      'media-telemetry',
-      'media.playback.paused',
-      expect.objectContaining({
-        event: 'paused',
-      }),
-    )
-
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'android-video-token',
-      event: 'error',
-      error: 'ERR_ANDROID_VIDEO_SOURCE_READ',
-    })
-
-    await vi.waitFor(() => {
-      expect(nativeSource.release).toHaveBeenCalledOnce()
-      expect(element.currentSourceKind()).toBe('none')
-      expect(element.currentErrorMessage()).toBe(i18n('media:video-load-failed' as any))
-    })
-  })
-
-  it('ignores stale generic native video-source events by native source token', async () => {
-    const nativeSource = createFileSource('', {
-      kind: 'video-source',
-      delivery: 'native-video',
-      streamId: 'stream-native',
-      sourceToken: 'stream-native',
-      nativeSourceToken: 'native-source-token',
-      size: 100,
-    })
-    loadFileSourceById.mockResolvedValueOnce(nativeSource)
-
-    const element = appendOpenPlayer(44, 'native-source.mp4', 100)
-
-    await vi.waitFor(() => {
-      expect(element.currentLoading()).toBe(false)
-      expect(element.currentSourceKind()).toBe('video-source')
-      expect(element.currentSourceDelivery()).toBe('native-video')
-    })
-
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'stale-native-source-token',
-      event: 'error',
-      error: 'ERR_STALE',
-    })
-
-    expect(nativeSource.release).not.toHaveBeenCalled()
-    expect(element.currentSourceKind()).toBe('video-source')
-    expect(element.currentSourceDelivery()).toBe('native-video')
-
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'native-source-token',
-      event: 'error',
-      error: 'ERR_ANDROID_VIDEO_SOURCE_READ',
-    })
-
-    await vi.waitFor(() => {
-      expect(nativeSource.release).toHaveBeenCalledOnce()
-      expect(element.currentSourceKind()).toBe('none')
-      expect(element.currentErrorMessage()).toBe(i18n('media:video-load-failed' as any))
-    })
-  })
-
-  it('closes the overlay when the Android native player is released', async () => {
-    const nativeSource = createFileSource('', {
-      kind: 'video-source',
-      delivery: 'native-video',
-      streamId: 'stream-release-video',
-      sourceToken: 'stream-release-video',
-      nativeSourceToken: 'released-video-token',
-      size: 100,
-    })
-    loadFileSourceById.mockResolvedValueOnce(nativeSource)
-
-    const element = appendOpenPlayer(45, 'native-release.mp4', 100)
-    const closeSpy = vi.fn()
-    element.addEventListener('close', closeSpy)
-
-    await vi.waitFor(() => {
-      expect(element.currentLoading()).toBe(false)
-      expect(element.currentSourceKind()).toBe('video-source')
-      expect(element.currentSourceDelivery()).toBe('native-video')
-    })
-
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'released-video-token',
-      event: 'released',
-    })
-
-    await vi.waitFor(() => {
-      expect(closeSpy).toHaveBeenCalledOnce()
-      expect(nativeSource.release).toHaveBeenCalledOnce()
-      expect(element.currentSourceKind()).toBe('none')
-    })
-  })
-
-  it('keeps the mobile webview blank while Android native video is playing', async () => {
+  it('keeps the mobile webview blank while native video is playing', async () => {
     const nativeSource = createFileSource('', {
       kind: 'video-source',
       delivery: 'native-video',
@@ -891,7 +749,7 @@ describe('video-player base media stream lifecycle', () => {
     expect(nativeSource.release).not.toHaveBeenCalled()
   })
 
-  it('renders load errors instead of leaving the Android player overlay blank', async () => {
+  it('renders load errors instead of leaving the native player overlay blank', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     loadFileSourceById.mockRejectedValueOnce(new Error('native video failed'))
     const element = document.createElement('video-player-mobile') as VideoPlayerMobile

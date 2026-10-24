@@ -64,8 +64,6 @@ declare global {
   interface Window {
     env: "dev" | "prod";
     __PM_LOG__: boolean;
-    __CHROMVOID_SSH_KEYS_ENABLED__: boolean;
-    __chromvoidHandleAndroidBack?: () => boolean;
     ChromVoidSplash?: {
       domReady?: () => void;
       startupLog?: (label: string, webElapsedMs: number, details: string) => void;

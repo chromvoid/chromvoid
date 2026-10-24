@@ -6,7 +6,7 @@ use super::frames::{
     frame_from_heartbeat, frame_from_rpc_request_with_transport_features,
     recv_decrypted_frame_typed, send_encrypted_frame_typed,
 };
-use super::models::{
+use super::{
     RemoteIoEvent, RemoteIoFailure, RemoteIoRequest, RemoteIoResult, RemoteIoTaskConfig,
     RemoteIoTaskTiming,
 };
@@ -122,7 +122,7 @@ fn request_needs_stream_control_hint(command: &str, has_upload_stream: bool) -> 
 
 fn timed_out_request_needs_stream_cancel(
     command: &str,
-    peer_features: &super::models::RemotePeerFeatures,
+    peer_features: &super::RemotePeerFeatures,
 ) -> bool {
     command == DERIVATIVE_ENSURE_COMMAND
         && peer_features.contains(CORE_FEATURE_REMOTE_STREAM_CONTROL_V1)
@@ -165,6 +165,10 @@ pub(super) async fn io_loop_with_timing(
             transport_type
         );
     }
+    // SPEC-005 §8.5: any valid inbound frame proves peer liveness. A writable
+    // relay socket alone does not: relay keeps it open when the other peer leaves.
+    let liveness_timeout = timing.heartbeat_interval + timing.response_timeout;
+    let mut last_inbound = tokio::time::Instant::now();
     let mut anti_replay = AntiReplay::new();
     let mut next_msg_id: u64 = rand::random::<u64>() | 1;
     let mut heartbeat_interval = tokio::time::interval(timing.heartbeat_interval);
@@ -332,6 +336,10 @@ pub(super) async fn io_loop_with_timing(
                 }
             }
 
+            _ = tokio::time::sleep_until(last_inbound + liveness_timeout), if heartbeat_enabled => {
+                return Err(RemoteIoFailure::transport_timeout());
+            }
+
             _ = heartbeat_interval.tick(), if heartbeat_enabled => {
                 let msg_id = next_msg_id;
                 next_msg_id = next_msg_id.wrapping_add(1);
@@ -342,6 +350,7 @@ pub(super) async fn io_loop_with_timing(
 
             resp = recv_decrypted_frame_typed(transport.as_mut(), &mut noise) => {
                 let frame = resp?;
+                last_inbound = tokio::time::Instant::now();
                 if frame.frame_type == FrameType::Heartbeat {
                     continue;
                 }

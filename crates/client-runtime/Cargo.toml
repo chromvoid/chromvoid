@@ -1,0 +1,38 @@
+[package]
+name = "chromvoid-client-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+desktop = []
+test-support = []
+
+[dependencies]
+chromvoid-media-runtime = { path = "../media-runtime" }
+chromvoid-core = { path = "../core" }
+chromvoid-network-runtime = { path = "../network-runtime" }
+chromvoid-protocol = { path = "../protocol", features = ["async-transport"] }
+async-trait = "0.1"
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex = "0.4"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "time", "net", "macros"] }
+tracing = "0.1"
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+futures-util = "0.3"
+tokio-tungstenite = "0.28"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+lofty = "0.24.0"
+snow = "0.10"
+tempfile.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

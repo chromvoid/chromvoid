@@ -103,20 +103,7 @@ export type PreparedVideoSource = {
   expiresAt: number
 }
 
-export type AndroidVideoPlayerEvent = {
-  nativeSourceToken?: string
-  token?: string
-  event: 'started' | 'ready' | 'playing' | 'paused' | 'buffering' | 'idle' | 'ended' | 'error' | 'released'
-  positionMs?: number
-  durationMs?: number
-  error?: string
-  mediaSourceGeneration?: number
-  sourceRevision?: number
-  transportSessionGeneration?: number
-  appForegroundEpoch?: number
-}
-
-export type AndroidAudioErrorCode =
+export type NativeAudioErrorCode =
   | 'ERR_NATIVE_AUDIO_RANGE_INVALID'
   | 'ERR_NATIVE_AUDIO_SOURCE_READ'
   | 'ERR_NATIVE_AUDIO_SOURCE_STALE'
@@ -126,7 +113,7 @@ export type AndroidAudioErrorCode =
   | 'ERR_NATIVE_AUDIO_START_FAILED'
   | 'ERR_NATIVE_AUDIO_COMMAND_TIMEOUT'
 
-export type AndroidAudioTrackInput = {
+export type NativeAudioTrackInput = {
   trackId: number
   systemTitle: 'ChromVoid audio'
   mimeType?: string
@@ -134,18 +121,18 @@ export type AndroidAudioTrackInput = {
   sourceRevision?: number
 }
 
-export type AndroidAudioPreparedTrack = {
+export type NativeAudioPreparedTrack = {
   trackId: number
   mimeType: string
   size: number
   sourceRevision: number
 }
 
-export type AndroidAudioCommand =
+export type NativeAudioCommand =
   | {
       command: 'startSession'
       nativeSessionId: string
-      tracks: AndroidAudioTrackInput[]
+      tracks: NativeAudioTrackInput[]
       index: number
       autoplay: boolean
     }
@@ -156,14 +143,14 @@ export type AndroidAudioCommand =
   | {command: 'seekTo'; nativeSessionId: string; positionMs: number}
   | {command: 'selectTrack'; nativeSessionId: string; index: number}
 
-export type AndroidAudioCommandResult = {
+export type NativeAudioCommandResult = {
   accepted: boolean
-  tracks?: AndroidAudioPreparedTrack[]
+  tracks?: NativeAudioPreparedTrack[]
 }
 
-export type AndroidAudioReleaseReason = 'service_destroyed' | 'system_stop'
+export type NativeAudioReleaseReason = 'service_destroyed' | 'system_stop'
 
-export type AndroidAudioPlayerEvent = {
+export type NativeAudioPlayerEvent = {
   event: 'state' | 'error' | 'ended' | 'released'
   nativeSessionId: string
   trackId?: number
@@ -177,16 +164,11 @@ export type AndroidAudioPlayerEvent = {
   hasPrevious?: boolean
   hasNext?: boolean
   canSeek?: boolean
-  code?: AndroidAudioErrorCode | string
-  reason?: AndroidAudioReleaseReason | string
+  code?: NativeAudioErrorCode | string
+  reason?: NativeAudioReleaseReason | string
   recoverable?: boolean
 }
 
-export type NativeAudioTrackInput = AndroidAudioTrackInput
-export type NativeAudioPreparedTrack = AndroidAudioPreparedTrack
-export type NativeAudioCommand = AndroidAudioCommand
-export type NativeAudioCommandResult = AndroidAudioCommandResult
-export type NativeAudioPlayerEvent = AndroidAudioPlayerEvent
 
 export type NativeUploadFile = {
   fileId: string
@@ -277,7 +259,6 @@ export type ImagePhotoGpsDiagnostic = {
     | string
   rustExifStatus?: string | null
   xmpStatus?: string | null
-  androidStatus?: string | null
   importProvenanceStatus?: string | null
 }
 
@@ -322,6 +303,7 @@ export type TransportLike = {
     target: number | {parentPath?: string; name: string},
     file: File,
     opts?: {
+      createOnly?: boolean
       chunkSize?: number
       name?: string
       type?: string
@@ -354,14 +336,8 @@ export type TransportLike = {
     opts?: NativeUploadOptions,
   ) => Promise<void>
 
-  uploadAndroidSharedFiles?: (
-    parentPath: string,
-    shareSessionId: string,
-    opts?: NativeUploadOptions,
-  ) => Promise<void>
 
   cancelSharedFiles?: (sharedSessionId: string) => Promise<void>
-  cancelAndroidSharedFiles?: (shareSessionId: string) => Promise<void>
   startNativeOtpQrScan?: (scanId: string) => Promise<void>
   cancelNativeOtpQrScan?: (scanId: string) => Promise<void>
 
@@ -451,8 +427,6 @@ export type TransportLike = {
     },
   ): Promise<PreparedVideoSource>
   releaseMediaSource?(source: PreparedVideoSource): Promise<void>
-  warmupAndroidAudio?(): Promise<boolean>
-  sendAndroidAudioCommand?(command: AndroidAudioCommand): Promise<AndroidAudioCommandResult>
   sendNativeAudioCommand?(command: NativeAudioCommand): Promise<NativeAudioCommandResult>
 
   readSecret(nodeId: number): Promise<AsyncIterable<Uint8Array>>

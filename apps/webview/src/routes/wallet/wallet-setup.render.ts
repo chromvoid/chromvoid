@@ -7,7 +7,6 @@ import type {
   WalletEncoding,
   WalletImportNetwork,
   WalletRecoveryProfile,
-  WalletWordCount,
 } from './wallet-setup.model'
 
 export type WalletSetupMode = 'create' | 'import' | 'restore'
@@ -18,13 +17,34 @@ export function renderWalletSetup(mode: WalletSetupMode): TemplateResult {
   return renderCreateForm()
 }
 
-export function renderWalletMnemonic(words: string[]): TemplateResult {
+/**
+ * A rotated Telegram Wallet phrase (24 words) is two independent halves: words 1–12 restore the
+ * wallet everywhere, words 13–24 matter to Telegram Wallet only. Pass the standard so the
+ * recovery views can label the halves; the create preview and BIP39 phrases render as one grid.
+ */
+export function renderWalletMnemonic(words: string[], standard?: string | null): TemplateResult {
+  if (standard === 'rotation' && words.length === 24) {
+    return html`
+      <p class="field-hint">${i18n('wallet:recovery:anchor-words')}</p>
+      ${renderWordGrid(words.slice(0, 12), 0)}
+      <p class="field-hint">${i18n('wallet:recovery:signing-words')}</p>
+      ${renderWordGrid(words.slice(12), 12)}
+      <p class="field-hint">${i18n('wallet:recovery:rotation-hint')}</p>
+    `
+  }
+  return html`
+    ${renderWordGrid(words, 0)}
+    ${standard === 'rotation' ? html`<p class="field-hint">${i18n('wallet:recovery:single-phrase-hint')}</p>` : nothing}
+  `
+}
+
+function renderWordGrid(words: string[], offset: number): TemplateResult {
   return html`
     <div class="mnemonic-grid" dir="ltr" aria-label=${i18n('wallet:field:mnemonic')}>
       ${words.map(
         (word, index) => html`
           <span class="mnemonic-word">
-            <span class="meta">${index + 1}</span>
+            <span class="meta">${offset + index + 1}</span>
             <span>${word}</span>
           </span>
         `,
@@ -35,9 +55,7 @@ export function renderWalletMnemonic(words: string[]): TemplateResult {
 
 function renderCreateForm(): TemplateResult {
   const setup = walletPageModel.setup
-  const mnemonic = setup.generatedMnemonic()
-  const loading = setup.hdWalletLoading()
-  const generating = setup.mnemonicLoading()
+  const busy = setup.hdWalletLoading() || setup.mnemonicLoading()
   return html`
     <div class="form">
       <p class="setup-note">
@@ -51,41 +69,21 @@ function renderCreateForm(): TemplateResult {
         ${i18n('wallet:field:label')}
         <input dir="auto" .value=${setup.createLabel()} @input=${handleCreateLabelInput} autocomplete="off" />
       </label>
-      <label>
-        ${i18n('wallet:field:word-count')}
-        <select .value=${String(setup.wordCount())} @change=${handleWordCountChange}>
-          <option value="12">12</option>
-          <option value="24">24</option>
-        </select>
-      </label>
-      ${renderPassphraseControls()} ${mnemonic.length > 0 ? renderWalletMnemonic(mnemonic) : nothing}
-      <label class="check-row">
-        <input type="checkbox" .checked=${setup.createConfirmed()} @change=${handleCreateConfirmed} />
-        <span>${i18n('wallet:create:confirm')}</span>
-      </label>
+      <p class="field-hint">${i18n('wallet:create:export-hint')}</p>
+      <details class="setup-advanced">
+        <summary>${i18n('wallet:create:advanced')}</summary>
+        ${renderPassphraseControls()}
+        <p class="field-hint">${i18n('wallet:create:passphrase-hint')}</p>
+      </details>
       <div class="actions">
-        <button
-          @click=${handleGenerateMnemonic}
-          ?disabled=${!setup.canGenerateMnemonic()}
-          aria-busy=${generating ? 'true' : 'false'}
-        >
-          <cv-icon
-            class=${generating ? 'loading-spinner' : ''}
-            name=${generating ? 'loader-circle' : 'sparkles'}
-          ></cv-icon>
-          ${generating ? i18n('wallet:action:generating') : i18n('wallet:action:generate')}
-        </button>
         <button
           class="primary"
           @click=${handleCreateGenerated}
           ?disabled=${!setup.canCreateGeneratedWallet()}
-          aria-busy=${loading ? 'true' : 'false'}
+          aria-busy=${busy ? 'true' : 'false'}
         >
-          <cv-icon
-            class=${loading ? 'loading-spinner' : ''}
-            name=${loading ? 'loader-circle' : 'wallet'}
-          ></cv-icon>
-          ${loading ? i18n('wallet:action:creating') : i18n('wallet:action:create')}
+          <cv-icon class=${busy ? 'loading-spinner' : ''} name=${busy ? 'loader-circle' : 'wallet'}></cv-icon>
+          ${busy ? i18n('wallet:action:creating') : i18n('wallet:action:create')}
         </button>
       </div>
     </div>
@@ -113,9 +111,15 @@ function renderRestoreForm(): TemplateResult {
       <p class="field-hint">
         ${setup.restoreProfile() === 'ton_only'
           ? i18n('wallet:profile:ton-only:restore-hint')
-          : i18n('wallet:profile:multichain:restore-hint')}
+          : setup.restoreProfile() === 'ton_legacy'
+            ? i18n('wallet:profile:ton-legacy:restore-hint')
+            : setup.restoreProfile() === 'telegram_multichain'
+              ? i18n('wallet:profile:telegram-multichain:restore-hint')
+              : i18n('wallet:profile:multichain:restore-hint')}
       </p>
-      ${setup.restoreProfile() === 'multichain' ? renderPassphraseControls() : nothing}
+      ${setup.restoreProfile() === 'multichain' || setup.restoreProfile() === 'telegram_multichain'
+        ? renderPassphraseControls()
+        : nothing}
       <button class="primary" @click=${handleRestore} ?disabled=${!setup.canRestoreHdWallet()}>
         <cv-icon name="rotate-ccw"></cv-icon>
         ${i18n('wallet:action:import-phrase')}
@@ -198,10 +202,24 @@ function renderRecoveryProfileSelector(): TemplateResult {
           profile,
         )}
         ${renderProfileOption(
+          'telegram_multichain',
+          i18n('wallet:profile:telegram-multichain:title'),
+          i18n('wallet:profile:telegram-multichain:body'),
+          i18n('wallet:profile:telegram-multichain:meta'),
+          profile,
+        )}
+        ${renderProfileOption(
           'ton_only',
           i18n('wallet:profile:ton-only:title'),
           i18n('wallet:profile:ton-only:body'),
           i18n('wallet:profile:ton-only:meta'),
+          profile,
+        )}
+        ${renderProfileOption(
+          'ton_legacy',
+          i18n('wallet:profile:ton-legacy:title'),
+          i18n('wallet:profile:ton-legacy:body'),
+          i18n('wallet:profile:ton-legacy:meta'),
           profile,
         )}
       </div>
@@ -236,10 +254,11 @@ function renderProfileOption(
 
 function renderRestoreNetworkSelector(): TemplateResult {
   const setup = walletPageModel.setup
-  if (setup.restoreProfile() === 'ton_only') {
+  if (setup.restoreProfile() === 'ton_only' || setup.restoreProfile() === 'ton_legacy') {
+    const key = setup.restoreProfile() === 'ton_only' ? 'ton-only' : 'ton-legacy'
     return html`<p class="profile-summary">
-      <strong>${i18n('wallet:profile:ton-only:title')}</strong>
-      <span>${i18n('wallet:profile:ton-only:network')}</span>
+      <strong>${i18n(`wallet:profile:${key}:title`)}</strong>
+      <span>${i18n(`wallet:profile:${key}:network`)}</span>
     </p>`
   }
   return html`<p class="setup-note">
@@ -255,7 +274,11 @@ function renderPassphraseControls(): TemplateResult {
   const setup = walletPageModel.setup
   return html`
     <label class="check-row">
-      <input type="checkbox" .checked=${setup.useBip39Passphrase()} @change=${handleUsePassphraseChange} />
+      <input
+        type="checkbox"
+        .checked=${setup.useBip39Passphrase()}
+        @change=${handleUsePassphraseChange}
+      />
       <span>${i18n('wallet:field:passphrase-toggle')}</span>
     </label>
     ${setup.useBip39Passphrase()
@@ -305,21 +328,11 @@ function handleSetupProfileChange(event: Event): void {
   walletPageModel.setup.setRestoreProfile((event.target as HTMLInputElement).value as WalletRecoveryProfile)
 }
 
-function handleWordCountChange(event: Event): void {
-  walletPageModel.setup.setWordCount(Number((event.target as HTMLSelectElement).value) as WalletWordCount)
-}
-
 function handleCreateLabelInput(event: Event): void {
   walletPageModel.setup.setCreateLabel((event.target as HTMLInputElement).value)
 }
 
-function handleCreateConfirmed(event: Event): void {
-  walletPageModel.setup.setCreateConfirmed((event.target as HTMLInputElement).checked)
-}
 
-function handleGenerateMnemonic(): void {
-  void walletPageModel.generateMnemonic()
-}
 
 function handleCreateGenerated(): void {
   void walletPageModel.createGeneratedWallet()

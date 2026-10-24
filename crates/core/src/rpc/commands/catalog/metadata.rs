@@ -79,6 +79,19 @@ pub fn handle_catalog_source_metadata(session: &mut VaultSession, data: &Value) 
         return system_shard_denied();
     }
 
+    let Some(node) = session.catalog().find_by_id(request.node_id) else {
+        return RpcResponse::error("Node not found", Some(ErrorCode::NodeNotFound));
+    };
+    // Mutable catalog access marks the session dirty. Only legacy files need
+    // initialization; ordinary metadata reads must not trigger a catalog save.
+    if !node.is_file() || node.source_revision() != 0 {
+        return RpcResponse::success(source_metadata_response_from_node(
+            node,
+            node.source_revision(),
+            false,
+        ));
+    }
+
     let (response, modtime, source_revision, initialized) = {
         let Some(node) = session.catalog_mut().find_by_id_mut(request.node_id) else {
             return RpcResponse::error("Node not found", Some(ErrorCode::NodeNotFound));

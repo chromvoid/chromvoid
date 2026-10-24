@@ -5,11 +5,11 @@ import {runtimeModeModel} from 'root/core/runtime/runtime-mode.model'
 import {
   moduleAccessModel,
   type ActiveCoreAccessReadiness,
-} from 'root/core/pro/module-access.model'
+} from 'root/core/modules/module-access.model'
 import {
   activeCoreAccessContextFromMode,
   type ActiveCoreAccessContext,
-} from 'root/core/pro/active-core-access-context'
+} from 'root/core/modules/active-core-access-context'
 import {getAppContext} from 'root/shared/services/app-context'
 import {subscribeToSignalChanges, type Unsubscribe} from 'root/shared/services/subscribed-signal'
 import {i18n} from 'root/i18n'

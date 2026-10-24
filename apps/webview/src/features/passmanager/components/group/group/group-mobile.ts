@@ -526,6 +526,8 @@ export class PMGroupMobile extends PMGroupBase {
     return html`
       <div class="mobile-credentials-shell">
         <workspace-dashboard-header
+          data-testid="workspace-header"
+          data-surface="passwords"
           class="mobile-credentials-header"
           surface="passwords"
           embedded

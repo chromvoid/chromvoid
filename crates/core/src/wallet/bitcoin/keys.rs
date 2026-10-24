@@ -4,12 +4,11 @@ use ::bitcoin::bip32::{DerivationPath, Xpriv, Xpub};
 use ::bitcoin::key::{CompressedPublicKey, PrivateKey};
 use ::bitcoin::secp256k1::Secp256k1;
 use ::bitcoin::{Address, Network};
-use bip39::{Language, Mnemonic};
 use zeroize::Zeroizing;
 
-use crate::wallet::{hex_string, parse_hex, SecretPayloadV1, WalletChainError};
+use crate::wallet::{hex_string, SecretPayloadV1, WalletChainError};
 
-use super::account::{ensure_bip39_secret_input, DerivedAddress};
+use super::account::DerivedAddress;
 
 pub(super) fn parse_wif_private_key(wif: &str) -> Result<PrivateKey, WalletChainError> {
     let private_key = PrivateKey::from_wif(wif.trim()).map_err(|error| {
@@ -33,22 +32,12 @@ pub(super) fn p2wpkh_address(public_key: &CompressedPublicKey) -> Address {
 }
 
 fn hd_seed(secret: &SecretPayloadV1) -> Result<Zeroizing<[u8; 64]>, WalletChainError> {
-    let Some(root) = secret.hd_root_material() else {
+    let Some((root, _)) = secret.wallet_root() else {
         return Err(WalletChainError::unsupported_account_model(
             "Bitcoin derived account requires HD root",
         ));
     };
-    ensure_bip39_secret_input(
-        &root.mnemonic_standard,
-        &root.mnemonic_entropy,
-        &root.wordlist,
-    )?;
-    let entropy = parse_hex(&root.mnemonic_entropy)?;
-    let mnemonic = Mnemonic::from_entropy_in(Language::English, &entropy)
-        .map_err(|error| WalletChainError::invalid_input(format!("invalid BIP39 root: {error}")))?;
-    Ok(Zeroizing::new(
-        mnemonic.to_seed(root.bip39_passphrase.as_deref().unwrap_or("")),
-    ))
+    root.bip39_seed()
 }
 
 pub(super) fn derive_hd_private_key(
@@ -126,4 +115,36 @@ pub(super) fn derive_hd_address(
         derivation_path: format!("m/84'/0'/{account_index}'/{chain}/{index}"),
         script_pubkey: hex_string(address.script_pubkey().as_bytes()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anchor_root_address_matches_bip39_with_the_same_passphrase() {
+        let words = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+            .split_whitespace()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let address = |standard: &str, passphrase: Option<&str>| {
+            let payload = SecretPayloadV1::hd_root_v2(
+                standard,
+                "00000000000000000000000000000000".to_string(),
+                "english".to_string(),
+                Some(words.clone()),
+                passphrase.map(str::to_string),
+            );
+            derive_hd_address(&payload, 0, 0, 0)
+                .expect("derived address")
+                .address
+        };
+        for passphrase in [None, Some("passphrase")] {
+            assert_eq!(
+                address("rotation", passphrase),
+                address("bip39", passphrase)
+            );
+        }
+        assert_ne!(address("bip39", None), address("bip39", Some("passphrase")));
+    }
 }

@@ -28,6 +28,7 @@ impl BackupLocalPackService {
     pub(in crate::rpc::router::backup) fn build_manifest(
         storage: &Storage,
         max_size: Option<u64>,
+        cancel_requested: &dyn Fn() -> bool,
     ) -> BackupResult<BackupChunkManifest> {
         let chunk_names = match storage.list_chunks() {
             Ok(mut chunks) => {
@@ -44,6 +45,9 @@ impl BackupLocalPackService {
         let mut chunks = Vec::with_capacity(chunk_names.len());
         let mut total_size = 0_u64;
         for name in &chunk_names {
+            if cancel_requested() {
+                return Err(BackupCommandError::cancelled());
+            }
             match storage.chunk_len(name) {
                 Ok(len) => {
                     total_size = total_size.saturating_add(len);
@@ -71,6 +75,7 @@ impl BackupLocalPackService {
     pub(in crate::rpc::router::backup) fn materialize_pack(
         storage: &Storage,
         manifest: BackupChunkManifest,
+        cancel_requested: &dyn Fn() -> bool,
     ) -> BackupResult<BackupLocalPackSnapshot> {
         let mut temp_file = storage
             .create_temp_file(StorageTempNamespace::BackupLocal, "backup-local-", ".pack")
@@ -81,6 +86,9 @@ impl BackupLocalPackService {
         let mut offsets = Vec::with_capacity(manifest.chunks.len());
         let mut offset = 0_u64;
         for entry in &manifest.chunks {
+            if cancel_requested() {
+                return Err(BackupCommandError::cancelled());
+            }
             offsets.push(offset);
             let bytes = storage.read_chunk(&entry.name).map_err(|error| {
                 BackupCommandError::internal(format!(
@@ -98,6 +106,9 @@ impl BackupLocalPackService {
                 BackupCommandError::internal(format!("Failed to write backup snapshot: {error}"))
             })?;
             offset = offset.saturating_add(entry.size);
+        }
+        if cancel_requested() {
+            return Err(BackupCommandError::cancelled());
         }
         temp_file.sync_file_and_parent().map_err(|error| {
             BackupCommandError::internal(format!("Failed to sync backup snapshot: {error}"))

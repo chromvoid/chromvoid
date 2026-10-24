@@ -1,6 +1,10 @@
 //! ADR-012 Local Backup/Restore (target contract)
 
 mod test_helpers;
+#[path = "local_backup_restore/typed_restore.rs"]
+mod typed_restore;
+#[path = "local_backup_restore/typed_snapshot.rs"]
+mod typed_snapshot;
 
 use base64::{engine::general_purpose, Engine as _};
 use chromvoid_core::crypto::keystore::InMemoryKeystore;

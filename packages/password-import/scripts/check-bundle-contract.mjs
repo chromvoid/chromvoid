@@ -47,14 +47,14 @@ await writeFile(
 )
 await writeFile(
   stateEntry,
-  `import {setImportCatalogOps} from '${stateImportPath}';\nconsole.log(typeof setImportCatalogOps)\n`,
+  `import {setCredentialImportService} from '${stateImportPath}';\nconsole.log(typeof setCredentialImportService)\n`,
 )
 await writeFile(dialogEntry, `import {ImportDialog} from '${dialogImportPath}';\nconsole.log(ImportDialog.name)\n`)
 
 try {
   const lifecycleBundle = await bundle(lifecycleEntry, lifecycleOut)
   const stateBundle = await bundle(stateEntry, stateOut)
-  const dialogSource = await readFile(path.join(packageRoot, 'dist', 'ui', 'import-dialog.js'), 'utf8')
+  const dialogBundle = await bundle(dialogEntry, dialogOut)
 
   for (const marker of ['kdbxweb', 'xmldom', 'pm-import-dialog', 'ImportDialog']) {
     if (lifecycleBundle.includes(marker)) {
@@ -68,19 +68,8 @@ try {
     }
   }
 
-  for (const marker of [
-    "from '../parsers/keepass.js'",
-    "from '../parsers/csv.js'",
-    "from '../parsers/bitwarden.js'",
-    "from '../parsers/1password.js'",
-  ]) {
-    if (dialogSource.includes(marker)) {
-      throw new Error(`Dialog source still contains static parser import: ${marker}`)
-    }
-  }
-
-  if (!dialogSource.includes("import('../parsers/keepass.js')")) {
-    throw new Error('Expected ImportDialog source to keep the lazy KeePass import')
+  for (const marker of ['kdbxweb', 'papaparse', 'fflate', 'xmldom', 'ImportOrchestrator']) {
+    if (dialogBundle.includes(marker)) throw new Error(`Dialog bundle includes retired parser dependency: ${marker}`)
   }
 
   console.log('[bundle] bundle contract passed')

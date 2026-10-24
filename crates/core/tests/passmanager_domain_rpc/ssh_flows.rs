@@ -279,3 +279,209 @@ fn test_passmanager_legacy_conflict_uses_deterministic_migrated_id() {
         .collect::<Vec<_>>();
     assert_eq!(ids, vec!["duplicate-key", expected.as_str()]);
 }
+
+#[test]
+fn test_passmanager_ssh_keygen_persists_a_complete_pair_for_each_algorithm() {
+    let (mut router, tmp, keystore) = create_test_router_with_keystore();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "passmanager:entry:save",
+        serde_json::json!({"id":"ssh-source", "title":"SSH source"}),
+    )));
+    let mut created = Vec::new();
+    for key_type in ["ed25519", "rsa", "ecdsa"] {
+        let response = router.handle(&RpcRequest::new(
+            "passmanager:ssh:keygen",
+            serde_json::json!({
+                "key_type":key_type, "name":"  Deploy key  ", "comment":"deploy@example.test",
+                "source_entry_id":"ssh-source"
+            }),
+        ));
+        assert_rpc_ok(&response);
+        let result = response.result().unwrap().clone();
+        assert_eq!(
+            result.as_object().unwrap().len(),
+            4,
+            "no private key in generation response"
+        );
+        assert_eq!(result["key_type"], key_type);
+        created.push(result);
+    }
+    drop(router);
+    let storage = chromvoid_core::storage::Storage::new(tmp.path()).unwrap();
+    let mut router = RpcRouter::new(storage).with_keystore(keystore);
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+    let listed = router.handle(&RpcRequest::new(
+        "passmanager:ssh:list",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&listed);
+    let keys = listed.result().unwrap()["sshKeys"].as_array().unwrap();
+    assert_eq!(keys.len(), 3);
+    for result in created {
+        let key_id = result["key_id"].as_str().unwrap();
+        let metadata = keys.iter().find(|key| key["id"] == key_id).unwrap();
+        assert_eq!(metadata["name"], "Deploy key");
+        assert_eq!(metadata["sourceEntryId"], "ssh-source");
+        assert_eq!(metadata["fingerprint"], result["fingerprint"]);
+        assert!(metadata["createdTs"].as_u64().unwrap() > 0);
+        let private_response = router.handle(&RpcRequest::new(
+            "passmanager:ssh:secret:read",
+            serde_json::json!({
+                "key_id":key_id, "secret_type":"ssh_private_key"
+            }),
+        ));
+        assert_rpc_ok(&private_response);
+        let private = ssh_key::PrivateKey::from_openssh(
+            private_response.result().unwrap()["value"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(!private.is_encrypted()); // Vault encryption remains the storage boundary.
+        assert_eq!(
+            private.public_key().to_openssh().unwrap(),
+            result["public_key_openssh"]
+        );
+        assert_eq!(
+            private.fingerprint(ssh_key::HashAlg::Sha256).to_string(),
+            result["fingerprint"]
+        );
+        assert_eq!(private.comment(), "deploy@example.test");
+        match result["key_type"].as_str().unwrap() {
+            "ed25519" => assert_eq!(private.algorithm(), ssh_key::Algorithm::Ed25519),
+            "rsa" => assert_eq!(
+                private
+                    .key_data()
+                    .rsa()
+                    .unwrap()
+                    .public
+                    .n
+                    .as_positive_bytes()
+                    .unwrap()
+                    .len(),
+                512
+            ),
+            "ecdsa" => assert_eq!(
+                private.algorithm(),
+                ssh_key::Algorithm::Ecdsa {
+                    curve: ssh_key::EcdsaCurve::NistP256
+                }
+            ),
+            _ => unreachable!(),
+        }
+        let public_response = router.handle(&RpcRequest::new(
+            "passmanager:ssh:secret:read",
+            serde_json::json!({
+                "key_id":key_id, "secret_type":"ssh_public_key"
+            }),
+        ));
+        assert_rpc_ok(&public_response);
+        assert_eq!(
+            public_response.result().unwrap()["value"],
+            result["public_key_openssh"]
+        );
+    }
+}
+
+#[test]
+fn test_passmanager_ssh_keygen_rejects_invalid_input_without_creating_keys() {
+    let (mut router, _tmp) = create_test_router();
+    assert_rpc_error(
+        &router.handle(&RpcRequest::new(
+            "passmanager:ssh:keygen",
+            serde_json::json!({"key_type":"ed25519"}),
+        )),
+        "VAULT_REQUIRED",
+    );
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+    for payload in [
+        serde_json::json!({"key_type":"dsa"}),
+        serde_json::json!({"key_type":"ed25519", "name":"x".repeat(257)}),
+        serde_json::json!({"key_type":"ed25519", "comment":"first\nsecond"}),
+        serde_json::json!({"key_type":"ed25519", "private_key":"unexpected"}),
+    ] {
+        assert_rpc_error(
+            &router.handle(&RpcRequest::new("passmanager:ssh:keygen", payload)),
+            "EMPTY_PAYLOAD",
+        );
+    }
+    assert_rpc_error(
+        &router.handle(&RpcRequest::new(
+            "passmanager:ssh:keygen",
+            serde_json::json!({"key_type":"ed25519", "source_entry_id":"missing"}),
+        )),
+        "NODE_NOT_FOUND",
+    );
+    let listed = router.handle(&RpcRequest::new(
+        "passmanager:ssh:list",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&listed);
+    assert_eq!(listed.result().unwrap()["sshKeys"], serde_json::json!([]));
+}
+
+#[test]
+fn test_passmanager_ssh_keygen_storage_failure_leaves_no_partial_pair() {
+    let (mut router, tmp, keystore) = create_test_router_with_keystore();
+    assert_rpc_ok(&unlock_vault(&mut router, "pw"));
+    // Temporarily replace this synthetic vault's directory with a regular file.
+    // Metadata is initially absent, so failure happens while committing the new pair.
+    let backup = tempfile::tempdir().unwrap();
+    let saved = backup.path().join("vault");
+    std::fs::rename(tmp.path(), &saved).unwrap();
+    std::fs::write(tmp.path(), b"blocked test storage").unwrap();
+    let response = router.handle(&RpcRequest::new(
+        "passmanager:ssh:keygen",
+        serde_json::json!({"key_type":"ed25519", "name":"Must not survive"}),
+    ));
+    std::fs::remove_file(tmp.path()).unwrap();
+    std::fs::rename(saved, tmp.path()).unwrap();
+    assert!(
+        !response.is_ok(),
+        "storage failure must not report a generated key"
+    );
+    assert!(
+        router
+            .session()
+            .unwrap()
+            .catalog()
+            .find_by_path("/.passmanager/.ssh")
+            .is_none(),
+        "failed commit must not publish orphan secret nodes"
+    );
+    let listed = router.handle(&RpcRequest::new(
+        "passmanager:ssh:list",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&listed);
+    assert_eq!(listed.result().unwrap()["sshKeys"], serde_json::json!([]));
+    drop(router);
+    let storage = chromvoid_core::storage::Storage::new(tmp.path()).unwrap();
+    let mut reopened = RpcRouter::new(storage).with_keystore(keystore);
+    assert_rpc_ok(&unlock_vault(&mut reopened, "pw"));
+    assert!(
+        reopened
+            .session()
+            .unwrap()
+            .catalog()
+            .find_by_path("/.passmanager/.ssh")
+            .is_none(),
+        "failed commit must not persist orphan secret nodes"
+    );
+    let listed = reopened.handle(&RpcRequest::new(
+        "passmanager:ssh:list",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&listed);
+    assert_eq!(listed.result().unwrap()["sshKeys"], serde_json::json!([]));
+    let exported = reopened.handle(&RpcRequest::new(
+        "passmanager:root:export",
+        serde_json::json!({}),
+    ));
+    assert_rpc_ok(&exported);
+    assert_eq!(
+        exported.result().unwrap()["root"]["sshKeys"],
+        serde_json::json!([])
+    );
+}

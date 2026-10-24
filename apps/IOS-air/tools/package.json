@@ -1,0 +1,10 @@
+{
+  "name": "@chromvoid/ios-air-tools",
+  "private": true,
+  "scripts": {
+    "quicktype": "quicktype"
+  },
+  "devDependencies": {
+    "quicktype": "26.0.0"
+  }
+}

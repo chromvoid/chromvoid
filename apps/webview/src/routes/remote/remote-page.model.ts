@@ -69,7 +69,9 @@ export class RemotePageModel {
         remoteStatus: this.remoteStatus(),
         syncSnapshot: this.syncSnapshot(),
         usbStatus: this.remoteHosts.usb.status(),
+        activeUsbErrorCode: this.remoteHosts.usb.activeErrorCode(),
         lastActiveHost: this.remoteHosts.usb.lastActiveHost(),
+        silentPhoneHost: this.remoteHosts.usb.silentPhoneRecoveryHost(),
         usbPanelOpen: this.remoteHosts.view() === 'usb-mobile',
         usbErrorText: this.remoteHosts.usb.errorText(),
         switchingToLocal: this.modeSwitching(),
@@ -216,6 +218,24 @@ export class RemotePageModel {
   openUsbMobile = (): void => {
     if (!this.remoteHosts.openUsbMobile({scan: true})) return
     navigationModel.navigateToRemotePanel('usb-mobile')
+  }
+
+  retryUsbSession = (): void => {
+    const hostId = this.remoteHosts.usb.silentPhoneRecoveryHostId()
+    if (hostId) {
+      void this.remoteHosts.connectUsbPairedHost(hostId)
+    } else if (this.remoteHosts.openUsbMobile()) {
+      navigationModel.navigateToRemotePanel('usb-mobile')
+    }
+  }
+
+  forgetUsbSessionPhone = async (): Promise<void> => {
+    const hostId = this.remoteHosts.usb.silentPhoneRecoveryHostId()
+    if (!hostId) return
+    const removed = await wrap(this.remoteHosts.removeUsbPairedHost(hostId))
+    if (removed && this.remoteHosts.openUsbMobile()) {
+      navigationModel.navigateToRemotePanel('usb-mobile')
+    }
   }
 
   backToHosts = (): void => {

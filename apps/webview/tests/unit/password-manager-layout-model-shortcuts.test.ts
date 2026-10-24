@@ -26,8 +26,8 @@ function createKeyboardEvent(
 function setupRuntime(platform: KeyboardShortcutPlatform) {
   setRuntimeCapabilities({
     platform,
-    desktop: platform !== 'android' && platform !== 'ios',
-    mobile: platform === 'android' || platform === 'ios',
+    desktop: platform !== 'ios',
+    mobile: platform === 'ios',
   })
 }
 
@@ -176,23 +176,21 @@ describe('PasswordManagerLayoutModel shortcut guards', () => {
     }
   })
 
-  it('does not resolve desktop create or copy shortcuts on Android and iOS', () => {
-    for (const platform of ['android', 'ios'] as const) {
-      setupRuntime(platform)
-      const model = new PasswordManagerLayoutModel()
-      const target = document.createElement('div')
-      const createEvent = createKeyboardEvent('n', target, [target, document.body, document, window], {
-        code: 'KeyN',
-        ctrlKey: true,
-      })
-      const copyEvent = createKeyboardEvent('c', target, [target, document.body, document, window], {
-        code: 'KeyC',
-        ctrlKey: true,
-      })
+  it('does not resolve desktop create or copy shortcuts on iOS', () => {
+    setupRuntime('ios')
+    const model = new PasswordManagerLayoutModel()
+    const target = document.createElement('div')
+    const createEvent = createKeyboardEvent('n', target, [target, document.body, document, window], {
+      code: 'KeyN',
+      ctrlKey: true,
+    })
+    const copyEvent = createKeyboardEvent('c', target, [target, document.body, document, window], {
+      code: 'KeyC',
+      ctrlKey: true,
+    })
 
-      expect(model.resolveGlobalShortcut(createEvent, false)).toBe('none')
-      expect(model.resolveGlobalShortcut(copyEvent, false)).toBe('none')
-    }
+    expect(model.resolveGlobalShortcut(createEvent, false)).toBe('none')
+    expect(model.resolveGlobalShortcut(copyEvent, false)).toBe('none')
   })
 
   it('keeps focus, clear, back, and enter contextual shortcuts unchanged', () => {

@@ -58,7 +58,9 @@ function derive(
     },
     syncSnapshot,
     usbStatus: usbStatus('transport_ready_host_locked'),
+    activeUsbErrorCode: overrides.usbStatus?.error_code ?? null,
     lastActiveHost: host,
+    silentPhoneHost: null,
     usbPanelOpen: false,
     usbErrorText: null,
     switchingToLocal: false,
@@ -141,6 +143,75 @@ describe('desktop USB Remote session presentation', () => {
       errorCode: 'ERR_USB_MOBILE_CABLE_DISCONNECTED',
       errorText: 'USB session ended',
     })
+  })
+
+  it('uses only the failed phone identity for silent-phone recovery', () => {
+    const failedHost: MobileUsbHostView = {...host, host_id: 'usb-host-2', label: 'Phone B'}
+
+    expect(
+      derive({
+        usbStatus: usbStatus('error', {error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'}),
+        silentPhoneHost: failedHost,
+      }),
+    ).toMatchObject({
+      stage: 'error',
+      host: {hostId: 'usb-host-2', label: 'Phone B'},
+      errorCode: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+    })
+  })
+
+  it('keeps silent-phone recovery generic when the failed phone is unknown', () => {
+    expect(
+      derive({
+        usbStatus: usbStatus('error', {error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'}),
+      }),
+    ).toMatchObject({
+      stage: 'error',
+      host: null,
+      errorCode: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+    })
+  })
+
+  it('does not revive a dismissed silent-phone error from the raw USB status', () => {
+    expect(
+      derive({
+        currentMode: 'local',
+        lastActiveHost: null,
+        usbStatus: usbStatus('error', {
+          active_host: null,
+          error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+        }),
+        activeUsbErrorCode: null,
+      }),
+    ).toBeNull()
+  })
+
+  it('presents the active silent-phone error before the raw status receives its code', () => {
+    expect(
+      derive({
+        currentMode: 'local',
+        lastActiveHost: null,
+        usbStatus: null,
+        activeUsbErrorCode: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+      }),
+    ).toMatchObject({
+      stage: 'error',
+      host: null,
+      errorCode: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+    })
+  })
+
+  it('does not present other errors without a USB host identity', () => {
+    expect(
+      derive({
+        currentMode: 'local',
+        lastActiveHost: null,
+        usbStatus: usbStatus('error', {
+          active_host: null,
+          error_code: 'ERR_USB_MOBILE_HANDSHAKE_FAILED',
+        }),
+      }),
+    ).toBeNull()
   })
 
   it('does not replace the network or pre-connect USB flows', () => {

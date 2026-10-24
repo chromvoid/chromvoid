@@ -2,25 +2,35 @@
 
 mod catalog;
 mod command;
+mod credential_import;
 mod credential_provider;
 mod env_runtime;
 mod otp;
 mod passkeys;
+mod passmanager;
+mod passmanager_root;
 mod result;
+mod ssh;
 mod sync;
 mod vault;
 mod wallet;
+mod websites;
 
 pub use catalog::*;
 pub use command::*;
+pub use credential_import::*;
 pub use credential_provider::*;
 pub use env_runtime::*;
 pub use otp::*;
 pub use passkeys::*;
+pub use passmanager::*;
+pub use passmanager_root::*;
 pub use result::*;
+pub use ssh::*;
 pub use sync::*;
 pub use vault::*;
 pub use wallet::*;
+pub use websites::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -38,10 +48,10 @@ pub const CORE_FEATURE_REMOTE_RPC_PRIORITY_LOCK_V1: &str = "remote_rpc_priority_
 pub const CORE_FEATURE_REMOTE_STREAM_CONTROL_V1: &str = "remote_stream_control_v1";
 pub const CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1: &str =
     "remote_image_derivative_ensure_v1";
-pub const CORE_FEATURE_PRO_ENTITLEMENTS_SNAPSHOT_V1: &str = "pro_entitlements_snapshot_v1";
 pub const CORE_FEATURE_WALLET_DOMAIN_BASE_V1: &str = "wallet_domain_base_v1";
 pub const CORE_FEATURE_WALLET_CORE_BTC_ETH_V1: &str = "wallet_core_btc_eth_v1";
 pub const CORE_FEATURE_WALLET_CORE_TON_V1: &str = "wallet_core_ton_v1";
+pub const CORE_FEATURE_WALLET_CORE_SOL_V1: &str = "wallet_core_sol_v1";
 pub const CORE_FEATURE_CATALOG_REPAIR_V1: &str = "catalog_repair_v1";
 pub const CORE_FEATURE_CATALOG_TRASH_V1: &str = "catalog_trash_v1";
 pub const CORE_FEATURE_CATALOG_EXCHANGE_V1: &str = "catalog_exchange_v1";
@@ -57,7 +67,6 @@ pub fn core_capability_features() -> Vec<String> {
         CORE_FEATURE_REMOTE_RPC_PRIORITY_LOCK_V1.to_string(),
         CORE_FEATURE_REMOTE_STREAM_CONTROL_V1.to_string(),
         CORE_FEATURE_REMOTE_IMAGE_DERIVATIVE_ENSURE_V1.to_string(),
-        CORE_FEATURE_PRO_ENTITLEMENTS_SNAPSHOT_V1.to_string(),
         CORE_FEATURE_CATALOG_REPAIR_V1.to_string(),
         CORE_FEATURE_CATALOG_TRASH_V1.to_string(),
         CORE_FEATURE_CATALOG_EXCHANGE_V1.to_string(),
@@ -79,6 +88,7 @@ pub struct CoreCapabilitiesResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct RpcRequest {
     /// Protocol version
     pub v: u8,
@@ -130,6 +140,7 @@ impl<T> RpcSuccess<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct RpcError {
     /// Always false for error
     pub ok: bool,

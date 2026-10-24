@@ -2,8 +2,8 @@ use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use chromvoid_core::rpc::types::RpcResponse;
-use serde_json::{json, Value};
+use chromvoid_client_runtime::provider::response_envelope;
+use serde_json::Value;
 use tracing::{error, info, warn};
 
 use crate::core_adapter::CoreAdapter;
@@ -224,22 +224,12 @@ fn handle_extension_request(adapter: Option<&Arc<Mutex<Box<dyn CoreAdapter>>>>) 
         Some(adapter) => super::dispatch_provider_rpc(adapter, &command, data),
         None => super::provider_bridge_unavailable_response(),
     };
-    let response = response_for_user_defaults(&command, &request_id, response);
-
-    // Build response envelope
-    let response_payload = match response {
-        RpcResponse::Success { ok: _, result } => json!({
-            "request_id": request_id,
-            "success": true,
-            "result": result,
-        }),
-        RpcResponse::Error { ok: _, error, code } => json!({
-            "request_id": request_id,
-            "success": false,
-            "error": error,
-            "error_code": code,
-        }),
-    };
+    let response_payload = response_envelope(
+        &command,
+        &request_id,
+        response,
+        super::secret_store::store_response,
+    );
 
     // Write response and notify Extension
     write_app_group_json(RESPONSE_KEY, &response_payload);
@@ -249,43 +239,4 @@ fn handle_extension_request(adapter: Option<&Arc<Mutex<Box<dyn CoreAdapter>>>>) 
         "credential_provider_bridge: response sent for command={} request_id={}",
         command, request_id
     );
-}
-
-fn response_for_user_defaults(
-    command: &str,
-    request_id: &str,
-    response: RpcResponse,
-) -> RpcResponse {
-    match response {
-        RpcResponse::Success { ok: _, result } if is_secret_bearing_command(command) => {
-            match super::secret_store::secret_ref_result_for_response(request_id, result) {
-                Ok(secret_ref_result) => RpcResponse::success(secret_ref_result),
-                Err(error) => RpcResponse::error(error, Some("INTERNAL".to_string())),
-            }
-        }
-        other => other,
-    }
-}
-
-fn is_secret_bearing_command(command: &str) -> bool {
-    matches!(
-        command,
-        "credential_provider:getSecret" | "credential_provider:getOneTimeCode"
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn only_secret_bearing_provider_responses_use_keychain_transport() {
-        assert!(super::is_secret_bearing_command(
-            "credential_provider:getSecret"
-        ));
-        assert!(super::is_secret_bearing_command(
-            "credential_provider:getOneTimeCode"
-        ));
-        assert!(!super::is_secret_bearing_command(
-            "credential_provider:search"
-        ));
-    }
 }

@@ -1,7 +1,6 @@
 //! RPC command dispatch — routes incoming requests to domain handlers
 
 use crate::error::ErrorCode;
-use crate::license::SignedCert;
 use crate::rpc::commands::{
     handle_catalog_shard_compact_request, handle_catalog_shard_list_request,
     handle_catalog_shard_load_request, handle_catalog_shard_sync_request, *,
@@ -10,7 +9,7 @@ use crate::rpc::stream::{RpcInputStream, RpcReply};
 use crate::rpc::types::{CoreCapabilitiesResponse, RpcRequest, RpcResponse, PROTOCOL_VERSION};
 
 use super::state::RpcRouter;
-use crate::rpc::request_parse::{optional_value, required_str, required_u64};
+use crate::rpc::request_parse::{required_str, required_u64};
 
 fn require_stream_node_gate(
     session: &crate::vault::VaultSession,
@@ -32,30 +31,7 @@ fn require_stream_node_gate(
     Ok(())
 }
 
-fn parse_license_install_cert(data: &serde_json::Value) -> Result<SignedCert, RpcResponse> {
-    let cert_value = optional_value(data, "cert").unwrap_or(data);
-    serde_json::from_value::<SignedCert>(cert_value.clone()).map_err(|error| {
-        RpcResponse::error(
-            format!("Invalid license cert payload: {error}"),
-            Some(ErrorCode::EmptyPayload),
-        )
-    })
-}
-
 impl RpcRouter {
-    pub(super) fn require_pro_feature(&self, feature_key: &str) -> Option<RpcResponse> {
-        let Some(license_store) = &self.license_store else {
-            return None;
-        };
-        if license_store.is_pro_enabled_for_guards() {
-            return None;
-        }
-        Some(RpcResponse::error(
-            format!("Pro license required for {feature_key}"),
-            Some("PRO_REQUIRED"),
-        ))
-    }
-
     /// Handle an RPC request
     pub fn handle(&mut self, request: &RpcRequest) -> RpcResponse {
         // Check protocol version
@@ -97,6 +73,7 @@ impl RpcRouter {
                 }
                 "wallet:transactions:sync" => self.handle_wallet_transactions_sync(&request.data),
                 "wallet:backup:export" => self.handle_wallet_backup_export(&request.data),
+                "wallet:ton:rotateKey" => self.handle_wallet_ton_rotate_key(&request.data),
                 "wallet:spendAuthorization:create" => {
                     self.handle_wallet_spend_authorization_create(&request.data)
                 }
@@ -113,12 +90,17 @@ impl RpcRouter {
                 "wallet:addressBook:delete" => {
                     self.handle_wallet_address_book_delete(&request.data)
                 }
+                "wallet:address:detect" => self.handle_wallet_address_detect(&request.data),
                 _ => RpcResponse::error(
                     format!("Unknown command: {}", request.command),
                     Some(ErrorCode::InternalError),
                 ),
             };
             return self.observe_wallet_rpc_response(&request.command, started_at, response);
+        }
+
+        if let Err(response) = self.guard_storage_command(&request.command) {
+            return response;
         }
 
         // Route command
@@ -130,56 +112,6 @@ impl RpcRouter {
                 protocol_version: PROTOCOL_VERSION,
                 features: self.core_capability_features(),
             }),
-            "license:fingerprint" => match &self.license_store {
-                Some(store) => match store.device_fingerprint() {
-                    Ok(device_fingerprint) => RpcResponse::success(
-                        serde_json::json!({ "device_fingerprint": device_fingerprint }),
-                    ),
-                    Err(error) => RpcResponse::error(error, Some("ENTITLEMENT_UNAVAILABLE")),
-                },
-                None => {
-                    RpcResponse::error("License store unavailable", Some("ENTITLEMENT_UNAVAILABLE"))
-                }
-            },
-            "license:install" => match &self.license_store {
-                Some(store) => match parse_license_install_cert(&request.data) {
-                    Ok(cert) => match store.install_cert(cert) {
-                        Ok(snapshot) => RpcResponse::success(snapshot),
-                        Err(error) => RpcResponse::error(error, Some("LICENSE_INVALID")),
-                    },
-                    Err(response) => response,
-                },
-                None => {
-                    RpcResponse::error("License store unavailable", Some("ENTITLEMENT_UNAVAILABLE"))
-                }
-            },
-            "license:cert" => match &self.license_store {
-                Some(store) => match store.current_cert() {
-                    Ok(cert) => RpcResponse::success(cert),
-                    Err(error) if error == "License cert not installed" => {
-                        RpcResponse::error(error, Some("LICENSE_NOT_FOUND"))
-                    }
-                    Err(error) => RpcResponse::error(error, Some("LICENSE_INVALID")),
-                },
-                None => {
-                    RpcResponse::error("License store unavailable", Some("ENTITLEMENT_UNAVAILABLE"))
-                }
-            },
-            "license:uninstall" => match &self.license_store {
-                Some(store) => match store.uninstall_cert() {
-                    Ok(snapshot) => RpcResponse::success(snapshot),
-                    Err(error) => RpcResponse::error(error, Some("LICENSE_UNINSTALL_FAILED")),
-                },
-                None => {
-                    RpcResponse::error("License store unavailable", Some("ENTITLEMENT_UNAVAILABLE"))
-                }
-            },
-            "license:status" => match &self.license_store {
-                Some(store) => RpcResponse::success(store.status()),
-                None => RpcResponse::success(crate::license::EntitlementSnapshot::free(
-                    crate::license::BuildPolicy::default_for_build(),
-                )),
-            },
 
             // Vault commands
             "vault:unlock" => self.handle_vault_unlock(&request.data),
@@ -245,6 +177,11 @@ impl RpcRouter {
             "catalog:file-links:resolve" => {
                 self.with_session(|s| handle_catalog_file_links_resolve(s, &request.data))
             }
+            "catalog:document:resolve-link" => {
+                self.with_session(|s| handle_catalog_document_link(s, &request.data))
+            }
+            "catalog:attachment:prepare" => self
+                .commit_catalog_mutation(|s| handle_catalog_attachment_prepare(s, &request.data)),
             "catalog:createDir" => {
                 self.commit_catalog_mutation(|s| handle_catalog_create_dir(s, &request.data))
             }
@@ -333,6 +270,11 @@ impl RpcRouter {
             "passmanager:secret:save" => self.handle_passmanager_secret_save(&request.data),
             "passmanager:secret:read" => self.handle_passmanager_secret_read(&request.data),
             "passmanager:secret:delete" => self.handle_passmanager_secret_delete(&request.data),
+            "passmanager:ssh:key:import" => self.handle_passmanager_ssh_import(&request.data),
+            "passmanager:ssh:key:export" => self.handle_passmanager_ssh_export(&request.data),
+            "passmanager:ssh:keygen" => self.handle_passmanager_ssh_keygen(&request.data),
+            "passmanager:ssh:page" => self.handle_passmanager_ssh_page(&request.data),
+            "passmanager:ssh:key:edit" => self.handle_passmanager_ssh_edit(&request.data),
             "passmanager:ssh:list" => self.handle_passmanager_ssh_list(&request.data),
             "passmanager:ssh:key:update" => self.handle_passmanager_ssh_key_update(&request.data),
             "passmanager:ssh:key:delete" => self.handle_passmanager_ssh_key_delete(&request.data),
@@ -341,12 +283,28 @@ impl RpcRouter {
             "passmanager:ssh:secret:delete" => {
                 self.handle_passmanager_ssh_secret_delete(&request.data)
             }
+            "passmanager:tag:page" => self.handle_passmanager_tag_page(&request.data),
+            "passmanager:tag:save" => self.handle_passmanager_tag_save(&request.data),
+            "passmanager:tag:delete" => self.handle_passmanager_tag_delete(&request.data),
+            "passmanager:group:page" => self.handle_passmanager_group_page(&request.data),
+            "passmanager:group:rename" => self.handle_passmanager_group_rename(&request.data),
             "passmanager:group:ensure" => self.handle_passmanager_group_ensure(&request.data),
             "passmanager:group:setMeta" => self.handle_passmanager_group_set_meta(&request.data),
             "passmanager:group:list" => self.handle_passmanager_group_list(&request.data),
             "passmanager:group:delete" => self.handle_passmanager_group_delete(&request.data),
             "passmanager:tags:setCatalog" => {
                 self.handle_passmanager_tags_set_catalog(&request.data)
+            }
+            "passmanager:import:limits"
+            | "passmanager:import:start"
+            | "passmanager:import:append"
+            | "passmanager:import:review"
+            | "passmanager:import:commit"
+            | "passmanager:import:cancel" => {
+                self.handle_passmanager_import(&request.command, &request.data)
+            }
+            "passmanager:root:import:preview" => {
+                self.handle_passmanager_root_import_preview(&request.data)
             }
             "passmanager:root:import" => self.handle_passmanager_root_import(&request.data),
             "passmanager:root:export" => self.handle_passmanager_root_export(&request.data),
@@ -356,6 +314,9 @@ impl RpcRouter {
             "passmanager:icon:list" => self.handle_passmanager_icon_list(&request.data),
             "passmanager:icon:setMeta" => self.handle_passmanager_icon_set_meta(&request.data),
             "passmanager:icon:gc" => self.handle_passmanager_icon_gc(&request.data),
+            "passmanager:securityAudit:page" => {
+                self.handle_passmanager_security_audit_page(&request.data)
+            }
             "passmanager:securityAudit:get" => {
                 self.handle_passmanager_security_audit_get(&request.data)
             }
@@ -363,6 +324,16 @@ impl RpcRouter {
                 self.handle_passmanager_security_audit_set(&request.data)
             }
             "passmanager:otp:setSecret" => self.handle_passmanager_otp_set_secret(&request.data),
+            "passmanager:password:generate" => {
+                self.handle_passmanager_password_generate(&request.data)
+            }
+            "passmanager:otp:parseUri" => self.handle_passmanager_otp_parse_uri(&request.data),
+            "passmanager:otp:record:list" => self.handle_passmanager_otp_record_list(&request.data),
+            "passmanager:otp:record:save" => self.handle_passmanager_otp_record_save(&request.data),
+            "passmanager:otp:record:delete" => {
+                self.handle_passmanager_otp_record_delete(&request.data)
+            }
+            "passmanager:otp:record:code" => self.handle_passmanager_otp_record_code(&request.data),
             "passmanager:otp:generate" => self.handle_passmanager_otp_generate(&request.data),
             "passmanager:otp:preview" => self.handle_passmanager_otp_preview(&request.data),
             "passmanager:otp:removeSecret" => {
@@ -381,6 +352,18 @@ impl RpcRouter {
             "passmanager:entry:delete" => self.handle_passmanager_entry_delete(&request.data),
             "passmanager:entry:move" => self.handle_passmanager_entry_move(&request.data),
             "passmanager:entry:rename" => self.handle_passmanager_entry_rename(&request.data),
+            "passmanager:entry:websites:read" => {
+                self.handle_passmanager_website_read(&request.data)
+            }
+            "passmanager:entry:websites:validate" => {
+                self.handle_passmanager_website_validate(&request.data)
+            }
+            "passmanager:entry:websites:update" => {
+                self.handle_passmanager_website_update(&request.data)
+            }
+            "passmanager:entry:detail" => self.handle_passmanager_entry_detail(&request.data),
+            "passmanager:entry:update" => self.handle_passmanager_entry_update(&request.data),
+            "passmanager:entry:page" => self.handle_passmanager_entry_page(&request.data),
             "passmanager:entry:list" => self.handle_passmanager_entry_list(&request.data),
 
             // ADR-004: subscription commands (no-op in Core; embedding layer consumes events)
@@ -411,7 +394,7 @@ impl RpcRouter {
                     RpcResponse::error("Unexpected upload stream", Some(ErrorCode::InternalError))
                 }
             },
-            "catalog:upload:abort" => self.handle_catalog_upload_abort(),
+            "catalog:upload:abort" => self.handle_catalog_upload_abort(&request.data),
             "catalog:file:replace" => self.with_session(|s| {
                 if let Err(response) = require_stream_node_gate(s, &request.data, true) {
                     return response;
@@ -538,30 +521,22 @@ impl RpcRouter {
             "credential_provider:session:close" => {
                 self.credential_provider_close_session(&request.data)
             }
-            "credential_provider:list" => self
-                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
-                .unwrap_or_else(|| self.credential_provider_list(&request.data)),
-            "credential_provider:search" => self
-                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
-                .unwrap_or_else(|| self.credential_provider_search(&request.data)),
-            "credential_provider:getSecret" => self
-                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
-                .unwrap_or_else(|| self.credential_provider_get_secret(&request.data)),
-            "credential_provider:getOneTimeCode" => self
-                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
-                .unwrap_or_else(|| self.credential_provider_get_one_time_code(&request.data)),
-            "credential_provider:recordUse" => self
-                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
-                .unwrap_or_else(|| self.credential_provider_record_use(&request.data)),
-            "credential_provider:passkey:create" => self
-                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
-                .unwrap_or_else(|| self.credential_provider_passkey_create(&request.data)),
-            "credential_provider:passkey:get" => self
-                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
-                .unwrap_or_else(|| self.credential_provider_passkey_get(&request.data)),
-            "credential_provider:passkey:query" => self
-                .require_pro_feature(crate::license::PRO_FEATURE_CREDENTIAL_PROVIDER)
-                .unwrap_or_else(|| self.credential_provider_passkey_query(&request.data)),
+            "credential_provider:list" => self.credential_provider_list(&request.data),
+            "credential_provider:search" => self.credential_provider_search(&request.data),
+            "credential_provider:getSecret" => self.credential_provider_get_secret(&request.data),
+            "credential_provider:getOneTimeCode" => {
+                self.credential_provider_get_one_time_code(&request.data)
+            }
+            "credential_provider:recordUse" => self.credential_provider_record_use(&request.data),
+            "credential_provider:passkey:create" => {
+                self.credential_provider_passkey_create(&request.data)
+            }
+            "credential_provider:passkey:get" => {
+                self.credential_provider_passkey_get(&request.data)
+            }
+            "credential_provider:passkey:query" => {
+                self.credential_provider_passkey_query(&request.data)
+            }
 
             // Unknown command
             _ => RpcResponse::error(
@@ -581,6 +556,9 @@ impl RpcRouter {
         request: &RpcRequest,
         stream: Option<RpcInputStream>,
     ) -> RpcReply {
+        if let Err(response) = self.guard_storage_command(&request.command) {
+            return RpcReply::Json(response);
+        }
         match request.command.as_str() {
             "catalog:upload" => self.handle_catalog_upload_stream(&request.data, stream),
             "catalog:file:replace" => {

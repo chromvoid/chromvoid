@@ -2,7 +2,6 @@
 
 use crate::crypto::keystore::Keystore;
 use crate::error::ErrorCode;
-use crate::license::LicenseStore;
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 use crate::wallet::{
@@ -66,7 +65,8 @@ pub struct RpcRouter {
 
     /// Platform keystore for device-local secrets (portable pepper, etc.)
     pub(super) keystore: Option<Arc<dyn Keystore>>,
-    pub(super) license_store: Option<LicenseStore>,
+
+    pub(super) storage_mutation_guard: crate::rpc::StorageMutationGuard,
 
     pub(super) erase_token: Option<EraseTokenState>,
 
@@ -99,7 +99,7 @@ impl RpcRouter {
             session: None,
             master_key: None,
             keystore: None,
-            license_store: None,
+            storage_mutation_guard: crate::rpc::StorageMutationGuard::default(),
             erase_token: None,
             long_running_sessions: LongRunningSessions::default(),
             event_queue: RouterEventQueue::default(),
@@ -131,6 +131,7 @@ impl RpcRouter {
             backup_local_ms: ttl_ms,
             restore_local_ms: ttl_ms,
             vault_export_ms: ttl_ms,
+            credential_import_ms: ttl_ms,
         };
         self
     }
@@ -149,9 +150,26 @@ impl RpcRouter {
         self
     }
 
-    pub fn with_license_store(mut self, license_store: LicenseStore) -> Self {
-        self.license_store = Some(license_store);
+    pub fn with_storage_mutation_guard(mut self, guard: crate::rpc::StorageMutationGuard) -> Self {
+        self.storage_mutation_guard = guard;
         self
+    }
+
+    pub fn storage_mutation_guard(&self) -> crate::rpc::StorageMutationGuard {
+        self.storage_mutation_guard.clone()
+    }
+
+    pub fn ensure_storage_mutation_allowed(&self) -> Result<(), RpcResponse> {
+        self.storage_mutation_guard
+            .check()
+            .map_err(crate::rpc::StorageMutationError::into_rpc_response)
+    }
+
+    pub(super) fn guard_storage_command(&self, command: &str) -> Result<(), RpcResponse> {
+        if crate::rpc::StorageMutationGuard::protects_command(command) {
+            self.ensure_storage_mutation_allowed()?;
+        }
+        Ok(())
     }
 
     pub fn with_master_key(mut self, master_key: impl Into<String>) -> Self {
@@ -194,6 +212,12 @@ impl RpcRouter {
         {
             features.push(crate::rpc::types::CORE_FEATURE_WALLET_CORE_TON_V1.to_string());
         }
+        if self
+            .wallet_chain_registry
+            .has_enabled_profile("solana", &self.wallet_runtime_config)
+        {
+            features.push(crate::rpc::types::CORE_FEATURE_WALLET_CORE_SOL_V1.to_string());
+        }
         features
     }
 
@@ -207,6 +231,14 @@ impl RpcRouter {
     /// Check if vault is unlocked
     pub fn is_unlocked(&self) -> bool {
         self.session.is_some()
+    }
+
+    /// Safe bootstrap metadata; callers do not inspect storage artifacts themselves.
+    pub fn master_is_configured(&self) -> Result<bool, RpcResponse> {
+        self.master_verify_exists().map_err(|error| {
+            let (message, code) = error.into_parts();
+            RpcResponse::error(message, code)
+        })
     }
 
     /// Get the current session (if unlocked)
@@ -290,8 +322,11 @@ impl RpcRouter {
         if let Some(session) = &mut self.session {
             self.derivative_index_state
                 .flush(&self.storage, session.vault_key())?;
-            let persisted = session.save(&self.storage)?;
-            self.event_queue.enqueue_catalog_events(persisted);
+            // Catalog dirtiness also covers snapshot-only saves, which produce no deltas.
+            if session.is_dirty() {
+                let persisted = session.save(&self.storage)?;
+                self.event_queue.enqueue_catalog_events(persisted);
+            }
         }
         Ok(())
     }

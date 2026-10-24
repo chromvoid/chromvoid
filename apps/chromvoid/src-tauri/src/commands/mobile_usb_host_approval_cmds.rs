@@ -80,7 +80,4 @@ pub(crate) fn mobile_usb_host_reject_session(
     result
 }
 
-fn cancel_usb_approval_notification() {
-    #[cfg(target_os = "android")]
-    crate::mobile::android::notify_mobile_usb_approval_resolved();
-}
+fn cancel_usb_approval_notification() {}

@@ -700,6 +700,16 @@ describe('Remote USB flow model', () => {
     expect(usb.recoveryAction()).toBe('remove_and_repair')
 
     usb.status.set(
+      baseStatus({session_state: 'error', error_code: 'ERR_USB_MOBILE_HANDSHAKE_FAILED'}),
+    )
+    expect(usb.recoveryAction()).toBe('manual_retry')
+
+    usb.status.set(
+      baseStatus({session_state: 'error', error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'}),
+    )
+    expect(usb.recoveryAction()).toBe('retry_or_repair')
+
+    usb.status.set(
       baseStatus({
         session_state: 'error',
         error_code: 'ERR_USB_MOBILE_PERMISSION_DENIED',
@@ -806,6 +816,138 @@ describe('Remote USB flow model', () => {
 
     await expect(usb.dispatchDesktopAction()).resolves.toBe(true)
     expect(tauriInvoke).toHaveBeenCalledWith('mobile_usb_scan')
+  })
+
+  it('offers retry and optional removal for a silent saved phone without forgetting it automatically', async () => {
+    setRuntimeCapabilities({desktop: true, supports_mobile_usb_remote: true})
+    const usb = new RemoteUsbFlowModel()
+    usb.pairedHosts.set([pairedHost()])
+    tauriInvoke.mockRejectedValueOnce(new Error('ERR_USB_MOBILE_PHONE_NOT_RESPONDING: no response'))
+
+    await expect(usb.connectPairedHost('host-1')).resolves.toBe(false)
+
+    expect(usb.activeErrorCode()).toBe('ERR_USB_MOBILE_PHONE_NOT_RESPONDING')
+    expect(usb.recoveryAction()).toBe('retry_or_repair')
+    expect(usb.pairedHosts()).toEqual([pairedHost()])
+    expect(usb.desktopPresentation()).toMatchObject({
+      recoveryCta: {action: {kind: 'connect', hostId: 'host-1'}, label: 'Try again'},
+      secondaryRecoveryCta: {action: {kind: 'remove', hostId: 'host-1'}, label: 'Forget phone'},
+      showPrimaryAction: true,
+    })
+    expect(tauriInvoke.mock.calls.map(([command]) => command)).toEqual(['mobile_usb_connect'])
+
+    tauriInvoke.mockResolvedValueOnce(
+      baseStatus({
+        session_state: 'transport_ready_host_locked',
+        active_host: pairedHost(),
+        paired_hosts: [pairedHost()],
+      }),
+    )
+    await expect(usb.dispatchDesktopAction()).resolves.toBe(true)
+
+    expect(tauriInvoke.mock.calls.map(([command]) => command)).toEqual([
+      'mobile_usb_connect',
+      'mobile_usb_connect',
+    ])
+    expect(usb.flowState()).toBe('waiting_host_unlock')
+  })
+
+  it('does not infer a silent-phone target from saved phones or an active host', () => {
+    setRuntimeCapabilities({desktop: true, supports_mobile_usb_remote: true})
+    const usb = new RemoteUsbFlowModel()
+    usb.applyStatusEvent(
+      baseStatus({
+        session_state: 'error',
+        error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+        paired_hosts: [pairedHost()],
+      }),
+    )
+
+    expect(usb.desktopPresentation()).toMatchObject({
+      primaryAction: {kind: 'scan'},
+      secondaryRecoveryCta: null,
+    })
+
+    usb.pairedHosts.set([pairedHost(), pairedHost({host_id: 'host-2'})])
+    expect(usb.desktopPresentation().recoveryCommand).toEqual({kind: 'scan'})
+    expect(usb.desktopPresentation().secondaryRecoveryCta).toBeNull()
+    usb.applyStatusEvent(baseStatus({
+      session_state: 'error',
+      error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+      active_host: pairedHost(),
+      paired_hosts: [pairedHost()],
+    }))
+    expect(usb.desktopPresentation().secondaryRecoveryCta).toBeNull()
+  })
+
+  it('retains the failed connect target across refreshes and clears it for a new attempt and success', async () => {
+    setRuntimeCapabilities({desktop: true, supports_mobile_usb_remote: true})
+    const usb = new RemoteUsbFlowModel()
+    const status = baseStatus({
+      session_state: 'error',
+      error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+      paired_hosts: [pairedHost(), pairedHost({host_id: 'host-2'})],
+    })
+    tauriInvoke.mockRejectedValueOnce(new Error('ERR_USB_MOBILE_PHONE_NOT_RESPONDING'))
+    await usb.connectPairedHost('host-2')
+    expect(usb.silentPhoneRecoveryHostId()).toBe('host-2')
+
+    tauriInvoke.mockResolvedValueOnce(status)
+    await usb.refreshStatus()
+    expect(usb.lastFailedAction()).toBeNull()
+    expect(usb.silentPhoneRecoveryHostId()).toBe('host-2')
+    expect(usb.desktopPresentation().secondaryRecoveryCta?.action).toEqual({kind: 'remove', hostId: 'host-2'})
+
+    const nextConnect = deferred<MobileUsbStatus>()
+    tauriInvoke.mockReturnValueOnce(nextConnect.promise)
+    const connecting = usb.connectPairedHost('host-1')
+    expect(usb.silentPhoneRecoveryHostId()).toBeNull()
+    nextConnect.resolve(baseStatus({session_state: 'remote_dashboard_open', active_host: pairedHost()}))
+    await connecting
+    usb.applyStatusEvent(status)
+    expect(usb.silentPhoneRecoveryHostId()).toBeNull()
+    expect(usb.desktopPresentation().secondaryRecoveryCta).toBeNull()
+  })
+
+  it('requires confirmation before forgetting a silent phone and then offers a fresh pairing', async () => {
+    setRuntimeCapabilities({desktop: true, supports_mobile_usb_remote: true})
+    const model = new RemoteHostsFlowModel()
+    model.usb.applyStatusEvent(
+      baseStatus({
+        session_state: 'error',
+        error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+        paired_hosts: [pairedHost()],
+      }),
+    )
+    const confirm = vi.spyOn(dialogService, 'showConfirmDialog').mockResolvedValueOnce(false)
+
+    await expect(model.removeUsbPairedHost('host-1')).resolves.toBe(false)
+    expect(model.usb.pairedHosts()).toEqual([pairedHost()])
+    expect(model.usb.recoveryAction()).toBe('retry_or_repair')
+    expect(tauriInvoke).not.toHaveBeenCalled()
+
+    confirm.mockResolvedValueOnce(true)
+    tauriInvoke.mockResolvedValueOnce([]).mockResolvedValueOnce([scannedHost()])
+    await expect(model.removeUsbPairedHost('host-1')).resolves.toBe(true)
+
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(tauriInvoke).toHaveBeenCalledWith('mobile_usb_remove_paired', {hostId: 'host-1'})
+    expect(model.usb.pairedHosts()).toEqual([])
+    expect(model.usb.activeErrorCode()).toBeNull()
+    expect(model.usb.status()).toMatchObject({session_state: 'idle_usb_mobile', error_code: null})
+    expect(model.usb.desktopPresentation().recoveryCta).toEqual({
+      action: {kind: 'scan'},
+      label: 'Scan again',
+    })
+
+    await expect(model.dispatchDesktopUsbAction()).resolves.toBe(true)
+    expect(model.usb.flowState()).toBe('unpaired')
+    expect(model.usb.desktopPresentation().primaryAction).toEqual({kind: 'pair', host: scannedHost()})
+    expect(model.usb.desktopPresentation().secondaryRecoveryCta).toBeNull()
+    expect(tauriInvoke.mock.calls.map(([command]) => command)).toEqual([
+      'mobile_usb_remove_paired',
+      'mobile_usb_scan',
+    ])
   })
 
   it('turns confirmed remove-and-repair into a distinct Scan again step and clears stale status', async () => {
@@ -1530,31 +1672,4 @@ describe('Remote USB flow model', () => {
     ])
   })
 
-  it('renders Android mobile host USB/AOA readiness without desktop scan actions', () => {
-    setRuntimeCapabilities({
-      platform: 'android',
-      mobile: true,
-      supports_network_remote: true,
-    })
-    const model = new RemoteHostsFlowModel()
-
-    const container = document.createElement('div')
-    document.body.append(container)
-    render(html`${renderRemoteHostsFlowPanel({model})}`, container)
-
-    expect(model.mobileHostTransports()).toEqual(['wss_relay', 'usb_mobile'])
-    expect(container.querySelector('[data-mobile-host-transports="wss_relay,usb_mobile"]')).not.toBeNull()
-    expect(container.querySelector('[data-mobile-host-transport="wss_relay"]')).not.toBeNull()
-    expect(container.querySelector('[data-mobile-host-usb="android_aoa"]')).not.toBeNull()
-    expect(container.querySelector('[data-mobile-host-usb-state="waiting_accessory"]')).not.toBeNull()
-    expect(container.querySelector('[data-mobile-host-usb-bridge="android_aoa"]')).not.toBeNull()
-    expect(container.querySelector('[data-mobile-host-usb-fallback="disabled"]')).not.toBeNull()
-    expect(container.textContent).toContain('Android Remote Host')
-    expect(container.textContent).toContain('USB Mobile Host')
-    expect(container.textContent).toContain('WSS Relay')
-    expect(container.textContent).toContain('Android AOA')
-    expect(container.textContent).toContain('No network fallback')
-    expect(container.textContent).toContain('Waiting for USB accessory')
-    expect(container.textContent).not.toContain('Scan USB')
-  })
 })

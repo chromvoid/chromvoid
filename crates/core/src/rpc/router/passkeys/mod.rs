@@ -126,6 +126,7 @@ impl RpcRouter {
         let mut uow = DomainUnitOfWork::begin(session, &storage, ".passkeys", tx_id_hint);
         let response = f(session, &storage, &mut uow)?;
         uow.commit(session).map_err(PasskeysCommandError::from)?;
+        self.event_queue.push_update_state();
         Ok(response)
     }
 }

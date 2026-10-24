@@ -1,21 +1,16 @@
 import type {AppContext} from 'root/shared/services/app-context'
 import {getAppContext} from 'root/shared/services/app-context'
 import type {ClientCatalogNode} from 'root/core/catalog/local-catalog/client-model'
-import {joinPath, splitPath} from 'root/core/catalog/local-catalog/path'
-import {isImageFile, getFileExtension} from 'root/utils/file-format-registry'
+import {isImageFile, resolveFileFormat} from 'root/utils/file-format-registry'
 import {loadFileSourceById} from 'root/features/media/components/file-loader'
 import type {MarkdownImageRef} from './markdown-renderer'
+import {normalizeCatalogFileLinkTarget} from './markdown-file-links'
 import {
   DEFAULT_MARKDOWN_ATTACHMENT_FOLDER_PATH,
   normalizeMarkdownAttachmentFolderPath,
 } from './markdown-attachment-settings'
 
-export type MarkdownImageAssetStatus =
-  | 'blocked-external'
-  | 'error'
-  | 'loaded'
-  | 'missing'
-  | 'unsupported'
+export type MarkdownImageAssetStatus = 'blocked-external' | 'error' | 'loaded' | 'missing' | 'unsupported'
 
 export type MarkdownImageAssetResolution = {
   key: string
@@ -65,62 +60,9 @@ function isImageUploadFile(file: File): boolean {
   return isImageFile(file.name, file.type)
 }
 
-function safeBaseName(name: string): string {
-  const extension = getFileExtension(name)
-  const withoutExtension =
-    extension && name.toLowerCase().endsWith(`.${extension}`)
-      ? name.slice(0, Math.max(0, name.length - extension.length - 1))
-      : name
-  const normalized = withoutExtension
-    .trim()
-    .replace(/[^a-z0-9_-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-
-  return normalized || 'image'
-}
-
-function uploadExtension(file: File): string {
-  const extension = getFileExtension(file.name)
-  if (extension) {
-    return extension
-  }
-
-  switch (file.type.toLowerCase()) {
-    case 'image/jpeg':
-      return 'jpg'
-    case 'image/png':
-      return 'png'
-    case 'image/gif':
-      return 'gif'
-    case 'image/webp':
-      return 'webp'
-    case 'image/avif':
-      return 'avif'
-    case 'image/svg+xml':
-      return 'svg'
-    default:
-      return 'png'
-  }
-}
-
-function timestampSuffix(now: number): string {
-  return new Date(now).toISOString().slice(0, 19).replace('T', '-').replace(/:/g, '')
-}
-
-function markdownAltText(fileName: string): string {
-  return safeBaseName(fileName).replace(/-/g, ' ')
-}
-
-function appendMarkdownImageLinks(links: string[]): string {
-  return links.join('\n')
-}
-
 export class MarkdownImageAssetError extends Error {
   constructor(
-    readonly code:
-      | 'ATTACHMENT_FOLDER_INVALID'
-      | 'ATTACHMENT_FOLDER_CONFLICT'
-      | 'ATTACHMENT_NOT_IMAGE',
+    readonly code: 'ATTACHMENT_FOLDER_INVALID' | 'ATTACHMENT_FOLDER_CONFLICT' | 'ATTACHMENT_NOT_IMAGE',
     message: string,
   ) {
     super(message)
@@ -151,8 +93,9 @@ export class MarkdownImageAssetService {
       return this.createResolution(ref, 'unsupported')
     }
 
-    const path = normalizeMarkdownAttachmentFolderPath(ref.rawRef)
-    if (!path.ok) {
+    const targetPath = normalizeCatalogFileLinkTarget(ref.rawRef)
+    const path = targetPath && normalizeMarkdownAttachmentFolderPath(targetPath)
+    if (!path || !path.ok) {
       return this.createResolution(ref, 'unsupported')
     }
 
@@ -219,49 +162,47 @@ export class MarkdownImageAssetService {
     }
 
     const folderPath = options.attachmentFolderPath ?? DEFAULT_MARKDOWN_ATTACHMENT_FOLDER_PATH
-    const normalized = normalizeMarkdownAttachmentFolderPath(folderPath)
-    if (!normalized.ok) {
-      throw new MarkdownImageAssetError('ATTACHMENT_FOLDER_INVALID', 'ATTACHMENT_FOLDER_INVALID')
-    }
-
     const catalog = this.getContext().catalog
-    await this.ensureDirectory(normalized.path, options.signal)
-
-    const usedNames = new Set<string>()
     const links: string[] = []
     const paths: string[] = []
     for (const file of imageFiles) {
       throwIfAborted(options.signal)
-      const name = this.createAvailableFileName(normalized.path, file, usedNames)
-      usedNames.add(name.toLocaleLowerCase())
+      const prepared = await catalog.api.prepareAttachment({
+        folder_path: folderPath,
+        file_name: file.name,
+        mime_type: resolveFileFormat({name: file.name, mimeType: file.type}).mimeType,
+      })
+      throwIfAborted(options.signal)
+      const name = prepared.name
       const uploaded = await catalog.api.upload(
-        {parentPath: normalized.path, name},
+        {parentPath: prepared.parent_path, name},
         file.size,
         fileByteSource(file, options.signal),
         {
           name,
-          type: file.type,
+          type: prepared.mime_type,
+          createOnly: true,
           chunkSize: DEFAULT_ATTACHMENT_UPLOAD_CHUNK_SIZE,
         },
       )
 
-      const path = joinPath(normalized.path, name)
+      const path = prepared.path
       this.uploadedImages.set(path, {
         nodeId: uploaded.nodeId,
         name,
         size: file.size,
-        mimeType: file.type,
+        mimeType: prepared.mime_type,
         modtime: this.now(),
         mediaInfo: null,
       })
       paths.push(path)
-      links.push(`![${markdownAltText(file.name)}](${path})`)
+      links.push(prepared.markdown)
     }
 
     await catalog.refreshSilent().catch(() => undefined)
 
     return {
-      markdown: appendMarkdownImageLinks(links),
+      markdown: links.join('\n'),
       paths,
     }
   }
@@ -278,56 +219,6 @@ export class MarkdownImageAssetService {
     } catch (error) {
       console.warn('Failed to release Markdown image asset:', error)
     }
-  }
-
-  private async ensureDirectory(folderPath: string, signal?: AbortSignal): Promise<void> {
-    const catalog = this.getContext().catalog
-    let parentPath = '/'
-    for (const segment of splitPath(folderPath)) {
-      throwIfAborted(signal)
-      const currentPath = joinPath(parentPath, segment)
-      const existing = catalog.catalog.findByPath(currentPath)
-      if (existing) {
-        if (!existing.isDir) {
-          throw new MarkdownImageAssetError(
-            'ATTACHMENT_FOLDER_CONFLICT',
-            'ATTACHMENT_FOLDER_CONFLICT',
-          )
-        }
-      } else {
-        await catalog.api.createDir(segment, parentPath === '/' ? undefined : parentPath)
-      }
-      parentPath = currentPath
-    }
-  }
-
-  private createAvailableFileName(
-    folderPath: string,
-    file: File,
-    usedNames: ReadonlySet<string>,
-  ): string {
-    const extension = uploadExtension(file)
-    const baseName = `${safeBaseName(file.name)}-${timestampSuffix(this.now())}`
-    const candidate = `${baseName}.${extension}`
-    if (this.isAvailable(folderPath, candidate, usedNames)) {
-      return candidate
-    }
-
-    for (let index = 2; index < 10_000; index += 1) {
-      const indexed = `${baseName}-${index}.${extension}`
-      if (this.isAvailable(folderPath, indexed, usedNames)) {
-        return indexed
-      }
-    }
-
-    return `${baseName}-${crypto.randomUUID()}.${extension}`
-  }
-
-  private isAvailable(folderPath: string, name: string, usedNames: ReadonlySet<string>): boolean {
-    return (
-      !usedNames.has(name.toLocaleLowerCase()) &&
-      !this.getContext().catalog.catalog.findByPath(joinPath(folderPath, name))
-    )
   }
 
   private createResolution(

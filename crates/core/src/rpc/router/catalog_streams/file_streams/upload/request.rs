@@ -12,11 +12,18 @@ pub(super) struct UploadRequest {
     pub(super) total_size: Option<u64>,
     pub(super) mime_type: Option<String>,
     pub(super) chunk_size: Option<u32>,
+    pub(super) create_only: bool,
 }
 
 impl UploadRequest {
     pub(super) fn parse(data: &serde_json::Value) -> UploadResult<Self> {
+        let create_only = match data.get("create_only") {
+            None | Some(serde_json::Value::Null) => false,
+            Some(serde_json::Value::Bool(value)) => *value,
+            Some(_) => return Err(UploadCommandError::empty_payload("create_only boolean")),
+        };
         Ok(Self {
+            create_only,
             size: required_u64(data, "size")
                 .map_err(|_| UploadCommandError::empty_payload("size"))?,
             offset: optional_u64(data, "offset").unwrap_or(0),

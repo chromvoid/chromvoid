@@ -1,4 +1,4 @@
-import {computed, type Computed} from '@reatom/core'
+import {atom, computed, type Computed} from '@reatom/core'
 import {writeAndroidUnlockDebug} from '../../shared/services/android-unlock-debug'
 
 import type {ChromVoidState} from '../../core/state/app-state'
@@ -9,7 +9,6 @@ import type {Store} from '../state/store'
 export const ROUTE_IDS = [
   'loading',
   'welcome',
-  'no-license',
   'dashboard',
   'task-progress',
   'no-connection',
@@ -30,6 +29,16 @@ function hasBootstrapFatalError(store: Store): boolean {
 export class Router {
   route: Computed<Routes>
   isLoading: Computed<boolean>
+  private readonly welcomeUnlock = atom<object | null>(null, 'router.welcomeUnlock')
+
+  /** Native state remains authoritative while welcome finishes its unlock feedback. */
+  beginWelcomeUnlock(): () => void {
+    const owner = {}
+    this.welcomeUnlock.set(owner)
+    return () => {
+      if (this.welcomeUnlock() === owner) this.welcomeUnlock.set(null)
+    }
+  }
 
   constructor(ws: TransportLike, state: ChromVoidState, store: Store) {
     this.isLoading = computed(() => {
@@ -63,6 +72,8 @@ export class Router {
 
         return 'dashboard'
       }
+
+      if (this.welcomeUnlock() !== null) return 'welcome'
 
       const s = state.data()
       const needInit = Boolean(s.NeedUserInitialization)

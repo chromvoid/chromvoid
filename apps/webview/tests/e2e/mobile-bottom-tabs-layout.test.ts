@@ -57,12 +57,20 @@ async function readBottomTabLayout(
   surface: BottomTabSurface,
 ): Promise<BottomTabLayoutSnapshot> {
   return page.evaluate((targetSurface) => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -125,9 +133,9 @@ async function readBottomTabLayout(
       return surfaceLayout?.shadowRoot?.querySelector('[part~="scroll"]') as HTMLElement | null
     }
 
-    const shell = deepFind(document, 'file-app-shell-mobile-layout') as HTMLElement | null
-    const shellContent = shell?.shadowRoot?.querySelector('.content') ?? null
-    const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
+    const shell = deepFind(document, '[data-testid="shell-mobile"]') as HTMLElement | null
+    const shellContent = deepFind(shell, '[data-testid="shell-content"]') ?? null
+    const tabBar = deepFind(document, '[data-testid="mobile-tabs"]') as HTMLElement | null
     const surfaceScrollerState = readElement(getSurfaceScroller())
     const tabBarState = readElement(tabBar)
     const surfaceScrollerTabOverlap =
@@ -139,7 +147,7 @@ async function readBottomTabLayout(
       shellContentMode: shell?.getAttribute('content-scroll-mode') ?? null,
       tabBar: tabBarState,
       document: readElement(document.scrollingElement),
-      app: readElement(deepFind(document, 'chromvoid-app')),
+      app: readElement(deepFind(document, '[data-testid="app-root"]')),
       routeFrame: readElement(deepFind(document, '.route-content[data-route="dashboard"]')),
       shellContent: readElement(shellContent),
       surfaceHost: readElement(getSurfaceHost()),
@@ -207,7 +215,7 @@ test('mobile bottom tabs recover when Android reports that the keyboard is close
     }
 
     const root = document.documentElement
-    const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
+    const tabBar = deepFind(document, '[data-testid="mobile-tabs"]') as HTMLElement | null
     if (!tabBar) return null
 
     root.setAttribute('data-mobile-keyboard-expanded', '')
@@ -227,7 +235,7 @@ test('mobile bottom tabs recover when Android reports that the keyboard is close
       safeAreaTopInset: 40,
       safeAreaBottomInset: 16,
       phase: 'settled',
-      source: 'android-native',
+      source: 'ios-native',
       viewportMode: 'overlay',
     })
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))

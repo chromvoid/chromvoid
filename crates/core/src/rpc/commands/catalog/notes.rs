@@ -46,7 +46,7 @@ fn parent_path(path: &str) -> String {
     }
 }
 
-fn is_markdown_note(node: &CatalogNode) -> bool {
+pub(super) fn is_markdown_note(node: &CatalogNode) -> bool {
     if !node.is_file() {
         return false;
     }

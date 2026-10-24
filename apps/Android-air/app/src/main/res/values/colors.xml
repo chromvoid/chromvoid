@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Accepted ChromVoid palette: graphite and ice blue.
+     See business/brand/color-system.md; these are the sRGB forms of the
+     approved light foreground, light accent and dark accent roles. -->
+<resources>
+    <color name="air_graphite">#14212B</color>
+    <color name="air_accent">#06729A</color>
+    <color name="air_accent_bright">#84D5FF</color>
+    <color name="air_canvas">#F5F8FB</color>
+    <color name="air_canvas_dark">#0B0D10</color>
+    <color name="ic_launcher_background">#030507</color>
+</resources>

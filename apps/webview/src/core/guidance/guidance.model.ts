@@ -5,8 +5,8 @@ import type {Routes} from 'root/app/router/router'
 import {
   moduleAccessModel,
   type ModuleAccessStatus,
-  type ProFeatureKey,
-} from 'root/core/pro/module-access.model'
+  type ModuleKey,
+} from 'root/core/modules/module-access.model'
 import {
   getRuntimeCapabilities,
   runtimeCapabilitiesAtom,
@@ -25,7 +25,6 @@ import type {
   GuidanceAnchorRegistration,
   GuidanceAnchorState,
   GuidanceDefinition,
-  GuidanceI18nKey,
   GuidanceProgress,
   GuidanceSurfaceId,
 } from './guidance.types'
@@ -39,7 +38,7 @@ type ManualHelpRequest = {
 }
 
 type BlockedActionRequest = {
-  feature?: ProFeatureKey
+  feature?: ModuleKey
   surface?: GuidanceSurfaceId
   anchorId?: string
   reason?: ModuleAccessStatus
@@ -53,7 +52,7 @@ type GuidanceModelOptions = {
   readDashboardSurface?: () => GuidanceSurfaceId | undefined
   readLayoutMode?: () => LayoutMode
   readRuntimeCapabilities?: () => RuntimeCapabilities
-  readModuleAccessStatus?: (feature: ProFeatureKey) => ModuleAccessStatus
+  readModuleAccessStatus?: (feature: ModuleKey) => ModuleAccessStatus | null
 }
 
 function readAppLayoutMode(): LayoutMode {
@@ -197,7 +196,7 @@ export class GuidanceModel {
   private readonly readDashboardSurface: () => GuidanceSurfaceId | undefined
   private readonly readLayoutMode: () => LayoutMode
   private readonly readRuntimeCapabilities: () => RuntimeCapabilities
-  private readonly readModuleAccessStatus: (feature: ProFeatureKey) => ModuleAccessStatus
+  private readonly readModuleAccessStatus: (feature: ModuleKey) => ModuleAccessStatus | null
   private connected = false
 
   constructor(options: GuidanceModelOptions = {}) {
@@ -207,7 +206,7 @@ export class GuidanceModel {
     this.readLayoutMode = options.readLayoutMode ?? readAppLayoutMode
     this.readRuntimeCapabilities = options.readRuntimeCapabilities ?? getRuntimeCapabilities
     this.readModuleAccessStatus =
-      options.readModuleAccessStatus ?? ((feature) => moduleAccessModel.featureAccess(feature).status)
+      options.readModuleAccessStatus ?? ((feature) => moduleAccessModel.featureAccess(feature)?.status ?? null)
 
     if (options.definitions) {
       this.definitions.set(options.definitions)
@@ -338,21 +337,13 @@ export class GuidanceModel {
   }
 
   openBlockedAction(input: {
-    feature?: ProFeatureKey
+    feature?: ModuleKey
     surface?: GuidanceSurfaceId
     anchorId?: string
     reason?: ModuleAccessStatus
   }): void {
     this.blockedActionRequest.set({...input, surface: input.surface ?? this.activeSurface() ?? undefined, requestedAt: this.now()})
     this.manualHelpRequest.set(null)
-  }
-
-  resolveBodyKey(definition: GuidanceDefinition): GuidanceI18nKey {
-    const request = this.blockedActionRequest()
-    const reason = request?.reason
-    if (definition.trigger !== 'blocked_action' || !reason) return definition.bodyKey
-    if (request.feature && definition.moduleAccessGate?.feature !== request.feature) return definition.bodyKey
-    return definition.bodyKeyByModuleAccessStatus?.[reason] ?? definition.bodyKey
   }
 
   acknowledgeManual(id: string): void {
@@ -391,7 +382,8 @@ export class GuidanceModel {
   private matchesModuleGate(definition: GuidanceDefinition): boolean {
     const gate = definition.moduleAccessGate
     if (!gate) return true
-    return gate.statuses.includes(this.readModuleAccessStatus(gate.feature))
+    const status = this.readModuleAccessStatus(gate.feature)
+    return status !== null && gate.statuses.includes(status)
   }
 
   private toActiveState(definition: GuidanceDefinition): GuidanceActiveState {

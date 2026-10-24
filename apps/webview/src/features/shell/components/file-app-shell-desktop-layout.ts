@@ -233,7 +233,7 @@ export class FileAppShellDesktopLayout extends ReatomLitElement {
 
       <nav class="nav"><navigation-rail></navigation-rail></nav>
 
-      <main class="content"><slot></slot></main>
+      <main data-testid="shell-content" class="content"><slot></slot></main>
 
       <div class="overlay overlay--details" @click=${this.onOverlayDetailsClick}></div>
       <aside class="details"><slot name="details"></slot></aside>

@@ -27,14 +27,13 @@ test = false
 bench = false
 
 [build-dependencies]
-tauri-build = { version = "2.6.3", features = [] }
+tauri-build = { version = "2.7.3", features = [] }
 
 [features]
 default = ["desktop"]
 mobile-usb-smoke = ["desktop"]
-external-pro = []
 desktop = [
-    "external-pro",
+    "chromvoid-client-runtime/desktop",
     "dep:webrtc",
     "dep:dav-server",
     "dep:hyper",
@@ -48,7 +47,6 @@ mobile = [
     "tokio/rt",
 ]
 ios = ["mobile"]
-android = ["mobile", "external-pro"]
 caldav = ["desktop", "dav-server/caldav"]
 carddav = ["desktop", "dav-server/carddav"]
 # Test-only executable and in-crate harness for the production Env Runtime
@@ -56,7 +54,10 @@ carddav = ["desktop", "dav-server/carddav"]
 env-runtime-test-probe = ["desktop"]
 
 [dependencies]
-tauri = { version = "2.11.5", features = ["protocol-asset"] }
+chromvoid-network-runtime = { path = "../../../crates/network-runtime" }
+chromvoid-client-runtime = { path = "../../../crates/client-runtime" }
+chromvoid-android-runtime = { path = "../../../crates/android-runtime" }
+tauri = { version = "2.12.4", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 futures-util = "0.3"
@@ -73,8 +74,8 @@ base64 = "0.22"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-tauri-plugin-dialog = "2.7.1"
-tauri-plugin-clipboard-manager = "2.3.2"
+tauri-plugin-dialog = "2.8.3"
+tauri-plugin-clipboard-manager = "2.5.0"
 webrtc = { version = "0.14", optional = true }
 bytes = "1"
 async-trait = "0.1"
@@ -83,10 +84,8 @@ quinn = { version = "0.11", default-features = true }
 uuid = { version = "1", features = ["v4", "serde"] }
 rustls-pemfile = "2"
 rustls = "0.23"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 chrono = "0.4"
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "tiff", "webp"] }
-lofty = "0.24.0"
 kamadak-exif = "0.6"
 quick-xml = "0.39"
 hex = "0.4"
@@ -100,6 +99,7 @@ hyper-util = { version = "0.1", features = ["tokio"], optional = true }
 ssh-key = { version = "0.6", features = ["ed25519", "rsa", "p256", "p384", "std", "rand_core"] }
 zeroize = "1"
 chromvoid-core = { path = "../../../crates/core" }
+chromvoid-media-runtime = { path = "../../../crates/media-runtime" }
 chromvoid-protocol = { path = "../../../crates/protocol", features = ["async-transport"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
@@ -120,16 +120,12 @@ rusb = { version = "0.9", features = ["vendored"] }
 ssh2 = { version = "0.9", features = ["vendored-openssl"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
-libheif-rs = { version = "2.7", default-features = false, features = ["v1_17"] }
 rusb = "0.9"
 ssh2 = "0.9"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-
-[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "ios"))'.dependencies]
-webp = { version = "0.3", default-features = false }
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 block2 = "0.6"
@@ -169,21 +165,15 @@ objc2-ui-kit = { version = "0.3", features = [
 tauri-plugin-ios-push-bridge = { path = "../../../crates/tauri-plugin-ios-push-bridge" }
 tauri-plugin-ios-native-bridge = { path = "../../../crates/tauri-plugin-ios-native-bridge" }
 
-[target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
-libc = "0.2"
-ndk-context = "0.1"
-
 [dev-dependencies]
-ed25519-dalek = "2"
+lofty = "0.24.0"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+chromvoid-client-runtime = { path = "../../../crates/client-runtime", features = ["test-support"] }
+chromvoid-android-runtime = { path = "../../../crates/android-runtime", features = ["test-support"] }
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
-tauri = { version = "2.11.5", features = ["test"] }
+tauri = { version = "2.12.4", features = ["test"] }
 
 [workspace]
 
 [patch.crates-io]
-swift-rs = { path = "vendor/swift-rs-1.0.7" }
-ton = { path = "vendor/ton-0.2.5" }
-tauri-plugin-clipboard-manager = { path = "vendor/tauri-plugin-clipboard-manager-2.3.2" }
-tauri-plugin-dialog = { path = "vendor/tauri-plugin-dialog-2.7.1" }
-tauri-build = { path = "vendor/tauri-build-2.6.3" }
+ton = { path = "../../../vendor/ton-0.2.5" }

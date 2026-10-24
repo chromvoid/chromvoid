@@ -4,11 +4,6 @@ pub(super) fn open_staged_file_with_system(
     path: &std::path::Path,
     mime_type: &str,
 ) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    {
-        return crate::mobile::open_file_with_system(path, Some(mime_type));
-    }
-
     #[cfg(target_os = "ios")]
     {
         return crate::mobile::open_file_with_system(path, Some(mime_type));
@@ -28,7 +23,7 @@ pub(super) fn open_staged_file_with_system(
 }
 
 pub(super) fn share_staged_files_with_system(items: &[StagedCatalogFile]) -> Result<(), String> {
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[cfg(target_os = "ios")]
     {
         let native_items = items
             .iter()

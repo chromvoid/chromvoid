@@ -171,7 +171,6 @@ describe('tauri binary ops prepared preview files', () => {
         gps_diagnostic: {
           status: 'not_found',
           rust_exif_status: 'not_found',
-          android_status: 'zero_zero',
           import_provenance_status: 'at_risk',
         },
       },
@@ -204,7 +203,6 @@ describe('tauri binary ops prepared preview files', () => {
       status: 'not_found',
       rustExifStatus: 'not_found',
       xmpStatus: null,
-      androidStatus: 'zero_zero',
       importProvenanceStatus: 'at_risk',
     })
   })
@@ -386,9 +384,13 @@ describe('tauri binary ops prepared preview files', () => {
     const result = await uploadFileViaTauri(
       {parentPath: '/', name: 'empty.md'},
       new File([], 'empty.md', {type: 'text/markdown'}),
-      {type: 'text/markdown'},
+      {type: 'text/markdown', createOnly: true},
     )
 
+    expect(mocks.tauriInvoke).toHaveBeenCalledWith(
+      'catalog_upload_chunk',
+      expect.objectContaining({createOnly: true}),
+    )
     expect(result).toEqual({
       nodeId: 23,
       created: true,

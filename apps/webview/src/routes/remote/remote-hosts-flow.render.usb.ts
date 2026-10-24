@@ -20,6 +20,9 @@ export function renderUsbMobilePanel(ctx: RemoteHostsFlowRenderContext): Templat
   const pendingAction = usb.pendingAction()
   const errorCode = usb.activeErrorCode()
   const recoveryAction = usb.recoveryAction()
+  const presentation = usb.desktopPresentation()
+  const retryAction = presentation.recoveryCta?.action
+  const forgetAction = presentation.secondaryRecoveryCta?.action
   const activeHost = status ? status.active_host : null
   const pairingApproval = usb.pairingApproval()
   const selectedTransport = status ? status.selected_transport : 'none'
@@ -109,6 +112,36 @@ export function renderUsbMobilePanel(ctx: RemoteHostsFlowRenderContext): Templat
         ? html`<cv-callout variant="info" role="status" data-usb-scan-empty>
             ${i18n('remote:usb-mobile-scan-empty')}
           </cv-callout>`
+        : nothing}
+      ${recoveryAction === 'retry_or_repair'
+        ? html`
+            <cv-callout variant="danger" role="alert" data-usb-recovery-action=${recoveryAction}>
+              <strong>${i18n('remote:usb-mobile-phone-not-responding-title')}</strong>
+              <p>${i18n('remote:usb-mobile-phone-not-responding-description')}</p>
+              <div class="remote-actions">
+                ${retryAction?.kind === 'connect'
+                  ? html`
+                      <cv-button
+                        variant="primary"
+                        ?disabled=${actionBusy}
+                        @click=${() => ctx.actions.onUsbConnectPairedHost(retryAction.hostId)}
+                        >${presentation.recoveryCta?.label}</cv-button
+                      >
+                    `
+                  : nothing}
+                ${forgetAction?.kind === 'remove'
+                  ? html`
+                      <cv-button
+                        variant="danger"
+                        ?disabled=${actionBusy}
+                        @click=${() => ctx.actions.onUsbRemovePairedHost(forgetAction.hostId)}
+                        >${presentation.secondaryRecoveryCta?.label}</cv-button
+                      >
+                    `
+                  : nothing}
+              </div>
+            </cv-callout>
+          `
         : nothing}
       ${usb.errorText()
         ? html`<cv-callout variant="danger" role="alert">${usb.errorText()}</cv-callout>`
@@ -516,6 +549,7 @@ function formatUsbRecoveryAction(action: MobileUsbRecoveryAction): string {
     case 'hide_usb_entry':
       return i18n('remote:usb-mobile-recovery-hide')
     case 'manual_retry':
+    case 'retry_or_repair':
     case 'keep_current_flow':
       return i18n('remote:usb-mobile-recovery-retry')
     case 'retry_scan':

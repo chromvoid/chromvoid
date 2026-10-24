@@ -102,14 +102,12 @@ describe('keyboardShortcutsModel', () => {
     }
   })
 
-  it('hides desktop shortcuts on Android and iOS', () => {
-    for (const platform of ['android', 'ios'] as const) {
-      setupRuntime(platform, 'mobile')
+  it('hides desktop shortcuts on iOS', () => {
+    setupRuntime('ios', 'mobile')
 
-      for (const id of KEYBOARD_SHORTCUT_IDS) {
-        expect(keyboardShortcutsModel.label(id)).toBeUndefined()
-        expect(keyboardShortcutsModel.hasBinding(id)).toBe(false)
-      }
+    for (const id of KEYBOARD_SHORTCUT_IDS) {
+      expect(keyboardShortcutsModel.label(id)).toBeUndefined()
+      expect(keyboardShortcutsModel.hasBinding(id)).toBe(false)
     }
   })
 
@@ -184,7 +182,7 @@ describe('keyboardShortcutsModel', () => {
   })
 
   it('supports explicit context overrides', () => {
-    setupRuntime('android', 'mobile')
+    setupRuntime('ios', 'mobile')
 
     expect(keyboardShortcutsModel.label('app.vault.lock', {platform: 'windows'})).toBe('Ctrl+L')
     expect(keyboardShortcutsModel.label('app.vault.lock', {platform: 'windows', enabled: false})).toBeUndefined()

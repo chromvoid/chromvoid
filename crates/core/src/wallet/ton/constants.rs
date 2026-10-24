@@ -1,9 +1,13 @@
 pub(super) const TON_NETWORK: &str = "ton";
 pub(super) const TON_AMOUNT_UNIT: &str = "nanoton";
 pub(super) const TON_ACCOUNT_MODEL: &str = "account";
-pub(super) const TON_NATIVE_DERIVATION_PROFILE: &str = "ton_native_v5r1_account";
-pub(super) const TON_BIP39_DERIVATION_PROFILE: &str = "ton_bip39_v5r1_account";
-pub(super) const TON_WALLET_CONTRACT: &str = "wallet_v5r1";
+pub(super) const TON_NATIVE_DERIVATION_PROFILE: &str = "ton_native_wallet_tg_account";
+pub(super) const TON_BIP39_DERIVATION_PROFILE: &str = "ton_bip39_wallet_tg_account";
+/// TEP-0003 Rotation mnemonic: anchor half fixes the address, signing half signs requests.
+pub(super) const TON_ROTATION_DERIVATION_PROFILE: &str = "ton_rotation_wallet_tg_account";
+pub(super) const TON_WALLET_CONTRACT: &str = "wallet_tg";
+/// Mainnet default `Storage.subwalletId` of WalletTg (testnet uses `0x7FFF7FFD`).
+pub(super) const WALLET_TG_SUBWALLET_ID: u32 = 0x7FFF_7F11;
 pub(super) const TON_WORKCHAIN: i32 = 0;
 pub(super) const TON_PREPARED_PAYLOAD_KIND: &str = "ton_prepared_payload_v1";
 pub(super) const TON_COMMENT_MAX_BYTES: usize = 120;

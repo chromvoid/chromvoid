@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Russian for the shared platform surfaces: notifications, the quick settings
+     tile, the credential provider, autofill and the QR scanner. -->
+<resources>
+    <string name="autofill_runtime_not_ready">Автозаполнение ChromVoid временно недоступно.</string>
+    <string name="autofill_unsupported_request">ChromVoid не смог разобрать этот запрос автозаполнения.</string>
+    <string name="autofill_save_missing_required_data">ChromVoid нужны домен и пароль, чтобы сохранить логин.</string>
+    <string name="autofill_choose_otp">Выберите одноразовый код</string>
+    <string name="provider_unlock_title">Разблокировать ChromVoid</string>
+    <string name="autofill_otp_copied">Код скопирован — вставьте его в поле</string>
+    <string name="biometric_prompt_title">Разблокировать ChromVoid</string>
+    <string name="biometric_prompt_subtitle">Подтвердите доступ, чтобы продолжить</string>
+    <string name="passkey_get_title">Использовать ключ доступа ChromVoid</string>
+    <string name="passkey_create_title">Создать ключ доступа ChromVoid</string>
+    <string name="passkey_prompt_subtitle">Подтвердите доступ, чтобы продолжить</string>
+    <string name="passkey_create_entry_title">Создать ключ доступа в ChromVoid</string>
+    <string name="connection_channel_name">Подключения</string>
+    <string name="connection_channel_description">Поддерживает подключение компьютера, пока приложение в фоне</string>
+    <string name="connection_notification_title">Подключено: %1$s</string>
+    <string name="connection_notification_text">ChromVoid передаёт данные на ваш компьютер</string>
+    <string name="connection_disconnect_action">Отключить</string>
+    <string name="connection_listening_title">Хост ChromVoid включён</string>
+    <string name="connection_listening_text">Доверенные компьютеры могут подключиться к этому устройству</string>
+    <string name="connection_stop_host_action">Остановить хост</string>
+    <string name="usb_approval_channel_name">Запросы подключения по USB</string>
+    <string name="usb_approval_channel_description">Запросы на подтверждение подключений компьютера по USB</string>
+    <string name="usb_approval_pairing_title">Запрос сопряжения по USB</string>
+    <string name="usb_approval_pairing_text">Откройте ChromVoid, чтобы увидеть PIN-код и подтвердить сопряжение</string>
+    <string name="usb_approval_session_title">Запрос подключения по USB</string>
+    <string name="usb_approval_session_text">Разрешите или запретите доступ подключённому компьютеру</string>
+    <string name="usb_approval_allow_action">Разрешить</string>
+    <string name="usb_approval_deny_action">Запретить</string>
+    <string name="usb_approval_show_pin_action">Показать PIN-код</string>
+    <string name="vault_status_channel_name">Состояние хранилища</string>
+    <string name="vault_status_channel_description">Показывает, когда хранилище открыто</string>
+    <string name="vault_status_notification_title">Хранилище открыто</string>
+    <string name="vault_status_notification_text">Хранилище ChromVoid открыто</string>
+    <string name="vault_status_lock_action">Заблокировать</string>
+    <string name="vault_quick_lock_tile_label">Блокировка ChromVoid</string>
+    <string name="vault_quick_lock_tile_unlocked">Хранилище открыто</string>
+    <string name="vault_quick_lock_tile_locked">Хранилище заблокировано</string>
+    <string name="media_playback_channel_name">Воспроизведение аудио</string>
+    <string name="media_playback_channel_description">Управление воспроизведением аудио</string>
+    <string name="media_playback_notification_text">Воспроизводится в ChromVoid</string>
+    <string name="media_playback_play_action">Воспроизвести</string>
+    <string name="media_playback_pause_action">Пауза</string>
+    <string name="media_playback_previous_action">Предыдущий</string>
+    <string name="media_playback_next_action">Следующий</string>
+    <string name="media_playback_stop_action">Остановить</string>
+    <string name="otp_qr_cancel">Отмена</string>
+    <string name="otp_qr_torch">Фонарик</string>
+    <string name="otp_qr_torch_on">Фонарик включён</string>
+    <string name="otp_qr_choose_image">Выбрать изображение</string>
+    <string name="otp_qr_status_scanning">Сканирование QR-кода</string>
+    <string name="otp_qr_status_focusing">Фокусировка</string>
+    <string name="otp_qr_status_image">Чтение изображения</string>
+</resources>

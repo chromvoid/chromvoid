@@ -1,3 +1,4 @@
+import type {CatalogAttachmentRequest, CatalogAttachmentResponse} from '@chromvoid/scheme'
 import {atom, wrap} from '@reatom/core'
 
 import type {
@@ -116,6 +117,7 @@ export type CatalogUploadResult = {
 }
 
 export type CatalogClientProtocol = {
+  prepareAttachment(request: CatalogAttachmentRequest): Promise<CatalogAttachmentResponse>
   list(path: string, includeHidden?: boolean): Promise<{currentPath: string; items: unknown[]}>
   createDir(name: string, parentPath?: string): Promise<{nodeId: number}>
   upload(
@@ -125,6 +127,7 @@ export type CatalogClientProtocol = {
     meta?: {
       name?: string
       type?: string
+      createOnly?: boolean
       chunkSize?: number
       onProgress?: (c: number, t: number, p: number) => void
     },
@@ -157,6 +160,7 @@ export class CatalogService {
   private unsubscribe?: () => Promise<void>
   private refreshTimer: number | undefined
   private syncRunId = 0
+  private catalogEventRevision = 0
   private pendingFolderPages = new Map<string, Promise<void>>()
   private folderPageQueue: Array<{
     key: string
@@ -183,6 +187,7 @@ export class CatalogService {
 
     // Apply the catalog server events to the mirror
     ws.on('catalog:event', (_msg, evt) => {
+      this.catalogEventRevision++
       if (ws.kind === 'tauri') {
         // Rust Core emits sharded delta events (ADR-004 v2).
         // Apply supported deltas directly to keep the mirror consistent and
@@ -370,6 +375,7 @@ export class CatalogService {
     })
 
     ws.on('catalog:event:batch', (_msg, payload) => {
+      this.catalogEventRevision++
       const batch = payload as Partial<CatalogEventBatch> & {events?: unknown}
       const events = Array.isArray(batch.events) ? batch.events : []
 
@@ -1144,6 +1150,10 @@ export class CatalogService {
     }
 
     this.client = {
+      prepareAttachment: async (request) => {
+        const response = await ws.sendCatalog('catalog:attachment:prepare', {...request})
+        return unwrap<CatalogAttachmentResponse>(response, 'catalog:attachment:prepare')
+      },
       list: async (path: string, includeHidden?: boolean) => {
         if (ws.kind === 'tauri') {
           const payload = {
@@ -1184,6 +1194,7 @@ export class CatalogService {
           name: meta?.name,
           type: meta?.type,
           chunkSize: meta?.chunkSize,
+          createOnly: meta?.createOnly,
           onProgress: meta?.onProgress,
         })
         this.reconcileCommittedFileWrite(
@@ -1271,6 +1282,7 @@ export class CatalogService {
       },
       syncManifest: async (mirror: CatalogMirror) => {
         const runId = this.syncRunId
+        const eventRevision = this.catalogEventRevision
         const manifestT0 = performance.now()
         let manifestResp: unknown
         try {
@@ -1293,6 +1305,11 @@ export class CatalogService {
           return
         }
         const manifest = unwrap<CatalogSyncManifestResponse>(manifestResp, 'catalog:sync:manifest')
+        // A push received during the request may be newer than this snapshot.
+        if (eventRevision !== this.catalogEventRevision) {
+          this.queueRefresh(150)
+          return
+        }
         const metrics = getCatalogSyncPayloadDebugMetrics(manifest)
         writeAndroidUnlockDebug('catalog-sync', 'payload', {
           phase: 'manifest',

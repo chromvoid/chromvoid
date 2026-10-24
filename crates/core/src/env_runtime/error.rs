@@ -4,7 +4,6 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvRuntimeErrorCode {
     VaultRequired,
-    ProRequired,
     NotFound,
     ValidationFailed,
     RevisionConflict,
@@ -19,7 +18,6 @@ impl EnvRuntimeErrorCode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::VaultRequired => "VAULT_REQUIRED",
-            Self::ProRequired => "PRO_REQUIRED",
             Self::NotFound => "ENV_RUNTIME_NOT_FOUND",
             Self::ValidationFailed => "ENV_RUNTIME_VALIDATION_FAILED",
             Self::RevisionConflict => "ENV_RUNTIME_REVISION_CONFLICT",

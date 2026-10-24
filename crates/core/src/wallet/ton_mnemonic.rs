@@ -6,7 +6,7 @@ use pbkdf2::pbkdf2_hmac;
 use sha2::Sha512;
 use zeroize::Zeroizing;
 
-use super::{parse_hex, WalletChainError};
+use super::WalletChainError;
 
 pub const TON_NATIVE_WORD_COUNT: usize = 24;
 const TON_DEFAULT_SEED: &[u8] = b"TON default seed";
@@ -76,15 +76,6 @@ pub fn generate_ton_native_mnemonic() -> Result<Vec<String>, WalletChainError> {
             return Ok(words);
         }
     }
-}
-
-pub fn legacy_ton_native_words_from_bip39_entropy(
-    mnemonic_entropy: &str,
-) -> Result<Vec<String>, WalletChainError> {
-    let entropy = Zeroizing::new(parse_hex(mnemonic_entropy)?);
-    let mnemonic = bip39::Mnemonic::from_entropy_in(Language::English, entropy.as_slice())
-        .map_err(|error| WalletChainError::invalid_input(format!("invalid HD root: {error}")))?;
-    Ok(mnemonic.words().map(str::to_string).collect())
 }
 
 fn ton_native_seed64(

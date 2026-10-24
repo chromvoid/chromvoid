@@ -20,8 +20,6 @@ use crate::network::mobile_acceptor::MobileAcceptorRuntimeState;
 use crate::network::paired_peers::{PairedPeer, PairedPeerStore};
 use crate::network::LocalDeviceIdentity;
 use std::sync::Arc;
-#[cfg(target_os = "android")]
-use tauri::Emitter as _;
 
 pub(super) async fn confirm_usb_mobile_pairing(
     runtime: Arc<MobileAcceptorRuntimeState>,
@@ -285,17 +283,5 @@ fn random_salt_hex() -> String {
 }
 
 fn emit_usb_pairing_approval_required(attempt_id: &str) {
-    #[cfg(target_os = "android")]
-    {
-        if let Some(app) = crate::mobile::android::app_handle() {
-            let _ = app.emit(
-                "mobile_usb_host_pairing_approval_required",
-                serde_json::json!({ "attempt_id": attempt_id }),
-            );
-        }
-        crate::mobile::android::notify_mobile_usb_approval_required("pairing", attempt_id);
-    }
-
-    #[cfg(not(target_os = "android"))]
     let _ = attempt_id;
 }

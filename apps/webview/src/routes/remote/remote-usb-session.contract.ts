@@ -31,7 +31,7 @@ export interface DesktopUsbRemoteHost {
 
 export interface DesktopUsbRemoteSessionPresentation {
   stage: DesktopUsbRemoteSessionStage
-  host: DesktopUsbRemoteHost
+  host: DesktopUsbRemoteHost | null
   access: DesktopUsbRemoteAccess
   writerLockHolder: string | null
   sync: SyncSnapshot
@@ -47,7 +47,9 @@ interface DesktopUsbRemoteSessionInput {
   remoteStatus: RemoteStatus
   syncSnapshot: SyncSnapshot
   usbStatus: MobileUsbStatus | null
+  activeUsbErrorCode: MobileUsbErrorCode | null
   lastActiveHost: MobileUsbHostView | null
+  silentPhoneHost: MobileUsbHostView | null
   usbPanelOpen: boolean
   usbErrorText: string | null
   switchingToLocal: boolean
@@ -78,7 +80,7 @@ function hostFromView(host: MobileUsbHostView): DesktopUsbRemoteHost {
 function resolveStage(input: DesktopUsbRemoteSessionInput): DesktopUsbRemoteSessionStage | null {
   const usbState = input.usbStatus?.session_state
   const usbMode = isRemoteMode(input.currentMode) && input.currentMode.remote.host.type === 'mobile_usb'
-  if (usbState === 'error' || input.usbStatus?.error_code) return 'error'
+  if (usbState === 'error' || input.activeUsbErrorCode) return 'error'
   if (usbState === 'disconnected') return 'connection_lost'
   if (usbState === 'session_approval_required') return 'waiting_phone_approval'
   if (usbState === 'transport_ready_host_locked') return 'waiting_host_unlock'
@@ -101,10 +103,10 @@ export function deriveDesktopUsbRemoteSessionPresentation(
 ): DesktopUsbRemoteSessionPresentation | null {
   if (input.usbPanelOpen) return null
 
-  const modeHost = hostFromMode(input.currentMode)
-  const activeHost = input.usbStatus?.active_host ?? input.lastActiveHost
-  const host = activeHost ? hostFromView(activeHost) : modeHost
-  if (!host) return null
+  const silentPhone = input.activeUsbErrorCode === 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'
+  const activeHost = silentPhone ? input.silentPhoneHost : input.usbStatus?.active_host ?? input.lastActiveHost
+  const host = activeHost ? hostFromView(activeHost) : silentPhone ? null : hostFromMode(input.currentMode)
+  if (!host && !silentPhone) return null
 
   const stage = resolveStage(input)
   if (!stage) return null
@@ -120,7 +122,7 @@ export function deriveDesktopUsbRemoteSessionPresentation(
     access,
     writerLockHolder,
     sync: input.syncSnapshot,
-    errorCode: input.usbStatus?.error_code ?? null,
+    errorCode: input.activeUsbErrorCode,
     errorText: input.usbErrorText,
     switchingToLocal: input.switchingToLocal,
   }

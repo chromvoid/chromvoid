@@ -18,21 +18,16 @@ mod listener;
 mod rpc_loop;
 mod state;
 
-#[cfg(any(target_os = "android", test))]
+#[cfg(test)]
 pub(crate) use direct_transport::accept_direct_transport_until_closed;
 #[cfg(test)]
 pub(crate) use direct_transport::shutdown_signal_from_unit_receiver;
-#[cfg(any(target_os = "android", test))]
-pub(crate) use direct_transport::DirectTransportAcceptFailure;
-#[cfg(any(target_os = "android", test))]
-pub(crate) use direct_transport::{
-    DirectTransportShutdownSignal, DirectTransportStopReason, DirectTransportTimelineContext,
-};
+#[cfg(test)]
+pub(crate) use direct_transport::{DirectTransportStopReason, DirectTransportTimelineContext};
 
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::connection::NetworkConnectionManager;
@@ -51,58 +46,12 @@ pub(crate) use state::{MobileUsbApprovalKind, PeerRevocationResult};
 use state::{PeerConnection, PeerRegistrationResult};
 
 pub(crate) fn notify_usb_session_approval_resolved(attempt_id: &str, outcome: &str) {
-    #[cfg(target_os = "android")]
-    {
-        use tauri::Emitter;
-
-        if let Some(app) = crate::mobile::android::app_handle() {
-            let _ = app.emit(
-                "mobile_usb_host_approval_resolved",
-                serde_json::json!({"attempt_id": attempt_id, "outcome": outcome}),
-            );
-        }
-        crate::mobile::android::notify_mobile_usb_approval_resolved();
-    }
-
-    #[cfg(not(target_os = "android"))]
     let _ = (attempt_id, outcome);
 }
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-/// Acceptor lifecycle state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AcceptorState {
-    /// Not listening — default after creation or explicit stop.
-    Idle,
-    /// Signaling room joined, waiting for Desktop to connect.
-    Listening,
-    /// Noise handshake in progress with an incoming peer.
-    Handshaking,
-    /// At least one Desktop peer connected and io_task running.
-    Connected,
-    /// Connection lost unexpectedly (eligible for restart).
-    Disconnected,
-}
-
-/// Information about a connected Desktop peer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectedPeer {
-    pub peer_id: String,
-    pub label: String,
-    pub connected_at_ms: u64,
-    pub transport_type: String,
-}
-
-/// Snapshot of the acceptor's current status returned to callers.
-#[derive(Debug, Clone, Serialize)]
-pub struct AcceptorStatus {
-    pub state: AcceptorState,
-    pub connected_peers: Vec<ConnectedPeer>,
-    pub relay_url: Option<String>,
-    pub room_id: Option<String>,
-}
+pub use chromvoid_network_runtime::acceptor::{AcceptorState, AcceptorStatus, ConnectedPeer};
 
 // ── Internal state ─────────────────────────────────────────────────────
 
@@ -333,11 +282,7 @@ pub(crate) fn set_disconnected(runtime: &MobileAcceptorRuntimeState) -> Result<(
 
 /// Check if a peer is known (paired) by looking up their public key.
 pub fn is_peer_known(peer_pubkey: &[u8], store: &PairedPeerStore) -> Option<PairedPeer> {
-    store
-        .list()
-        .into_iter()
-        .find(|p| p.peer_pubkey == peer_pubkey)
-        .cloned()
+    store.find_by_public_key(peer_pubkey).cloned()
 }
 
 // ── Background listener ────────────────────────────────────────────────
@@ -453,7 +398,9 @@ mod tests {
     #[tokio::test]
     async fn listener_replacement_invalidates_and_aborts_previous_task() {
         let runtime = fresh_runtime();
-        let generation = runtime.begin_listener_task().expect("begin listener");
+        let generation = runtime
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         let dropped = Arc::new(AtomicBool::new(false));
         let drop_flag = DropFlag(dropped.clone());
         let handle = tokio::spawn(async move {
@@ -464,7 +411,9 @@ mod tests {
             .store_listener_task(generation, handle)
             .expect("store listener");
 
-        let replacement_generation = runtime.begin_listener_task().expect("replace listener");
+        let replacement_generation = runtime
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("replace listener");
 
         assert!(!runtime.is_generation_current(generation));
         assert!(runtime.is_generation_current(replacement_generation));
@@ -475,7 +424,9 @@ mod tests {
     #[tokio::test]
     async fn direct_transport_session_replaces_empty_listener() {
         let runtime = fresh_runtime();
-        let generation = runtime.begin_listener_task().expect("begin listener");
+        let generation = runtime
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let dropped = Arc::new(AtomicBool::new(false));
         let drop_flag = DropFlag(dropped.clone());
@@ -561,7 +512,9 @@ mod tests {
     #[tokio::test]
     async fn cancel_all_tasks_aborts_listener_and_peer_handles() {
         let runtime = fresh_runtime();
-        let generation = runtime.begin_listener_task().expect("begin listener");
+        let generation = runtime
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         let listener_dropped = Arc::new(AtomicBool::new(false));
         let listener_drop_flag = DropFlag(listener_dropped.clone());
         let listener_handle = tokio::spawn(async move {
@@ -616,7 +569,9 @@ mod tests {
     #[test]
     fn stale_generation_cannot_add_connected_peer() {
         let runtime = fresh_runtime();
-        let generation = runtime.begin_listener_task().expect("begin listener");
+        let generation = runtime
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         let stale_generation = generation.saturating_sub(1);
         let peer = ConnectedPeer {
             peer_id: "desktop-1".to_string(),
@@ -639,13 +594,18 @@ mod tests {
 
         assert_eq!(added, PeerRegistrationResult::StaleGeneration);
         assert!(get_connected_peers(&runtime).unwrap().is_empty());
-        assert_eq!(get_status(&runtime).unwrap().state, AcceptorState::Idle);
+        assert_eq!(
+            get_status(&runtime).unwrap().state,
+            AcceptorState::Listening
+        );
     }
 
     #[test]
     fn stale_generation_cannot_remove_current_peer() {
         let runtime = fresh_runtime();
-        let generation = runtime.begin_listener_task().expect("begin listener");
+        let generation = runtime
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         let peer = ConnectedPeer {
             peer_id: "desktop-1".to_string(),
             label: "Desktop".to_string(),
@@ -683,7 +643,9 @@ mod tests {
     #[tokio::test]
     async fn clear_listener_task_only_clears_current_generation() {
         let runtime = fresh_runtime();
-        let generation = runtime.begin_listener_task().expect("begin listener");
+        let generation = runtime
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         let handle = tokio::spawn(async {});
         runtime
             .store_listener_task(generation, handle)

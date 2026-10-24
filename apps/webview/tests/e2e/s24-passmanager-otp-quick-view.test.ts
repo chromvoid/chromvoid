@@ -313,7 +313,7 @@ async function quickViewMobileRailSnapshot(page: Page) {
     const content = surfaceLayout?.shadowRoot?.querySelector('[part~="scroll"]') as HTMLElement | null
     const rail = root?.querySelector('.quick-view__summary-rail') as HTMLElement | null
     const headerRail = root?.querySelector('.quick-view__header pm-summary-rail') as HTMLElement | null
-    const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
+    const tabBar = deepFind(document, '[data-testid="mobile-tabs"]') as HTMLElement | null
     const hostRect = host?.getBoundingClientRect()
     const railRect = rail?.getBoundingClientRect()
     const tabBarRect = tabBar?.getBoundingClientRect()
@@ -378,83 +378,32 @@ async function scrollQuickViewMobileContentToBottom(page: Page): Promise<void> {
   })
 }
 
+// Chromium 149 can collect an evaluate result while application-update microtasks are pending.
+// Use Playwright input for user actions; locator clicks also bring targets into their scroll viewport.
 async function openOtpQuickViewFromMobileTab(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const tabBar = deepFind(document, 'mobile-tab-bar') as HTMLElement | null
-    const tab = Array.from(tabBar?.shadowRoot?.querySelectorAll('cv-button.tab') ?? []).find(
-      (button) =>
-        button.getAttribute('aria-label') === 'OTP codes' ||
-        button.textContent?.replace(/\s+/g, ' ').trim().includes('OTP'),
-    ) as HTMLElement | undefined
-    if (!tab) throw new Error('mobile OTP tab not found')
-    tab.click()
+  await waitForAppInput(page)
+  await page.getByTestId('mobile-tabs').getByRole('button', {name: 'OTPs', exact: true}).click()
+}
 
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
+// Real input must wait until the startup splash releases the app.
+async function waitForAppInput(page: Page): Promise<void> {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
   })
 }
 
+// Use native text input instead of returning from evaluate with queued updates; see the GC note above.
 async function setQuickViewSearch(page: Page, value: string): Promise<void> {
-  await page.evaluate((nextValue) => {
-    const search = deepFind(document, 'pm-otp-quick-view-search') as HTMLElement | null
-    const input = search?.shadowRoot?.querySelector('cv-input') as HTMLElement & {value?: string} | null
-    if (!input) throw new Error('OTP Quick View search input not found')
-    input.value = nextValue
-    input.dispatchEvent(
-      new CustomEvent('cv-input', {
-        detail: {value: nextValue},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  }, value)
+  await waitForAppInput(page)
+  const input = page.locator('pm-otp-quick-view-search cv-input input')
+  await input.scrollIntoViewIfNeeded()
+  await input.fill(value)
 }
 
+// Keep the copy action outside evaluate, as described in the GC note above.
 async function clickFirstTotpCard(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const host = deepFind(document, 'pm-otp-quick-view, pm-otp-quick-view-mobile') as HTMLElement | null
-    const rows = Array.from(host?.shadowRoot?.querySelectorAll('.row') ?? [])
-    const totp = rows
-      .map((row) => row.querySelector('pm-entry-otp-item') as HTMLElement | null)
-      .map((otpItem) => otpItem?.shadowRoot?.querySelector('pm-entry-totp-item') as HTMLElement | null)
-      .find(Boolean)
-    const card = totp?.shadowRoot?.querySelector('.totp-card') as HTMLElement | null
-    if (!card) throw new Error('TOTP card not found in OTP Quick View')
-    card.click()
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  })
+  await waitForAppInput(page)
+  await page.locator('pm-otp-quick-view .totp-card, pm-otp-quick-view-mobile .totp-card').first().click()
 }
 
 async function waitForCopiedFeedback(page: Page): Promise<void> {
@@ -521,46 +470,18 @@ async function waitForEntryRoute(page: Page, entry: FixtureEntry): Promise<void>
   )
 }
 
+// Both entry and navigation actions use real clicks; see the GC note above.
 async function openQuickViewFromEntrySnippet(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const entryHost = deepFind(document, 'pm-entry, pm-entry-mobile') as HTMLElement | null
-    const entryButton = entryHost?.shadowRoot?.querySelector(
-      '[data-action="otp-quick-view"]',
-    ) as HTMLElement | null
-    if (entryButton) {
-      entryButton.click()
-      return
-    }
+  await waitForAppInput(page)
+  const entryButton = page.locator(
+    'pm-entry [data-action="otp-quick-view"], pm-entry-mobile [data-action="otp-quick-view"]',
+  )
+  if ((await entryButton.count()) > 0) {
+    await entryButton.click()
+    return
+  }
 
-    const navigationRails = deepFindAll(document, 'navigation-rail') as HTMLElement[]
-    const otpNavigationButton = navigationRails
-      .flatMap((rail) => Array.from(rail.shadowRoot?.querySelectorAll<HTMLElement>('cv-button') ?? []))
-      .find((button) => button.textContent?.replace(/\s+/g, ' ').trim().toLowerCase().includes('otp'))
-    if (!otpNavigationButton) throw new Error('OTP navigation item not found')
-    otpNavigationButton.click()
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-
-    function deepFindAll(root: Document | ShadowRoot, selector: string): Element[] {
-      const found = Array.from(root.querySelectorAll(selector))
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          found.push(...deepFindAll(el.shadowRoot, selector))
-        }
-      }
-      return found
-    }
-  })
+  await page.locator('navigation-rail cv-button').filter({hasText: /otp/i}).first().click()
 }
 
 async function waitForOtpRoute(page: Page): Promise<void> {

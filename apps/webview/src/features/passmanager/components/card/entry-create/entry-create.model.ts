@@ -8,16 +8,12 @@ import {estimatePasswordStrength, generatePassword} from '@project/passmanager/p
 import type {IEntry, PassManagerEntryType, UrlRule} from '@project/passmanager/types'
 import {formatLink} from '@project/passmanager/urls'
 import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
-import {
-  finishAndroidPasswordSave,
-  type AndroidPasswordSavePrefill,
-} from 'root/features/passmanager/models/android-password-save-prefill'
 import {pmCredentialTagsModel} from 'root/features/passmanager/models/pm-credential-tags.model'
 import {getPassmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
 import {dialogService} from 'root/shared/services/dialog-service'
 import {isPaymentCardExpYearInput, parsePaymentCardExpYearInput} from '../payment-card-expiry'
 import {PMEntryOtpCreateModel} from '../entry-otp-create/entry-otp-create.model'
-import {PMEntryWebsiteEditorModel} from '../entry-website-editor'
+import {PMEntryWebsiteEditorModel} from '../entry-website-editor/entry-website-editor.model'
 const LOGIN_OPTIONAL_DETAILS = ['icon', 'tags', 'otp', 'note'] as const
 const PAYMENT_CARD_OPTIONAL_DETAILS = ['icon', 'tags'] as const
 
@@ -745,7 +741,6 @@ export class PMEntryCreateModel {
   confirmDiscard(): void {
     const resume = this.pendingDiscardResume
     if (!this.reset()) return
-    void finishAndroidPasswordSave('dismissed')
     resume?.()
   }
 
@@ -773,23 +768,6 @@ export class PMEntryCreateModel {
 
   generatePassword(): void {
     this.setPassword(generatePassword())
-  }
-
-  applyPrefill(prefill: AndroidPasswordSavePrefill): void {
-    const title = prefill.title.trim()
-    if (title) {
-      this.setTitle(title)
-    }
-    if (prefill.username.trim()) {
-      this.setUsername(prefill.username.trim())
-    }
-    if (prefill.password) {
-      this.setPassword(prefill.password)
-    }
-    if (prefill.urls.trim()) {
-      this.websiteEditor.setFirstValue(prefill.urls.trim())
-    }
-    this.dirty.set(true)
   }
 
   async submit(): Promise<PMEntryCreateSubmitResult> {

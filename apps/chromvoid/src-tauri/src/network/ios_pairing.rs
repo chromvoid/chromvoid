@@ -4,10 +4,14 @@ mod host_mode;
 mod pairing_session;
 mod state;
 
+#[cfg(all(test, desktop))]
+#[path = "ios_pairing/native_host_interop_tests.rs"]
+mod native_host_interop_tests;
+
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+pub use chromvoid_network_runtime::ios_host::{IosHostPhase, IosHostStatus, PairingHello};
 use tracing::info;
 
 use super::ios_control::{HostPresence, PairingOffer};
@@ -31,7 +35,6 @@ pub use state::{is_host_mode_enabled, persisted_host_mode_relay_url, IosHostRunt
 
 // Keep this aligned with the relay waiting-room TTL so wake presence does not outlive the room.
 const HOST_PRESENCE_TTL_MS: u64 = 5 * 60 * 1000;
-const PAIRING_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 const PAIRING_INITIAL_WAIT_FLOOR: Duration = Duration::from_secs(30);
 
 fn now_secs() -> u64 {
@@ -94,53 +97,6 @@ async fn load_or_create_identity_blocking(
     })
     .await
     .map_err(|error| format!("{task_label} task failed: {error}"))?
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum IosHostPhase {
-    Idle,
-    Pairing,
-    Ready,
-    Error,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairingHello {
-    pub peer_id: String,
-    pub peer_label: String,
-    pub peer_pubkey_hex: String,
-    pub platform: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IosHostStatus {
-    pub phase: IosHostPhase,
-    pub relay_url: Option<String>,
-    pub device_id: Option<String>,
-    pub device_label: Option<String>,
-    pub pairing_pin: Option<String>,
-    pub pairing_offer: Option<PairingOffer>,
-    pub expires_at_ms: Option<u64>,
-    pub presence: Option<HostPresence>,
-    pub paired_peer_id: Option<String>,
-    pub error: Option<String>,
-}
-
-impl Default for IosHostStatus {
-    fn default() -> Self {
-        Self {
-            phase: IosHostPhase::Idle,
-            relay_url: None,
-            device_id: None,
-            device_label: None,
-            pairing_pin: None,
-            pairing_offer: None,
-            expires_at_ms: None,
-            presence: None,
-            paired_peer_id: None,
-            error: None,
-        }
-    }
 }
 
 #[cfg(test)]

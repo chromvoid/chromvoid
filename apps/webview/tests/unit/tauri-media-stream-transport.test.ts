@@ -6,11 +6,10 @@ import {
   prepareMediaSourceViaTauri,
   releaseMediaStreamViaTauri,
   releaseMediaSourceViaTauri,
-  sendAndroidAudioCommandViaTauri,
   sendNativeAudioCommandViaTauri,
 } from '../../src/core/transport/tauri/tauri-binary-ops'
 import type {RuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
-import type {AndroidAudioPlayerEvent, MediaStreamErrorEvent, NativeAudioPlayerEvent} from '../../src/core/transport/transport'
+import type {MediaStreamErrorEvent, NativeAudioPlayerEvent} from '../../src/core/transport/transport'
 
 const tauriInvoke = vi.fn()
 const tauriListen = vi.fn()
@@ -33,7 +32,6 @@ const capabilities: RuntimeCapabilities = {
   supports_volume: true,
   supports_gateway: true,
   supports_network_remote: true,
-  supports_external_pro: true,
   supports_biometric: false,
   supports_autofill: false,
   supports_media_stream_protocol: true,
@@ -49,13 +47,7 @@ const capabilities: RuntimeCapabilities = {
   supports_mobile_backup_restore: false,
   supports_photo_library_save: false,
   supports_credential_provider_passkeys_lite: false,
-  supports_android_native_video: false,
-  android_native_audio_playback_rollout_enabled: false,
-  supports_android_native_upload: false,
-  supports_android_share_import: false,
-  supports_android_native_otp_qr_scan: false,
   supports_storage_root_selection: true,
-  supports_android_saf_backup_restore: false,
 }
 
 function installConnectInvokeMocks(): void {
@@ -300,7 +292,7 @@ describe('Tauri media stream transport', () => {
     })
   })
 
-  it('normalizes Android native video delivery through generic media source commands', async () => {
+  it('normalizes native video delivery through generic media source commands', async () => {
     tauriInvoke.mockImplementation(async (command: string) => {
       if (command === 'prepare_media_source') {
         return {
@@ -375,44 +367,6 @@ describe('Tauri media stream transport', () => {
     })
   })
 
-  it('sends Android native audio commands through Tauri', async () => {
-    tauriInvoke.mockResolvedValue({ok: true, result: null})
-
-    await sendAndroidAudioCommandViaTauri({
-      command: 'startSession',
-      nativeSessionId: 'audio-session-1',
-      tracks: [
-        {
-          trackId: 41,
-          systemTitle: 'ChromVoid audio',
-          mimeType: 'audio/mpeg',
-          size: 1234,
-          sourceRevision: 77,
-        },
-      ],
-      index: 0,
-      autoplay: true,
-    })
-
-    expect(tauriInvoke).toHaveBeenCalledWith('android_audio_session_command', {
-      args: {
-        command: 'startSession',
-        nativeSessionId: 'audio-session-1',
-        tracks: [
-          {
-            trackId: 41,
-            systemTitle: 'ChromVoid audio',
-            mimeType: 'audio/mpeg',
-            size: 1234,
-            sourceRevision: 77,
-          },
-        ],
-        index: 0,
-        autoplay: true,
-      },
-    })
-  })
-
   it('sends neutral native audio commands through Tauri', async () => {
     tauriInvoke.mockResolvedValue({ok: true, result: null})
 
@@ -432,7 +386,7 @@ describe('Tauri media stream transport', () => {
   it('skips desktop mode_status during mobile transport connect', async () => {
     const mobileCapabilities: RuntimeCapabilities = {
       ...capabilities,
-      platform: 'android',
+      platform: 'ios',
       desktop: false,
       mobile: true,
       supports_native_path_io: false,
@@ -481,35 +435,6 @@ describe('Tauri media stream transport', () => {
     }
 
     listenHandlers.get('media-stream:error')?.(payload)
-
-    expect(handler).toHaveBeenCalledWith(undefined, payload)
-
-    transport.disconnect()
-  })
-
-  it('forwards Android native audio player events through the transport event layer', async () => {
-    installConnectInvokeMocks()
-    const transport = new TauriTransport()
-    const handler = vi.fn()
-    transport.on('android-audio-player:event', handler)
-
-    transport.connect()
-    await waitForConnected(transport)
-
-    const payload: AndroidAudioPlayerEvent = {
-      event: 'state',
-      nativeSessionId: 'audio-session-1',
-      trackId: 41,
-      sourceRevision: 77,
-      index: 0,
-      playbackState: 'playing',
-      playbackIntent: 'play',
-      loadingState: 'loaded',
-      positionMs: 42_000,
-      durationMs: 120_000,
-    }
-
-    listenHandlers.get('android-audio-player:event')?.(payload)
 
     expect(handler).toHaveBeenCalledWith(undefined, payload)
 

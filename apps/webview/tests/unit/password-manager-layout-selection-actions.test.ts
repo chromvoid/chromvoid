@@ -3,7 +3,7 @@ import {Entry, Group, ManagerRoot} from '@project/passmanager/core'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group/group.model'
-import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel} from '../../src/core/modules/module-access.model'
 import {
   resetRuntimeCapabilities,
   setRuntimeCapabilities,
@@ -172,9 +172,12 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     root.showElement.set(root)
     ;(window as any).passmanager = root
     setRuntimeCapabilities({platform: 'macos', desktop: true})
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'env-runtime', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'env-runtime', status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
+      ],
+    })
 
     const model = new PasswordManagerLayoutModel()
     const openSpy = vi.spyOn(pmModel, 'openEnvRuntimeView').mockImplementation(() => {})
@@ -188,7 +191,7 @@ describe('PasswordManagerLayoutModel selection actions', () => {
     expect(openSpy).toHaveBeenCalledTimes(1)
 
     setRuntimeCapabilities({platform: 'windows', desktop: true})
-    expect(moduleAccessModel.featureAccess('env-runtime').status).toBe('unsupported')
+    expect(moduleAccessModel.featureAccess('env-runtime')?.status).toBe('unsupported')
     expect(
       model
         .getDesktopToolbarSections()

@@ -12,7 +12,9 @@ use crate::vault::VaultSession;
 use super::super::domain_uow::DomainUnitOfWork;
 
 pub(in crate::rpc::router::passmanager) use policy::{normalize_secret_value, secret_filename};
-pub(in crate::rpc::router::passmanager) use store::{read_secret_value, stage_secret_value};
+pub(in crate::rpc::router::passmanager) use store::{
+    read_secret_value, read_secret_value_checked, stage_secret_value,
+};
 
 pub(super) fn handle_save(
     s: &VaultSession,

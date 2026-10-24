@@ -37,7 +37,7 @@ import {pmModel} from '../../../password-manager.model'
 import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
 import {openPassmanagerMoveDialog} from '../../../service/passmanager-move-dialog'
 import {PMEntryModel} from '../../card/entry/entry.model'
-import {groupBy, sortDirection, sortField} from '../../list/sort-controls'
+import {groupBy, sortDirection, sortField} from '../../list/sort-controls.model'
 import {
   formatGroupCount,
   getDeletionNeighbourId,

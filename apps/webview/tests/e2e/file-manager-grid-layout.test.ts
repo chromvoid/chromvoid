@@ -186,7 +186,9 @@ test('grid virtualization updates the mounted window after scrolling', async () 
     )
   })
 
-  const initialFirstId = await page.evaluate(() => {
+  // Keep the fixed scroll offset for this virtualization fixture, but yield a frame
+  // before returning so reactive updates cannot race Chromium's evaluate result.
+  const initialFirstId = await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -203,9 +205,11 @@ test('grid virtualization updates the mounted window after scrolling', async () 
     const container = list?.shadowRoot?.querySelector<HTMLElement>('.list-container')
     const firstHost = list?.shadowRoot?.querySelector<HTMLElement>('file-item-mobile[view-mode="grid"]')
     if (!container || !firstHost) throw new Error('scrollable file grid was not rendered')
+    const initialId = firstHost.dataset['id'] ?? null
     container.scrollTop = Math.min(220 * 8, container.scrollHeight - container.clientHeight - 1)
     container.dispatchEvent(new Event('scroll'))
-    return firstHost.dataset['id'] ?? null
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    return initialId
   })
 
   await page.waitForFunction((previousId) => {

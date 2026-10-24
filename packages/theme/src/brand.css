@@ -1,0 +1,95 @@
+/* Shared accepted palette. Canonical design: business/brand/color-system.md.
+   Primitive values are inert until consumed; .brand-theme opts into semantic roles. */
+:root {
+  --app-brand-light-canvas: hwb(210 96.078% 1.5686%);
+  --app-brand-light-surface: hwb(0 100% 0%);
+  --app-brand-light-surface-secondary: hwb(202.5 92.94118% 3.92157%);
+  --app-brand-light-foreground: hwb(206.08696 7.84314% 83.13725%);
+  --app-brand-light-muted: hwb(205.45455 32.54902% 54.5098%);
+  --app-brand-light-border: hwb(206.25 84.70588% 9.01961%);
+  --app-brand-light-accent: hwb(196.22 2.3529% 39.608%);
+  --app-brand-light-on-accent: hwb(0 100% 0%);
+  --app-brand-light-accent-container: hwb(201.82 86.667% 0.39216%);
+  --app-brand-light-accent-container-foreground: hwb(196.61 1.1765% 54.902%);
+  --app-brand-dark-canvas: hwb(216 4.31373% 93.72549%);
+  --app-brand-dark-surface: hwb(210 7.84314% 86.66667%);
+  --app-brand-dark-surface-secondary: hwb(208.57143 11.76471% 80%);
+  --app-brand-dark-foreground: hwb(207.27273 92.94118% 2.7451%);
+  --app-brand-dark-muted: hwb(208.96552 64.70588% 23.92157%);
+  --app-brand-dark-border: hwb(206.66667 17.2549% 72.15686%);
+  --app-brand-dark-accent: hwb(200.49 51.765% 0%);
+  --app-brand-dark-on-accent: hwb(198.11 2.745% 76.471%);
+  --app-brand-dark-accent-container: hwb(199.32 7.059% 69.804%);
+  --app-brand-dark-accent-container-foreground: hwb(200.87 72.941% 0%);
+  /* Filled primary control and decorative cyan; the sRGB accent doubles as both elsewhere. */
+  --app-brand-light-button: hwb(196.125 2.7451% 34.5098%);
+  --app-brand-light-bright: hwb(196.02 4.31373% 16.4706%);
+}
+
+/* Both accent families are authored in OKLCH on one hue, 232° (the ice-blue dark set joined the
+   light one on 2026-09-27); engines that understand it do the gamut mapping themselves (Display P3
+   where the screen has it, sRGB elsewhere), the hwb values above stay as the fallback and the WCAG
+   contrast reference. */
+@supports (color: oklch(0% 0 0)) {
+  :root {
+    --app-brand-light-accent: oklch(52% 0.138 232);
+    --app-brand-light-accent-container: oklch(95% 0.03 232);
+    --app-brand-light-accent-container-foreground: oklch(42% 0.112 232);
+    --app-brand-light-button: oklch(55% 0.146 232);
+    --app-brand-light-bright: oklch(66% 0.175 232);
+    --app-brand-dark-accent: oklch(83.7% 0.105 232);
+    --app-brand-dark-on-accent: oklch(27.7% 0.05 232);
+    --app-brand-dark-accent-container: oklch(33.1% 0.055 232);
+    --app-brand-dark-accent-container-foreground: oklch(90.3% 0.06 232);
+  }
+}
+
+.brand-theme {
+  color-scheme: dark;
+  --app-brand-canvas: var(--app-brand-dark-canvas);
+  --app-brand-surface: var(--app-brand-dark-surface);
+  --app-brand-surface-secondary: var(--app-brand-dark-surface-secondary);
+  --app-brand-foreground: var(--app-brand-dark-foreground);
+  --app-brand-muted: var(--app-brand-dark-muted);
+  --app-brand-border: var(--app-brand-dark-border);
+  --app-brand-accent: var(--app-brand-dark-accent);
+  --app-brand-on-accent: var(--app-brand-dark-on-accent);
+  --app-brand-accent-container: var(--app-brand-dark-accent-container);
+  --app-brand-accent-container-foreground: var(--app-brand-dark-accent-container-foreground);
+  --app-brand-button: var(--app-brand-dark-accent);
+  --app-brand-bright: var(--app-brand-dark-accent);
+}
+
+.brand-theme[data-theme="light"] {
+  color-scheme: light;
+  --app-brand-canvas: var(--app-brand-light-canvas);
+  --app-brand-surface: var(--app-brand-light-surface);
+  --app-brand-surface-secondary: var(--app-brand-light-surface-secondary);
+  --app-brand-foreground: var(--app-brand-light-foreground);
+  --app-brand-muted: var(--app-brand-light-muted);
+  --app-brand-border: var(--app-brand-light-border);
+  --app-brand-accent: var(--app-brand-light-accent);
+  --app-brand-on-accent: var(--app-brand-light-on-accent);
+  --app-brand-accent-container: var(--app-brand-light-accent-container);
+  --app-brand-accent-container-foreground: var(--app-brand-light-accent-container-foreground);
+  --app-brand-button: var(--app-brand-light-button);
+  --app-brand-bright: var(--app-brand-light-bright);
+}
+
+@media (prefers-color-scheme: light) {
+  .brand-theme:not([data-theme]) {
+    color-scheme: light;
+  --app-brand-canvas: var(--app-brand-light-canvas);
+  --app-brand-surface: var(--app-brand-light-surface);
+  --app-brand-surface-secondary: var(--app-brand-light-surface-secondary);
+  --app-brand-foreground: var(--app-brand-light-foreground);
+  --app-brand-muted: var(--app-brand-light-muted);
+  --app-brand-border: var(--app-brand-light-border);
+  --app-brand-accent: var(--app-brand-light-accent);
+  --app-brand-on-accent: var(--app-brand-light-on-accent);
+  --app-brand-accent-container: var(--app-brand-light-accent-container);
+  --app-brand-accent-container-foreground: var(--app-brand-light-accent-container-foreground);
+  --app-brand-button: var(--app-brand-light-button);
+  --app-brand-bright: var(--app-brand-light-bright);
+  }
+}

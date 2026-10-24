@@ -5,7 +5,6 @@ import {
   MEDIA_STREAM_LOADABILITY_TIMEOUT_MS,
   REMOTE_MEDIA_STREAM_LOADABILITY_TIMEOUT_MS,
 } from '../../src/features/media/components/media-playback-host'
-import {ANDROID_MEDIA_SESSION_CONTROL_EVENT} from '../../src/features/media/models/android-media-session-events'
 import {mediaPlaybackModel} from '../../src/features/media/models/media-playback.model'
 import {invalidateFileBlobCache} from '../../src/features/media/components/file-loader'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
@@ -62,16 +61,16 @@ async function startBlobAudioSession(): Promise<void> {
   )
 }
 
-function enableAndroidNativeAudio(): void {
+function enableNativeAudio(): void {
   setRuntimeCapabilities({
-    platform: 'android',
+    platform: 'ios',
     mobile: true,
-    android_native_audio_playback_rollout_enabled: true,
+    supports_native_audio_playback: true,
   })
   runtimeModeModel.setCoreMode('local')
 }
 
-function androidAudioTrack(overrides: Partial<ResolvedAudioTrack> = {}): ResolvedAudioTrack {
+function nativeAudioTrack(overrides: Partial<ResolvedAudioTrack> = {}): ResolvedAudioTrack {
   return {
     id: 202,
     name: 'private-track-name.mp3',
@@ -191,28 +190,6 @@ describe('media-playback-host', () => {
 
     audio.dispatchEvent(new Event('play'))
     expect(mediaPlaybackModel.playbackState()).toBe('playing')
-  })
-
-  it('applies native playback intent nudges without waiting for a Lit update', async () => {
-    await startBlobAudioSession()
-
-    const host = document.createElement('media-playback-host') as MediaPlaybackHost
-    document.body.appendChild(host)
-    await flushHost(host)
-
-    vi.mocked(HTMLMediaElement.prototype.play).mockClear()
-    vi.mocked(HTMLMediaElement.prototype.pause).mockClear()
-
-    mediaPlaybackModel.requestPlay()
-    globalThis.dispatchEvent(new CustomEvent(ANDROID_MEDIA_SESSION_CONTROL_EVENT))
-
-    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
-
-    mediaPlaybackModel.handleMediaPlay()
-    mediaPlaybackModel.requestPause()
-    globalThis.dispatchEvent(new CustomEvent(ANDROID_MEDIA_SESSION_CONTROL_EVENT))
-
-    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1)
   })
 
   it('applies model seek requests to the audio element', async () => {
@@ -633,17 +610,19 @@ describe('media-playback-host', () => {
     vi.mocked(HTMLMediaElement.prototype.play).mockClear()
     Object.defineProperty(audio, 'paused', {configurable: true, value: false})
     mediaPlaybackModel.requestPlay()
-    globalThis.dispatchEvent(new CustomEvent(ANDROID_MEDIA_SESSION_CONTROL_EVENT))
+    host.requestUpdate()
+    await flushHost(host)
 
     expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
 
     Object.defineProperty(audio, 'paused', {configurable: true, value: true})
-    globalThis.dispatchEvent(new CustomEvent(ANDROID_MEDIA_SESSION_CONTROL_EVENT))
+    host.requestUpdate()
+    await flushHost(host)
 
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
   })
 
-  it('clears hidden audio and ignores playback intent while Android Media3 owns playback', async () => {
+  it('clears hidden audio and ignores playback intent while the native player owns playback', async () => {
     await startBlobAudioSession()
     const host = document.createElement('media-playback-host') as MediaPlaybackHost
     document.body.appendChild(host)
@@ -651,14 +630,14 @@ describe('media-playback-host', () => {
     const audio = host.shadowRoot?.querySelector('audio') as HTMLAudioElement
     expect(audio.getAttribute('src')).toBe('blob:host-audio')
 
-    enableAndroidNativeAudio()
+    enableNativeAudio()
     clearAppContext()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
         catalog: {
           api: {
@@ -671,21 +650,21 @@ describe('media-playback-host', () => {
     vi.mocked(HTMLMediaElement.prototype.pause).mockClear()
     vi.mocked(HTMLMediaElement.prototype.load).mockClear()
 
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 203})], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack({id: 203})], 0)
     await flushHost(host)
 
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
     expect(audio.getAttribute('src')).toBeNull()
     expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1)
     expect(HTMLMediaElement.prototype.load).toHaveBeenCalledTimes(1)
 
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
     mediaPlaybackModel.requestPlay()
     await flushHost(host)
     await Promise.resolve()
 
     expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'play',
       nativeSessionId: mediaPlaybackModel.nativeSessionId(),
     })

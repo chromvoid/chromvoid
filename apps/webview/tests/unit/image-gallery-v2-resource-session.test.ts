@@ -255,7 +255,7 @@ describe('image gallery v2 resource/session core', () => {
 
   it('logs cache miss, in-flight join, and cache hit profiling events', async () => {
     localStorage.setItem('chromvoid:image-gallery-debug', '1')
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     const pending = deferred<LoadResult>()
     const loadSourceById = vi.fn<LoadSourceById>(() => pending.promise)

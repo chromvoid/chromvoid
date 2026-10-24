@@ -1,11 +1,9 @@
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {
-  dispatchAndroidVideoPlayerEvent,
   dispatchMediaStreamError,
   getInFlightMediaStreamLoadCountForTests,
   getMediaStreamOwnerCountForTests,
-  isAndroidVideoPlayerEvent,
   registerInFlightMediaStreamLoad,
   releaseAllMediaStreamOwnersForLifecycle,
   registerMediaStreamOwner,
@@ -133,58 +131,4 @@ describe('media-stream owner registry', () => {
     expect(handlers.has('media-stream:error')).toBe(false)
   })
 
-  it('normalizes Android video events by native source token', () => {
-    const owner = {handleNativeStreamError: vi.fn(), handleAndroidVideoPlayerEvent: vi.fn()}
-    registerMediaStreamOwner('native-source-token', owner, {
-      mediaSourceGeneration: 3,
-      sourceRevision: 77,
-      transportSessionGeneration: 12,
-      appForegroundEpoch: 4,
-    })
-
-    expect(
-      isAndroidVideoPlayerEvent({
-        nativeSourceToken: 'native-source-token',
-        event: 'ready',
-        mediaSourceGeneration: 3,
-        sourceRevision: 77,
-        transportSessionGeneration: 12,
-        appForegroundEpoch: 4,
-      }),
-    ).toBe(true)
-
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'native-source-token',
-      event: 'ready',
-      mediaSourceGeneration: 3,
-      sourceRevision: 77,
-      transportSessionGeneration: 12,
-      appForegroundEpoch: 4,
-    })
-    dispatchAndroidVideoPlayerEvent({
-      nativeSourceToken: 'native-source-token',
-      event: 'ready',
-      mediaSourceGeneration: 2,
-      sourceRevision: 77,
-      transportSessionGeneration: 12,
-      appForegroundEpoch: 4,
-    })
-    dispatchAndroidVideoPlayerEvent({
-      token: 'legacy-native-source-token',
-      event: 'ready',
-    })
-
-    expect(owner.handleAndroidVideoPlayerEvent).toHaveBeenCalledTimes(1)
-    expect(owner.handleAndroidVideoPlayerEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        nativeSourceToken: 'native-source-token',
-        token: 'native-source-token',
-        event: 'ready',
-        mediaSourceGeneration: 3,
-        sourceRevision: 77,
-        transportSessionGeneration: 12,
-        appForegroundEpoch: 4,
-      }),
-    )
-  })
 })

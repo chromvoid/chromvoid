@@ -16,10 +16,6 @@ pub(super) fn fee_estimation_error(error: TonProviderError) -> WalletChainError 
     WalletChainError::fee_estimation_failed(error.message)
 }
 
-pub(super) fn ton_error(error: ::ton::errors::TonError) -> WalletChainError {
-    WalletChainError::internal(format!("TON wallet operation failed: {error}"))
-}
-
 pub(super) fn ton_core_error(error: ::ton::ton_core::errors::TonCoreError) -> WalletChainError {
     WalletChainError::internal(format!("TON cell operation failed: {error}"))
 }

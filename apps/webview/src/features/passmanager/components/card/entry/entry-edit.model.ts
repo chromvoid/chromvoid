@@ -14,7 +14,7 @@ import {
   parsePaymentCardExpYearInput,
 } from '../payment-card-expiry'
 import {PMEntryOtpCreateModel} from '../entry-otp-create/entry-otp-create.model'
-import {PMEntryWebsiteEditorModel} from '../entry-website-editor'
+import {PMEntryWebsiteEditorModel} from '../entry-website-editor/entry-website-editor.model'
 import type {PMEntryRenderData} from './entry.model'
 import {PMEntryModel} from './entry.model'
 

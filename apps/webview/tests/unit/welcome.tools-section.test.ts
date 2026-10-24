@@ -201,7 +201,7 @@ describe('welcome tools section', () => {
   it('keeps mobile backup mode separate from live storage root selection', async () => {
     setTauriRuntime()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_mobile_backup_restore: true,
       supports_storage_root_selection: false,
@@ -211,7 +211,6 @@ describe('welcome tools section', () => {
     const text = (section.shadowRoot?.textContent ?? '').replace(/\s+/g, ' ')
 
     expect(section.model?.supportsMobileBackupRestore()).toBe(true)
-    expect(section.model?.supportsAndroidSafBackupRestore()).toBe(true)
     expect(section.model?.supportsStorageRootSelection()).toBe(false)
     expect(text).not.toContain('Change Location')
     expect(text).not.toContain('Use Default Location')
@@ -220,7 +219,7 @@ describe('welcome tools section', () => {
   it('starts mobile backup without opening a path picker', async () => {
     setTauriRuntime()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_mobile_backup_restore: true,
       supports_storage_root_selection: false,
@@ -247,7 +246,7 @@ describe('welcome tools section', () => {
   it('submits mobile backup from the utilities sub-screen without opening a password dialog', async () => {
     setTauriRuntime()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_mobile_backup_restore: true,
       supports_storage_root_selection: false,
@@ -299,7 +298,7 @@ describe('welcome tools section', () => {
   it('does not start backup when the password prompt is cancelled', async () => {
     setTauriRuntime()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_mobile_backup_restore: true,
       supports_storage_root_selection: false,
@@ -459,7 +458,7 @@ describe('welcome tools section', () => {
   it('selects mobile restore source before asking for the master password', async () => {
     setTauriRuntime()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_mobile_backup_restore: true,
       supports_storage_root_selection: false,

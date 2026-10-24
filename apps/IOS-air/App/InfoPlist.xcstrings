@@ -1,0 +1,70 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSFaceIDUsageDescription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm your identity to enter the app. Your vault still requires its own password."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подтвердите, что это вы, чтобы войти в приложение. Для хранилища по-прежнему нужен отдельный пароль."
+          }
+        }
+      }
+    },
+    "NSCameraUsageDescription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan a setup QR code, or take a photo to add to your vault."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сканируйте QR-код настройки или снимите фото, чтобы добавить его в хранилище."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryAddUsageDescription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save only the images and videos you choose to export from your vault to Photos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохраняйте в «Фото» только те изображения и видео, которые вы выбрали для экспорта из хранилища."
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryUsageDescription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read the originals of the photos and videos you choose, so their camera and location details are kept in your vault."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Читать оригиналы выбранных фото и видео, чтобы данные камеры и геопозиция сохранялись в хранилище."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -1,93 +1,27 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
 use super::super::connection::NetworkConnectionManager;
-use super::{now_ms, AcceptorState, AcceptorStatus, ConnectedPeer};
+use super::now_ms;
+#[cfg(test)]
+use super::{AcceptorState, ConnectedPeer};
 use crate::mobile_usb::{
     MobileUsbErrorCode, MobileUsbHostApprovalDecision, MobileUsbHostPairingApprovalView,
     MobileUsbHostSessionApprovalView,
 };
-
-/// Per-peer connection tracking: NetworkConnectionManager for state + shutdown handle.
-pub(super) struct PeerConnection {
-    pub(super) conn_mgr: NetworkConnectionManager,
-    pub(super) generation: u64,
-    pub(super) shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    pub(super) task_handle: Option<tokio::task::JoinHandle<()>>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PeerRegistrationResult {
-    Added,
-    StaleGeneration,
-    Revoked,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PeerRevocationResult {
-    NotConnected,
-    DisconnectSignalled,
-    DisconnectFailed,
-}
-
-pub(super) struct AcceptorInner {
-    pub(super) state: AcceptorState,
-    pub(super) relay_url: Option<String>,
-    pub(super) room_id: Option<String>,
-    pub(super) connected_peers: Vec<ConnectedPeer>,
-    pub(super) shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    pub(super) listener_task: Option<tokio::task::JoinHandle<()>>,
-    pub(super) peer_connections: Vec<(String, PeerConnection)>,
-}
-
-impl AcceptorInner {
-    pub(super) fn new() -> Self {
-        Self {
-            state: AcceptorState::Idle,
-            relay_url: None,
-            room_id: None,
-            connected_peers: Vec::new(),
-            shutdown_tx: None,
-            listener_task: None,
-            peer_connections: Vec::new(),
-        }
-    }
-
-    pub(super) fn status(&self) -> AcceptorStatus {
-        AcceptorStatus {
-            state: self.state,
-            connected_peers: self.connected_peers.clone(),
-            relay_url: self.relay_url.clone(),
-            room_id: self.room_id.clone(),
-        }
-    }
-}
+#[cfg(test)]
+pub(super) use chromvoid_network_runtime::acceptor::AcceptorInner;
+pub(crate) use chromvoid_network_runtime::acceptor::PeerRevocationResult;
+use chromvoid_network_runtime::acceptor::{AcceptorRuntimeState, DirectTransportSessionScope};
+pub(super) use chromvoid_network_runtime::acceptor::{PeerConnection, PeerRegistrationResult};
 
 pub struct MobileAcceptorRuntimeState {
-    inner: Mutex<Option<AcceptorInner>>,
-    revoked_peer_ids: Mutex<HashSet<String>>,
+    runtime: Arc<AcceptorRuntimeState>,
     derivative_ensure_services:
         Mutex<Option<Arc<crate::commands::catalog::HostDerivativeEnsureServices>>>,
-    acceptor_generation: AtomicU64,
-    direct_transport_sessions: AtomicU64,
-    vault_unlock_tx: tokio::sync::watch::Sender<u64>,
     usb_pairing_approvals: Mutex<HashMap<String, PendingUsbPairingApproval>>,
     usb_session_approvals: Mutex<HashMap<String, PendingUsbSessionApproval>>,
-}
-
-/// RAII marker for an in-flight direct transport (USB) session. While at least
-/// one scope is alive, listener restarts must not preempt the session.
-pub(crate) struct DirectTransportSessionScope {
-    runtime: Arc<MobileAcceptorRuntimeState>,
-}
-
-impl Drop for DirectTransportSessionScope {
-    fn drop(&mut self) {
-        self.runtime
-            .direct_transport_sessions
-            .fetch_sub(1, Ordering::AcqRel);
-    }
 }
 
 struct PendingUsbPairingApproval {
@@ -141,14 +75,9 @@ impl MobileUsbApprovalKind {
 
 impl MobileAcceptorRuntimeState {
     pub fn new() -> Self {
-        let (vault_unlock_tx, _) = tokio::sync::watch::channel(0);
         Self {
-            inner: Mutex::new(None),
-            revoked_peer_ids: Mutex::new(HashSet::new()),
+            runtime: Arc::new(AcceptorRuntimeState::new()),
             derivative_ensure_services: Mutex::new(None),
-            acceptor_generation: AtomicU64::new(0),
-            direct_transport_sessions: AtomicU64::new(0),
-            vault_unlock_tx,
             usb_pairing_approvals: Mutex::new(HashMap::new()),
             usb_session_approvals: Mutex::new(HashMap::new()),
         }
@@ -178,28 +107,8 @@ impl MobileAcceptorRuntimeState {
             .map_err(|_| "Derivative ensure services mutex poisoned".to_string())
     }
 
-    pub(crate) fn notify_vault_unlocked(&self) {
-        self.vault_unlock_tx.send_modify(|generation| {
-            *generation = generation.wrapping_add(1);
-        });
-    }
-
-    pub(in crate::network::mobile_acceptor) fn subscribe_vault_unlocks(
-        &self,
-    ) -> tokio::sync::watch::Receiver<u64> {
-        self.vault_unlock_tx.subscribe()
-    }
-
-    pub(crate) fn direct_transport_session_scope(self: &Arc<Self>) -> DirectTransportSessionScope {
-        self.direct_transport_sessions
-            .fetch_add(1, Ordering::AcqRel);
-        DirectTransportSessionScope {
-            runtime: Arc::clone(self),
-        }
-    }
-
-    pub(crate) fn has_active_direct_transport_session(&self) -> bool {
-        self.direct_transport_sessions.load(Ordering::Acquire) > 0
+    pub(crate) fn direct_transport_session_scope(&self) -> DirectTransportSessionScope {
+        self.runtime.direct_transport_session_scope()
     }
 
     pub(in crate::network::mobile_acceptor) fn register_usb_pairing_approval(
@@ -479,372 +388,40 @@ impl MobileAcceptorRuntimeState {
         Ok(())
     }
 
-    pub(in crate::network::mobile_acceptor) fn with_acceptor<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut AcceptorInner) -> R,
-    {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        Ok(f(inner))
-    }
-
-    #[cfg(test)]
-    pub(in crate::network::mobile_acceptor) fn begin_listener_task(&self) -> Result<u64, String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        let generation = self.acceptor_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        if let Some(handle) = inner.listener_task.take() {
-            handle.abort();
-        }
-        Ok(generation)
-    }
-
-    pub(in crate::network::mobile_acceptor) fn begin_listener_session(
-        &self,
-        relay_url: String,
-        room_id: String,
-        shutdown_tx: tokio::sync::oneshot::Sender<()>,
-    ) -> Result<(u64, AcceptorStatus), String> {
-        if self.has_active_direct_transport_session() {
-            return Err("direct transport session active".to_string());
-        }
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        if matches!(
-            inner.state,
-            AcceptorState::Listening | AcceptorState::Handshaking | AcceptorState::Connected
-        ) {
-            return Err(format!("acceptor already in {:?} state", inner.state));
-        }
-
-        let generation = self.acceptor_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        if let Some(tx) = inner.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-        if let Some(handle) = inner.listener_task.take() {
-            handle.abort();
-        }
-        for (_id, pc) in inner.peer_connections.iter_mut() {
-            pc.conn_mgr.disconnect();
-            if let Some(tx) = pc.shutdown_tx.take() {
-                let _ = tx.send(());
-            }
-            if let Some(handle) = pc.task_handle.take() {
-                handle.abort();
-            }
-        }
-        inner.state = AcceptorState::Listening;
-        inner.relay_url = Some(relay_url);
-        inner.room_id = Some(room_id);
-        inner.connected_peers.clear();
-        inner.peer_connections.clear();
-        inner.shutdown_tx = Some(shutdown_tx);
-        Ok((generation, inner.status()))
-    }
-
-    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-    pub(in crate::network::mobile_acceptor) fn begin_direct_transport_session(
-        &self,
-        label: String,
-    ) -> Result<u64, String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        if inner.state == AcceptorState::Connected || !inner.connected_peers.is_empty() {
-            return Err(format!("acceptor already in {:?} state", inner.state));
-        }
-        let generation = self.acceptor_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        if let Some(tx) = inner.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-        if let Some(handle) = inner.listener_task.take() {
-            handle.abort();
-        }
-        inner.state = AcceptorState::Listening;
-        inner.relay_url = None;
-        inner.room_id = Some(label);
-        inner.connected_peers.clear();
-        inner.peer_connections.clear();
-        Ok(generation)
-    }
-
-    pub(in crate::network::mobile_acceptor) fn store_listener_task(
-        &self,
-        generation: u64,
-        handle: tokio::task::JoinHandle<()>,
-    ) -> Result<(), String> {
-        let mut guard = match self.inner.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                handle.abort();
-                return Err("Mobile acceptor mutex poisoned".to_string());
-            }
-        };
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        if self.is_generation_current(generation) {
-            inner.listener_task = Some(handle);
-        } else {
-            handle.abort();
-        }
-        Ok(())
-    }
-
-    pub(in crate::network::mobile_acceptor) fn cancel_all_tasks(
-        &self,
-    ) -> Result<AcceptorStatus, String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        self.acceptor_generation.fetch_add(1, Ordering::AcqRel);
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-
-        if let Some(tx) = inner.shutdown_tx.take() {
-            let _ = tx.send(());
-        }
-        if let Some(handle) = inner.listener_task.take() {
-            handle.abort();
-        }
-
-        for (_id, pc) in inner.peer_connections.iter_mut() {
-            pc.conn_mgr.disconnect();
-            if let Some(tx) = pc.shutdown_tx.take() {
-                let _ = tx.send(());
-            }
-            if let Some(handle) = pc.task_handle.take() {
-                handle.abort();
-            }
-        }
-
-        inner.state = AcceptorState::Idle;
-        inner.relay_url = None;
-        inner.room_id = None;
-        inner.connected_peers.clear();
-        inner.peer_connections.clear();
-        Ok(inner.status())
-    }
-
-    pub(in crate::network::mobile_acceptor) fn is_generation_current(
-        &self,
-        generation: u64,
-    ) -> bool {
-        self.acceptor_generation.load(Ordering::Acquire) == generation
-    }
-
-    pub(in crate::network::mobile_acceptor) fn clear_listener_task_if_current(
-        &self,
-        generation: u64,
-    ) -> Result<(), String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        if self.is_generation_current(generation) {
-            inner.listener_task = None;
-        }
-        Ok(())
-    }
-
-    pub(in crate::network::mobile_acceptor) fn with_acceptor_if_current<F, R>(
-        &self,
-        generation: u64,
-        f: F,
-    ) -> Result<Option<R>, String>
-    where
-        F: FnOnce(&mut AcceptorInner) -> R,
-    {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        if !self.is_generation_current(generation) {
-            return Ok(None);
-        }
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        Ok(Some(f(inner)))
-    }
-
-    pub(in crate::network::mobile_acceptor) fn add_peer_if_current(
-        &self,
-        generation: u64,
-        peer: ConnectedPeer,
-        connection: PeerConnection,
-    ) -> Result<PeerRegistrationResult, String> {
-        // Registration and revoke always acquire these locks in this order. A handshake that
-        // loaded trust before durable revoke therefore cannot register after the guard is set.
-        let revoked = self
-            .revoked_peer_ids
-            .lock()
-            .map_err(|_| "Revoked peer guard mutex poisoned".to_string())?;
-        if revoked.contains(&peer.peer_id) {
-            return Ok(PeerRegistrationResult::Revoked);
-        }
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        if !self.is_generation_current(generation) {
-            return Ok(PeerRegistrationResult::StaleGeneration);
-        }
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        inner.connected_peers.push(peer.clone());
-        inner.peer_connections.push((peer.peer_id, connection));
-        inner.state = AcceptorState::Connected;
-        Ok(PeerRegistrationResult::Added)
-    }
-
-    pub(crate) fn clear_peer_revocation(&self, peer_id: &str) -> Result<(), String> {
-        self.revoked_peer_ids
-            .lock()
-            .map_err(|_| "Revoked peer guard mutex poisoned".to_string())?
-            .remove(peer_id);
-        Ok(())
-    }
-
     pub(crate) fn revoke_peer_access(&self, peer_id: &str) -> Result<PeerRevocationResult, String> {
-        // Keep the guard held until the active-peer record is removed. This is the inverse edge
-        // of add_peer_if_current and deliberately uses the same lock order.
-        let mut revoked = self
-            .revoked_peer_ids
-            .lock()
-            .map_err(|_| "Revoked peer guard mutex poisoned".to_string())?;
-        revoked.insert(peer_id.to_string());
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| "Mobile acceptor mutex poisoned".to_string())?;
-        let inner = guard.get_or_insert_with(AcceptorInner::new);
-        let connected = inner
-            .connected_peers
-            .iter()
-            .any(|peer| peer.peer_id == peer_id);
-        inner.connected_peers.retain(|peer| peer.peer_id != peer_id);
-        let connection = inner
-            .peer_connections
-            .iter()
-            .position(|(id, _)| id == peer_id)
-            .map(|index| inner.peer_connections.remove(index).1);
-        if inner.connected_peers.is_empty()
-            && (inner.state == AcceptorState::Connected
-                || inner.state == AcceptorState::Handshaking)
-        {
-            inner.state = if inner.relay_url.is_some() {
-                AcceptorState::Listening
-            } else {
-                AcceptorState::Idle
+        self.runtime.revoke_peer_access(peer_id, || {
+            let approval_notifies = {
+                let mut approvals = self
+                    .usb_session_approvals
+                    .lock()
+                    .map_err(|_| "USB session approval mutex poisoned".to_string())?;
+                let matching_attempts = approvals
+                    .iter()
+                    .filter(|(_, pending)| pending.view.peer_id == peer_id)
+                    .map(|(attempt_id, pending)| (attempt_id.clone(), pending.notify.clone()))
+                    .collect::<Vec<_>>();
+                for (attempt_id, _) in &matching_attempts {
+                    approvals.remove(attempt_id);
+                }
+                matching_attempts
+                    .into_iter()
+                    .map(|(_, notify)| notify)
+                    .collect::<Vec<_>>()
             };
-        }
-        drop(guard);
-        drop(revoked);
-
-        let approval_notifies = {
-            let mut approvals = self
-                .usb_session_approvals
-                .lock()
-                .map_err(|_| "USB session approval mutex poisoned".to_string())?;
-            let matching_attempts = approvals
-                .iter()
-                .filter(|(_, pending)| pending.view.peer_id == peer_id)
-                .map(|(attempt_id, pending)| (attempt_id.clone(), pending.notify.clone()))
-                .collect::<Vec<_>>();
-            for (attempt_id, _) in &matching_attempts {
-                approvals.remove(attempt_id);
+            for notify in approval_notifies {
+                notify.notify_waiters();
             }
-            matching_attempts
-                .into_iter()
-                .map(|(_, notify)| notify)
-                .collect::<Vec<_>>()
-        };
-        for notify in approval_notifies {
-            notify.notify_waiters();
-        }
 
-        let Some(mut connection) = connection else {
-            return Ok(if connected {
-                PeerRevocationResult::DisconnectFailed
-            } else {
-                PeerRevocationResult::NotConnected
-            });
-        };
-        connection.conn_mgr.disconnect();
-        let signalled = connection
-            .shutdown_tx
-            .take()
-            .is_some_and(|shutdown| shutdown.send(()).is_ok());
-        if signalled {
-            Ok(PeerRevocationResult::DisconnectSignalled)
-        } else {
-            if let Some(handle) = connection.task_handle.take() {
-                handle.abort();
-            }
-            Ok(PeerRevocationResult::DisconnectFailed)
-        }
-    }
-
-    pub(in crate::network::mobile_acceptor) fn store_peer_task_if_current(
-        &self,
-        generation: u64,
-        peer_id: &str,
-        handle: tokio::task::JoinHandle<()>,
-    ) -> Result<bool, String> {
-        let mut guard = match self.inner.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                handle.abort();
-                return Err("Mobile acceptor mutex poisoned".to_string());
-            }
-        };
-        if !self.is_generation_current(generation) {
-            handle.abort();
-            return Ok(false);
-        }
-        let Some(inner) = guard.as_mut() else {
-            handle.abort();
-            return Ok(false);
-        };
-        let Some((_, peer_connection)) = inner
-            .peer_connections
-            .iter_mut()
-            .find(|(id, pc)| id == peer_id && pc.generation == generation)
-        else {
-            handle.abort();
-            return Ok(false);
-        };
-        peer_connection.task_handle = Some(handle);
-        Ok(true)
-    }
-
-    pub(in crate::network::mobile_acceptor) fn remove_peer_if_current(
-        &self,
-        generation: u64,
-        peer_id: &str,
-    ) -> Result<bool, String> {
-        self.with_acceptor_if_current(generation, |a| {
-            a.connected_peers.retain(|p| p.peer_id != peer_id);
-            a.peer_connections.retain(|(id, _)| id != peer_id);
-            if a.connected_peers.is_empty()
-                && (a.state == AcceptorState::Connected || a.state == AcceptorState::Handshaking)
-            {
-                a.state = if a.relay_url.is_some() {
-                    AcceptorState::Listening
-                } else {
-                    AcceptorState::Idle
-                };
-            }
+            Ok(())
         })
-        .map(|result| result.is_some())
+    }
+}
+
+impl std::ops::Deref for MobileAcceptorRuntimeState {
+    type Target = AcceptorRuntimeState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.runtime
     }
 }
 
@@ -929,9 +506,37 @@ mod tests {
     }
 
     #[test]
+    fn revoke_still_disconnects_when_usb_approval_cleanup_fails() {
+        let state = MobileAcceptorRuntimeState::new();
+        let generation = state
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin session");
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
+        state
+            .add_peer_if_current(
+                generation,
+                connected_peer("desktop-peer-1"),
+                peer_connection(generation, shutdown_tx),
+            )
+            .expect("register peer");
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.usb_session_approvals.lock().unwrap();
+            panic!("poison platform approval storage");
+        }));
+
+        assert_eq!(
+            state.revoke_peer_access("desktop-peer-1").unwrap_err(),
+            "USB session approval mutex poisoned"
+        );
+        assert_eq!(shutdown_rx.try_recv(), Ok(()));
+    }
+
+    #[test]
     fn revoke_disconnects_registered_peer_and_clears_pending_session_approval() {
         let state = MobileAcceptorRuntimeState::new();
-        let generation = state.begin_listener_task().expect("begin listener");
+        let generation = state
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
         assert_eq!(
             state
@@ -966,7 +571,9 @@ mod tests {
     #[test]
     fn revoke_preserves_other_connected_peers_and_listener_state() {
         let state = MobileAcceptorRuntimeState::new();
-        let generation = state.begin_listener_task().expect("begin listener");
+        let generation = state
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         let (revoked_tx, mut revoked_rx) = tokio::sync::oneshot::channel();
         let (kept_tx, mut kept_rx) = tokio::sync::oneshot::channel();
         for (peer_id, shutdown_tx) in [("desktop-peer-1", revoked_tx), ("desktop-peer-2", kept_tx)]
@@ -1003,7 +610,9 @@ mod tests {
     #[test]
     fn revoke_guard_rejects_late_registration_and_allows_durable_repair() {
         let state = MobileAcceptorRuntimeState::new();
-        let generation = state.begin_listener_task().expect("begin listener");
+        let generation = state
+            .begin_direct_transport_session("test-session".to_string())
+            .expect("begin listener");
         assert_eq!(
             state
                 .revoke_peer_access("desktop-peer-1")

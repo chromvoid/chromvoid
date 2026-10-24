@@ -130,11 +130,7 @@ pub(crate) fn restore_local_after_mobile_usb_session_end(
         .lock()
         .map_err(|_| "Storage root mutex poisoned".to_string())?
         .clone();
-    let local_adapter = crate::core_adapter::LocalCoreAdapter::new_with_license_store(
-        storage_root.clone(),
-        state.license_root.clone(),
-        crate::pro::current_build_policy(),
-    )?;
+    let local_adapter = crate::core_adapter::LocalCoreAdapter::new(storage_root.clone())?;
 
     let (current_mode, remote_core_features, transport_session_generation) = {
         let mut adapter = state

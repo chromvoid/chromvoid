@@ -1,31 +1,24 @@
-use serde_json::{json, Value};
+use chromvoid_client_runtime::provider::secret_ref_for_request;
+use serde_json::Value;
+use zeroize::Zeroizing;
 
 const KEYCHAIN_SERVICE: &str = "com.chromvoid.credential-provider.secret";
 const KEYCHAIN_ACCESS_GROUP: &str = "com.chromvoid.app.shared";
 
-pub(super) fn secret_ref_result_for_response(
-    request_id: &str,
-    result: Value,
-) -> Result<Value, String> {
+pub(super) fn store_response(request_id: &str, result: &Value) -> Result<String, String> {
     let secret_ref = secret_ref_for_request(request_id)?;
-    let bytes = serde_json::to_vec(&result)
-        .map_err(|error| format!("credential secret serialization failed: {error}"))?;
+    let bytes = Zeroizing::new(
+        serde_json::to_vec(result)
+            .map_err(|error| format!("credential secret serialization failed: {error}"))?,
+    );
     write_secret(&secret_ref, &bytes)?;
-    Ok(json!({ "secret_ref": secret_ref }))
+    Ok(secret_ref)
 }
 
 pub(super) fn clear_secret_ref(request_id: &str) {
     if let Ok(secret_ref) = secret_ref_for_request(request_id) {
         let _ = delete_secret(&secret_ref);
     }
-}
-
-fn secret_ref_for_request(request_id: &str) -> Result<String, String> {
-    let trimmed = request_id.trim();
-    if trimmed.is_empty() {
-        return Err("credential secret request_id is empty".to_string());
-    }
-    Ok(format!("credential-provider-secret:{trimmed}"))
 }
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -91,24 +84,7 @@ fn matching_keychain_access_group(groups: impl IntoIterator<Item = String>) -> O
 
 #[cfg(test)]
 mod tests {
-    use super::{matching_keychain_access_group, secret_ref_for_request};
-
-    #[test]
-    fn secret_ref_is_derived_from_request_id_without_secret_material() {
-        assert_eq!(
-            secret_ref_for_request("req-1").as_deref(),
-            Ok("credential-provider-secret:req-1")
-        );
-        assert!(secret_ref_for_request(" ").is_err());
-    }
-
-    #[test]
-    fn clear_secret_ref_uses_request_id_shape() {
-        assert_eq!(
-            secret_ref_for_request(" req-2 ").as_deref(),
-            Ok("credential-provider-secret:req-2")
-        );
-    }
+    use super::matching_keychain_access_group;
 
     #[test]
     fn keychain_access_group_prefers_entitlement_value_with_app_prefix() {

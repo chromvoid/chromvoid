@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ChromVoidAir" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/air_canvas</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- The shared QR scanner is an AppCompat activity. -->
+    <style name="Theme.ChromVoidAir.Scanner" parent="Theme.AppCompat.DayNight.NoActionBar" />
+</resources>

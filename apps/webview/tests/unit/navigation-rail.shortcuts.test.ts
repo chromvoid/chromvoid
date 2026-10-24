@@ -119,9 +119,9 @@ describe('NavigationRail shortcut labels and vault lock shortcut', () => {
     expect(rail.shadowRoot?.textContent).toContain('Ctrl+L')
   })
 
-  it('hides desktop navigation action hints on Android mobile', async () => {
+  it('hides desktop navigation action hints on mobile', async () => {
     setupContext('mobile')
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
 
     const rail = await renderRail()
     const text = rail.shadowRoot?.textContent ?? ''
@@ -177,9 +177,9 @@ describe('NavigationRail shortcut labels and vault lock shortcut', () => {
     })
   })
 
-  it('does not lock the vault from desktop shortcuts on Android', async () => {
+  it('does not lock the vault from desktop shortcuts on mobile', async () => {
     setupContext('mobile')
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     vi.stubGlobal('__TAURI_INTERNALS__', {invoke: vi.fn()})
     const model = new ChromVoidAppModel(
       () => {},

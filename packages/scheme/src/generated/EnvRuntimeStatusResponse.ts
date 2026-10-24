@@ -2,7 +2,6 @@
 
 export type EnvRuntimeStatusResponse = {
   vault_unlocked: boolean
-  pro_enabled: boolean
   secret_count: number | null
   profile_count: number | null
 }

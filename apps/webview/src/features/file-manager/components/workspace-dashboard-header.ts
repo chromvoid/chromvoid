@@ -10,10 +10,12 @@ import {CVMenuButton} from '@chromvoid/uikit/components/cv-menu-button'
 import {CVMenuItem} from '@chromvoid/uikit/components/cv-menu-item'
 import {CVRadio} from '@chromvoid/uikit/components/cv-radio'
 import {CVRadioGroup} from '@chromvoid/uikit/components/cv-radio-group'
+import {wrap} from '@reatom/core'
 
 import {css, nothing} from 'lit'
 
 import {i18n} from 'root/i18n'
+import {getAppContext} from 'root/shared/services/app-context'
 import {dashboardToolbarSearchStyles} from 'root/shared/ui/dashboard-toolbar-search.styles'
 import {animationStyles, sharedStyles} from 'root/shared/ui/shared-styles'
 import {
@@ -22,6 +24,7 @@ import {
 } from 'root/shared/services/mobile-file-picker-session'
 import {DashboardHeader} from 'root/features/shell/components/dashboard-header'
 
+import {getFileManagerModel} from '../file-manager.model'
 import {BreadcrumbsNav} from './breadcrumbs-nav'
 import {
   createDefaultWorkspaceDashboardHeaderFilters,
@@ -260,7 +263,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
   private readonly model = new WorkspaceDashboardHeaderModel()
   private readonly legacyFilterActions = createFileSearchFilterActions({
     read: () => this.model.filters(),
-    write: (next) => this.dispatchFiltersChange(next),
+    write: (next) => getFileManagerModel(getAppContext()).handleFiltersChange(next),
   })
   private readonly filesMobileControlsModel = this.createFilesMobileControlsModel()
   private filePickerSession: MobileFilePickerSession | null = null
@@ -1451,10 +1454,6 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     })
   }
 
-  private dispatchFiltersChange(next: SearchFilters) {
-    this.dispatchEvent(new CustomEvent('filters-change', {detail: next, bubbles: true}))
-  }
-
   private getFilterActions(): FileSearchFilterActions {
     return this.filterActions ?? this.legacyFilterActions
   }
@@ -1578,20 +1577,22 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     this.onWorkspaceSearchClear()
   }
 
-  private onNavigate(e: CustomEvent) {
-    this.dispatchEvent(new CustomEvent('navigate', {detail: e.detail, bubbles: true}))
+  private onNavigate(e: CustomEvent<{path: string}>) {
+    e.stopPropagation()
+    getFileManagerModel(getAppContext()).handleNavigate(e.detail.path)
   }
 
-  private onFiltersChange(e: CustomEvent) {
-    this.dispatchFiltersChange(e.detail)
+  private onFiltersChange(e: CustomEvent<SearchFilters>) {
+    e.stopPropagation()
+    getFileManagerModel(getAppContext()).handleFiltersChange(e.detail)
   }
 
   private onCreateDirClick() {
-    this.dispatchEvent(new CustomEvent('create-dir', {bubbles: true}))
+    void getFileManagerModel(getAppContext()).handleCreateDir()
   }
 
   private onCreateNoteClick() {
-    this.dispatchEvent(new CustomEvent('create-note', {bubbles: true}))
+    void getFileManagerModel(getAppContext()).handleCreateMarkdownNote()
   }
 
   private onUploadClick() {
@@ -1602,17 +1603,17 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     const input = this.getFileInput()
 
     if (this.model.canUseNativeUpload()) {
-      this.dispatchEvent(new CustomEvent('native-upload-requested', {bubbles: true}))
+      void getFileManagerModel(getAppContext()).handleNativeUpload()
       return
     }
 
     if (this.model.canUseNativePathUpload()) {
       this.beginFilePickerSession()
       try {
-        const files = await this.model.pickNativeUploadFiles()
+        const files = await wrap(this.model.pickNativeUploadFiles())
         this.endFilePickerSession()
         if (files.length > 0) {
-          this.dispatchEvent(new CustomEvent('upload-paths-requested', {detail: {files}, bubbles: true}))
+          void getFileManagerModel(getAppContext()).handlePathUpload(files)
         }
         return
       } catch (e) {
@@ -1634,7 +1635,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     this.endFilePickerSession()
     const files = (e.target as HTMLInputElement).files
     if (files && files.length > 0) {
-      this.dispatchEvent(new CustomEvent('upload-requested', {detail: {files}, bubbles: true}))
+      void getFileManagerModel(getAppContext()).handleFileUpload(files)
     }
   }
 
@@ -1649,19 +1650,19 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
   }
 
   private onDeleteClick() {
-    this.dispatchEvent(new CustomEvent('delete-selected', {bubbles: true}))
+    void getFileManagerModel(getAppContext()).handleDeleteSelected()
   }
 
   private onMoveSelectedClick() {
-    this.dispatchEvent(new CustomEvent('move-selected', {bubbles: true}))
+    void getFileManagerModel(getAppContext()).openMoveDialogForSelectedItems()
   }
 
   private onDownloadSelectedClick() {
-    this.dispatchEvent(new CustomEvent('download-selected', {bubbles: true}))
+    void getFileManagerModel(getAppContext()).handleDownloadSelected()
   }
 
   private onClearSelectionClick() {
-    this.dispatchEvent(new CustomEvent('clear-selection', {bubbles: true}))
+    getFileManagerModel(getAppContext()).handleSelectionChange([])
   }
 
   private onClearQueryFilterClick() {
@@ -1686,12 +1687,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
   }
 
   private onSelectionModeToggle() {
-    this.dispatchEvent(
-      new CustomEvent('selection-mode-requested', {
-        detail: {enabled: !this.model.selectionModeEnabled()},
-        bubbles: true,
-      }),
-    )
+    getFileManagerModel(getAppContext()).setSelectionMode(!this.model.selectionModeEnabled())
   }
 
   private onViewListClick() {
@@ -2057,7 +2053,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
     const actionId = target.dataset['action']
     if (!actionId) return
 
-    this.dispatchEvent(new CustomEvent('mobile-command', {detail: {actionId}, bubbles: true}))
+    getFileManagerModel(getAppContext()).executeMobileCommand(actionId)
   }
 
   private getMobileSelectionActionAriaLabel(action: FileManagerMobileAction): string {
@@ -2089,7 +2085,7 @@ export class WorkspaceDashboardHeader extends ReatomLitElement {
 
     menu.open = false
     this.resetMobileAddMenuSelection(menu)
-    this.dispatchEvent(new CustomEvent('mobile-command', {detail: {actionId}, bubbles: true}))
+    getFileManagerModel(getAppContext()).executeMobileCommand(actionId)
   }
 
   private renderMobileAddMenu() {

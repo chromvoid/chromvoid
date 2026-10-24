@@ -10,7 +10,7 @@ import {filterValue} from '@project/passmanager/select'
 
 import {pmCredentialTagsModel} from '../../models/pm-credential-tags.model'
 import {pmMobileChromeModel} from '../../models/pm-mobile-chrome.model'
-import {groupBy, sortField, type GroupBy, type SortField} from './sort-controls'
+import {groupBy, sortField, type GroupBy, type SortField} from './sort-controls.model'
 
 type CredentialsSortOption = {
   value: SortField

@@ -54,24 +54,16 @@ pub(in crate::rpc::router::passmanager) fn normalize_secret_value(
     value: &str,
 ) -> Result<String, PassmanagerCommandError> {
     match secret_type {
-        "card_pan" => {
-            let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
-            if !(12..=19).contains(&digits.len()) {
-                return Err(PassmanagerCommandError::empty_payload(
-                    "card_pan must contain 12-19 digits after normalization",
-                ));
-            }
-            Ok(digits)
-        }
-        "card_cvv" => {
-            let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
-            if !(3..=4).contains(&digits.len()) {
-                return Err(PassmanagerCommandError::empty_payload(
-                    "card_cvv must contain 3-4 digits after normalization",
-                ));
-            }
-            Ok(digits)
-        }
+        "card_pan" => crate::payment_card::normalize_number(value).ok_or_else(|| {
+            PassmanagerCommandError::empty_payload(
+                "card_pan must contain 12-19 digits after normalization",
+            )
+        }),
+        "card_cvv" => crate::payment_card::normalize_code(value).ok_or_else(|| {
+            PassmanagerCommandError::empty_payload(
+                "card_cvv must contain 3-4 digits after normalization",
+            )
+        }),
         _ => Ok(value.to_string()),
     }
 }

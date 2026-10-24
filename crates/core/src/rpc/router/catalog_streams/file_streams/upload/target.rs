@@ -43,6 +43,9 @@ pub(super) fn resolve_upload_target(
                     "Another upload session is active",
                 ));
             }
+            if request.create_only && !transaction.is_new {
+                return Err(UploadCommandError::name_exists("File already exists"));
+            }
             return Ok(UploadTarget::Pending(transaction));
         }
 
@@ -56,6 +59,9 @@ pub(super) fn resolve_upload_target(
             if is_system_path_guarded(&path) {
                 return Err(UploadCommandError::access_denied());
             }
+        }
+        if request.create_only {
+            return Err(UploadCommandError::name_exists("File already exists"));
         }
         return Ok(UploadTarget::Existing {
             node_id,
@@ -83,8 +89,11 @@ pub(super) fn resolve_upload_target(
         if parent_path == "/" { "" } else { &parent_path },
         name
     ));
+    if is_system_path_guarded(&full_path) {
+        return Err(UploadCommandError::access_denied());
+    }
     if let Some(existing) = session.catalog().find_by_path(&full_path) {
-        if !existing.is_file() {
+        if request.create_only || !existing.is_file() {
             return Err(UploadCommandError::name_exists(
                 Error::NameExists(name).to_string(),
             ));

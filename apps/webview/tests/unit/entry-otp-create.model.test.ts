@@ -249,7 +249,7 @@ describe('PMEntryOtpCreateModel', () => {
     expect(model.qrScannerAvailable()).toBe(false)
 
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_otp_qr_scan: true,
     })
@@ -259,7 +259,7 @@ describe('PMEntryOtpCreateModel', () => {
 
   it('applies native QR scan success payload and closes pending state', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_otp_qr_scan: true,
     })
@@ -282,7 +282,7 @@ describe('PMEntryOtpCreateModel', () => {
 
   it('leaves manual form untouched when native QR scan is cancelled', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_otp_qr_scan: true,
     })
@@ -306,7 +306,7 @@ describe('PMEntryOtpCreateModel', () => {
 
   it('renders native QR permission and invalid errors through existing QR messages', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_otp_qr_scan: true,
     })

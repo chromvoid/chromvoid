@@ -2,7 +2,7 @@ import {atom, computed, peek} from '@reatom/core'
 
 import {i18n} from '@project/passmanager/i18n'
 import {getPassmanagerRoot, isPassmanagerReadOnly} from '../../../models/pm-root.adapter'
-import type {PMWorkspaceContextItem} from '../../card/pm-workspace-header'
+import type {PMWorkspaceContextItem} from '../../card/pm-workspace-header/pm-workspace-header.types'
 import {passmanagerNavigationController} from '../../../passmanager-navigation.controller'
 import {
   groupPresetIconService,

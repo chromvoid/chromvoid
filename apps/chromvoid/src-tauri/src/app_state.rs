@@ -11,7 +11,6 @@ pub(crate) struct AppState {
     #[cfg(desktop)]
     pub(crate) sync_runtime: Arc<crate::commands::sync_cmds::SyncRuntimeState>,
     pub(crate) storage_root: Arc<Mutex<std::path::PathBuf>>,
-    pub(crate) license_root: std::path::PathBuf,
     #[cfg(desktop)]
     pub(crate) gateway: Arc<Mutex<crate::gateway::GatewayState>>,
     #[cfg(desktop)]
@@ -46,16 +45,7 @@ pub(crate) struct AppState {
     pub(crate) ios_lifecycle_runtime: Arc<crate::network::ios_lifecycle::IosLifecycleRuntimeState>,
     pub(crate) ios_host_runtime: Arc<crate::network::ios_pairing::IosHostRuntimeState>,
     pub(crate) android_host_runtime: Arc<crate::network::mobile_host::AndroidHostRuntimeState>,
-    pub(crate) android_provider_runtime: Arc<crate::mobile::android::AndroidProviderRuntimeState>,
-    pub(crate) android_audio_sessions: Arc<crate::mobile::android::AndroidAudioSessionRegistry>,
-    pub(crate) android_native_upload_runtime:
-        Arc<crate::mobile::android::AndroidNativeUploadRuntimeState>,
-    pub(crate) android_saf_picker_runtime:
-        Arc<crate::mobile::android::AndroidSafPickerRuntimeState>,
-    pub(crate) android_biometric_runtime: Arc<crate::mobile::android::AndroidBiometricRuntimeState>,
-    pub(crate) android_password_save_runtime:
-        Arc<crate::mobile::android::AndroidPasswordSaveRuntimeState>,
-    pub(crate) android_autofill_runtime: Arc<crate::mobile::android::AndroidAutofillRuntimeState>,
+    pub(crate) native_audio_sessions: Arc<crate::mobile::NativeAudioSessionRegistry>,
     pub(crate) ios_native_bridge_runtime:
         Arc<crate::mobile::ios::native_bridge::IosNativeBridgeRuntimeState>,
     #[cfg(desktop)]

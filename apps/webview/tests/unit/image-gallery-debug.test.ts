@@ -74,14 +74,14 @@ describe('image gallery debug contract', () => {
 
   it('keeps redacted native decoder details for image diagnostics', () => {
     const error = new Error(
-      'Android image preview decoder returned null: Image derivative max edge exceeds policy: edge=0 max=1920 (PREVIEW_DECODE)',
+      'Image derivative max edge exceeds policy: edge=0 max=1920 (PREVIEW_DECODE)',
     )
 
     expect(formatImageGalleryDebugError(error)).toEqual({
       errorName: 'Error',
       code: 'PREVIEW_DECODE',
       errorMessage:
-        'Android image preview decoder returned null: Image derivative max edge exceeds policy: edge=0 max=1920 (PREVIEW_DECODE)',
+        'Image derivative max edge exceeds policy: edge=0 max=1920 (PREVIEW_DECODE)',
     })
   })
 

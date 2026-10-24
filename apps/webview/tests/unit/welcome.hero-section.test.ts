@@ -1,11 +1,38 @@
-import {afterEach, beforeEach, describe, expect, it} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
+import type * as BrandMark from '@project/brand-mark'
 import {atom} from '@reatom/core'
 
+import {markStartupSplashActive, markStartupSplashReleased} from '../../src/app/bootstrap/startup-splash'
 import {i18n} from '../../src/i18n'
 import {WelcomeHeroSection} from '../../src/routes/welcome/sections/hero'
+import type {WelcomeSectionLayout} from '../../src/routes/welcome/welcome-section-layout'
 import {WelcomeSetupModel} from '../../src/routes/welcome/welcome.model'
 import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
+import type {WelcomeChromvoidIcon} from '../../src/shared/ui/welcome-chromvoid-icon'
+
+const brandMark = vi.hoisted(() => ({
+  create: vi.fn(),
+}))
+
+vi.mock('@project/brand-mark', async (importOriginal) => ({
+  ...(await importOriginal<typeof BrandMark>()),
+  createBrandMarkController: brandMark.create,
+}))
+
+function createController() {
+  return {
+    prepareAppearance: vi.fn(),
+    appearance: vi.fn(),
+    startDerivation: vi.fn(),
+    finishDerivation: vi.fn().mockResolvedValue(undefined),
+    opened: vi.fn(),
+    returnToLock: vi.fn(),
+    hover: vi.fn(),
+    idle: vi.fn(),
+    destroy: vi.fn(),
+  }
+}
 
 function initWelcomeContext(needUserInitialization: boolean) {
   initAppContext(
@@ -23,26 +50,81 @@ function initWelcomeContext(needUserInitialization: boolean) {
   )
 }
 
-async function mountHero(model: WelcomeSetupModel) {
+async function mountHero(model: WelcomeSetupModel, layout: WelcomeSectionLayout = 'desktop') {
   const section = document.createElement('welcome-hero-section') as WelcomeHeroSection
   section.model = model
-  section.layout = 'desktop'
+  section.layout = layout
   document.body.append(section)
   await section.updateComplete
-  await Promise.resolve()
+  await section.shadowRoot?.querySelector<WelcomeChromvoidIcon>('welcome-chromvoid-icon')?.updateComplete
   return section
 }
 
 describe('welcome hero section', () => {
   beforeEach(() => {
+    brandMark.create.mockReset().mockReturnValue(createController())
+    markStartupSplashActive('web')
     WelcomeHeroSection.define()
     initWelcomeContext(true)
   })
 
   afterEach(() => {
     document.body.innerHTML = ''
+    delete document.documentElement.dataset['startupSplashActive']
+    delete document.documentElement.dataset['startupSplashReleased']
+    delete document.documentElement.dataset['startupSplashSurface']
     clearAppContext()
   })
+
+  it.each(['mode-select', 'create-master'] as const)(
+    'does not mount a desktop icon or create its controller in %s',
+    async (step) => {
+      const model = new WelcomeSetupModel()
+      model.setupStep.set(step)
+      const section = await mountHero(model)
+
+      expect(section.shadowRoot?.querySelector('.hero-icon-shell')).toBeNull()
+      expect(section.shadowRoot?.querySelector('welcome-chromvoid-icon')).toBeNull()
+      expect(brandMark.create).not.toHaveBeenCalled()
+
+      markStartupSplashReleased()
+
+      expect(section.shadowRoot?.querySelector('.hero-icon-shell')).toBeNull()
+      expect(section.shadowRoot?.querySelector('welcome-chromvoid-icon')).toBeNull()
+      expect(brandMark.create).not.toHaveBeenCalled()
+    },
+  )
+
+  it('mounts the desktop locked-vault icon and creates its controller after splash release', async () => {
+    initWelcomeContext(false)
+    const model = new WelcomeSetupModel()
+    markStartupSplashReleased()
+
+    const section = await mountHero(model)
+    const icon = section.shadowRoot?.querySelector('welcome-chromvoid-icon')
+
+    expect(section.shadowRoot?.querySelector('.hero-icon-shell')).not.toBeNull()
+    expect(icon).not.toBeNull()
+    expect(brandMark.create).toHaveBeenCalledTimes(1)
+    expect(brandMark.create).toHaveBeenCalledWith(icon?.shadowRoot?.querySelector('svg'))
+  })
+
+  it.each(['mode-select', 'create-master'] as const)(
+    'keeps the mobile first-run icon and its controller in %s',
+    async (step) => {
+      const model = new WelcomeSetupModel()
+      model.setupStep.set(step)
+      markStartupSplashReleased()
+
+      const section = await mountHero(model, 'mobile')
+      const icon = section.shadowRoot?.querySelector('welcome-chromvoid-icon')
+
+      expect(section.shadowRoot?.querySelector('.hero-icon-shell')).not.toBeNull()
+      expect(icon).not.toBeNull()
+      expect(brandMark.create).toHaveBeenCalledTimes(1)
+      expect(brandMark.create).toHaveBeenCalledWith(icon?.shadowRoot?.querySelector('svg'))
+    },
+  )
 
   it('renders hero copy from the setup model state', async () => {
     const model = new WelcomeSetupModel()

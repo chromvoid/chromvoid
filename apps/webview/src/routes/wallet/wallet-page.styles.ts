@@ -250,6 +250,17 @@ export const walletPageStyles = [
       line-height: 1.45;
     }
 
+    .setup-advanced {
+      display: grid;
+      gap: var(--app-spacing-2);
+    }
+
+    .setup-advanced summary {
+      cursor: pointer;
+      color: var(--app-editorial-text-secondary, var(--cv-alpha-white-70));
+      font-size: var(--cv-font-size-sm);
+    }
+
     .setup-note {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
@@ -301,11 +312,6 @@ export const walletPageStyles = [
       gap: var(--app-spacing-2);
       align-items: center;
       justify-content: space-between;
-    }
-
-    .account-add-button {
-      flex: 0 0 auto;
-      white-space: nowrap;
     }
 
     cv-dialog.wallet-dialog {
@@ -362,10 +368,70 @@ export const walletPageStyles = [
     }
 
     .account-button {
-      justify-content: start;
+      justify-content: space-between;
       min-block-size: auto;
       padding: var(--app-spacing-3);
       text-align: start;
+    }
+
+    .account-button .account-balance {
+      flex-shrink: 0;
+      text-align: end;
+    }
+
+    .asset-list {
+      display: grid;
+      gap: var(--app-spacing-2);
+    }
+
+    .asset-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--app-spacing-3);
+      min-block-size: auto;
+      padding: var(--app-spacing-3);
+      border: 1px solid var(--app-editorial-border-subtle, var(--cv-alpha-white-8));
+      border-radius: var(--cv-radius-md, 8px);
+      text-align: start;
+      background: var(--app-editorial-surface-muted, var(--cv-color-surface-3));
+      cursor: pointer;
+    }
+
+    .asset-row.selected {
+      border-color: var(--cv-color-accent);
+    }
+
+    .asset-row .network-mark {
+      display: inline-grid;
+      place-items: center;
+      inline-size: 32px;
+      block-size: 32px;
+      border-radius: 50%;
+      color: var(--cv-color-accent-contrast, var(--cv-color-bg));
+      font-size: var(--cv-font-size-xs);
+      font-weight: var(--cv-font-weight-semibold);
+      background: var(--cv-color-accent);
+    }
+
+    .asset-copy {
+      display: grid;
+      min-inline-size: 0;
+      gap: 2px;
+    }
+
+    .asset-meta,
+    .asset-warning {
+      color: var(--app-editorial-text-tertiary, var(--cv-alpha-white-50));
+      font-size: var(--cv-font-size-xs);
+    }
+
+    .asset-balance {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--app-spacing-2);
+      color: var(--app-editorial-text-primary, var(--cv-color-text-strongest));
+      font-size: var(--cv-font-size-base);
     }
 
     .account-copy,

@@ -52,25 +52,12 @@ pub(crate) fn ensure_ssh_agent_feature_access(
 ) -> Result<(), String> {
     ensure_local_mode(adapter.mode(), command_name)?;
     let caps = crate::types::runtime_capabilities_for_current_target();
-    crate::pro::guard_pro_feature_for_adapter(
+    crate::module_access::guard_module_for_adapter(
         adapter,
-        chromvoid_core::license::PRO_FEATURE_SSH_AGENT,
+        crate::module_access::MODULE_SSH_AGENT,
         &caps,
     )
-    .map_err(format_pro_guard_error)
-}
-
-fn format_pro_guard_error(error: crate::types::RpcResult<serde_json::Value>) -> String {
-    match error {
-        crate::types::RpcResult::Error { error, code, .. } => {
-            format!(
-                "{}: {}",
-                code.unwrap_or_else(|| "PRO_REQUIRED".to_string()),
-                error
-            )
-        }
-        crate::types::RpcResult::Success { .. } => "Pro license required".to_string(),
-    }
+    .map_err(crate::module_access::denial_reason)
 }
 
 pub(super) fn agent_status(agent: &crate::ssh_agent::SshAgentState) -> SshAgentStatus {

@@ -34,6 +34,8 @@ mod vault_export;
 mod vault_ops;
 mod wallet;
 
+pub use backup::LocalBackupSnapshot;
+pub use blob_range_reader::CatalogSourceReader;
 pub use catalog_derivative_write::{
     write_catalog_derivative_snapshot, CatalogDerivativeSplitWriteError,
     CatalogDerivativeSplitWriteResult,
@@ -45,6 +47,10 @@ pub use catalog_media_inspect::{
 pub use derivative_store::{
     cleanup_catalog_derivative_write_result, CatalogDerivativeWriteError,
     CatalogDerivativeWriteRequest, CatalogDerivativeWriteResult, CatalogDerivativeWriteSnapshot,
+};
+pub use restore::local::{
+    LocalRestoreArtifact, LocalRestoreInput, LocalRestorePreview, PreparedLocalRestore,
+    MAX_RESTORE_APPEND_BYTES,
 };
 pub use state::RpcRouter;
 pub use wallet::balance::{

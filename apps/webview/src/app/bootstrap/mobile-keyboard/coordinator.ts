@@ -2,7 +2,6 @@ import type {Store} from '../../state/store'
 import {pmMobileDebug} from 'root/features/passmanager/models/pm-mobile-debug'
 import {MOBILE_KEYBOARD_PROGRAMMATIC_SCROLL_EVENT} from '../../../shared/services/mobile-keyboard-scroll-intent'
 import {
-  ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
   IOS_NATIVE_KEYBOARD_INSETS_ATTR,
   MOBILE_KEYBOARD_BEFORE_INSETS_APPLY_EVENT,
   MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
@@ -282,7 +281,6 @@ export const setupMobileKeyboardFocusScroll = (store: Store): (() => void) => {
       'style',
       'data-mobile-keyboard-expanded',
       NATIVE_KEYBOARD_INSETS_ATTR,
-      ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
       IOS_NATIVE_KEYBOARD_INSETS_ATTR,
       MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR,
     ],

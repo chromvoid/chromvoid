@@ -265,7 +265,7 @@ describe('resolveEffectiveKeyboardInset', () => {
     ).toBe(320)
   })
 
-  it('uses native android IME insets as source of truth during native animation', () => {
+  it('uses native IME insets as source of truth during native animation', () => {
     expect(
       resolveEffectiveKeyboardInset({
         visualViewportKeyboardInset: 320,
@@ -322,7 +322,7 @@ describe('resolveMobileKeyboardLayoutOffsets', () => {
     })
   })
 
-  it('moves android-style scroll and overlay action surfaces by the native keyboard overlap', () => {
+  it('moves scroll and overlay action surfaces by the native keyboard overlap', () => {
     expect(resolveMobileKeyboardLayoutOffsets(140)).toEqual({
       bottomInset: 140,
       scrollActionOffset: 140,
@@ -331,7 +331,7 @@ describe('resolveMobileKeyboardLayoutOffsets', () => {
     })
   })
 
-  it('keeps android native-resized action and overlay offsets at the resized viewport edge', () => {
+  it('keeps native-resized action and overlay offsets at the resized viewport edge', () => {
     expect(resolveMobileKeyboardLayoutOffsets(286.4, 'native-resize')).toEqual({
       bottomInset: 286,
       scrollActionOffset: 0,
@@ -343,66 +343,15 @@ describe('resolveMobileKeyboardLayoutOffsets', () => {
 
 describe('resolveSafeAreaBottomFallback', () => {
   it('keeps the detected safe-area inset when visualViewport already exposed it', () => {
-    expect(
-      resolveSafeAreaBottomFallback({
-        platform: 'android',
-        mobile: true,
-        safeAreaInset: 24,
-        safeAreaEnvInset: 0,
-      }),
-    ).toBe(24)
+    expect(resolveSafeAreaBottomFallback({safeAreaInset: 24})).toBe(24)
   })
 
-  it('adds an android fallback when both env and visualViewport report zero', () => {
-    expect(
-      resolveSafeAreaBottomFallback({
-        platform: 'android',
-        mobile: true,
-        safeAreaInset: 0,
-        safeAreaEnvInset: 0,
-      }),
-    ).toBe(16)
+  it('does not invent an inset when neither the viewport nor the shell reports one', () => {
+    expect(resolveSafeAreaBottomFallback({safeAreaInset: 0})).toBe(0)
   })
 
-  it('does not invent an android fallback when native bottom safe-area is available', () => {
-    expect(
-      resolveSafeAreaBottomFallback({
-        platform: 'android',
-        mobile: true,
-        safeAreaInset: 0,
-        safeAreaEnvInset: 0,
-        nativeSafeAreaBottomInset: 24,
-      }),
-    ).toBe(0)
-
-    expect(
-      resolveSafeAreaBottomFallback({
-        platform: 'android',
-        mobile: true,
-        safeAreaInset: 0,
-        safeAreaEnvInset: 0,
-        hasNativeSafeAreaBottom: true,
-      }),
-    ).toBe(0)
-  })
-
-  it('does not invent a fallback outside android mobile runtime', () => {
-    expect(
-      resolveSafeAreaBottomFallback({
-        platform: 'ios',
-        mobile: true,
-        safeAreaInset: 0,
-        safeAreaEnvInset: 0,
-      }),
-    ).toBe(0)
-
-    expect(
-      resolveSafeAreaBottomFallback({
-        platform: 'android',
-        mobile: false,
-        safeAreaInset: 0,
-        safeAreaEnvInset: 0,
-      }),
-    ).toBe(0)
+  it('leaves the bottom to the shell when it reports its own safe area', () => {
+    expect(resolveSafeAreaBottomFallback({safeAreaInset: 24, nativeSafeAreaBottomInset: 24})).toBe(0)
+    expect(resolveSafeAreaBottomFallback({safeAreaInset: 24, hasNativeSafeAreaBottom: true})).toBe(0)
   })
 })

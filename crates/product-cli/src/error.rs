@@ -105,9 +105,10 @@ pub fn exit_code_for_agent_error(error: &AgentErrorV1) -> u8 {
         "NOT_PAIRED" | "AGENT_REVOKED" | "GATEWAY_UNAVAILABLE" | "FEATURE_DISABLED_BY_ROLLOUT" => {
             EX_UNAVAILABLE
         }
-        "VAULT_REQUIRED" | "PRO_REQUIRED" | "APPROVAL_REJECTED" | "APPROVAL_EXPIRED"
-        | "CANCELLED" | "RUN_REJECTED" | "PROPOSAL_REJECTED" | "PROPOSAL_EXPIRED"
-        | "CAPABILITY_DENIED" => EX_NOPERM,
+        "VAULT_REQUIRED" | "APPROVAL_REJECTED" | "APPROVAL_EXPIRED" | "CANCELLED"
+        | "RUN_REJECTED" | "PROPOSAL_REJECTED" | "PROPOSAL_EXPIRED" | "CAPABILITY_DENIED" => {
+            EX_NOPERM
+        }
         "NOT_FOUND"
         | "UNSUPPORTED_PLATFORM"
         | "REMOTE_CORE_UNSUPPORTED"
@@ -139,10 +140,7 @@ pub fn exit_code_for_agent_error(error: &AgentErrorV1) -> u8 {
         | "OUTPUT_BACKPRESSURE"
         | "INTERNAL"
         | "INTERNAL_ERROR" => EX_SOFTWARE,
-        "RATE_LIMITED"
-        | "RUN_LIMIT_REACHED"
-        | "TEMPORARILY_UNAVAILABLE"
-        | "ENTITLEMENT_UNAVAILABLE" => EX_TEMPFAIL,
+        "RATE_LIMITED" | "RUN_LIMIT_REACHED" | "TEMPORARILY_UNAVAILABLE" => EX_TEMPFAIL,
         _ if error.retryable => EX_TEMPFAIL,
         _ => EX_NOPERM,
     }
@@ -193,9 +191,7 @@ mod tests {
             ("UNSUPPORTED_PLATFORM", EX_CONFIG),
             ("REMOTE_CORE_UNSUPPORTED", EX_CONFIG),
             ("VAULT_REQUIRED", EX_NOPERM),
-            ("PRO_REQUIRED", EX_NOPERM),
             ("FEATURE_DISABLED_BY_ROLLOUT", EX_UNAVAILABLE),
-            ("ENTITLEMENT_UNAVAILABLE", EX_TEMPFAIL),
             ("DEVICE_STORE_UNAVAILABLE", EX_SOFTWARE),
             ("SECRET_NOT_FOUND", EX_CONFIG),
             ("PROFILE_NOT_FOUND", EX_CONFIG),

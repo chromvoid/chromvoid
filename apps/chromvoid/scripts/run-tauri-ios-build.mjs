@@ -12,11 +12,6 @@ const appRoot = path.resolve(scriptDir, '..')
 const repoRoot = path.resolve(appRoot, '..', '..')
 loadWalletEnvFromRoot(repoRoot)
 const forwardedArgs = process.argv.slice(2)
-const licensePublicKeyEnv = 'CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01'
-const licensePublicKeyFiles = [
-  path.join(appRoot, 'src-tauri', 'gen', 'apple', '.license-public-key'),
-  path.join(appRoot, 'src-tauri', 'gen', 'android', '.license-public-key'),
-]
 const localTauriBinary = path.join(
   appRoot,
   'node_modules',
@@ -68,35 +63,6 @@ function listAppleDevelopmentTeams() {
     result.stdout.matchAll(/Apple Development:[^(]+\(([A-Z0-9]{10})\)/g),
   )
   return [...new Set(matches.map((match) => match[1]))]
-}
-
-function decodeBase64OrBase64Url(value) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=')
-  return Buffer.from(padded, 'base64')
-}
-
-function resolveLicensePublicKey() {
-  const envValue = process.env[licensePublicKeyEnv]?.trim()
-  const filePath = licensePublicKeyFiles.find((candidate) => fs.existsSync(candidate))
-  const fileValue = filePath ? fs.readFileSync(filePath, 'utf8').trim() : ''
-  const value = envValue || fileValue
-  if (!value) {
-    fail(
-      `Missing ${licensePublicKeyEnv}. Set it in the environment or write the base64/base64url Ed25519 public key to ${licensePublicKeyFiles[0]}.`,
-    )
-  }
-
-  const bytes = decodeBase64OrBase64Url(value)
-  if (bytes.length !== 32) {
-    fail(`${licensePublicKeyEnv} must decode to a 32-byte Ed25519 public key, got ${bytes.length} bytes.`)
-  }
-
-  if (!envValue && filePath) {
-    log(`using license public key from ${filePath}`)
-  }
-
-  return value
 }
 
 function listXcodeProvisioningTeams() {
@@ -281,16 +247,9 @@ function escapeRegExp(value) {
 
 function injectRustBuildScriptEnv(projectFile, env) {
   const marker = 'bun run -- tauri ios xcode-script'
-  const envExports = [
-    `export APPLE_DEVELOPMENT_TEAM=${quoteShellValue(env.APPLE_DEVELOPMENT_TEAM)}`,
-    `export ${licensePublicKeyEnv}=${quoteShellValue(env[licensePublicKeyEnv])}`,
-  ].join('\\n')
-  const existingExportPatterns = [
-    'export APPLE_DEVELOPMENT_TEAM=[^\\\\]*(?:\\\\n)',
-    `export ${escapeRegExp(licensePublicKeyEnv)}=[^\\\\]*(?:\\\\n)`,
-  ]
+  const envExports = `export APPLE_DEVELOPMENT_TEAM=${quoteShellValue(env.APPLE_DEVELOPMENT_TEAM)}`
   const existingEnvExports = new RegExp(
-    `(?:${existingExportPatterns.join('|')})+(?=${escapeRegExp(marker)})`,
+    `(?:export APPLE_DEVELOPMENT_TEAM=[^\\\\]*(?:\\\\n))+(?=${escapeRegExp(marker)})`,
     'g',
   )
 
@@ -492,11 +451,9 @@ if (!fs.existsSync(xcodeProjectFile)) {
 }
 
 const team = resolveAppleDevelopmentTeam()
-const licensePublicKey = resolveLicensePublicKey()
 const childEnv = {
   ...process.env,
   APPLE_DEVELOPMENT_TEAM: team.teamID,
-  [licensePublicKeyEnv]: licensePublicKey,
 }
 const rawProject = fs.readFileSync(xcodeProjectFile, 'utf8')
 const originalProject = applyIosReleaseBundleSettings(rawProject)

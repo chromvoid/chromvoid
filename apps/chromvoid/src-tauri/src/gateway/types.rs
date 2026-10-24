@@ -67,6 +67,12 @@ pub enum CommandCategory {
 
 pub fn classify_command(command: &str) -> CommandCategory {
     match command {
+        command
+            if command.starts_with("passmanager:import:")
+                && command != "passmanager:import:limits" =>
+        {
+            CommandCategory::CatalogWrite
+        }
         "catalog:secret:read"
         | "catalog:secret:write"
         | "catalog:derivative:read"
@@ -75,15 +81,48 @@ pub fn classify_command(command: &str) -> CommandCategory {
         | "catalog:upload"
         | "passmanager:secret:read"
         | "passmanager:ssh:secret:read"
+        | "passmanager:ssh:key:export"
         | "passmanager:otp:generate"
+        | "passmanager:otp:record:code"
+        | "passmanager:root:export"
         | "passmanager:otp:preview" => CommandCategory::Sensitive,
-        "catalog:createDir"
+        "catalog:attachment:prepare"
+        | "catalog:createDir"
         | "catalog:rename"
         | "catalog:delete"
         | "catalog:move"
         | "catalog:createFile"
         | "catalog:updateMeta"
         | "catalog:file:replace"
+        | "passmanager:entry:create"
+        | "passmanager:entry:save"
+        | "passmanager:entry:update"
+        | "passmanager:entry:delete"
+        | "passmanager:entry:move"
+        | "passmanager:entry:rename"
+        | "passmanager:entry:websites:update"
+        | "passmanager:secret:save"
+        | "passmanager:secret:delete"
+        | "passmanager:tag:save"
+        | "passmanager:tag:delete"
+        | "passmanager:tags:setCatalog"
+        | "passmanager:group:rename"
+        | "passmanager:group:ensure"
+        | "passmanager:group:setMeta"
+        | "passmanager:group:delete"
+        | "passmanager:root:import"
+        | "passmanager:icon:put"
+        | "passmanager:icon:setMeta"
+        | "passmanager:icon:gc"
+        | "passmanager:securityAudit:set"
+        | "passmanager:otp:setSecret"
+        | "passmanager:otp:removeSecret"
+        | "passmanager:otp:renameSecret"
+        | "passmanager:otp:record:save"
+        | "passmanager:otp:record:delete"
+        | "passmanager:ssh:keygen"
+        | "passmanager:ssh:key:import"
+        | "passmanager:ssh:key:edit"
         | "passmanager:ssh:key:update"
         | "passmanager:ssh:key:delete"
         | "passmanager:ssh:secret:save"

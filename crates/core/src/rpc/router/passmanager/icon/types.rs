@@ -6,7 +6,7 @@ pub(super) const ICON_NORMALIZED_MAX_BYTES: usize = 64 * 1024;
 pub(super) const ICON_MAX_DIMENSION: u32 = 128;
 pub(super) const ICON_GET_MANY_MAX_REFS: usize = 64;
 
-pub(super) const PASSMANAGER_ICONS_DIR: &str = "/.passmanager/.icons";
+pub(in crate::rpc::router::passmanager) const PASSMANAGER_ICONS_DIR: &str = "/.passmanager/.icons";
 pub(in crate::rpc::router::passmanager) const PASSMANAGER_ICONS_INDEX_PATH: &str =
     "/.passmanager/.icons/index.json";
 

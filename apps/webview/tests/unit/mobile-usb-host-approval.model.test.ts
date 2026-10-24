@@ -105,7 +105,7 @@ describe('MobileUsbHostApprovalModel', () => {
     expect(ipc.tauriInvoke).not.toHaveBeenCalled()
     expect(ipc.tauriListen).not.toHaveBeenCalled()
 
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
 
     await vi.waitFor(() => {
       expect(ipc.tauriListen).toHaveBeenCalledTimes(3)
@@ -122,7 +122,7 @@ describe('MobileUsbHostApprovalModel', () => {
 
   it('refreshes pending pairing approval after the backend event', async () => {
     const model = new MobileUsbHostApprovalModel()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     model.connect()
 
     await vi.waitFor(() => {
@@ -144,7 +144,7 @@ describe('MobileUsbHostApprovalModel', () => {
   it('approves and rejects pairing attempts with Tauri camelCase args', async () => {
     pendingPairing = pairingApproval()
     const model = new MobileUsbHostApprovalModel()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     model.connect()
 
     await vi.waitFor(() => {
@@ -176,7 +176,7 @@ describe('MobileUsbHostApprovalModel', () => {
   it('approves and rejects session attempts with Tauri camelCase args', async () => {
     pendingSession = sessionApproval()
     const model = new MobileUsbHostApprovalModel()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     model.connect()
 
     await vi.waitFor(() => {
@@ -210,7 +210,7 @@ describe('MobileUsbHostApprovalModel', () => {
     vi.useFakeTimers()
     pendingSession = sessionApproval({expires_at_ms: Date.now() + 1_000})
     const model = new MobileUsbHostApprovalModel()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     model.connect()
 
     await vi.advanceTimersByTimeAsync(0)
@@ -226,7 +226,7 @@ describe('MobileUsbHostApprovalModel', () => {
   it('does not resurrect an already expired session approval during refresh', async () => {
     pendingSession = sessionApproval({expires_at_ms: Date.now() - 1})
     const model = new MobileUsbHostApprovalModel()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     model.connect()
 
     await vi.waitFor(() => {
@@ -256,7 +256,7 @@ describe('MobileUsbHostApprovalModel', () => {
       throw new Error(`Unexpected command: ${command}`)
     })
     const model = new MobileUsbHostApprovalModel()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     model.connect()
 
     await vi.waitFor(() => {

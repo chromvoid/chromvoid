@@ -76,6 +76,40 @@ fn warnings(result: &serde_json::Value) -> Vec<String> {
 }
 
 #[test]
+fn adoption_guard_preserves_storage_and_pepper_during_idle_restore_rollback() {
+    use crate::rpc::{StorageMutationError, StorageMutationGuard};
+
+    let temporary = TempDir::new().unwrap();
+    let storage = Storage::new(temporary.path()).unwrap();
+    storage
+        .write_chunk(CHUNK_A, b"preserved encrypted bytes")
+        .unwrap();
+    fs::write(temporary.path().join("salt"), [1; 16]).unwrap();
+    let key = Arc::new(InMemoryKeystore::new());
+    StoragePepper::store(key.as_ref(), [9; 32]).unwrap();
+    let mut router = RpcRouter::new(storage)
+        .with_keystore(key.clone())
+        .with_storage_mutation_guard(StorageMutationGuard::new(|| {
+            Err(StorageMutationError::AdoptionRequired)
+        }));
+
+    rollback_restore_local(&mut router, &HashSet::from([CHUNK_A.to_owned()]));
+
+    assert_eq!(
+        router.storage.read_chunk(CHUNK_A).unwrap(),
+        b"preserved encrypted bytes"
+    );
+    assert_eq!(
+        router
+            .storage
+            .read_artifact(crate::storage::StorageArtifact::Salt)
+            .unwrap(),
+        Some(vec![1; 16])
+    );
+    assert_eq!(StoragePepper::load(key.as_ref()).unwrap(), Some([9; 32]));
+}
+
+#[test]
 fn rollback_restore_local_removes_files_chunks_and_pepper() {
     let temp_dir = TempDir::new().expect("temp dir");
     let storage = Storage::new(temp_dir.path()).expect("storage");

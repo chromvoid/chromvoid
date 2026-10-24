@@ -1,13 +1,12 @@
 import {ReatomLitElement, html} from '@chromvoid/uikit/reatom-lit'
 import {css, nothing} from 'lit'
-import type {CatalogOperations} from '../mapper.js'
 import {i18n} from '../i18n.js'
 import {getImportDialogFileAccept} from './file-accept.js'
 import {
   notifyMobileFilePickerLifecycleEnd,
   notifyMobileFilePickerLifecycleStart,
 } from './mobile-file-picker-lifecycle.js'
-import {getExistingEntriesMap, setImportCatalogOps} from './import-dialog-state.js'
+import {importWarningMessage} from '../import-messages.js'
 import {ImportDialogModel, type DialogStep, VISIBLE_STEPS, stepIndex} from './import-dialog.model.js'
 
 export class ImportDialog extends ReatomLitElement {
@@ -292,76 +291,10 @@ export class ImportDialog extends ReatomLitElement {
         gap: var(--cv-space-3, 12px);
       }
 
-      .progress-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: var(--cv-font-size-sm, 0.875rem);
-      }
-
-      .progress-phase {
-        font-weight: 500;
-        color: var(--cv-color-text);
-      }
-
-      .progress-percent {
-        color: var(--cv-color-primary);
-        font-variant-numeric: tabular-nums;
-        font-weight: 600;
-      }
-
       cv-progress {
         --cv-progress-height: 8px;
         --cv-progress-indicator-color: var(--cv-color-primary);
         --cv-progress-track-color: var(--cv-color-surface-3, var(--cv-color-surface-2));
-      }
-
-      .progress-stats {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: var(--cv-space-2, 6px);
-      }
-
-      .stat-item {
-        display: flex;
-        align-items: center;
-        gap: var(--cv-space-1, 4px);
-        font-size: var(--cv-font-size-xs, 0.75rem);
-        color: var(--cv-color-text-muted);
-      }
-
-      .stat-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        flex-shrink: 0;
-      }
-
-      .stat-dot.imported {
-        background: var(--cv-color-success);
-      }
-      .stat-dot.updated {
-        background: var(--cv-color-primary);
-      }
-      .stat-dot.errors {
-        background: var(--cv-color-danger);
-      }
-
-      .stat-value {
-        font-weight: 600;
-        font-variant-numeric: tabular-nums;
-        color: var(--cv-color-text);
-      }
-
-      .progress-current {
-        font-size: var(--cv-font-size-xs, 0.75rem);
-        color: var(--cv-color-text-muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        padding: var(--cv-space-1, 4px) var(--cv-space-2, 6px);
-        background: var(--cv-color-surface-3, var(--cv-color-surface-2));
-        border-radius: var(--cv-radius-sm, 4px);
       }
 
       /* ===== ERROR LIST ===== */
@@ -513,16 +446,13 @@ export class ImportDialog extends ReatomLitElement {
     `,
   ]
 
-  setCatalogOperations(ops: CatalogOperations) {
-    setImportCatalogOps(ops)
-  }
-
   connectedCallback() {
     super.connectedCallback()
     this.model.reset()
   }
 
   disconnectedCallback() {
+    this.model.reset()
     this.endFilePickerSession()
     super.disconnectedCallback()
   }
@@ -541,6 +471,8 @@ export class ImportDialog extends ReatomLitElement {
         return this.renderFileSelect()
       case 'password':
         return this.renderPassword()
+      case 'preparing':
+        return this.renderPreparing()
       case 'preview':
         return this.renderPreview()
       case 'progress':
@@ -618,6 +550,7 @@ export class ImportDialog extends ReatomLitElement {
           <span class="format-badge">.kdbx</span>
           <span class="format-badge">.csv</span>
           <span class="format-badge">.json</span>
+          <span class="format-badge">.1pux</span>
         </div>
         <input
           type="file"
@@ -659,33 +592,30 @@ export class ImportDialog extends ReatomLitElement {
   }
 
   private renderPreview() {
-    const result = this.model.parseResult()
+    const result = this.model.review()
     if (!result) return nothing
-
-    const existingEntriesMap = getExistingEntriesMap()
-    const updateCount = existingEntriesMap
-      ? result.entries.filter((e) => existingEntriesMap.has(e.id)).length
-      : 0
-    const newCount = result.entries.length - updateCount
+    const warnings = result.warnings ?? []
 
     return html`
       <h2 class="title">${i18n('import:preview:title')}</h2>
-      <p class="subtitle">${result.entries.length} ${i18n('import:preview:total_entries')}</p>
+      <p class="subtitle">${result.entry_count} ${i18n('import:preview:total_entries')}</p>
       <div class="summary-grid">
         <div class="summary-card success">
-          <div class="count">${newCount}</div>
+          <div class="count">${result.created_entry_count}</div>
           <div class="label">${i18n('import:preview:new_entries')}</div>
         </div>
         <div class="summary-card">
-          <div class="count">${updateCount}</div>
+          <div class="count">${result.updated_entry_count}</div>
           <div class="label">${i18n('import:preview:update_entries')}</div>
         </div>
       </div>
-      ${result.warnings.length > 0
+      ${warnings.length > 0
         ? html`
             <cv-callout variant="warning">
               <span class="callout-list">
-                ${result.warnings.map((warning) => html`<span class="callout-line">${warning}</span>`)}
+                ${warnings.map(
+                  (warning) => html`<span class="callout-line">${importWarningMessage(warning)}</span>`,
+                )}
               </span>
             </cv-callout>
           `
@@ -693,45 +623,36 @@ export class ImportDialog extends ReatomLitElement {
       <div class="actions">
         <cv-button variant="default" @click=${this.handleBack}>${i18n('button:cancel')}</cv-button>
         <cv-button variant="primary" @click=${this.handleStartImport} ?disabled=${this.model.isImporting()}>
-          ${i18n('import:preview:import_button')} ${result.entries.length}
+          ${i18n('import:preview:import_button')} ${result.entry_count}
         </cv-button>
       </div>
     `
   }
 
-  private renderProgress() {
-    const p = this.model.progressState()
-    const done = p.imported + p.updated + p.errors + p.skipped
-    const pct = p.total > 0 ? Math.round((done / p.total) * 100) : 0
-
+  private renderPreparing() {
+    const progress = this.model.transfer()
+    const receiving = progress.received < progress.total
+    const percent = progress.total > 0 ? Math.round((progress.received / progress.total) * 100) : 0
     return html`
-      <h2 class="title">${i18n('import:progress:title')}</h2>
-      <div class="progress-section">
-        <div class="progress-header">
-          <span class="progress-phase">${done} / ${p.total}</span>
-          <span class="progress-percent">${pct}%</span>
-        </div>
-        <cv-progress value=${pct}></cv-progress>
-        <div class="progress-stats">
-          <div class="stat-item">
-            <span class="stat-dot imported"></span>
-            <span class="stat-value">${p.imported}</span> ${i18n('import:progress:imported')}
-          </div>
-          <div class="stat-item">
-            <span class="stat-dot updated"></span>
-            <span class="stat-value">${p.updated}</span> ${i18n('import:progress:updated')}
-          </div>
-          <div class="stat-item">
-            <span class="stat-dot errors"></span>
-            <span class="stat-value">${p.errors}</span> ${i18n('import:progress:errors')}
-          </div>
-        </div>
-        ${p.currentItem ? html`<div class="progress-current">${p.currentItem}</div>` : nothing}
+      <h2 class="title">${i18n(receiving ? 'import:progress:uploading' : 'import:progress:reviewing')}</h2>
+      <div class="progress-section" role="status" aria-live="polite">
+        ${receiving
+          ? html`<cv-progress value=${percent}></cv-progress>
+              <p>${percent}%</p>`
+          : html`<cv-progress indeterminate></cv-progress>`}
       </div>
       <div class="actions">
-        <cv-button variant="danger" @click=${this.handleCancelImport}>
-          ${i18n('import:progress:cancel')}
-        </cv-button>
+        <cv-button variant="default" @click=${this.handleBack}>${i18n('button:cancel')}</cv-button>
+      </div>
+    `
+  }
+
+  private renderProgress() {
+    return html`
+      <h2 class="title">${i18n('import:progress:title')}</h2>
+      <div class="progress-section" role="status" aria-live="polite">
+        <cv-progress indeterminate></cv-progress>
+        <p>${i18n('import:progress:committing')}</p>
       </div>
     `
   }
@@ -844,7 +765,8 @@ export class ImportDialog extends ReatomLitElement {
   private async handleDecrypt() {
     const input = this.shadowRoot?.querySelector('cv-input') as (HTMLElement & {value?: string}) | null
     const password = input?.value
-    await this.model.decrypt(password ?? '', () => import('../parsers/keepass.js'))
+    if (input) input.value = ''
+    await this.model.decrypt(password ?? '')
   }
 
   private async handleStartImport() {
@@ -858,10 +780,6 @@ export class ImportDialog extends ReatomLitElement {
         composed: true,
       }),
     )
-  }
-
-  private handleCancelImport() {
-    this.model.cancelImport()
   }
 
   private handleClose() {

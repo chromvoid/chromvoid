@@ -13,6 +13,8 @@ test('S11: Upload a file via Drag & Drop', async () => {
   await openFilesRoot(page)
   const fileName = `${createUniqueName('e2e-dnd')}.txt`
 
+  // Root-path fixture setup changes reactive state; yield a frame before returning
+  // so its updates cannot race Chromium's evaluate result under GC.
   await page.evaluate(async () => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
     const {getAppContext} = (await dynamicImport(
@@ -42,60 +44,17 @@ test('S11: Upload a file via Drag & Drop', async () => {
         })
       }
     }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
-  await page.waitForFunction(() => {
-    const queryDeep = (selector: string, root: ParentNode = document): Element | null => {
-      const direct = root.querySelector(selector)
-      if (direct) return direct
+  await page.getByTestId('workspace-header').waitFor({state: 'attached'})
 
-      const elements = root.querySelectorAll('*')
-      for (const element of elements) {
-        const shadowRoot = (element as HTMLElement).shadowRoot
-        if (!shadowRoot) continue
-        const nested = queryDeep(selector, shadowRoot)
-        if (nested) return nested
-      }
-
-      return null
-    }
-
-    return Boolean(queryDeep('workspace-dashboard-header'))
+  // Exercise the shared upload flow through the native file input.
+  await page.getByTestId('workspace-header').locator('input[type="file"]').setInputFiles({
+    name: fileName,
+    mimeType: 'text/plain',
+    buffer: Buffer.from('hello e2e'),
   })
-
-  // Browser-level synthetic external DnD is unreliable in Playwright, so this
-  // test validates the public upload-requested event path used by the drop flow.
-  await page.evaluate(async (name) => {
-    const queryDeep = (selector: string, root: ParentNode = document): Element | null => {
-      const direct = root.querySelector(selector)
-      if (direct) return direct
-
-      const elements = root.querySelectorAll('*')
-      for (const element of elements) {
-        const shadowRoot = (element as HTMLElement).shadowRoot
-        if (!shadowRoot) continue
-        const nested = queryDeep(selector, shadowRoot)
-        if (nested) return nested
-      }
-
-      return null
-    }
-
-    const file = new File([new Blob(['hello e2e'])], name, {type: 'text/plain'})
-    const dt = new DataTransfer()
-    dt.items.add(file)
-    const target = queryDeep('workspace-dashboard-header')
-    if (!target) {
-      throw new Error('workspace-dashboard-header is unavailable')
-    }
-    target.dispatchEvent(
-      new CustomEvent('upload-requested', {
-        detail: {files: dt.files},
-        bubbles: true,
-        composed: true,
-      }),
-    )
-  }, fileName)
 
   await page.waitForFunction(() => Array.isArray((window as any).__s11UploadCalls) && (window as any).__s11UploadCalls.length === 1)
 

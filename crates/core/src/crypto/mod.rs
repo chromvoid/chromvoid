@@ -11,6 +11,7 @@ mod chacha;
 mod derive_vault_key;
 pub mod keystore;
 mod sha256;
+pub mod ssh;
 mod storage_pepper;
 
 pub use self::argon2::derive_vault_key;

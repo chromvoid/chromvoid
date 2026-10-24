@@ -1,5 +1,6 @@
-use super::super::super::otp_sidecar::load_otp_secrets;
+use super::super::super::otp_sidecar::load_otp_secrets_checked;
 use super::super::secret;
+use super::error::RootExportError;
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 use serde_json::{Map, Value};
@@ -10,61 +11,93 @@ pub(super) fn attach_entry_secrets(
     storage: &Storage,
     node_id: u64,
     entry_type: &str,
-) {
+) -> Result<(), RootExportError> {
+    let fields: &[&str] = if entry_type == "payment_card" {
+        &["card_pan", "card_cvv", "note"]
+    } else {
+        &["password", "note"]
+    };
+    for field in fields {
+        if let Some(value) = secret::read_secret_value_checked(session, storage, node_id, field)
+            .map_err(RootExportError::from_passmanager_command_error)?
+        {
+            meta_obj.insert((*field).to_string(), Value::String(value));
+        }
+    }
     if entry_type == "payment_card" {
-        if let Some(card_pan) = secret::read_secret_value(session, storage, node_id, "card_pan") {
-            meta_obj.insert("card_pan".to_string(), Value::String(card_pan));
+        for field in ["username", "urls", "otps", "sshKeys"] {
+            meta_obj.remove(field);
         }
-        if let Some(card_cvv) = secret::read_secret_value(session, storage, node_id, "card_cvv") {
-            meta_obj.insert("card_cvv".to_string(), Value::String(card_cvv));
-        }
-        if let Some(note) = secret::read_secret_value(session, storage, node_id, "note") {
-            meta_obj.insert("note".to_string(), Value::String(note));
-        }
-        meta_obj.remove("username");
-        meta_obj.remove("urls");
-        meta_obj.remove("otps");
-        meta_obj.remove("sshKeys");
-        return;
+        return Ok(());
     }
 
-    if let Some(password) = secret::read_secret_value(session, storage, node_id, "password") {
-        meta_obj.insert("password".to_string(), Value::String(password));
+    let settings = load_otp_secrets_checked(session.vault_key(), node_id, storage)
+        .map_err(|_| RootExportError::internal("Could not read OTP settings for export"))?;
+    let mut labels = std::collections::HashSet::new();
+    if settings
+        .secrets
+        .iter()
+        .any(|secret| !labels.insert(&secret.label))
+    {
+        return Err(RootExportError::internal("Duplicate OTP labels"));
     }
-    if let Some(note) = secret::read_secret_value(session, storage, node_id, "note") {
-        meta_obj.insert("note".to_string(), Value::String(note));
+    if settings.secrets.is_empty() && matches!(meta_obj.get("otps"), None | Some(Value::Null)) {
+        return Ok(());
     }
-    let vault_key = session.vault_key();
-    if let Some(otp_secrets) = load_otp_secrets(vault_key, node_id, storage) {
-        if let Some(otps) = meta_obj.get_mut("otps").and_then(|v| v.as_array_mut()) {
-            let fallback_secret = if otps.len() == 1 && otp_secrets.secrets.len() == 1 {
-                otp_secrets.secrets.first()
-            } else {
-                None
-            };
-            for otp in otps.iter_mut() {
-                let Some(otp_obj) = otp.as_object_mut() else {
-                    continue;
-                };
-                let otp_label = otp_obj.get("label").and_then(|v| v.as_str());
-                if let Some(secret) = otp_label
-                    .and_then(|label| {
-                        otp_secrets
-                            .secrets
-                            .iter()
-                            .find(|candidate| candidate.label == label)
-                    })
-                    .or(fallback_secret)
-                {
-                    otp_obj.insert("secret".to_string(), Value::String(secret.secret.clone()));
-                    otp_obj.insert(
-                        "algorithm".to_string(),
-                        Value::String(secret.algorithm.clone()),
-                    );
-                    otp_obj.insert("digits".to_string(), Value::Number(secret.digits.into()));
-                    otp_obj.insert("period".to_string(), Value::Number(secret.period.into()));
-                }
+    let had_otps = meta_obj.contains_key("otps");
+    let mut otps = match meta_obj.remove("otps") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(values)) => values,
+        Some(_) => return Err(RootExportError::internal("Invalid OTP metadata")),
+    };
+    let legacy_single = otps.len() == 1 && settings.secrets.len() == 1;
+    let mut used = std::collections::HashSet::new();
+    for otp in &mut otps {
+        let object = otp
+            .as_object_mut()
+            .ok_or_else(|| RootExportError::internal("Invalid OTP metadata"))?;
+        let label = object.get("label").and_then(Value::as_str);
+        let secret = settings
+            .secrets
+            .iter()
+            .find(|secret| Some(secret.label.as_str()) == label)
+            .or_else(|| legacy_single.then(|| &settings.secrets[0]));
+        let Some(secret) = secret else {
+            // Older entry writers could retain the seed directly in encrypted metadata.
+            if object
+                .get("secret")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty())
+            {
+                continue;
             }
+            return Err(RootExportError::internal("OTP secret missing for export"));
+        };
+        if !used.insert(&secret.label) {
+            return Err(RootExportError::internal("Duplicate OTP metadata"));
+        }
+        // The sidecar owns code generation settings, including the latest HOTP counter.
+        let Value::Object(mut values) = serde_json::to_value(secret)
+            .map_err(|_| RootExportError::internal("Could not encode OTP settings"))?
+        else {
+            return Err(RootExportError::internal("Invalid OTP settings"));
+        };
+        // Preserve a legacy single-record presentation label while matching its only secret.
+        if object.contains_key("label") {
+            values.remove("label");
+        }
+        object.extend(values);
+    }
+    for secret in &settings.secrets {
+        if !used.contains(&secret.label) {
+            otps.push(
+                serde_json::to_value(secret)
+                    .map_err(|_| RootExportError::internal("Could not encode OTP settings"))?,
+            );
         }
     }
+    if had_otps || !otps.is_empty() {
+        meta_obj.insert("otps".to_string(), Value::Array(otps));
+    }
+    Ok(())
 }

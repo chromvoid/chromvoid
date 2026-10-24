@@ -58,6 +58,21 @@ pub(super) struct MasterSetupOutcome {
 }
 
 impl RpcRouter {
+    /// Install administrative context for one synchronous operation, including unwind.
+    pub(in crate::rpc::router) fn with_transient_master<T>(
+        &mut self,
+        password: String,
+        operation: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let previous = self.master_key.take();
+        self.set_master_key(Some(password));
+        let context = TransientMasterContext {
+            router: self,
+            previous,
+        };
+        operation(context.router)
+    }
+
     pub(super) fn ensure_master_setup(
         &self,
         master_password: &str,
@@ -240,4 +255,14 @@ fn fixed_array<const N: usize>(bytes: Vec<u8>, name: &str) -> MasterMaterialResu
         .as_slice()
         .try_into()
         .map_err(|_| MasterMaterialError::internal(format!("Invalid {name}")))
+}
+
+struct TransientMasterContext<'a> {
+    router: &'a mut RpcRouter,
+    previous: Option<String>,
+}
+impl Drop for TransientMasterContext<'_> {
+    fn drop(&mut self) {
+        self.router.set_master_key(self.previous.take());
+    }
 }

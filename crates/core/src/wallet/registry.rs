@@ -52,6 +52,13 @@ impl WalletChainRegistry {
         })
     }
 
+    /// Every registered profile in network order, regardless of runtime enablement.
+    pub fn profiles(&self) -> Vec<Arc<dyn WalletChainProfile>> {
+        let mut profiles: Vec<_> = self.profiles.values().cloned().collect();
+        profiles.sort_by(|a, b| a.network().cmp(b.network()));
+        profiles
+    }
+
     pub fn has_enabled_profile(&self, network: &str, config: &WalletRuntimeConfig) -> bool {
         self.profiles
             .get(network)

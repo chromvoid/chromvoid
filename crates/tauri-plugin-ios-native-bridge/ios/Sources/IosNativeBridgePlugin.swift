@@ -1892,7 +1892,7 @@ final class IosNativeBridgePlugin: Plugin {
 }
 
 @_cdecl("chromvoid_ios_native_open_file")
-func chromvoidIosNativeOpenFile(
+public func chromvoidIosNativeOpenFile(
   _ pathPtr: UnsafePointer<CChar>?,
   _ mimeTypePtr: UnsafePointer<CChar>?
 ) -> Int32 {
@@ -1906,7 +1906,7 @@ func chromvoidIosNativeOpenFile(
 }
 
 @_cdecl("chromvoid_ios_native_share_files")
-func chromvoidIosNativeShareFiles(_ payloadPtr: UnsafePointer<CChar>?) -> Int32 {
+public func chromvoidIosNativeShareFiles(_ payloadPtr: UnsafePointer<CChar>?) -> Int32 {
   guard
     let payloadPtr,
     let data = String(cString: payloadPtr).data(using: .utf8),
@@ -1919,12 +1919,12 @@ func chromvoidIosNativeShareFiles(_ payloadPtr: UnsafePointer<CChar>?) -> Int32 
 }
 
 @_cdecl("chromvoid_ios_native_open_app_settings")
-func chromvoidIosNativeOpenAppSettings() -> Int32 {
+public func chromvoidIosNativeOpenAppSettings() -> Int32 {
   return ChromVoidNativeBridgeRuntime.shared.openAppSettings()
 }
 
 @_cdecl("chromvoid_ios_native_export_backup_path")
-func chromvoidIosNativeExportBackupPath(_ pathPtr: UnsafePointer<CChar>?) -> Int32 {
+public func chromvoidIosNativeExportBackupPath(_ pathPtr: UnsafePointer<CChar>?) -> Int32 {
   guard let pathPtr else {
     return 0
   }
@@ -1933,7 +1933,7 @@ func chromvoidIosNativeExportBackupPath(_ pathPtr: UnsafePointer<CChar>?) -> Int
 }
 
 @_cdecl("chromvoid_ios_native_pick_upload_files")
-func chromvoidIosNativePickUploadFiles(
+public func chromvoidIosNativePickUploadFiles(
   _ uploadIdPtr: UnsafePointer<CChar>?,
   _ appGroupIdentifierPtr: UnsafePointer<CChar>?
 ) -> Int32 {
@@ -1948,7 +1948,7 @@ func chromvoidIosNativePickUploadFiles(
 }
 
 @_cdecl("chromvoid_ios_native_pick_restore_source")
-func chromvoidIosNativePickRestoreSource(
+public func chromvoidIosNativePickRestoreSource(
   _ operationIdPtr: UnsafePointer<CChar>?,
   _ appGroupIdentifierPtr: UnsafePointer<CChar>?
 ) -> Int32 {
@@ -1963,7 +1963,7 @@ func chromvoidIosNativePickRestoreSource(
 }
 
 @_cdecl("chromvoid_ios_native_otp_qr_scan_start")
-func chromvoidIosNativeOtpQrScanStart(_ scanIdPtr: UnsafePointer<CChar>?) -> Int32 {
+public func chromvoidIosNativeOtpQrScanStart(_ scanIdPtr: UnsafePointer<CChar>?) -> Int32 {
   guard let scanIdPtr else {
     return 1
   }
@@ -1972,7 +1972,7 @@ func chromvoidIosNativeOtpQrScanStart(_ scanIdPtr: UnsafePointer<CChar>?) -> Int
 }
 
 @_cdecl("chromvoid_ios_native_otp_qr_scan_cancel")
-func chromvoidIosNativeOtpQrScanCancel(_ scanIdPtr: UnsafePointer<CChar>?) -> Int32 {
+public func chromvoidIosNativeOtpQrScanCancel(_ scanIdPtr: UnsafePointer<CChar>?) -> Int32 {
   guard let scanIdPtr else {
     return 0
   }
@@ -1981,7 +1981,7 @@ func chromvoidIosNativeOtpQrScanCancel(_ scanIdPtr: UnsafePointer<CChar>?) -> In
 }
 
 @_cdecl("chromvoid_ios_native_audio_command")
-func chromvoidIosNativeAudioCommand(_ payloadPtr: UnsafePointer<CChar>?) -> Int32 {
+public func chromvoidIosNativeAudioCommand(_ payloadPtr: UnsafePointer<CChar>?) -> Int32 {
   guard let payloadPtr else {
     return 0
   }
@@ -1992,7 +1992,7 @@ func chromvoidIosNativeAudioCommand(_ payloadPtr: UnsafePointer<CChar>?) -> Int3
 }
 
 @_cdecl("chromvoid_ios_native_video_start")
-func chromvoidIosNativeVideoStart(_ sourcePtr: UnsafePointer<CChar>?) -> Int32 {
+public func chromvoidIosNativeVideoStart(_ sourcePtr: UnsafePointer<CChar>?) -> Int32 {
   guard let sourcePtr else {
     return 0
   }
@@ -2001,7 +2001,7 @@ func chromvoidIosNativeVideoStart(_ sourcePtr: UnsafePointer<CChar>?) -> Int32 {
 }
 
 @_cdecl("chromvoid_ios_native_video_stop")
-func chromvoidIosNativeVideoStop(_ tokenPtr: UnsafePointer<CChar>?) -> Int32 {
+public func chromvoidIosNativeVideoStop(_ tokenPtr: UnsafePointer<CChar>?) -> Int32 {
   guard let tokenPtr else {
     return 1
   }
@@ -2010,13 +2010,13 @@ func chromvoidIosNativeVideoStop(_ tokenPtr: UnsafePointer<CChar>?) -> Int32 {
 }
 
 @_cdecl("chromvoid_ios_native_release_lifecycle_sessions")
-func chromvoidIosNativeReleaseLifecycleSessions(_ reasonPtr: UnsafePointer<CChar>?) -> Int32 {
+public func chromvoidIosNativeReleaseLifecycleSessions(_ reasonPtr: UnsafePointer<CChar>?) -> Int32 {
   let reason = reasonPtr.map { String(cString: $0) } ?? "lifecycle_release"
   return ChromVoidNativeBridgeRuntime.shared.releaseLifecycleSessions(reason: reason)
 }
 
 @_cdecl("chromvoid_ios_native_passkeys_lite_available")
-func chromvoidIosNativePasskeysLiteAvailable() -> Int32 {
+public func chromvoidIosNativePasskeysLiteAvailable() -> Int32 {
   if #available(iOS 17.0, *) {
     return 1
   }
@@ -2024,7 +2024,7 @@ func chromvoidIosNativePasskeysLiteAvailable() -> Int32 {
 }
 
 @_cdecl("chromvoid_ios_native_save_image_to_photos")
-func chromvoidIosNativeSaveImageToPhotos(
+public func chromvoidIosNativeSaveImageToPhotos(
   _ bytesPtr: UnsafePointer<UInt8>?,
   _ byteCount: Int,
   _ fileNamePtr: UnsafePointer<CChar>?,
@@ -2045,6 +2045,6 @@ func chromvoidIosNativeSaveImageToPhotos(
 }
 
 @_cdecl("init_plugin_ios_native_bridge")
-func initPluginIosNativeBridge() -> Plugin {
+public func initPluginIosNativeBridge() -> Plugin {
   return IosNativeBridgePlugin()
 }

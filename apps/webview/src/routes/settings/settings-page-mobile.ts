@@ -6,6 +6,7 @@ import {nothing, type PropertyValues, type TemplateResult} from 'lit'
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import type {SettingsRoute} from 'root/app/navigation/navigation.types'
 import {i18n} from 'root/i18n'
+import {isLegalDocument} from 'root/shared/services/legal-documents.model'
 import {SettingsMobileUiModel} from './settings-mobile-ui.model'
 import {renderMacosCredentialProviderCapabilities} from './settings-credential-provider-capabilities'
 import {SettingsPageLayoutBase} from './settings-page-layout-base'
@@ -14,7 +15,7 @@ import {renderSettingsMobileSheets} from './settings-page-mobile.sheets'
 import {SettingsVaultRekeyForm} from './settings-vault-rekey-form'
 import type {SettingsPreferenceKey} from './settings.model'
 
-type SettingsCategoryRoute = Extract<SettingsRoute, {kind: 'security' | 'autofill' | 'files' | 'passwords' | 'license'}>
+type SettingsCategoryRoute = Extract<SettingsRoute, {kind: 'security' | 'autofill' | 'files' | 'passwords'}>
 
 export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
   static elementName = 'settings-page-mobile-layout'
@@ -152,14 +153,6 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
     void this.model.setKeepScreenAwakeWhenUnlocked(event.detail.checked)
   }
 
-  private handleAndroidNotificationChange(event: CVSwitchChangeEvent): void {
-    void this.model.setAndroidVaultStatusNotificationEnabled(event.detail.checked)
-  }
-
-  private handleAndroidTileChange(event: CVSwitchChangeEvent): void {
-    void this.model.setAndroidQuickLockTileEnabled(event.detail.checked)
-  }
-
   private handleAutoMountChange(event: CVSwitchChangeEvent): void {
     void this.model.setAutoMountAfterUnlock(event.detail.checked)
   }
@@ -176,8 +169,10 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
     void this.model.openCredentialProviderSettings()
   }
 
-  private handleRequestAndroidQuickLockTile(): void {
-    void this.model.requestAndroidQuickLockTile()
+  private handleLegalDocumentClick(event: Event): void {
+    event.preventDefault()
+    const legalDocument = (event.currentTarget as HTMLElement).dataset['legalDocument']
+    if (isLegalDocument(legalDocument)) void this.model.legalDocuments.open(legalDocument)
   }
 
   private handlePasswordImport(): void {
@@ -204,25 +199,6 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
   private handlePasswordImportClose(event?: Event): void {
     event?.stopPropagation()
     this.model.closePasswordImportTask()
-  }
-
-  private handleActivationCodeInput(event: Event): void {
-    this.model.setActivationCodeDraft((event.target as HTMLInputElement).value)
-  }
-
-  private async handleActivateLicense(): Promise<void> {
-    await this.model.activateLicense()
-    if (!this.model.activationCodeError()) return
-    await this.updateComplete
-    this.shadowRoot?.querySelector<HTMLInputElement>('.license-input')?.focus()
-  }
-
-  private handleReleaseCurrentSeat(): void {
-    void this.model.releaseCurrentSeat()
-  }
-
-  private handleOpenLicenseCabinet(): void {
-    void this.model.openLicenseCabinet()
   }
 
   protected render(): TemplateResult {
@@ -291,15 +267,29 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
               <cv-icon name="chevron-right" aria-hidden="true"></cv-icon>
             </button>
           `,
-          this.model.supportsExternalPro()
-            ? this.renderOverviewRow(
-                'license',
-                'badge-check',
-                i18n('settings:license-title'),
-                this.model.licenseSummary(),
-              )
-            : nothing,
         ])}
+        ${this.renderOverviewSection(
+          i18n('settings:about-title'),
+          this.model.legalDocuments.links().map(
+            (link) => html`
+              <a
+                class="overview-row"
+                href=${link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-legal-document=${link.document}
+                @click=${this.handleLegalDocumentClick}
+              >
+                <span class="overview-icon" aria-hidden="true"><cv-icon name=${link.icon}></cv-icon></span>
+                <span class="overview-copy">
+                  <span class="overview-title">${link.label}</span>
+                  <span class="overview-summary">${i18n('legal:opens-in-browser')}</span>
+                </span>
+                <cv-icon name="external-link" aria-hidden="true"></cv-icon>
+              </a>
+            `,
+          ),
+        )}
       </section>
     `
   }
@@ -347,11 +337,9 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
               ? this.renderFiles()
               : route.kind === 'passwords'
                 ? this.renderPasswords()
-                : route.kind === 'license'
-                  ? this.renderLicense()
-                  : route.kind === 'vault-rekey'
-                    ? html`<settings-vault-rekey-form .showTitle=${false}></settings-vault-rekey-form>`
-                    : this.renderPasswordImportTask()}
+                : route.kind === 'vault-rekey'
+                  ? html`<settings-vault-rekey-form .showTitle=${false}></settings-vault-rekey-form>`
+                  : this.renderPasswordImportTask()}
       </section>
     `
   }
@@ -366,8 +354,6 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
         return i18n('settings:files-storage-title')
       case 'passwords':
         return i18n('settings:password-vault-title')
-      case 'license':
-        return i18n('settings:license-title')
       case 'vault-rekey':
         return i18n('settings:vault-password-title')
       case 'password-import':
@@ -377,7 +363,6 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
 
   private renderSecurity(): TemplateResult {
     const settings = this.model.settings()
-    const tileStatus = this.model.androidQuickLockTileStatus()
     return html`
       <div class="detail-stack">
         <div class="settings-group">
@@ -418,39 +403,6 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
               )
             : nothing}
         </div>
-
-        ${this.model.isAndroidRuntime()
-          ? html`
-              <div class="settings-group">
-                <h2 class="subsection-label">${i18n('settings:android-quick-lock-title')}</h2>
-                ${this.renderSwitchRow(
-                  'android_vault_status_notification_enabled',
-                  i18n('settings:android-vault-status-notification'),
-                  i18n('settings:android-vault-status-notification-hint'),
-                  settings.android_vault_status_notification_enabled,
-                  this.handleAndroidNotificationChange,
-                )}
-                ${this.renderSwitchRow(
-                  'android_quick_lock_tile_enabled',
-                  i18n('settings:android-quick-lock-tile'),
-                  i18n('settings:android-quick-lock-tile-hint'),
-                  settings.android_quick_lock_tile_enabled,
-                  this.handleAndroidTileChange,
-                )}
-                ${settings.android_quick_lock_tile_enabled && tileStatus?.requestSupported
-                  ? html`
-                      <div class="inline-actions">
-                        <cv-button @click=${this.handleRequestAndroidQuickLockTile}>
-                          ${i18n('settings:android-quick-lock-tile-add')}
-                        </cv-button>
-                      </div>
-                    `
-                  : html`<p class="supporting-copy">
-                      ${i18n('settings:android-quick-lock-tile-manual-hint')}
-                    </p>`}
-              </div>
-            `
-          : nothing}
       </div>
     `
   }
@@ -537,7 +489,7 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
 
   private renderAutofill(): TemplateResult {
     const selected = this.model.credentialProviderSelected()
-    const access = this.model.credentialProviderAccess()
+    const accessNotice = this.model.credentialProviderAccessNotice()
     const steps = this.model.credentialProviderSteps()
     return html`
       <div class="settings-group">
@@ -565,12 +517,8 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
             ${this.model.credentialProviderActionLabel()}
           </cv-button>
         </div>
-        ${access.status !== 'enabled'
-          ? html`<cv-callout class="route-callout" variant="warning" density="dense">
-              ${access.status === 'unsupported'
-                ? i18n('settings:credential-provider-unsupported')
-                : i18n('settings:credential-provider-license-required')}
-            </cv-callout>`
+        ${accessNotice
+          ? html`<cv-callout class="route-callout" variant="warning" density="dense">${accessNotice}</cv-callout>`
           : nothing}
         ${selected === true
           ? nothing
@@ -580,109 +528,6 @@ export class SettingsPageMobileLayout extends SettingsPageLayoutBase {
                 <li>${steps[1]}</li>
               </ol>
             `}
-      </div>
-    `
-  }
-
-  private renderLicense(): TemplateResult {
-    const active = this.model.licenseActive()
-    const purchaseId = this.model.licensePurchaseIdLabel()
-    return html`
-      <div class="settings-group">
-        <div class="status-row">
-          <div class="status-copy">
-            <span class="status-pill" data-state=${this.model.licenseStatusState()}>
-              <span class="status-dot" aria-hidden="true"></span>
-              ${this.model.licenseStatusLabel()}
-            </span>
-            <p class="row-description">${this.model.licenseDetailLabel()}</p>
-          </div>
-        </div>
-        ${active
-          ? html`
-              <div class="license-stack">
-                <p class="supporting-copy">${this.model.licenseSeatUsageLabel()}</p>
-                <div class="license-metrics" aria-label=${i18n('settings:license-seats-title')}>
-                  <div class="license-metric">
-                    <span class="row-description">${i18n('settings:license-seats-used')}</span>
-                    <strong>${this.model.licenseSeatsUsedLabel()}</strong>
-                  </div>
-                  <div class="license-metric">
-                    <span class="row-description">${i18n('settings:license-seats-available')}</span>
-                    <strong>${this.model.licenseSeatsAvailableLabel()}</strong>
-                  </div>
-                </div>
-                ${purchaseId
-                  ? html`
-                      <div class="row-copy">
-                        <span class="row-description">${i18n('settings:purchase-id-label')}</span>
-                        <code class="license-code">${purchaseId}</code>
-                        <p class="row-description">${i18n('settings:purchase-id-help')}</p>
-                      </div>
-                    `
-                  : nothing}
-                <div class="license-actions">
-                  <cv-button
-                    variant="secondary"
-                    .loading=${this.model.licenseActivationBusy()}
-                    ?disabled=${this.model.licenseCabinetOpenDisabled()}
-                    @click=${this.handleOpenLicenseCabinet}
-                  >
-                    ${i18n('settings:license-cabinet-open')}
-                  </cv-button>
-                  <cv-button
-                    variant="danger"
-                    .loading=${this.model.licenseSeatBusy()}
-                    ?disabled=${this.model.releaseCurrentSeatDisabled()}
-                    @click=${this.handleReleaseCurrentSeat}
-                  >
-                    ${i18n('settings:license-release-seat')}
-                  </cv-button>
-                </div>
-              </div>
-            `
-          : html`
-              <div class="license-stack">
-                <label class="row-copy">
-                  <span class="row-title">${i18n('settings:activation-code-label')}</span>
-                  <span class="row-description">${i18n('settings:activation-code-help')}</span>
-                  <input
-                    class="license-input"
-                    type="password"
-                    autocomplete="off"
-                    .value=${this.model.activationCodeDraft()}
-                    aria-required="true"
-                    aria-invalid=${this.model.activationCodeError() ? 'true' : 'false'}
-                    aria-describedby=${this.model.licenseActivationErrorLabel()
-                      ? 'settings-license-activation-error'
-                      : nothing}
-                    @input=${this.handleActivationCodeInput}
-                    placeholder=${i18n('settings:activation-code-placeholder')}
-                  />
-                </label>
-                <div class="license-actions">
-                  <cv-button
-                    variant="primary"
-                    .loading=${this.model.licenseActivationBusy()}
-                    ?disabled=${this.model.licenseActivationDisabled()}
-                    @click=${this.handleActivateLicense}
-                  >
-                    ${i18n('settings:license-activate')}
-                  </cv-button>
-                </div>
-              </div>
-            `}
-        ${this.model.licenseActivationErrorLabel()
-          ? html`<cv-callout
-              id="settings-license-activation-error"
-              class="route-callout"
-              variant="danger"
-              density="dense"
-              role="alert"
-            >
-              ${this.model.licenseActivationErrorLabel()}
-            </cv-callout>`
-          : nothing}
       </div>
     `
   }

@@ -2,19 +2,23 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {atom} from '@reatom/core'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
+import type {RemoteSessionState} from '../../src/app/state/store'
 import {RemotePageModel} from '../../src/routes/remote/remote-page.model'
 import type {NetworkPairedPeer} from '../../src/routes/remote/remote.model'
 import {systemClipboardTextWriter} from '../../src/shared/services/clipboard'
 import {toast} from '../../src/shared/services/toast-manager'
+import {clearAppContext, createMockAppContext, initAppContext} from '../../src/shared/services/app-context'
 
 describe('RemotePage remote hosts side effects', () => {
   beforeEach(() => {
     navigationModel.disconnect()
+    clearAppContext()
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
     navigationModel.disconnect()
+    clearAppContext()
   })
 
   it('activates passive USB inventory only for the mounted desktop Remote route', () => {
@@ -141,6 +145,61 @@ describe('RemotePage remote hosts side effects', () => {
     expect(model.remoteHosts.usb.errorText()).toBeNull()
     expect(model.remoteHosts.view()).toBe('hosts')
     expect(model.modeSwitching()).toBe(false)
+  })
+
+  it('opens USB selection when the failed connect target is unknown instead of retrying the last session', () => {
+    const context = createMockAppContext()
+    context.store.remoteSessionState = atom<RemoteSessionState>('inactive')
+    initAppContext(context)
+    const model = new RemotePageModel()
+    model.remoteHosts.usb.lastActiveHost.set({
+      host_id: 'silent-phone',
+      label: 'Pixel 9',
+      platform: 'android',
+      bridge_kind: 'android_aoa',
+      pairing_state: 'paired',
+      last_seen: null,
+    })
+    const connect = vi.spyOn(model.remoteHosts, 'connectUsbPairedHost').mockResolvedValue(true)
+    const open = vi.spyOn(model.remoteHosts, 'openUsbMobile').mockReturnValue(true)
+    const navigate = vi.spyOn(navigationModel, 'navigateToRemotePanel').mockImplementation(() => {})
+
+    model.retryUsbSession()
+
+    expect(connect).not.toHaveBeenCalled()
+    expect(open).toHaveBeenCalledWith()
+    expect(navigate).toHaveBeenCalledWith('usb-mobile')
+  })
+
+  it('opens the USB pairing path only after the user confirms forgetting the failed connect target', async () => {
+    const context = createMockAppContext()
+    context.store.remoteSessionState = atom<RemoteSessionState>('inactive')
+    initAppContext(context)
+    const model = new RemotePageModel()
+    vi.spyOn(model.remoteHosts.usb, 'silentPhoneRecoveryHostId').mockReturnValue('silent-phone')
+    model.remoteHosts.usb.lastActiveHost.set({
+      host_id: 'silent-phone',
+      label: 'Pixel 9',
+      platform: 'android',
+      bridge_kind: 'android_aoa',
+      pairing_state: 'paired',
+      last_seen: null,
+    })
+    const remove = vi.spyOn(model.remoteHosts, 'removeUsbPairedHost').mockResolvedValueOnce(false)
+    const open = vi.spyOn(model.remoteHosts, 'openUsbMobile').mockReturnValue(true)
+    const navigate = vi.spyOn(navigationModel, 'navigateToRemotePanel').mockImplementation(() => {})
+
+    await model.forgetUsbSessionPhone()
+
+    expect(remove).toHaveBeenCalledWith('silent-phone')
+    expect(open).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+
+    remove.mockResolvedValueOnce(true)
+    await model.forgetUsbSessionPhone()
+
+    expect(open).toHaveBeenCalledWith()
+    expect(navigate).toHaveBeenCalledWith('usb-mobile')
   })
 
   it('still emits a success toast after removing a paired host', async () => {

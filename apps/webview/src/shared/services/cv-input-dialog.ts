@@ -325,7 +325,7 @@ export class CvInputDialog extends ReatomLitElement {
       active.blur()
     }
 
-    // Give Android WebView/IME one turn to detach from the focused password field
+    // Give the WebView and its IME one turn to detach from the focused password field
     // before the dialog subtree is removed. Closing synchronously can crash Chromium.
     this.closeTimer = window.setTimeout(wrap(() => {
       this.closeTimer = null

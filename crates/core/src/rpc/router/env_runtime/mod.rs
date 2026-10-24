@@ -12,7 +12,6 @@ use crate::env_runtime::{
     validate_secret_value, EnvRuntimeError, EnvRuntimeErrorCode, EnvRuntimeResult,
     EnvSecretValueRecordV1, PrivateSpawnResolutionRequestV1, ResolvedEnvLeaseV1,
 };
-use crate::license::PRO_FEATURE_ENV_RUNTIME;
 use crate::rpc::types::{
     EnvDeleteResponse, EnvProfileCreateRequest, EnvProfileDeleteRequest, EnvProfileGetRequest,
     EnvProfileListRequest, EnvProfileUpdateRequest, EnvRuntimeStatusRequest,
@@ -31,20 +30,15 @@ impl RpcRouter {
         if let Err(error) = parse_request::<EnvRuntimeStatusRequest>(data) {
             return error_response(error);
         }
-        let vault_unlocked = self.session.is_some();
-        let pro_enabled = self.env_runtime_pro_enabled();
-        let counts = if vault_unlocked && pro_enabled {
-            let session = self.session.as_ref().expect("checked unlocked session");
-            match load_state(session, &self.storage) {
+        let counts = match self.session.as_ref() {
+            Some(session) => match load_state(session, &self.storage) {
                 Ok(state) => Some((state.secret_count(), state.profile_count())),
                 Err(error) => return error_response(error),
-            }
-        } else {
-            None
+            },
+            None => None,
         };
         RpcResponse::success(EnvRuntimeStatusResponse {
-            vault_unlocked,
-            pro_enabled,
+            vault_unlocked: self.session.is_some(),
             secret_count: counts.map(|(secrets, _)| secrets as u32),
             profile_count: counts.map(|(_, profiles)| profiles as u32),
         })
@@ -53,7 +47,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_secret_list(&self, data: &Value) -> RpcResponse {
         let result = (|| {
             parse_request::<EnvSecretListRequest>(data)?;
-            self.require_env_runtime_access()?;
             let session = self.require_env_runtime_session()?;
             Ok(load_state(session, &self.storage)?.list_secrets())
         })();
@@ -63,7 +56,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_secret_create(&mut self, data: &Value) -> RpcResponse {
         let result = (|| {
             let mut request = parse_request::<EnvSecretCreateRequest>(data)?;
-            self.require_env_runtime_access()?;
             validate_secret_value(&request.value)?;
             let storage = self.storage.clone();
             let session = self.require_env_runtime_session_mut()?;
@@ -86,7 +78,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_secret_update(&mut self, data: &Value) -> RpcResponse {
         let result = (|| {
             let mut request = parse_request::<EnvSecretUpdateRequest>(data)?;
-            self.require_env_runtime_access()?;
             if request.label.is_none() && request.value.is_none() {
                 return Err(EnvRuntimeError::validation(
                     "secret update requires label or value",
@@ -121,7 +112,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_secret_delete(&mut self, data: &Value) -> RpcResponse {
         let result = (|| {
             let request = parse_request::<EnvSecretDeleteRequest>(data)?;
-            self.require_env_runtime_access()?;
             let storage = self.storage.clone();
             let session = self.require_env_runtime_session_mut()?;
             let mut state = load_state(session, &storage)?;
@@ -139,7 +129,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_secret_reveal(&mut self, data: &Value) -> RpcResponse {
         let result = (|| {
             let mut request = parse_request::<EnvSecretRevealRequest>(data)?;
-            self.require_env_runtime_access()?;
             if request.master_password.is_empty() {
                 return Err(EnvRuntimeError::validation("master_password is required"));
             }
@@ -160,7 +149,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_profile_list(&self, data: &Value) -> RpcResponse {
         let result = (|| {
             parse_request::<EnvProfileListRequest>(data)?;
-            self.require_env_runtime_access()?;
             let session = self.require_env_runtime_session()?;
             Ok(load_state(session, &self.storage)?.list_profiles())
         })();
@@ -170,7 +158,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_profile_get(&self, data: &Value) -> RpcResponse {
         let result = (|| {
             let request = parse_request::<EnvProfileGetRequest>(data)?;
-            self.require_env_runtime_access()?;
             let session = self.require_env_runtime_session()?;
             load_state(session, &self.storage)?.get_profile(&request.profile)
         })();
@@ -180,7 +167,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_profile_create(&mut self, data: &Value) -> RpcResponse {
         let result = (|| {
             let request = parse_request::<EnvProfileCreateRequest>(data)?;
-            self.require_env_runtime_access()?;
             let storage = self.storage.clone();
             let session = self.require_env_runtime_session_mut()?;
             let mut state = load_state(session, &storage)?;
@@ -202,7 +188,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_profile_update(&mut self, data: &Value) -> RpcResponse {
         let result = (|| {
             let request = parse_request::<EnvProfileUpdateRequest>(data)?;
-            self.require_env_runtime_access()?;
             let storage = self.storage.clone();
             let session = self.require_env_runtime_session_mut()?;
             let mut state = load_state(session, &storage)?;
@@ -228,7 +213,6 @@ impl RpcRouter {
     pub(super) fn handle_env_runtime_profile_delete(&mut self, data: &Value) -> RpcResponse {
         let result = (|| {
             let request = parse_request::<EnvProfileDeleteRequest>(data)?;
-            self.require_env_runtime_access()?;
             let storage = self.storage.clone();
             let session = self.require_env_runtime_session_mut()?;
             let mut state = load_state(session, &storage)?;
@@ -250,7 +234,6 @@ impl RpcRouter {
         &mut self,
         request: PrivateSpawnResolutionRequestV1,
     ) -> EnvRuntimeResult<ResolvedEnvLeaseV1> {
-        self.require_env_runtime_access()?;
         let session = self.require_env_runtime_session()?;
         let state = load_state(session, &self.storage)?;
         let profile = state.profile_by_id(&request.profile_id)?;
@@ -270,23 +253,6 @@ impl RpcRouter {
             entries.push((variable.name.clone(), mem::take(&mut value.value)));
         }
         Ok(ResolvedEnvLeaseV1::new(mem::take(&mut *entries)))
-    }
-
-    fn env_runtime_pro_enabled(&self) -> bool {
-        self.license_store
-            .as_ref()
-            .is_none_or(|store| store.is_pro_enabled_for_guards())
-    }
-
-    fn require_env_runtime_access(&self) -> EnvRuntimeResult<()> {
-        if self.env_runtime_pro_enabled() {
-            Ok(())
-        } else {
-            Err(EnvRuntimeError::new(
-                EnvRuntimeErrorCode::ProRequired,
-                format!("Pro license required for {PRO_FEATURE_ENV_RUNTIME}"),
-            ))
-        }
     }
 
     fn require_env_runtime_session(&self) -> EnvRuntimeResult<&crate::vault::VaultSession> {

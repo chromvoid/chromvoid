@@ -7,7 +7,7 @@ use crate::crypto::StoragePepper;
 use super::super::backup_pack::BackupChunkManifest;
 use super::super::state::RpcRouter;
 use super::error::{BackupCommandError, BackupResult};
-use super::models::BackupLocalMetadata;
+use super::models::{BackupLocalMaterial, BackupLocalMetadata};
 
 impl RpcRouter {
     pub(in crate::rpc::router::backup) fn build_backup_local_metadata(
@@ -15,6 +15,19 @@ impl RpcRouter {
         manifest: &BackupChunkManifest,
         created_at: u64,
     ) -> BackupResult<BackupLocalMetadata> {
+        let material = self.build_backup_local_material(manifest, created_at)?;
+        Ok(BackupLocalMetadata {
+            metadata: general_purpose::STANDARD.encode(material.metadata),
+            master_salt: general_purpose::STANDARD.encode(material.master_salt),
+            master_verify: general_purpose::STANDARD.encode(material.master_verify),
+        })
+    }
+
+    pub(super) fn build_backup_local_material(
+        &self,
+        manifest: &BackupChunkManifest,
+        created_at: u64,
+    ) -> BackupResult<BackupLocalMaterial> {
         let backup_key = self.derive_backup_key_v2()?;
         let keystore = self
             .keystore
@@ -73,10 +86,10 @@ impl RpcRouter {
         let master_salt = self.read_master_salt()?.to_vec();
         let master_verify = self.read_master_verify()?.to_vec();
 
-        Ok(BackupLocalMetadata {
-            metadata: general_purpose::STANDARD.encode(meta_enc),
-            master_salt: general_purpose::STANDARD.encode(master_salt),
-            master_verify: general_purpose::STANDARD.encode(master_verify),
+        Ok(BackupLocalMaterial {
+            metadata: meta_enc,
+            master_salt,
+            master_verify,
         })
     }
 }

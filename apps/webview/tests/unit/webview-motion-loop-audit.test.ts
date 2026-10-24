@@ -88,13 +88,17 @@ export const styles = css\`
   })
 
   it('keeps the checked-in baseline schema explicit', () => {
-    const baseline = loadBaseline(path.resolve(process.cwd(), '../../scripts/fixtures/webview-motion-loop-baseline.json'))
+    const baseline = loadBaseline(
+      path.resolve(process.cwd(), '../../scripts/fixtures/webview-motion-loop-baseline.json'),
+    )
 
     expect(validateBaseline(baseline)).toEqual([])
     expect(baseline.length).toBeGreaterThan(0)
 
     for (const entry of baseline) {
-      expect(entry.path).toMatch(/^(apps\/webview\/src|packages\/uikit\/src\/components)\//)
+      expect(entry.path).toMatch(
+        /^(apps\/webview\/src|packages\/brand-mark\/src|packages\/uikit\/src\/components)\//,
+      )
       expect(typeof entry.snippet === 'string' || typeof entry.linePattern === 'string').toBe(true)
       expect(classifications.has(entry.classification)).toBe(true)
       expect(typeof entry.reducedMotionCovered).toBe('boolean')

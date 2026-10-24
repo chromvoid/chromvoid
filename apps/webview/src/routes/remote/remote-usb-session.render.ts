@@ -12,10 +12,14 @@ interface DesktopUsbRemoteSessionRenderContext {
   formatLastSyncTime: (ms: number) => string
   onRequestWriteLock: () => void
   onReconnectUsb: () => void
+  onRetryUsb: () => void
+  onForgetUsb: () => void
+  actionBusy: boolean
   onUseLocal: () => void
 }
 
 function hostLabel(session: DesktopUsbRemoteSessionPresentation): string {
+  if (!session.host) return i18n('remote:desktop-usb-phone-label')
   if (session.host.label) return session.host.label
   return session.host.platform === 'ios'
     ? i18n('remote:platform-ios')
@@ -48,7 +52,9 @@ function stageTitle(session: DesktopUsbRemoteSessionPresentation, label: string)
     case 'connection_lost':
       return i18n('remote:desktop-usb-lost-title')
     case 'error':
-      return i18n('remote:desktop-usb-error-title')
+      return session.errorCode === 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'
+        ? i18n('remote:usb-mobile-phone-not-responding-title')
+        : i18n('remote:desktop-usb-error-title')
   }
 }
 
@@ -63,7 +69,9 @@ function stageDescription(session: DesktopUsbRemoteSessionPresentation, label: s
     case 'connection_lost':
       return i18n('remote:desktop-usb-lost-description', {host: label})
     case 'error':
-      return i18n('remote:desktop-usb-error-description')
+      return session.errorCode === 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'
+        ? i18n('remote:usb-mobile-phone-not-responding-description')
+        : i18n('remote:desktop-usb-error-description')
   }
 }
 
@@ -170,6 +178,25 @@ function renderSyncStatus(ctx: DesktopUsbRemoteSessionRenderContext): TemplateRe
 }
 
 function renderActions(ctx: DesktopUsbRemoteSessionRenderContext): TemplateResult {
+  if (ctx.session.stage === 'error' && ctx.session.errorCode === 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING') {
+    return html`
+      <div class="remote-usb-actions">
+        <cv-button variant="primary" ?disabled=${ctx.actionBusy} @click=${ctx.onRetryUsb}>
+          ${i18n('remote:preauth-usb-retry')}
+        </cv-button>
+        ${ctx.session.host
+          ? html`
+              <cv-button variant="danger" ?disabled=${ctx.actionBusy} @click=${ctx.onForgetUsb}>
+                ${i18n('remote:preauth-remove-confirm')}
+              </cv-button>
+            `
+          : nothing}
+        <cv-button variant="ghost" ?disabled=${ctx.actionBusy} @click=${ctx.onUseLocal}>
+          ${i18n('remote:desktop-usb-use-local')}
+        </cv-button>
+      </div>
+    `
+  }
   const recovery = ctx.session.stage === 'connection_lost' || ctx.session.stage === 'error'
   if (recovery) {
     return html`
@@ -206,13 +233,6 @@ function renderActions(ctx: DesktopUsbRemoteSessionRenderContext): TemplateResul
 }
 
 function renderTechnicalDetails(session: DesktopUsbRemoteSessionPresentation): TemplateResult {
-  const platform =
-    session.host.platform === 'ios' ? i18n('remote:platform-ios') : i18n('remote:platform-android')
-  const bridge =
-    session.host.bridgeKind === 'ios_external_accessory'
-      ? i18n('remote:transport-ios-external-accessory')
-      : i18n('remote:transport-android-aoa')
-
   return html`
     <cv-disclosure class="remote-usb-details">
       <span slot="trigger" class="remote-usb-details-trigger">
@@ -220,22 +240,38 @@ function renderTechnicalDetails(session: DesktopUsbRemoteSessionPresentation): T
         <small>${i18n('remote:mobile-host-technical-summary')}</small>
       </span>
       <dl class="remote-usb-detail-list">
-        <div>
-          <dt>${i18n('remote:usb-mobile-active-host')}</dt>
-          <dd><code dir="ltr">${session.host.hostId}</code></dd>
-        </div>
+        ${session.host
+          ? html`
+              <div>
+                <dt>${i18n('remote:usb-mobile-active-host')}</dt>
+                <dd><code dir="ltr">${session.host.hostId}</code></dd>
+              </div>
+            `
+          : nothing}
         <div>
           <dt>${i18n('remote:transport')}</dt>
           <dd>${i18n('remote:transport-usb-mobile')}</dd>
         </div>
-        <div>
-          <dt>${i18n('remote:mobile-host-platform')}</dt>
-          <dd>${platform}</dd>
-        </div>
-        <div>
-          <dt>${i18n('remote:desktop-usb-bridge-label')}</dt>
-          <dd>${bridge}</dd>
-        </div>
+        ${session.host
+          ? html`
+              <div>
+                <dt>${i18n('remote:mobile-host-platform')}</dt>
+                <dd>
+                  ${session.host.platform === 'ios'
+                    ? i18n('remote:platform-ios')
+                    : i18n('remote:platform-android')}
+                </dd>
+              </div>
+              <div>
+                <dt>${i18n('remote:desktop-usb-bridge-label')}</dt>
+                <dd>
+                  ${session.host.bridgeKind === 'ios_external_accessory'
+                    ? i18n('remote:transport-ios-external-accessory')
+                    : i18n('remote:transport-android-aoa')}
+                </dd>
+              </div>
+            `
+          : nothing}
         <div>
           <dt>${i18n('remote:transport-network-fallback')}</dt>
           <dd>${i18n('remote:network-fallback-disabled')}</dd>
@@ -283,8 +319,16 @@ export function renderDesktopUsbRemoteSession(
           <h2><bdi dir="auto">${label}</bdi></h2>
           <div class="remote-usb-meta">
             <span>${i18n('remote:transport-usb-mobile')}</span>
-            <span aria-hidden="true">·</span>
-            <span>${session.host.platform === 'ios' ? i18n('remote:platform-ios') : i18n('remote:platform-android')}</span>
+            ${session.host
+              ? html`
+                  <span aria-hidden="true">·</span>
+                  <span
+                    >${session.host.platform === 'ios'
+                      ? i18n('remote:platform-ios')
+                      : i18n('remote:platform-android')}</span
+                  >
+                `
+              : nothing}
           </div>
         </div>
         <span class="remote-usb-stage-badge" data-stage=${session.stage}>${stageLabel(session.stage)}</span>

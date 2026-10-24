@@ -7,7 +7,7 @@ import {
   type ResolvedOverlayState,
 } from 'root/app/navigation/navigation.types'
 import type {Routes} from 'root/app/router/router'
-import {moduleAccessModel} from 'root/core/pro/module-access.model'
+import {moduleAccessModel} from 'root/core/modules/module-access.model'
 import {pmModel, type PassmanagerSessionStatus} from 'root/features/passmanager/password-manager.model'
 import {writeAndroidUnlockDebug} from 'root/shared/services/android-unlock-debug'
 
@@ -234,8 +234,7 @@ export async function ensureRouteComponents(
 }
 
 export async function ensureDashboardSurfaceComponents(surface: SurfaceId): Promise<void> {
-  const access = moduleAccessModel.surfaceAccess(surface)
-  if (access && access.status !== 'enabled') {
+  if (!moduleAccessModel.canOpenSurface(surface)) {
     return
   }
 

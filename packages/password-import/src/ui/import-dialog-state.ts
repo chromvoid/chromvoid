@@ -1,21 +1,14 @@
-import type {CatalogOperations} from '../mapper.js'
-import type {ExistingEntryInfo} from '../types.js'
+import type {CredentialImportService} from '../credential-import-service.js'
 
-let catalogOps: CatalogOperations | null = null
-let existingEntriesMap: Map<string, ExistingEntryInfo> | null = null
+let service: CredentialImportService | null = null
 
-export function setImportCatalogOps(ops: CatalogOperations) {
-  catalogOps = ops
+/** The application replaces this service whenever the vault or active host changes. */
+export function setCredentialImportService(next: CredentialImportService | null): void {
+  if (service === next) return
+  service?.dispose()
+  service = next
 }
 
-export function getImportCatalogOps(): CatalogOperations | null {
-  return catalogOps
-}
-
-export function setExistingEntriesMap(map: Map<string, ExistingEntryInfo>) {
-  existingEntriesMap = map
-}
-
-export function getExistingEntriesMap(): Map<string, ExistingEntryInfo> | null {
-  return existingEntriesMap
+export function getCredentialImportService(): CredentialImportService | null {
+  return service
 }

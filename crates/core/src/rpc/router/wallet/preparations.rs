@@ -14,6 +14,8 @@ pub(super) struct PreparedTransactionInput {
     pub(super) provider_snapshot: Option<Value>,
     pub(super) preview: WalletPreview,
     pub(super) materializations: Vec<crate::wallet::WalletProfileAccountMaterialization>,
+    /// Chain-imposed validity bound; the record expires at `min(now + TTL, valid_until)`.
+    pub(super) valid_until: Option<u64>,
     pub(super) now: u64,
 }
 
@@ -51,12 +53,16 @@ pub(super) fn create_preparation(
         tx_ref: None,
         superseded_at: None,
         superseded_by_tx_ref: None,
-        expires_at: input.now.saturating_add(PREPARATION_TTL_MS),
+        expires_at: input.valid_until.map_or(
+            input.now.saturating_add(PREPARATION_TTL_MS),
+            |valid_until| valid_until.min(input.now.saturating_add(PREPARATION_TTL_MS)),
+        ),
         created_at: input.now,
     };
 
+    let wallet = load_wallet(session, storage, &record.wallet_id)?;
     let mut uow = begin_wallet_uow(session, storage, "wallet-transaction-prepare");
-    materialize_profile_accounts(&mut uow, input.materializations)?;
+    materialize_profile_accounts(&mut uow, input.materializations, &wallet)?;
     write_json(
         &mut uow,
         &secret_path(&payload_secret_id),
@@ -341,6 +347,7 @@ mod tests {
                 warnings: Vec::new(),
                 ton: None,
                 ethereum: None,
+                solana: None,
             },
             state: PreparationStateV1::Ready,
             consumed_at: None,

@@ -39,8 +39,8 @@ const ACCOUNT: WalletAccount = {
   wallet_mode: 'multichain',
   mnemonic_standard: 'bip39',
   account_model: 'account',
-  derivation_profile: 'ton_bip39_v5r1_account',
-  wallet_contract: 'wallet_v5r1',
+  derivation_profile: 'ton_bip39_wallet_tg_account',
+  wallet_contract: 'wallet_tg',
   account_index: 0,
   workchain: 0,
   label: 'Main account',
@@ -126,7 +126,7 @@ const IMPORTED_ACCOUNT: WalletAccount = {
   address: 'EQIabcdefghijklmnopqrstuvwxyz1234567890',
   public_key: 'imported-public-key',
   curve: 'ed25519',
-  wallet_contract: 'Wallet V5R1',
+  wallet_contract: 'Telegram Wallet',
   workchain: 0,
   raw_account: null,
   created_at: 1,
@@ -199,7 +199,6 @@ function tonStatus(input: Partial<WalletNetworkStatus> = {}): WalletNetworkStatu
     broadcast_enabled: true,
     capabilities: [
       {id: 'ton_native_transfer', state: 'ready', disabled_reason: null},
-      {id: 'ton_connect_v1', state: 'disabled', disabled_reason: 'Not built'},
     ],
     disabled_reason: null,
     ...input,
@@ -241,7 +240,7 @@ function preparedResponse(input: Partial<WalletPrepareResponse> = {}): WalletPre
       total_debit: '1255000000',
       warnings: [],
       ton: {
-        wallet_contract: 'wallet_v5r1',
+        wallet_contract: 'wallet_tg',
         seqno: 7,
         account_state: 'active',
         valid_until: 1000,
@@ -634,6 +633,65 @@ describe('WalletPageModel', () => {
     expect(findCalls(calls, 'wallet:balance:get')).toHaveLength(1)
   })
 
+  it('runs restored Solana discovery from account_discovery_pending the same way', async () => {
+    type BalanceResult = RpcCmdResult<'wallet:balance:get'>
+    const solanaAccount: WalletAccount = {
+      ...ACCOUNT,
+      account_id: 'account-solana',
+      wallet_id: BITCOIN_WALLET.wallet_id,
+      network: 'solana',
+      account_model: 'account',
+      derivation_profile: 'solana_bip44_account',
+      wallet_contract: null,
+      address: 'So1anaAddress1111111111111111111111111111111',
+      raw_account: null,
+      derivation_path: "m/44'/501'/0'/0'",
+    }
+    const solanaStatus: WalletNetworkStatus = {
+      ...bitcoinStatus(),
+      network: 'solana',
+      capabilities: [{id: 'solana_native_transfer', state: 'ready', disabled_reason: null}],
+    }
+    let currentWallet: WalletSummary = {...BITCOIN_WALLET, account_discovery_pending: ['solana']}
+    let resolveDiscovery!: (value: BalanceResult) => void
+    const pendingDiscovery = new Promise<BalanceResult>((resolve) => {
+      resolveDiscovery = resolve
+    })
+    const {port, calls} = createWalletRpcPort(async (command) => {
+      if (command === 'wallet:status') return walletStatus([solanaStatus]) as RpcCmdResult<typeof command>
+      if (command === 'wallet:list') return {wallets: [currentWallet]} as RpcCmdResult<typeof command>
+      if (command === 'wallet:accounts:list') return {accounts: [solanaAccount]} as RpcCmdResult<typeof command>
+      if (command === 'wallet:balance:get') return pendingDiscovery as Promise<RpcCmdResult<typeof command>>
+      if (command === 'wallet:transactions:list') {
+        return {transactions: [], next_cursor: null} as RpcCmdResult<typeof command>
+      }
+      return defaultResponse(command)
+    })
+    const model = new WalletPageModel(port)
+
+    await model.load()
+
+    expect(model.selectedRecoveryDiscoveryPending()).toBe(true)
+    expect(model.selectedTransactionReady()).toBe(false)
+    expect(findCalls(calls, 'wallet:balance:get')).toEqual([
+      {account_id: solanaAccount.account_id, discover_addresses: true},
+    ])
+
+    currentWallet = {...BITCOIN_WALLET, account_discovery_pending: []}
+    resolveDiscovery({
+      account_id: solanaAccount.account_id,
+      network: 'solana',
+      balance: {spendable: '7', pending_in: '0', pending_out: '0', total: '7', amount_unit: 'lamport'},
+      fetched_at: 20,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(model.selectedRecoveryDiscoveryPending()).toBe(false)
+    expect(model.selectedTransactionReady()).toBe(true)
+    expect(model.selectedBalance()?.balance.total).toBe('7')
+    expect(findCalls(calls, 'wallet:balance:get')).toHaveLength(1)
+  })
+
   it('derives guarded toolbar context and commands from the selected wallet state', async () => {
     const {port} = createWalletRpcPort(async (command) => defaultResponse(command))
     const model = new WalletPageModel(port)
@@ -907,7 +965,11 @@ describe('WalletPageModel', () => {
     model.setup.createLabel.set('Separate multichain wallet')
     model.setup.generatedMnemonic.set(mnemonic)
     model.setup.generatedMnemonicDraftId.set('mnemonic-draft-1')
-    model.setup.createConfirmed.set(true)
+    // The passphrase is optional and the phrase is never confirmed by hand: Create is enough.
+    expect(model.setup.canCreateGeneratedWallet()).toBe(true)
+    model.setup.setUseBip39Passphrase(true)
+    expect(model.setup.canCreateGeneratedWallet()).toBe(false)
+    model.setup.setBip39Passphrase('secret')
 
     await model.createGeneratedWallet()
 
@@ -917,8 +979,8 @@ describe('WalletPageModel', () => {
       mnemonic: null,
       mnemonic_draft_id: 'mnemonic-draft-1',
       wordlist: 'english',
-      mnemonic_standard: 'bip39',
-      bip39_passphrase: null,
+      mnemonic_standard: 'rotation',
+      bip39_passphrase: 'secret',
       supported_networks: ['ton'],
       client_request_id: expect.any(String),
     })
@@ -931,7 +993,6 @@ describe('WalletPageModel', () => {
     expect(model.notice()).toBe('Wallet created.')
     expect(model.setup.generatedMnemonic()).toEqual([])
     expect(model.setup.generatedMnemonicDraftId()).toBeNull()
-    expect(model.setup.createConfirmed()).toBe(false)
   })
 
   it('always generates a multichain BIP39 mnemonic even after TON-native import was selected', async () => {
@@ -957,7 +1018,7 @@ describe('WalletPageModel', () => {
 
     expect(findCall(calls, 'wallet:hd:generateMnemonic')).toEqual({
       wallet_mode: 'multichain',
-      mnemonic_standard: 'bip39',
+      mnemonic_standard: 'rotation',
       word_count: 12,
       wordlist: 'english',
     })
@@ -1100,7 +1161,7 @@ describe('WalletPageModel', () => {
 
     await model.load()
     model.setMode('restore')
-    model.setup.setRestoreProfile('ton_only')
+    model.setup.setRestoreProfile('ton_legacy')
     model.setup.restoreLabel.set('Imported TON wallet')
     model.setup.restoreMnemonicText.set(words.join(' '))
 
@@ -1115,6 +1176,45 @@ describe('WalletPageModel', () => {
       mnemonic_draft_id: null,
       wordlist: 'english',
       mnemonic_standard: 'ton_native',
+      bip39_passphrase: null,
+      supported_networks: ['ton'],
+      client_request_id: expect.any(String),
+    })
+  })
+
+  it('restores a Telegram Wallet rotation phrase with 12 or 24 words', async () => {
+    const anchor = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(' ')
+    const {port, calls} = createWalletRpcPort(async (command) => {
+      if (command === 'wallet:status') return walletStatus()
+      if (command === 'wallet:hd:create') {
+        return {wallet_id: 'wallet-rotation', accounts: [{...tonAccount(), wallet_id: 'wallet-rotation'}]}
+      }
+      return defaultResponse(command)
+    })
+    const model = new WalletPageModel(port)
+
+    await model.load()
+    model.setMode('restore')
+    model.setup.setRestoreProfile('ton_only')
+    model.setup.restoreLabel.set('Telegram wallet')
+    model.setup.restoreMnemonicText.set(anchor.join(' '))
+    expect(model.setup.restoreMnemonicStandard()).toBe('rotation')
+    expect(model.setup.canRestoreHdWallet()).toBe(true)
+    model.setup.restoreMnemonicText.set([...anchor, ...anchor].join(' '))
+    expect(model.setup.canRestoreHdWallet()).toBe(true)
+    model.setup.restoreMnemonicText.set(anchor.slice(0, 11).join(' '))
+    expect(model.setup.canRestoreHdWallet()).toBe(false)
+    model.setup.restoreMnemonicText.set(anchor.join(' '))
+
+    await model.restoreHdWallet()
+
+    expect(findCall(calls, 'wallet:hd:create')).toEqual({
+      label: 'Telegram wallet',
+      wallet_mode: 'ton_only',
+      mnemonic: anchor,
+      mnemonic_draft_id: null,
+      wordlist: 'english',
+      mnemonic_standard: 'rotation',
       bip39_passphrase: null,
       supported_networks: ['ton'],
       client_request_id: expect.any(String),
@@ -1215,7 +1315,7 @@ describe('WalletPageModel', () => {
     await model.prepareSend()
 
     expect(model.prepared()?.preview.ton).toEqual({
-      wallet_contract: 'wallet_v5r1',
+      wallet_contract: 'wallet_tg',
       seqno: 7,
       account_state: 'active',
       valid_until: 1000,
@@ -1878,6 +1978,100 @@ describe('WalletPageModel', () => {
     expect(model.sendDestination()).toBe('')
     expect(model.sendAmount()).toBe('')
     expect(model.send.quote()).toBeNull()
+  })
+
+  it('retargets Send to the wallet account whose network matches the pasted address and keeps the draft', async () => {
+    const {port, calls} = createWalletRpcPort(async (command, data) => {
+      if (command === 'wallet:status') {
+        return walletStatus([bitcoinStatus(), tonStatus()]) as RpcCmdResult<typeof command>
+      }
+      if (command === 'wallet:list') return {wallets: [BITCOIN_WALLET]} as RpcCmdResult<typeof command>
+      if (command === 'wallet:accounts:list') {
+        return {accounts: [BITCOIN_ACCOUNT, MULTICHAIN_TON_ACCOUNT]} as RpcCmdResult<typeof command>
+      }
+      if (command === 'wallet:balance:get') {
+        return {
+          account_id: BITCOIN_ACCOUNT.account_id,
+          network: 'bitcoin',
+          balance: {spendable: '0', pending_in: '0', pending_out: '0', total: '0', amount_unit: 'satoshi'},
+          fetched_at: 10,
+        } as RpcCmdResult<typeof command>
+      }
+      if (command === 'wallet:transactions:list') {
+        return {transactions: [], next_cursor: null} as RpcCmdResult<typeof command>
+      }
+      if (command === 'wallet:address:detect') {
+        // Core owns the address rules; the mock only maps fixture addresses to networks.
+        const address = (data as RpcCmdData<'wallet:address:detect'>).address
+        const network = address === 'ton-address' ? 'ton' : address === 'eth-address' ? 'ethereum' : null
+        return {
+          address,
+          network,
+          normalized_address: network ? address : null,
+          candidates: network ? [network] : [],
+        } as RpcCmdResult<typeof command>
+      }
+      return defaultResponse(command)
+    })
+    const model = new WalletPageModel(port)
+    await model.load()
+    model.selectAccount(BITCOIN_ACCOUNT.account_id)
+    expect(model.walletAssets().map((account) => account.network)).toEqual(['ton', 'bitcoin'])
+
+    model.setSendDestination(' ton-address ')
+    model.setSendAmount('1.5')
+    expect(await model.retargetSendToDestination()).toBe(true)
+    expect(findCalls(calls, 'wallet:address:detect')).toEqual([{address: 'ton-address'}])
+    expect(model.sendDestinationNetwork()).toBe('ton')
+
+    expect(model.selectedAccountId()).toBe(MULTICHAIN_TON_ACCOUNT.account_id)
+    expect(model.sendDestination()).toBe(' ton-address ')
+    expect(model.sendAmount()).toBe('1.5')
+    expect(await model.retargetSendToDestination()).toBe(false)
+
+    model.setSendDestination('eth-address')
+    expect(await model.retargetSendToDestination()).toBe(false)
+    expect(model.sendDestinationNetworkMismatch()).toBe('ethereum')
+    expect(model.selectedAccountId()).toBe(MULTICHAIN_TON_ACCOUNT.account_id)
+
+    model.setSendDestination('')
+    expect(await model.detectSendDestination()).toBeNull()
+    expect(model.sendDestinationNetwork()).toBeNull()
+  })
+
+  it('opens mobile Send from a usable network account when the selected one cannot transfer', async () => {
+    const {port} = createWalletRpcPort(async (command) => {
+      if (command === 'wallet:status') {
+        return walletStatus([bitcoinStatus(), tonStatus()]) as RpcCmdResult<typeof command>
+      }
+      if (command === 'wallet:list') return {wallets: [RESTORED_BITCOIN_WALLET]} as RpcCmdResult<typeof command>
+      if (command === 'wallet:accounts:list') {
+        return {accounts: [BITCOIN_ACCOUNT, MULTICHAIN_TON_ACCOUNT]} as RpcCmdResult<typeof command>
+      }
+      if (command === 'wallet:balance:get') {
+        return {
+          account_id: MULTICHAIN_TON_ACCOUNT.account_id,
+          network: 'ton',
+          balance: {spendable: '0', pending_in: '0', pending_out: '0', total: '0', amount_unit: 'nanoton'},
+          fetched_at: 10,
+        } as RpcCmdResult<typeof command>
+      }
+      if (command === 'wallet:transactions:list') {
+        return {transactions: [], next_cursor: null} as RpcCmdResult<typeof command>
+      }
+      return defaultResponse(command)
+    })
+    const model = new WalletPageModel(port)
+    await model.load()
+    model.selectAccount(BITCOIN_ACCOUNT.account_id)
+    // Bitcoin recovery discovery is still pending, so that account cannot send yet.
+    expect(model.selectedTransactionReady()).toBe(false)
+    expect(model.anyAccountTransactionReady()).toBe(true)
+
+    model.openMobileSend()
+
+    expect(model.selectedAccountId()).toBe(MULTICHAIN_TON_ACCOUNT.account_id)
+    expect(model.overlay()).toBe('send')
   })
 
   it('closes mobile send by cancelling preparation while preserving the unprepared draft', async () => {

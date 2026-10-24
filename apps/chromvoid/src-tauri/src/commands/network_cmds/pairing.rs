@@ -82,11 +82,6 @@ pub(crate) async fn mobile_acceptor_start(
     .await?;
 
     // Start Android foreground service to keep the connection alive in background.
-    #[cfg(target_os = "android")]
-    {
-        use crate::mobile::android::start_connection_service;
-        start_connection_service("Desktop");
-    }
 
     serde_json::to_value(status).map_err(|_| "serialize acceptor status failed".to_string())
 }
@@ -96,11 +91,6 @@ pub(crate) fn mobile_acceptor_stop(
     state: tauri::State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     // Stop Android foreground service before stopping the acceptor.
-    #[cfg(target_os = "android")]
-    {
-        use crate::mobile::android::stop_connection_service;
-        stop_connection_service();
-    }
 
     let status = network::mobile_acceptor::stop_listening(&state.mobile_acceptor_runtime)?;
     serde_json::to_value(status).map_err(|_| "serialize acceptor status failed".to_string())

@@ -223,13 +223,7 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     }
     info!("main: storage directory created successfully");
 
-    let license_root = crate::pro::license_vault_dir(&data_dir);
-    let adapter = LocalCoreAdapter::new_with_license_store(
-        storage_root.clone(),
-        license_root.clone(),
-        crate::pro::current_build_policy(),
-    )
-    .map_err(|e| {
+    let adapter = LocalCoreAdapter::new(storage_root.clone()).map_err(|e| {
         error!(
             "main: LocalCoreAdapter::new failed for path '{}': {:?}",
             storage_root.display(),
@@ -347,7 +341,6 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         #[cfg(desktop)]
         sync_runtime: Arc::new(crate::commands::sync_cmds::SyncRuntimeState::new()),
         storage_root: Arc::new(Mutex::new(storage_root_clone)),
-        license_root,
         #[cfg(desktop)]
         gateway: Arc::new(Mutex::new(crate::gateway::GatewayState::load_or_default(
             data_dir.join("gateway.json"),
@@ -388,23 +381,7 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         ios_lifecycle_runtime: Arc::new(crate::network::ios_lifecycle::IosLifecycleRuntimeState::new()),
         ios_host_runtime: Arc::new(crate::network::ios_pairing::IosHostRuntimeState::new()),
         android_host_runtime: Arc::new(crate::network::mobile_host::AndroidHostRuntimeState::new()),
-        android_provider_runtime: crate::mobile::android::shared_provider_runtime(),
-        android_audio_sessions: Arc::new(crate::mobile::android::AndroidAudioSessionRegistry::new()),
-        android_native_upload_runtime: Arc::new(
-            crate::mobile::android::AndroidNativeUploadRuntimeState::new(),
-        ),
-        android_saf_picker_runtime: Arc::new(
-            crate::mobile::android::AndroidSafPickerRuntimeState::new(),
-        ),
-        android_biometric_runtime: Arc::new(
-            crate::mobile::android::AndroidBiometricRuntimeState::new(),
-        ),
-        android_password_save_runtime: Arc::new(
-            crate::mobile::android::AndroidPasswordSaveRuntimeState::new(),
-        ),
-        android_autofill_runtime: Arc::new(
-            crate::mobile::android::AndroidAutofillRuntimeState::new(),
-        ),
+        native_audio_sessions: Arc::new(crate::mobile::NativeAudioSessionRegistry::new()),
         ios_native_bridge_runtime: Arc::new(
             crate::mobile::ios::native_bridge::IosNativeBridgeRuntimeState::new(),
         ),
@@ -418,9 +395,6 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         ssh_agent: Arc::new(Mutex::new(crate::ssh_agent::SshAgentState::new())),
     });
     let task_lifecycle = app.state::<AppState>().task_lifecycle.clone();
-
-    #[cfg(target_os = "android")]
-    crate::mobile::android::register_app_handle(app.handle().clone());
 
     #[cfg(target_os = "ios")]
     {
@@ -436,29 +410,6 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
 
     #[cfg(target_os = "ios")]
     crate::mobile::ios::keyboard::setup(app.handle().clone());
-
-    #[cfg(target_os = "android")]
-    {
-        let storage_root = storage_root.clone();
-        let state = app.state::<AppState>();
-        let android_host_runtime = state.android_host_runtime.clone();
-        let mobile_acceptor_runtime = state.mobile_acceptor_runtime.clone();
-        let adapter = state.adapter.clone();
-        crate::mobile::android::configure_usb_accessory_host_starter(
-            mobile_acceptor_runtime.clone(),
-            Some(adapter.clone()),
-            storage_root.clone(),
-        );
-        crate::network::mobile_host::schedule_android_host_mode_resume(
-            task_lifecycle.clone(),
-            android_host_runtime,
-            mobile_acceptor_runtime,
-            Some(adapter),
-            storage_root,
-            "setup",
-        )
-        .map_err(|e| boxed_error(e))?;
-    }
 
     // ── Shutdown signal listener (desktop) ────────────────────────────
     #[cfg(desktop)]
@@ -590,15 +541,9 @@ pub(crate) fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             .adapter
             .lock()
             .map_err(|_| boxed_error("Adapter mutex poisoned"))?;
-        let unlocked = adapter.is_unlocked();
         crate::ios_keep_awake::sync_ios_idle_timer(app.handle(), adapter.as_ref());
         emit_basic_state(app.handle(), &storage_root, adapter.as_ref());
         drop(adapter);
-        crate::commands::vault::sync_android_vault_quick_lock_with_unlocked(
-            app.handle(),
-            &state,
-            unlocked,
-        );
     }
 
     Ok(())

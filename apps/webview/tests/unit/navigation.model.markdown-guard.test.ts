@@ -2,7 +2,6 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {atom} from '@reatom/core'
 
-import {androidSystemBackModel} from '../../src/app/navigation/android-system-back.model'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {MarkdownDocumentPage} from '../../src/features/file-manager/components/markdown-document-page'
 import {MarkdownPreview} from '../../src/features/file-manager/components/markdown-preview'
@@ -12,7 +11,7 @@ import {
   markdownPreviewModel,
   type MarkdownPreviewReadyState,
 } from '../../src/features/file-manager/models/markdown-preview.model'
-import {registerMarkdownNavigationGuard} from '../../src/routes/app.route.model'
+import {registerMarkdownNavigationGuard, handleMobileBack} from '../../src/routes/app.route.model'
 
 type CatalogNode = {
   nodeId: number
@@ -412,14 +411,14 @@ describe('NavigationModel Markdown dirty guard', () => {
     expect(navigationModel.snapshot().files?.document).toBeUndefined()
   })
 
-  it('pauses Android system back even when the Markdown editor textarea is focused', () => {
+  it('pauses mobile back even when the Markdown editor textarea is focused', () => {
     navigationModel.openMarkdownDocument(5, 'replace')
     markdownPreviewModel.state.set(readyState({fileId: 5, dirty: true}))
     const textarea = document.createElement('textarea')
     document.body.append(textarea)
     textarea.focus()
 
-    expect(androidSystemBackModel.handleBack()).toBe(true)
+    expect(handleMobileBack()).toBe(true)
 
     expect(navigationModel.snapshot().files?.document).toEqual({kind: 'markdown', fileId: 5})
     expect(markdownPreviewModel.pendingCloseIntent()).toMatchObject({

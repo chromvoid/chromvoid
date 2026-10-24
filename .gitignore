@@ -44,9 +44,16 @@ crash.*.log
 .artifacts
 /packages/uikit/
 packages/uikit/docs/.vitepress/cache
+# Local leftovers of the removed Tauri Android build (ADR-040 D-02): build
+# outputs and the release signing configuration. Never committed.
+apps/chromvoid/src-tauri/gen/android/
 apps/chromvoid/src-tauri/gen/android/keystore.properties
 apps/chromvoid/src-tauri/gen/android/sideload-keystore.properties
 apps/chromvoid/src-tauri/gen/android/*.jks
 .codex-artifacts
 **/output/playwright/
 .mock/
+
+# Python bytecode caches (build artifacts of the packaging scripts)
+__pycache__/
+*.py[cod]

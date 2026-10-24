@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use sha2::{Digest, Sha256};
+pub use chromvoid_network_runtime::pairing_transport::pin_to_psk;
 
 use super::paired_peers::{PairedPeer, PairedPeerStore};
 use super::signaling::{SignalingClient, SIGNALING_CLIENT_CLOSE_GRACE};
@@ -36,17 +36,6 @@ fn generate_room_id() -> String {
     let mut bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     hex::encode(bytes)
-}
-
-/// Derive a 32-byte pre-shared key from a PIN string (SHA-256).
-/// Mirrors `gateway::handshake::pin_to_psk`.
-pub fn pin_to_psk(pin: &str) -> [u8; 32] {
-    let mut h = Sha256::new();
-    h.update(pin.as_bytes());
-    let out = h.finalize();
-    let mut psk = [0u8; 32];
-    psk.copy_from_slice(&out);
-    psk
 }
 
 pub fn generate_pin() -> String {

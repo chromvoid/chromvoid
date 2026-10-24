@@ -6,20 +6,17 @@ import {nothing, type TemplateResult} from 'lit'
 import {i18n} from 'root/i18n'
 import {shortenAddress} from './wallet-format'
 import {
-  walletAccountAddress,
   walletAccountContract,
   walletAccountLabel,
   formatWalletTransactionAmount,
   walletTransactionCounterpartyLabel,
   walletTransactionDirection,
   walletTransactionDirectionLabel,
-  type WalletAccount,
   type WalletMainTab,
   type WalletSummary,
   type WalletTransaction,
 } from './wallet-page.types'
 import {WalletPageLayoutBase} from './wallet-page-layout-base'
-import {getWalletNetworkProfile} from './wallet-network'
 import {walletPageMobileStyles} from './wallet-page-mobile.styles'
 import {WalletSendForm} from './wallet-send-form'
 import {renderWalletMnemonic, renderWalletSetup} from './wallet-setup.render'
@@ -66,7 +63,7 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
               : status?.enabled
                 ? this.renderWallet()
                 : nothing}
-        ${this.renderWalletSwitcher()} ${this.renderAddAccountSheet()} ${this.renderImportWalletSheet()}
+        ${this.renderWalletSwitcher()} ${this.renderImportWalletSheet()}
         ${this.renderReceiveSheet()} ${this.renderSendSheet()}
       </section>
     `
@@ -170,7 +167,7 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
     if (!wallet || !account) return this.renderMethodPicker()
     return html`
       <div class="wallet-view">
-        ${this.externalToolbar ? nothing : this.renderWalletHeader(wallet)} ${this.renderAccountRail()}
+        ${this.externalToolbar ? nothing : this.renderWalletHeader(wallet)}
         ${this.renderNetworkCallout()} ${this.renderTabs()}
         <main class="tab-panel">${this.renderCurrentTab()}</main>
       </div>
@@ -198,56 +195,6 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
           <cv-icon name="refresh-cw"></cv-icon>
         </button>
       </header>
-    `
-  }
-
-  private renderAccountRail(): TemplateResult {
-    const accounts = this.model.walletAccounts()
-    const showAdd = this.model.derivableNetworks().length > 0
-    return html`
-      <section class="account-section" aria-labelledby="wallet-accounts-label">
-        <div class="section-heading-row">
-          <h2 id="wallet-accounts-label">${i18n('wallet:accounts:title')}</h2>
-          <span>${accounts.length}</span>
-        </div>
-        <div
-          class="account-rail"
-          role="listbox"
-          aria-orientation="horizontal"
-          @keydown=${this.handleAccountRailKeydown}
-        >
-          ${accounts.map((account) => this.renderAccountCard(account))}
-          ${showAdd
-            ? html`
-                <button class="account-add-card" @click=${this.handleOpenAddAccount} aria-haspopup="dialog">
-                  <cv-icon name="plus"></cv-icon><span>${i18n('wallet:action:add-account')}</span>
-                </button>
-              `
-            : nothing}
-        </div>
-      </section>
-    `
-  }
-
-  private renderAccountCard(account: WalletAccount): TemplateResult {
-    const selected = this.model.selectedAccountId() === account.account_id
-    const profile = getWalletNetworkProfile(account.network)
-    return html`
-      <button
-        class="account-card ${selected ? 'selected' : ''}"
-        role="option"
-        aria-selected=${selected}
-        data-account-id=${account.account_id}
-        @click=${this.handleAccountClick}
-      >
-        <span class="account-card-top">
-          <span class="network-mark">${profile?.symbol.slice(0, 1) ?? '?'}</span>
-          <span class="network-name">${profile?.symbol ?? account.network}</span>
-        </span>
-        <strong>${this.model.displayAccountBalance(account)}</strong>
-        <span class="account-label"><bdi dir="auto">${walletAccountLabel(account)}</bdi></span>
-        <span class="account-address" dir="ltr">${shortenAddress(walletAccountAddress(account))}</span>
-      </button>
     `
   }
 
@@ -328,14 +275,10 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
     return html`
       <div class="overview-stack">
         <section class="balance-hero">
-          <span>${i18n('wallet:balance:account')}</span>
-          <strong>${this.model.displayBalance()}</strong>
-          <span
-            ><span dir="ltr">${profile?.label ?? account.network}</span> ·
-            <bdi dir="auto">${walletAccountLabel(account)}</bdi></span
-          >
+          <span>${i18n('wallet:overview:assets')}</span>
+          ${this.renderAssetList()}
           <div class="quick-actions">
-            <button @click=${this.handleOpenMobileSend} ?disabled=${!this.model.selectedTransactionReady()}>
+            <button @click=${this.handleOpenMobileSend} ?disabled=${!this.model.anyAccountTransactionReady()}>
               <cv-icon name="arrow-up-right"></cv-icon><span>${i18n('wallet:mode:send')}</span>
             </button>
             <button @click=${this.handleOpenReceive} ?disabled=${!this.model.toolbarContext().canReceive}>
@@ -346,7 +289,7 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
         <section class="detail-section">
           <div class="detail-heading">
             <div>
-              <span class="eyebrow">${i18n('wallet:receive:title')}</span>
+              <span class="eyebrow" dir="ltr">${profile?.label ?? account.network}</span>
               <h3>${i18n('wallet:account:details')}</h3>
             </div>
             <button
@@ -360,8 +303,12 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
           </div>
           <dl class="detail-list">
             <div>
-              <dt>${i18n('wallet:field:network')}</dt>
-              <dd>${profile?.label ?? account.network}</dd>
+              <dt>${i18n('wallet:field:account')}</dt>
+              <dd><bdi dir="auto">${walletAccountLabel(account)}</bdi></dd>
+            </div>
+            <div>
+              <dt>${i18n('wallet:balance:total')}</dt>
+              <dd>${this.model.displayBalance()}</dd>
             </div>
             <div>
               <dt>${i18n('wallet:balance:spendable')}</dt>
@@ -389,6 +336,7 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
                   : i18n('wallet:action:generate-receive-address')}
               </button>`
             : nothing}
+          ${this.renderAddAccountAction(account.network, 'secondary-action')}
           ${balance
             ? html`<p class="timestamp">
                 ${i18n('wallet:balance:fetched-at')} ${new Date(balance.fetched_at).toLocaleString()}
@@ -534,7 +482,7 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
             </p>`
           : nothing}
         ${this.model.recoveryMnemonic().length > 0
-          ? renderWalletMnemonic(this.model.recoveryMnemonic())
+          ? renderWalletMnemonic(this.model.recoveryMnemonic(), this.model.recoveryMnemonicStandard())
           : nothing}
         ${this.model.recoveryPassphrase()
           ? html`<p class="secret-copy">
@@ -600,40 +548,6 @@ export class WalletPageMobileLayout extends WalletPageLayoutBase {
         <span slot="title">${title}</span>
         <span slot="description">${i18n('wallet:send:body')}</span>
         <wallet-send-form presentation="mobile"></wallet-send-form>
-      </cv-bottom-sheet>
-    `
-  }
-
-  private renderAddAccountSheet(): TemplateResult {
-    return html`
-      <cv-bottom-sheet
-        class="wallet-sheet"
-        .open=${this.model.overlay() === 'add-account'}
-        show-handle
-        drag-to-close
-        @cv-change=${this.handleCloseOverlay}
-      >
-        <span slot="title">${i18n('wallet:add-account:title')}</span>
-        <span slot="description">${i18n('wallet:add-account:body')}</span>
-        <div class="sheet-list">
-          ${this.model.derivableNetworks().map((network) => {
-            const profile = getWalletNetworkProfile(network)
-            const ready = this.model.canDeriveAccount(network)
-            const reason = this.model.networkUnavailableReason(network)
-            return html`<button
-              class="sheet-option"
-              data-network=${network}
-              @click=${this.handleDeriveAccount}
-              ?disabled=${!ready || this.model.deriveAccountLoading()}
-            >
-              <span class="network-mark">${profile?.symbol.slice(0, 1) ?? '?'}</span
-              ><span
-                ><strong>${profile?.label ?? network}</strong
-                ><span>${ready ? i18n('wallet:add-account:ready') : reason}</span></span
-              ><cv-icon name="chevron-right"></cv-icon>
-            </button>`
-          })}
-        </div>
       </cv-bottom-sheet>
     `
   }

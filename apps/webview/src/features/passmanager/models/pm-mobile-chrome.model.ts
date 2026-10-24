@@ -22,7 +22,7 @@ import {
   type GroupBy,
   type SortDirection,
   type SortField,
-} from '../components/list/sort-controls'
+} from '../components/list/sort-controls.model'
 import {pmEntryEditorModel} from './pm-entry-editor.model'
 import {
   getPassmanagerRoot,

@@ -231,3 +231,143 @@ pub fn handle_catalog_file_links_resolve(session: &VaultSession, data: &Value) -
         results,
     })
 }
+
+pub fn handle_catalog_document_link(session: &VaultSession, data: &Value) -> RpcResponse {
+    use crate::rpc::types::{
+        CatalogDocumentLinkKind, CatalogDocumentLinkRequest, CatalogDocumentLinkResponse,
+    };
+    let request = match request_from_value::<CatalogDocumentLinkRequest>(data, "document link") {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let catalog = session.catalog();
+    let source_path = match catalog.get_path(request.source_node_id) {
+        Some(path)
+            if !crate::catalog::system_shard::is_system_path(&path)
+                && catalog
+                    .find_by_id(request.source_node_id)
+                    .is_some_and(|node| node.is_file()) =>
+        {
+            path
+        }
+        _ => return RpcResponse::error("Document was not found", Some(ErrorCode::NodeNotFound)),
+    };
+    if request.path.len() > crate::markdown::MAX_DOCUMENT_BYTES
+        || request.path.chars().any(char::is_control)
+    {
+        return RpcResponse::error("Invalid document link path", Some(ErrorCode::InvalidPath));
+    }
+    let mut candidates = Vec::new();
+    collect_visible_files("/", catalog.root(), &mut candidates);
+    let matches = match request.kind {
+        CatalogDocumentLinkKind::File => normalize_catalog_link_target(&request.path)
+            .map(|path| {
+                candidates
+                    .iter()
+                    .filter(|c| c.path == path)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
+        CatalogDocumentLinkKind::Note => {
+            let notes = candidates
+                .iter()
+                .filter(|c| super::notes::is_markdown_note(c.node))
+                .collect::<Vec<_>>();
+            resolve_note_target(&notes, &parent_path(&source_path), request.path.trim())
+        }
+    };
+    let result = match matches.as_slice() {
+        [] => CatalogDocumentLinkResponse::Missing,
+        [candidate] => CatalogDocumentLinkResponse::Found {
+            item: item_from_candidate(candidate),
+        },
+        _ => CatalogDocumentLinkResponse::Ambiguous,
+    };
+    RpcResponse::success(result)
+}
+
+fn note_path_variants(path: &str) -> Vec<String> {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".md")
+        || lower.ends_with(".markdown")
+        || path
+            .rsplit('/')
+            .next()
+            .is_some_and(|name| name.contains('.'))
+    {
+        vec![path.into()]
+    } else {
+        vec![format!("{path}.md"), format!("{path}.markdown")]
+    }
+}
+
+fn resolve_note_target<'a, 'b>(
+    notes: &[&'a FileLinkCandidate<'b>],
+    parent: &str,
+    target: &str,
+) -> Vec<&'a FileLinkCandidate<'b>> {
+    if target.is_empty() {
+        return vec![];
+    }
+    let path_matches = |path: &str| {
+        let variants = note_path_variants(path)
+            .iter()
+            .filter_map(|p| normalize_catalog_link_target(p))
+            .map(|p| p.to_lowercase())
+            .collect::<Vec<_>>();
+        notes
+            .iter()
+            .copied()
+            .filter(|note| variants.contains(&note.path.to_lowercase()))
+            .collect::<Vec<_>>()
+    };
+    if target.starts_with('/') {
+        return path_matches(target);
+    }
+    let mut segments: Vec<&str> = parent.split('/').filter(|s| !s.is_empty()).collect();
+    for segment in target.split('/').filter(|s| !s.is_empty()) {
+        match segment {
+            "." => {}
+            ".." => {
+                segments.pop();
+            }
+            name => segments.push(name),
+        }
+    }
+    let relative = path_matches(&format!("/{}", segments.join("/")));
+    if !relative.is_empty() {
+        return relative;
+    }
+    if target.contains('/') {
+        let suffixes = note_path_variants(target)
+            .iter()
+            .map(|p| format!("/{}", p.to_lowercase()))
+            .collect::<Vec<_>>();
+        let matches = notes
+            .iter()
+            .copied()
+            .filter(|note| {
+                suffixes
+                    .iter()
+                    .any(|suffix| note.path.to_lowercase().ends_with(suffix))
+            })
+            .collect::<Vec<_>>();
+        if !matches.is_empty() {
+            return matches;
+        }
+    }
+    let stem = |name: &str| {
+        let lower = name.to_lowercase();
+        lower
+            .strip_suffix(".markdown")
+            .or_else(|| lower.strip_suffix(".md"))
+            .unwrap_or(&lower)
+            .to_owned()
+    };
+    let base = stem(target.rsplit('/').next().unwrap_or(target));
+    notes
+        .iter()
+        .copied()
+        .filter(|note| stem(&note.node.name) == base)
+        .collect()
+}

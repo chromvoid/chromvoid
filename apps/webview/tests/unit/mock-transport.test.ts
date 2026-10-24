@@ -412,6 +412,81 @@ describe('MockTransport', () => {
       ])
     })
 
+    it('prepares attachment folders and fresh escaped Markdown image links like Core', async () => {
+      const request = {
+        folder_path: ' /Заметки//Фото 100% (дом)/ ',
+        file_name: 'Поездка [1]_!.png',
+        mime_type: 'image/png',
+      }
+      const first = (await t.sendCatalog('catalog:attachment:prepare', request)) as any
+      expect(first.ok).toBe(true)
+      expect(first.result.parent_path).toBe('/Заметки/Фото 100% (дом)')
+      expect(first.result.name).toMatch(/^Поездка--1-_-[\w-]{22}\.png$/u)
+      expect(first.result.path).toBe(`${first.result.parent_path}/${first.result.name}`)
+      expect(first.result.mime_type).toBe('image/png')
+      const target = /^!\[Поездка--1-\\_\]\(<([^>]+)>\)$/u.exec(first.result.markdown)?.[1] ?? ''
+      expect(target).toMatch(/^[\w%/.~-]+$/u)
+      expect(decodeURIComponent(target)).toBe(first.result.path)
+
+      // Preparation creates the folder chain only; the create-only upload writes the file.
+      const folder = (await t.sendCatalog('catalog:list', {path: first.result.parent_path})) as any
+      expect(folder.ok).toBe(true)
+      expect(folder.result.items).toEqual([])
+
+      const second = (await t.sendCatalog('catalog:attachment:prepare', request)) as any
+      expect(second.ok).toBe(true)
+      expect(second.result.name).not.toBe(first.result.name)
+    })
+
+    it('rejects invalid attachment destinations and non-images without catalog changes', async () => {
+      for (const folder_path of [
+        '/',
+        'relative',
+        '/created/../bad',
+        '/created/./bad',
+        '/created/\\bad',
+        '/created/\nbad',
+        '/.passmanager/images',
+        '/.wallet/images',
+      ]) {
+        const result = (await t.sendCatalog('catalog:attachment:prepare', {
+          folder_path,
+          file_name: 'a.png',
+          mime_type: 'image/png',
+        })) as any
+        expect(result.ok, folder_path).toBe(false)
+      }
+      const nonImage = (await t.sendCatalog('catalog:attachment:prepare', {
+        folder_path: '/created',
+        file_name: 'a.txt',
+        mime_type: 'text/plain',
+      })) as any
+      expect(nonImage.ok).toBe(false)
+
+      const root = (await t.sendCatalog('catalog:list', {path: '/'})) as any
+      expect(root.result.items).toEqual([])
+    })
+
+    it('keeps a file on the attachment folder path and names extensionless images from MIME', async () => {
+      await t.uploadFile({parentPath: '/', name: 'existing'}, new File(['ab'], 'existing', {type: 'image/png'}))
+      const conflict = (await t.sendCatalog('catalog:attachment:prepare', {
+        folder_path: '/existing/child',
+        file_name: 'a.png',
+        mime_type: 'image/png',
+      })) as any
+      expect(conflict.ok).toBe(false)
+      const root = (await t.sendCatalog('catalog:list', {path: '/'})) as any
+      expect(root.result.items).toEqual([expect.objectContaining({name: 'existing', isFile: true, size: 2})])
+
+      const image = (await t.sendCatalog('catalog:attachment:prepare', {
+        folder_path: '/attachments',
+        file_name: 'clipboard',
+        mime_type: 'image/png',
+      })) as any
+      expect(image.ok).toBe(true)
+      expect(image.result.name).toMatch(/^clipboard-[\w-]{22}\.png$/u)
+    })
+
     it('unsupported command returns error', async () => {
       const res = (await t.sendCatalog('catalog:nonexistent', {})) as any
       expect(res.ok).toBe(false)

@@ -164,7 +164,7 @@ export class DashboardHeader extends ReatomLitElement {
     const hasEndSlot = hasNamedSlotContent(this, 'end')
 
     return html`
-      <desktop-shell-toolbar ?two-row=${this.twoRow}>
+      <desktop-shell-toolbar data-testid="desktop-toolbar" ?two-row=${this.twoRow}>
         <div slot="leading" class="slot-forwarder" data-slot-forwarder ?hidden=${!hasLeadingSlot}>
           <slot name="leading" @slotchange=${this.handleSlotChange}></slot>
         </div>

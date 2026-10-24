@@ -938,7 +938,7 @@ async fn run_host_rpc_loop_inner(
                     .check(frame.message_id)
                     .map_err(|e| RemoteIoFailure::protocol_error(format!("anti_replay: {e}")))?;
 
-                let req: RpcRequest = serde_json::from_slice(&frame.payload)
+                let mut req: RpcRequest = serde_json::from_slice(&frame.payload)
                     .map_err(|e| RemoteIoFailure::protocol_error(format!("request parse: {e}")))?;
 
                 if req.command == MOBILE_USB_SESSION_DISCONNECT {
@@ -1322,8 +1322,9 @@ async fn run_host_rpc_loop_inner(
                             }
                         };
                         HostIncomingUploadMode::Chunked {
-                            stream_size: upload_metadata.size,
+                            end_offset: upload_metadata.end_offset,
                             offset: upload_metadata.offset,
+                            last_response: None,
                         }
                     };
                     anti_replay.set_active_stream(frame.message_id);
@@ -1400,11 +1401,21 @@ async fn run_host_rpc_loop_inner(
                     continue;
                 }
 
-                let generic_req = req.clone();
+                let mut generic_req = req.clone();
+                let is_credential_import = req.command.starts_with("passmanager:import:");
+                if is_credential_import {
+                    chromvoid_core::rpc::helpers::clear_rpc_strings(&mut req.data);
+                }
                 let resp = run_host_adapter_task(
                     &mut adapter,
                     "mobile acceptor host rpc",
-                    move |adapter| adapter.handle(&generic_req),
+                    move |adapter| {
+                        let response = adapter.handle(&generic_req);
+                        if is_credential_import {
+                            chromvoid_core::rpc::helpers::clear_rpc_strings(&mut generic_req.data);
+                        }
+                        response
+                    },
                 )
                 .await
                 .map_err(RemoteIoFailure::data_plane_error)?;

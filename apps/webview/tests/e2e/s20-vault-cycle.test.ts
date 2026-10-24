@@ -9,7 +9,7 @@ declare global {
 test('S20: app renders file-manager → lock → unlock cycle', async () => {
   const page = globalThis.__E2E_PAGE__!
   await page.goto('http://localhost:4400/index.html')
-  await page.waitForSelector('chromvoid-app')
+  await page.getByTestId('app-root').waitFor()
 
   await waitForAuthenticated(page)
 
@@ -17,5 +17,5 @@ test('S20: app renders file-manager → lock → unlock cycle', async () => {
   expect(await page.$('chromvoid-file-manager')).toBeTruthy()
 
   // Files surface does not render the global shell status bar.
-  expect(await page.$('status-bar')).toBeNull()
+  expect(await page.$('[data-testid="shell-status"]')).toBeNull()
 })

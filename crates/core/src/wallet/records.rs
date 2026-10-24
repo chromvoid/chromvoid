@@ -2,12 +2,14 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use zeroize::Zeroizing;
 
 use crate::rpc::types::{
     WalletBalance, WalletFeeTier, WalletNetwork, WalletPreview, WalletTransactionOutput,
 };
 
 use super::constants::{default_mnemonic_standard, default_wallet_mode};
+use super::root::{TonSigningState, WalletRoot};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WalletIndexV1 {
@@ -30,6 +32,11 @@ pub struct WalletMetaV1 {
     /// `None` identifies HD wallets written before recovery discovery became explicit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bitcoin_discovery_pending: Option<bool>,
+    /// Account-based networks (Ethereum, Solana) of a restored phrase whose used derived
+    /// accounts have not been discovered yet; cleared network by network by the first
+    /// `wallet:balance:get { discover_addresses: true }`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub account_discovery_pending: Vec<WalletNetwork>,
     pub secret_ref: String,
     pub created_at: u64,
     pub updated_at: u64,
@@ -43,6 +50,10 @@ impl WalletMetaV1 {
                 .iter()
                 .any(|network| network.as_str() == "bitcoin")
             && self.bitcoin_discovery_pending.unwrap_or(true)
+    }
+
+    pub fn needs_account_discovery(&self, network: &WalletNetwork) -> bool {
+        self.kind == "hd" && self.account_discovery_pending.contains(network)
     }
 }
 
@@ -87,31 +98,25 @@ pub enum HdRootRecoveryMaterialV2 {
     TonNative {
         mnemonic_words: Vec<String>,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HdRootMaterial {
-    pub mnemonic_standard: String,
-    pub mnemonic_entropy: String,
-    pub wordlist: String,
-    pub mnemonic_words: Option<Vec<String>>,
-    pub bip39_passphrase: Option<String>,
+    /// TEP-0003 Rotation mnemonic: 12 words before the first rotation, 24 after it.
+    /// `pending_signing_words` is a rotation that was broadcast but not yet observed on-chain;
+    /// it is kept next to the current phrase so a late-landing rotation cannot lock the account.
+    Rotation {
+        mnemonic_words: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pending_signing_words: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pending_signing_valid_until: Option<u32>,
+        /// Multichain rotation wallets derive non-TON networks from the anchor half plus this
+        /// passphrase, so the bare 12 words (e.g. imported into Telegram) never reach them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bip39_passphrase: Option<String>,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SecretPayloadV1 {
-    /// Legacy v1 shape. Read-only compatibility; new writes use `HdRootV2`.
-    HdRoot {
-        #[serde(default = "default_mnemonic_standard")]
-        mnemonic_standard: String,
-        mnemonic_entropy: String,
-        wordlist: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        mnemonic_words: Option<Vec<String>>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        bip39_passphrase: Option<String>,
-    },
     HdRootV2 {
         wordlist: String,
         recovery: HdRootRecoveryMaterialV2,
@@ -148,6 +153,13 @@ impl SecretPayloadV1 {
             HdRootRecoveryMaterialV2::TonNative {
                 mnemonic_words: mnemonic_words.unwrap_or_default(),
             }
+        } else if mnemonic_standard == "rotation" {
+            HdRootRecoveryMaterialV2::Rotation {
+                mnemonic_words: mnemonic_words.unwrap_or_default(),
+                pending_signing_words: None,
+                pending_signing_valid_until: None,
+                bip39_passphrase,
+            }
         } else {
             HdRootRecoveryMaterialV2::Bip39 {
                 mnemonic_entropy,
@@ -157,68 +169,75 @@ impl SecretPayloadV1 {
         Self::HdRootV2 { wordlist, recovery }
     }
 
-    pub fn hd_root_material(&self) -> Option<HdRootMaterial> {
+    pub fn wallet_root(&self) -> Option<(WalletRoot, Option<TonSigningState>)> {
         match self {
-            Self::HdRoot {
-                mnemonic_standard,
-                mnemonic_entropy,
-                wordlist,
-                mnemonic_words,
-                bip39_passphrase,
-            } => Some(HdRootMaterial {
-                mnemonic_standard: mnemonic_standard.clone(),
-                mnemonic_entropy: mnemonic_entropy.clone(),
-                wordlist: wordlist.clone(),
-                mnemonic_words: mnemonic_words.clone(),
-                bip39_passphrase: bip39_passphrase.clone(),
-            }),
-            Self::HdRootV2 { wordlist, recovery } => match recovery {
+            Self::HdRootV2 { recovery, .. } => match recovery {
                 HdRootRecoveryMaterialV2::Bip39 {
                     mnemonic_entropy,
                     bip39_passphrase,
-                } => Some(HdRootMaterial {
-                    mnemonic_standard: "bip39".to_string(),
-                    mnemonic_entropy: mnemonic_entropy.clone(),
-                    wordlist: wordlist.clone(),
-                    mnemonic_words: None,
-                    bip39_passphrase: bip39_passphrase.clone(),
-                }),
-                HdRootRecoveryMaterialV2::TonNative { mnemonic_words } => Some(HdRootMaterial {
-                    mnemonic_standard: "ton_native".to_string(),
-                    mnemonic_entropy: String::new(),
-                    wordlist: wordlist.clone(),
-                    mnemonic_words: Some(mnemonic_words.clone()),
-                    bip39_passphrase: None,
-                }),
+                } => Some((
+                    WalletRoot::Bip39 {
+                        entropy: Zeroizing::new(mnemonic_entropy.clone()),
+                        passphrase: bip39_passphrase.clone().map(Zeroizing::new),
+                    },
+                    None,
+                )),
+                HdRootRecoveryMaterialV2::TonNative { mnemonic_words } => Some((
+                    WalletRoot::TonNative {
+                        words: Zeroizing::new(mnemonic_words.clone()),
+                    },
+                    None,
+                )),
+                HdRootRecoveryMaterialV2::Rotation {
+                    mnemonic_words,
+                    pending_signing_words,
+                    pending_signing_valid_until,
+                    bip39_passphrase,
+                } => {
+                    let normalized = Zeroizing::new(
+                        super::rotation_mnemonic::normalize_rotation_words(mnemonic_words),
+                    );
+                    let signing_words = super::rotation_mnemonic::rotation_halves(&normalized)
+                        .ok()
+                        .and_then(|(anchor, signing)| {
+                            (anchor != signing).then(|| Zeroizing::new(signing.to_vec()))
+                        });
+                    Some((
+                        WalletRoot::Bip39 {
+                            entropy: Zeroizing::new(rotation_anchor_entropy_hex(mnemonic_words)),
+                            passphrase: bip39_passphrase.clone().map(Zeroizing::new),
+                        },
+                        Some(TonSigningState {
+                            signing_words,
+                            pending_words: pending_signing_words.clone().map(Zeroizing::new),
+                            pending_valid_until: *pending_signing_valid_until,
+                        }),
+                    ))
+                }
             },
             _ => None,
         }
     }
 }
 
+/// Hex entropy of the anchor half (words 1–12) of a rotation phrase; empty when invalid.
+pub fn rotation_anchor_entropy_hex(words: &[String]) -> String {
+    use bip39::{Language, Mnemonic};
+
+    let words = Zeroizing::new(super::rotation_mnemonic::normalize_rotation_words(words));
+    let Ok((anchor, _)) = super::rotation_mnemonic::rotation_halves(&words) else {
+        return String::new();
+    };
+    let phrase = zeroize::Zeroizing::new(anchor.join(" "));
+    match Mnemonic::parse_in_normalized(Language::English, phrase.as_str()) {
+        Ok(mnemonic) => super::ids::hex_string(&mnemonic.to_entropy()),
+        Err(_) => String::new(),
+    }
+}
+
 impl fmt::Debug for SecretPayloadV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::HdRoot {
-                mnemonic_standard,
-                wordlist,
-                mnemonic_words,
-                bip39_passphrase,
-                ..
-            } => formatter
-                .debug_struct("HdRoot")
-                .field("mnemonic_standard", mnemonic_standard)
-                .field("mnemonic_entropy", &"[redacted]")
-                .field("wordlist", wordlist)
-                .field(
-                    "mnemonic_words",
-                    &mnemonic_words.as_ref().map(|_| "[redacted]"),
-                )
-                .field(
-                    "bip39_passphrase",
-                    &bip39_passphrase.as_ref().map(|_| "[redacted]"),
-                )
-                .finish(),
             Self::HdRootV2 { wordlist, recovery } => formatter
                 .debug_struct("HdRootV2")
                 .field("wordlist", wordlist)
@@ -227,6 +246,7 @@ impl fmt::Debug for SecretPayloadV1 {
                     &match recovery {
                         HdRootRecoveryMaterialV2::Bip39 { .. } => "bip39",
                         HdRootRecoveryMaterialV2::TonNative { .. } => "ton_native",
+                        HdRootRecoveryMaterialV2::Rotation { .. } => "rotation",
                     },
                 )
                 .field("recovery", &"[redacted]")

@@ -16,7 +16,7 @@ use super::constants::{
     TON_NATIVE_DERIVATION_PROFILE, TON_NETWORK, TON_PREPARED_PAYLOAD_KIND, TON_WALLET_CONTRACT,
     TON_WORKCHAIN,
 };
-use super::keys::{ton_native_v5r1_account_identity, ton_wallet_from_secret};
+use super::keys::{key_material_from_secret, ton_native_account_identity};
 use super::payload::TonPreparedPayloadV1;
 use super::profile::TonChainProfile;
 use super::provider::{
@@ -46,14 +46,14 @@ fn fixture_account() -> WalletAccountMeta {
         account_index: Some(0),
         workchain: Some(TON_WORKCHAIN),
         label: None,
-        address: Some("EQD6rMo2YIjyDBW_UtCAjEatawH5dtht8B6QfUSOBYzt1_Yt".to_string()),
+        address: Some("EQBNuHItbPc3iODpRisWfpI1eumtpoNa6XTwr1aHJiKzn22U".to_string()),
         raw_account: Some(
-            "0:faacca366088f20c15bf52d0808c46ad6b01f976d86df01e907d448e058cedd7".to_string(),
+            "0:4db8722d6cf73788e0e9462b167e92357ae9ada6835ae974f0af56872622b39f".to_string(),
         ),
         public_key: Some(
             "0cce79e60d25fde965e249096617e3ef212541ddeb5b3336cc3853e4499da196".to_string(),
         ),
-        derivation_path: Some("ton_native_v5r1_account/0".to_string()),
+        derivation_path: Some("ton_native_wallet_tg_account/0".to_string()),
         current_receive_address: None,
         current_receive_derivation_path: None,
         next_receive_index: None,
@@ -66,11 +66,12 @@ fn fixture_account() -> WalletAccountMeta {
 #[test]
 fn ton_native_identity_matches_reference_fixture() {
     let (address, raw_account, public_key) =
-        ton_native_v5r1_account_identity(&fixture_words()).expect("fixture identity");
-    assert!(!address.is_empty());
+        ton_native_account_identity(&fixture_words()).expect("fixture identity");
+    // Cross-checked against @ton/core `contractAddress(0, {code: trampoline, data})`.
+    assert_eq!(address, "EQBNuHItbPc3iODpRisWfpI1eumtpoNa6XTwr1aHJiKzn22U");
     assert_eq!(
         raw_account,
-        "0:faacca366088f20c15bf52d0808c46ad6b01f976d86df01e907d448e058cedd7"
+        "0:4db8722d6cf73788e0e9462b167e92357ae9ada6835ae974f0af56872622b39f"
     );
     assert_eq!(
         public_key,
@@ -80,16 +81,15 @@ fn ton_native_identity_matches_reference_fixture() {
 
 #[test]
 fn ton_native_secret_without_words_fails_closed() {
-    let secret = SecretPayloadV1::HdRoot {
-        mnemonic_standard: TON_NATIVE_MNEMONIC_STANDARD.to_string(),
-        mnemonic_entropy: "00000000000000000000000000000000".to_string(),
-        wordlist: BIP39_ENGLISH_WORDLIST.to_string(),
-        mnemonic_words: None,
-        bip39_passphrase: None,
-    };
-    let error = ton_wallet_from_secret(&fixture_account(), &secret).expect_err("fail closed");
+    let secret = SecretPayloadV1::hd_root_v2(
+        TON_NATIVE_MNEMONIC_STANDARD,
+        String::new(),
+        BIP39_ENGLISH_WORDLIST.to_string(),
+        Some(Vec::new()),
+        None,
+    );
+    let error = key_material_from_secret(&fixture_account(), &secret).expect_err("fail closed");
     assert_eq!(error.code, WalletChainErrorCode::InvalidInput);
-    assert!(error.message.contains("requires repair"));
 }
 
 #[derive(Debug)]
@@ -149,6 +149,7 @@ fn refresh_keeps_expired_ton_transaction_non_terminal_with_one_source() {
         .refresh(WalletRefreshInput {
             account: fixture_account(),
             transaction,
+            submit_metadata: None,
             now: valid_until_seconds_now() as u64 * 1000,
         })
         .expect("refresh");
@@ -200,13 +201,13 @@ fn sign_prepared_rejects_expired_valid_until_before_snapshot_or_secret_use() {
             preparation_id: "prep".to_string(),
             canonical_payload: Zeroizing::new(serde_json::to_string(&prepared).expect("json")),
             provider_snapshot: None,
-            signing_secret: SecretPayloadV1::HdRoot {
-                mnemonic_standard: TON_NATIVE_MNEMONIC_STANDARD.to_string(),
-                mnemonic_entropy: "00".to_string(),
-                mnemonic_words: None,
-                wordlist: BIP39_ENGLISH_WORDLIST.to_string(),
-                bip39_passphrase: None,
-            },
+            signing_secret: SecretPayloadV1::hd_root_v2(
+                TON_NATIVE_MNEMONIC_STANDARD,
+                String::new(),
+                BIP39_ENGLISH_WORDLIST.to_string(),
+                Some(Vec::new()),
+                None,
+            ),
         })
         .expect_err("expired");
 

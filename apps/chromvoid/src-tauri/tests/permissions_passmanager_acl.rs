@@ -174,22 +174,6 @@ fn credential_provider_commands_are_manifested_and_allowed_for_desktop_and_mobil
             );
         }
     }
-
-    let desktop = set_block("desktop");
-    let mobile = set_block("mobile");
-    for legacy_permission in [
-        "allow-android-passkeys-list",
-        "allow-android-passkey-delete",
-    ] {
-        assert!(
-            !desktop.contains(legacy_permission),
-            "desktop must use the generic Credential Provider permission instead of {legacy_permission}"
-        );
-        assert!(
-            mobile.contains(legacy_permission),
-            "mobile must retain {legacy_permission} for Android compatibility"
-        );
-    }
 }
 
 #[test]
@@ -235,23 +219,22 @@ fn catalog_range_download_command_is_manifested_and_allowed() {
 }
 
 #[test]
-fn android_audio_warmup_command_is_manifested_and_allowed() {
+fn the_removed_android_client_leaves_no_commands_or_permissions() {
+    // ADR-040 D-02: the Tauri Android client is gone; Android-air is native.
     assert!(
-        BUILD_RS.contains("\"android_audio_warmup\""),
-        "build.rs command manifest must include android_audio_warmup"
+        !BUILD_RS.contains("\"android_"),
+        "build.rs command manifest must not list android_* commands"
     );
-
-    for identifier in ["desktop", "mobile"] {
-        let permissions = set_block(identifier);
-        assert!(
-            !permissions.is_empty(),
-            "{identifier} permission set not found in permissions/app.toml"
-        );
-        assert!(
-            permissions.contains("allow-android-audio-warmup"),
-            "{identifier} set must include allow-android-audio-warmup"
-        );
-    }
+    assert!(
+        !LIB_RS
+            .lines()
+            .any(|line| line.trim_start().starts_with("android_")),
+        "lib.rs must not register android_* commands"
+    );
+    assert!(
+        !APP_PERMISSIONS.contains("allow-android-"),
+        "permissions/app.toml must not grant android_* commands"
+    );
 }
 
 #[test]
@@ -313,23 +296,26 @@ fn desktop_permission_set_allows_mobile_usb_commands() {
 }
 
 #[test]
-fn mobile_permission_set_allows_license_activation_commands() {
-    let mobile = set_block("mobile");
-    assert!(
-        !mobile.is_empty(),
-        "mobile permission set not found in permissions/app.toml"
-    );
-
-    for permission in [
-        "allow-license-activation-code-activate",
-        "allow-license-account-cabinet-handoff",
-        "allow-license-status",
-        "allow-license-seat-status",
-        "allow-license-current-seat-deactivate",
-    ] {
+fn desktop_and_mobile_permission_sets_allow_module_access_commands() {
+    for set_name in ["desktop", "mobile"] {
+        let set = set_block(set_name);
         assert!(
-            mobile.contains(permission),
-            "mobile set must include {permission}"
+            !set.is_empty(),
+            "{set_name} permission set not found in permissions/app.toml"
+        );
+        for permission in [
+            "allow-module-access-snapshot",
+            "allow-module-access-resolve",
+        ] {
+            assert!(
+                set.contains(permission),
+                "{set_name} set must include {permission}"
+            );
+        }
+        // ADR-041: no paid entitlement, so no licence command is exposed.
+        assert!(
+            !set.contains("allow-license-"),
+            "{set_name} set must not expose licence commands"
         );
     }
 }

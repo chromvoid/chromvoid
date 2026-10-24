@@ -13,7 +13,7 @@ import {PMEntryListItem} from '../../src/features/passmanager/components/card/en
 import {PMGroupBase} from '../../src/features/passmanager/components/group/group/group-base'
 import {PMGroup} from '../../src/features/passmanager/components/group/group/group'
 import {PMGroupModel} from '../../src/features/passmanager/components/group/group/group.model'
-import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls.model'
 import {pmActiveRowModel} from '../../src/features/passmanager/models/pm-active-row.model'
 import {pmEntryMoveModel} from '../../src/features/passmanager/models/pm-entry-move-model'
 import {setPassmanagerRoot} from '../../src/features/passmanager/models/pm-root.adapter'

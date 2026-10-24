@@ -10,6 +10,7 @@ use ts_rs::TS;
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 #[repr(u8)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema_repr))]
 pub enum NodeType {
     /// Directory/folder
     Dir = 0,

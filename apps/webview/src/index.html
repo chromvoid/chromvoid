@@ -16,12 +16,13 @@
   <meta name="description" content="Most private file storage">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'self'; object-src 'none'; form-action 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: asset: chromvoid-preview: http://asset.localhost; media-src 'self' blob: asset: chromvoid-preview: chromvoid-media: http://asset.localhost http://127.0.0.1:*; font-src 'self' data:; connect-src 'self' data: ipc: http://ipc.localhost http://chromvoid.local http://127.0.0.1:* ws://localhost:4400 ws://127.0.0.1:4400; worker-src 'self' blob:;">
   <script src="./assets/bootstrap/document-locale.js"></script>
+  <script src="./assets/bootstrap/document-theme.js"></script>
   <style>
     html[loading],
     html[loading] body {
       min-height: 100%;
       margin: 0;
-      background: var(--splash-screen-background, black);
+      background: var(--cv-color-bg);
     }
 
     html[loading] body {
@@ -37,19 +38,8 @@
 </head>
 
 <body>
-  <div id="loading-native" class="loading-screen" aria-hidden="true">
-    <div class="splash-logo" data-splash-logo-stage>
-      <img
-        class="splash-logo__image"
-        data-splash-logo-image
-        src="./assets/chromvoid-icon.svg"
-        alt=""
-        decoding="sync"
-        fetchpriority="high"
-      />
-    </div>
-  </div>
-  <chromvoid-app></chromvoid-app>
+  <div id="loading-native" class="loading-screen" aria-hidden="true"></div>
+  <chromvoid-app data-testid="app-root"></chromvoid-app>
 </body>
 
 </html>

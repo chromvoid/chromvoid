@@ -7,21 +7,23 @@ fn normalize_external_url(value: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub(crate) fn open_url_external(url: String) -> Result<(), String> {
+pub(crate) fn open_url_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
     let url = normalize_external_url(&url)?;
-    #[cfg(target_os = "android")]
-    {
-        return crate::mobile::open_url_with_system(&url);
-    }
 
     #[cfg(desktop)]
     {
+        let _ = app;
         return crate::helpers::open_url_with_system(&url);
     }
 
-    #[cfg(not(any(target_os = "android", desktop)))]
+    #[cfg(target_os = "ios")]
     {
-        let _ = url;
+        return crate::mobile::ios::external_url::open(&app, url);
+    }
+
+    #[cfg(not(any(desktop, target_os = "ios")))]
+    {
+        let _ = (app, url);
         Err("Opening URLs externally is not supported on this platform".to_string())
     }
 }

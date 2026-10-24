@@ -3,7 +3,7 @@ import {MOBILE_KEYBOARD_SCROLL_ATTR, MOBILE_KEYBOARD_SCROLL_OFF_VALUE} from './c
 import {getDeepActiveElement, isMobileKeyboardScrollTarget} from './text-field-targets'
 
 /**
- * Keyboard keeper: prevents the Android IME hide/show flash when focus moves
+ * Keyboard keeper: prevents the software keyboard's hide/show flash when focus moves
  * from one editor to another through a render cycle (the old editor unmounts,
  * the new one is focused only after render — leaving a frame with no focused
  * editable, which makes the IME collapse and re-open).

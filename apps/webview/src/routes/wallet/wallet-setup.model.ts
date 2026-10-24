@@ -6,7 +6,7 @@ import {normalizeMnemonicText} from './wallet-format'
 type WalletStatus = RpcCmdResult<'wallet:status'>
 type WalletSetupNetworkStatus = WalletStatus['networks'][number] & {network: WalletImportNetwork}
 
-export type WalletRecoveryProfile = 'multichain' | 'ton_only'
+export type WalletRecoveryProfile = 'multichain' | 'telegram_multichain' | 'ton_only' | 'ton_legacy'
 export type WalletWordCount = 12 | 24
 export type WalletImportNetwork = 'bitcoin' | 'ethereum' | 'solana' | 'ton'
 export type WalletEncoding = 'base58_keypair' | 'base64' | 'hex' | 'wif'
@@ -18,7 +18,14 @@ export const MULTICHAIN_WALLET_MODE = 'multichain'
 
 const TON_NETWORK = 'ton'
 const TON_NATIVE_MNEMONIC_STANDARD = 'ton_native'
+const ROTATION_MNEMONIC_STANDARD = 'rotation'
 const BIP39_MNEMONIC_STANDARD = 'bip39'
+const TON_LEGACY_PROFILE = 'ton_legacy'
+const TELEGRAM_MULTICHAIN_PROFILE = 'telegram_multichain'
+
+export function isTonOnlyProfile(profile: WalletRecoveryProfile): boolean {
+  return profile === TON_ONLY_WALLET_MODE || profile === TON_LEGACY_PROFILE
+}
 const MULTICHAIN_NETWORKS = new Set<WalletImportNetwork>(['bitcoin', 'ethereum', 'solana', 'ton'])
 const MULTICHAIN_NETWORK_ORDER: WalletImportNetwork[] = ['bitcoin', 'ethereum', 'solana', 'ton']
 const IMPORT_PROFILES: Record<
@@ -81,16 +88,28 @@ export class WalletSetupModel {
   }, 'wallet.multichainNetworkStatuses')
 
   readonly restoreNetworks = computed(() => {
-    if (this.restoreProfile() === TON_ONLY_WALLET_MODE) {
+    if (isTonOnlyProfile(this.restoreProfile())) {
       return this.availableMultichainNetworks().includes(TON_NETWORK) ? [TON_NETWORK] : []
     }
     return this.availableMultichainNetworks()
   }, 'wallet.restoreNetworks')
 
-  readonly restoreMnemonicStandard = computed(
-    () =>
-      this.restoreProfile() === TON_ONLY_WALLET_MODE ? TON_NATIVE_MNEMONIC_STANDARD : BIP39_MNEMONIC_STANDARD,
-    'wallet.restoreMnemonicStandard',
+  readonly restoreMnemonicStandard = computed(() => {
+    switch (this.restoreProfile()) {
+      case TON_ONLY_WALLET_MODE:
+      case TELEGRAM_MULTICHAIN_PROFILE:
+        return ROTATION_MNEMONIC_STANDARD
+      case TON_LEGACY_PROFILE:
+        return TON_NATIVE_MNEMONIC_STANDARD
+      default:
+        return BIP39_MNEMONIC_STANDARD
+    }
+  }, 'wallet.restoreMnemonicStandard')
+
+  /** Core `wallet_mode`: both TON profiles are `ton_only`, they differ only in mnemonic standard. */
+  readonly restoreWalletMode = computed(
+    () => (isTonOnlyProfile(this.restoreProfile()) ? TON_ONLY_WALLET_MODE : MULTICHAIN_WALLET_MODE),
+    'wallet.restoreWalletMode',
   )
 
   readonly canGenerateMnemonic = computed(
@@ -98,20 +117,26 @@ export class WalletSetupModel {
     'wallet.canGenerateMnemonic',
   )
 
+  /**
+   * Creation never shows the phrase: the draft is generated on the way when missing. The words
+   * stay exportable for other wallet apps from Recovery.
+   */
   readonly canCreateGeneratedWallet = computed(
-    () =>
-      this.canGenerateMnemonic() &&
-      this.generatedMnemonic().length > 0 &&
-      Boolean(this.generatedMnemonicDraftId()) &&
-      this.createConfirmed(),
+    () => this.canGenerateMnemonic() && this.passphraseOk(),
     'wallet.canCreateGeneratedWallet',
+  )
+
+  /** An enabled but empty passphrase is a mistake the user must notice, not a silent default. */
+  readonly passphraseOk = computed(
+    () => !this.useBip39Passphrase() || this.bip39Passphrase().trim().length > 0,
+    'wallet.passphraseOk',
   )
 
   readonly canRestoreHdWallet = computed(() => {
     const wordCount = normalizeMnemonicText(this.restoreMnemonicText()).length
     const validWordCount =
-      this.restoreProfile() === TON_ONLY_WALLET_MODE ? wordCount === 24 : wordCount === 12 || wordCount === 24
-    return !this.hdWalletLoading() && this.restoreNetworks().length > 0 && validWordCount
+      this.restoreProfile() === TON_LEGACY_PROFILE ? wordCount === 24 : wordCount === 12 || wordCount === 24
+    return !this.hdWalletLoading() && this.restoreNetworks().length > 0 && validWordCount && this.passphraseOk()
   }, 'wallet.canRestoreHdWallet')
 
   readonly importEncodings = computed(
@@ -152,7 +177,7 @@ export class WalletSetupModel {
   setRestoreProfile(profile: WalletRecoveryProfile): void {
     if (this.restoreProfile() === profile) return
     this.restoreProfile.set(profile)
-    if (profile === TON_ONLY_WALLET_MODE) {
+    if (isTonOnlyProfile(profile)) {
       this.setUseBip39Passphrase(false)
       if (this.restoreLabel() === DEFAULT_HD_LABEL) this.restoreLabel.set(DEFAULT_TON_ONLY_LABEL)
       return

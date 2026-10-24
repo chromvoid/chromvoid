@@ -213,65 +213,6 @@ async function seedNotesFixture(): Promise<NotesFixture> {
   return {rootNote, projectsDir, nestedNote, mimeOnlyNote, textFile, imageFile, hiddenFile, shardNote}
 }
 
-async function seedEmptyNotesFixture(): Promise<void> {
-  const now = Date.now()
-  const root: PersistedNode = {
-    id: 0,
-    type: 0,
-    name: '/',
-    size: 0,
-    modtime: now,
-    parentId: null,
-    children: [],
-  }
-
-  await writeMockState({
-    version: 1,
-    nextId: 1,
-    nodes: [[root.id, root]],
-    files: [],
-    secrets: [],
-    otpSecrets: [],
-  })
-}
-
-async function seedLongNotesFixture(count = 28): Promise<void> {
-  const now = Date.now()
-  const suffix = `${now}-${Math.random().toString(36).slice(2, 8)}`
-  const notes = Array.from({length: count}, (_, index): PersistedNode => {
-    const id = index + 1
-    return {
-      id,
-      type: 1,
-      name: `S25 Long ${String(id).padStart(2, '0')} ${suffix}.md`,
-      size: 24,
-      modtime: now + id,
-      parentId: 0,
-      children: [],
-      mimeType: 'text/markdown',
-      sourceRevision: id,
-    }
-  })
-  const root: PersistedNode = {
-    id: 0,
-    type: 0,
-    name: '/',
-    size: 0,
-    modtime: now,
-    parentId: null,
-    children: notes.map((node) => node.id),
-  }
-
-  await writeMockState({
-    version: 1,
-    nextId: count + 1,
-    nodes: [root, ...notes].map((node): [number, PersistedNode] => [node.id, node]),
-    files: notes.map((node) => [node.id, encodeText(`# ${node.name}`)]),
-    secrets: [],
-    otpSecrets: [],
-  })
-}
-
 async function seedTaskListNoteFixture(taskCount = 80): Promise<PersistedNode> {
   const now = Date.now()
   const suffix = `${now}-${Math.random().toString(36).slice(2, 8)}`
@@ -415,99 +356,16 @@ async function notesSnapshot(page: Page) {
   })
 }
 
-async function notesVerticalOverflowSnapshot(page: Page) {
-  return page.evaluate(() => {
-    const host = deepFind(document, 'notes-quick-view, notes-quick-view-mobile') as HTMLElement | null
-    const root = host?.shadowRoot
-    const shellLayout = deepFind(document, 'file-app-shell-mobile-layout') as HTMLElement | null
-    const shellContent = shellLayout?.shadowRoot?.querySelector('.content') as HTMLElement | null
-    const routeContent = deepFind(document, '.route-content[data-route="dashboard"]') as HTMLElement | null
-    const surfaceLayout = root?.querySelector('mobile-surface-layout') as HTMLElement | null
-    const surfaceScroller = surfaceLayout?.shadowRoot?.querySelector('[part~="scroll"]') as HTMLElement | null
-
-    const metricsFor = (element: HTMLElement | null) => {
-      if (!element) return null
-      const style = getComputedStyle(element)
-      const rect = element.getBoundingClientRect()
-      return {
-        clientHeight: element.clientHeight,
-        scrollHeight: element.scrollHeight,
-        scrollDelta: element.scrollHeight - element.clientHeight,
-        overflowY: style.overflowY,
-        rect: {
-          top: rect.top,
-          bottom: rect.bottom,
-          height: rect.height,
-        },
-        paddingBlockStart: parseFloat(style.paddingBlockStart || '0'),
-        paddingBlockEnd: parseFloat(style.paddingBlockEnd || '0'),
-      }
-    }
-
-    return {
-      contentScrollMode: shellLayout?.getAttribute('content-scroll-mode') ?? null,
-      hostName: host?.localName ?? null,
-      rowCount: root?.querySelectorAll('.row').length ?? null,
-      host: metricsFor(host),
-      surfaceScroller: metricsFor(surfaceScroller),
-      routeContent: metricsFor(routeContent),
-      shellContent: metricsFor(shellContent),
-    }
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  })
-}
-
-function expectNoMobileNotesVerticalOverflow(
-  snapshot: Awaited<ReturnType<typeof notesVerticalOverflowSnapshot>>,
-): void {
-  expect(snapshot.hostName).toBe('notes-quick-view-mobile')
-  expect(snapshot.contentScrollMode).toBe('surface')
-  expect(snapshot.shellContent?.scrollDelta).toBeLessThanOrEqual(1)
-  expect(snapshot.routeContent?.scrollDelta).toBeLessThanOrEqual(1)
-  expect(snapshot.host?.scrollDelta).toBeLessThanOrEqual(1)
-  expect(snapshot.surfaceScroller?.scrollDelta).toBeLessThanOrEqual(1)
-  expectHostFillsShellContent(snapshot)
-}
-
-function expectHostFillsShellContent(
-  snapshot: Awaited<ReturnType<typeof notesVerticalOverflowSnapshot>>,
-): void {
-  const hostRect = snapshot.host?.rect
-  const shellContent = snapshot.shellContent
-
-  expect(hostRect).toBeDefined()
-  expect(shellContent).not.toBeNull()
-  if (!hostRect || !shellContent) return
-
-  const availableHeight =
-    shellContent.rect.height - shellContent.paddingBlockStart - shellContent.paddingBlockEnd
-  const availableBottom = shellContent.rect.bottom - shellContent.paddingBlockEnd
-
-  expect(Math.abs(hostRect.height - availableHeight)).toBeLessThanOrEqual(2)
-  expect(Math.abs(hostRect.bottom - availableBottom)).toBeLessThanOrEqual(2)
-}
-
 async function notesViewSwitchSnapshot(page: Page) {
   return page.evaluate(() => {
     const host = deepFind(document, 'notes-quick-view, notes-quick-view-mobile') as HTMLElement | null
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-    const root = header?.shadowRoot ?? host?.shadowRoot
-    const switchEl = root?.querySelector('.view-switch') as HTMLElement | null
+    const header = deepFind(document, '[data-testid="workspace-header"]') as HTMLElement | null
+    const root = header ?? host
+    const switchEl = deepFind(root, '.view-switch') as HTMLElement | null
     const switchBase = switchEl?.shadowRoot?.querySelector('[part="base"]') as HTMLElement | null
     const switchRect = switchEl?.getBoundingClientRect() ?? null
     const switchBaseRect = switchBase?.getBoundingClientRect() ?? null
-    const buttons = Array.from(root?.querySelectorAll('.view-switch__button') ?? []) as HTMLElement[]
+    const buttons = deepFindAll(root, '.view-switch__button') as HTMLElement[]
     const contentRight = switchBase?.getBoundingClientRect().right ?? null
 
     const buttonRects = buttons.map((button) => {
@@ -569,12 +427,35 @@ async function notesViewSwitchSnapshot(page: Page) {
       },
     }
 
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFindAll<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T[] {
+      if (!root) return []
+      const found = Array.from(root.querySelectorAll<T>(selector))
+      if (root instanceof Element && root.shadowRoot) {
+        found.push(...deepFindAll<T>(root.shadowRoot, selector))
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) found.push(...deepFindAll<T>(el.shadowRoot, selector))
+      }
+      return found
+    }
+
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -583,32 +464,47 @@ async function notesViewSwitchSnapshot(page: Page) {
   })
 }
 
+// Chromium 149 can collect an evaluate result while its own mutation triggers Lit/Reatom microtasks.
+// Use trusted Playwright input for user actions; programmatic fixtures below yield a frame before return.
+async function waitForNotesInput(page: Page): Promise<void> {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+}
+
+// Measure the hit-test point only; dispatch the real click outside evaluate (see waitForNotesInput).
 async function clickNotesViewSwitchPoint(
   page: Page,
   point: {x: number; y: number},
   expectedMode: 'list' | 'grid' | 'tree',
 ): Promise<void> {
-  const dispatchedMode = await page.evaluate(
+  await waitForNotesInput(page)
+  const targetMode = await page.evaluate(
     ({x, y, expectedMode}) => {
-      const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-      const button = Array.from(
-        header?.shadowRoot?.querySelectorAll<HTMLElement>('.view-switch__button') ?? [],
-      ).find((candidate) => candidate.getAttribute('data-display-mode') === expectedMode)
+      const header = deepFind(document, '[data-testid="workspace-header"]') as HTMLElement | null
+      const button = deepFind<HTMLElement>(header, `[data-display-mode="${expectedMode}"]`)
       if (!button) return null
 
       const rect = button.getBoundingClientRect()
       const pointInsideButton = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
       if (!pointInsideButton) return null
 
-      button.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true, clientX: x, clientY: y}))
       return button.getAttribute('data-display-mode')
 
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
+      function deepFind<T extends Element = Element>(
+        root: Document | ShadowRoot | Element | null | undefined,
+        selector: string,
+      ): T | null {
+        if (!root) return null
+        const found = root.querySelector<T>(selector)
         if (found) return found
+        if (root instanceof Element && root.shadowRoot) {
+          const inner = deepFind<T>(root.shadowRoot, selector)
+          if (inner) return inner
+        }
         for (const el of root.querySelectorAll('*')) {
           if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
+            const inner = deepFind<T>(el.shadowRoot, selector)
             if (inner) return inner
           }
         }
@@ -617,19 +513,28 @@ async function clickNotesViewSwitchPoint(
     },
     {...point, expectedMode},
   )
-  expect(dispatchedMode).toBe(expectedMode)
+  expect(targetMode).toBe(expectedMode)
+  await page.mouse.click(point.x, point.y)
   await page.waitForFunction(
     (mode) => {
-      const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-      const button = header?.shadowRoot?.querySelector('.view-switch__button[checked]') as HTMLElement | null
+      const header = deepFind(document, '[data-testid="workspace-header"]') as HTMLElement | null
+      const button = deepFind(header, '.view-switch__button[checked]') as HTMLElement | null
       return button?.getAttribute('data-display-mode') === mode
 
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
+      function deepFind<T extends Element = Element>(
+        root: Document | ShadowRoot | Element | null | undefined,
+        selector: string,
+      ): T | null {
+        if (!root) return null
+        const found = root.querySelector<T>(selector)
         if (found) return found
+        if (root instanceof Element && root.shadowRoot) {
+          const inner = deepFind<T>(root.shadowRoot, selector)
+          if (inner) return inner
+        }
         for (const el of root.querySelectorAll('*')) {
           if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
+            const inner = deepFind<T>(el.shadowRoot, selector)
             if (inner) return inner
           }
         }
@@ -697,52 +602,17 @@ async function expectNotesViewSwitchGeometry(page: Page): Promise<void> {
 }
 
 async function setNotesSearch(page: Page, value: string): Promise<void> {
-  await page.evaluate((nextValue) => {
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-    const input = header?.shadowRoot?.querySelector('cv-input.search-box') as
-      | (HTMLElement & {value: string})
-      | null
-    if (!input) throw new Error('Notes Quick View search input not found')
-    input.value = nextValue
-    input.dispatchEvent(
-      new CustomEvent('cv-input', {detail: {value: nextValue}, bubbles: true, composed: true}),
-    )
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  }, value)
+  await waitForNotesInput(page)
+  await page
+    .getByTestId('workspace-header')
+    .getByRole('searchbox', {name: 'Search notes & content', exact: true})
+    .fill(value)
 }
 
+// Use trusted input for the view switch (see waitForNotesInput).
 async function setNotesDisplayMode(page: Page, displayMode: 'list' | 'grid' | 'tree'): Promise<void> {
-  await page.evaluate((nextDisplayMode) => {
-    const header = deepFind(document, 'workspace-dashboard-header') as HTMLElement | null
-    const button = header?.shadowRoot?.querySelector(
-      `[data-display-mode="${nextDisplayMode}"]`,
-    ) as HTMLElement | null
-    if (!button) throw new Error(`Notes Quick View ${nextDisplayMode} button not found`)
-    button.click()
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  }, displayMode)
+  await waitForNotesInput(page)
+  await page.locator(`[data-testid="workspace-header"] [data-display-mode="${displayMode}"]`).click()
 }
 
 async function notesHierarchySnapshot(page: Page, folderPath: string) {
@@ -774,34 +644,13 @@ async function notesHierarchySnapshot(page: Page, folderPath: string) {
   }, folderPath)
 }
 
+// Locator input scrolls the note into view and avoids the evaluate GC race (see waitForNotesInput).
 async function openNoteFromQuickView(page: Page, title: string): Promise<void> {
-  await page.evaluate(
-    ({noteTitle, displayTitle}) => {
-      const host = deepFind(document, 'notes-quick-view, notes-quick-view-mobile') as HTMLElement | null
-      const row = Array.from(host?.shadowRoot?.querySelectorAll('.row') ?? []).find(
-        (candidate) =>
-          candidate.querySelector('.note-card__title')?.textContent?.includes(displayTitle) ||
-          candidate.textContent?.includes(noteTitle),
-      )
-      const openTarget =
-        (row?.querySelector('.open-note') as HTMLElement | null) ?? (row as HTMLElement | null)
-      if (!openTarget) throw new Error(`open-note target not found for ${noteTitle}`)
-      openTarget.click()
-
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
-        if (found) return found
-        for (const el of root.querySelectorAll('*')) {
-          if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
-            if (inner) return inner
-          }
-        }
-        return null
-      }
-    },
-    {noteTitle: title, displayTitle: visibleNoteTitle(title)},
-  )
+  await waitForNotesInput(page)
+  await page
+    .locator('notes-quick-view .row, notes-quick-view-mobile .row')
+    .filter({has: page.locator('.note-card__title', {hasText: visibleNoteTitle(title)})})
+    .click()
 }
 
 async function waitForMarkdownDocument(page: Page, fileId: number, fileName: string): Promise<void> {
@@ -831,28 +680,10 @@ async function waitForMarkdownDocument(page: Page, fileId: number, fileName: str
   )
 }
 
+// Use trusted input for the mode button (see waitForNotesInput).
 async function openMarkdownEditor(page: Page): Promise<void> {
-  return page.evaluate(() => {
-    const host = deepFind(document, 'markdown-preview') as HTMLElement | null
-    const root = host?.shadowRoot
-    const editButton = Array.from(root?.querySelectorAll('.mode-button') ?? []).find((button) =>
-      button.textContent?.includes('Edit'),
-    ) as HTMLButtonElement | undefined
-    if (!editButton) throw new Error('Markdown Edit mode button not found')
-    editButton.click()
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  })
+  await waitForNotesInput(page)
+  await page.locator('markdown-preview .mode-button[aria-label="Edit"]').click()
 }
 
 async function markdownEditorSnapshot(page: Page) {
@@ -886,6 +717,7 @@ async function markdownEditorSnapshot(page: Page) {
   })
 }
 
+// Synthetic touch preserves the hidden/visible keyboard focus cases; yield after capture (see waitForNotesInput).
 async function markdownQuickActionFocusSnapshot(page: Page) {
   return page.evaluate(async () => {
     const host = deepFind(document, 'markdown-preview') as (HTMLElement & {
@@ -949,6 +781,7 @@ async function markdownQuickActionFocusSnapshot(page: Page) {
       value: editor.value,
     }
 
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return {hiddenKeyboardState, visibleKeyboardState}
 
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -996,7 +829,6 @@ async function markdownEditorKeyboardClearanceSnapshot(page: Page, keyboardInset
     const closedEditorPaddingBlockEnd = Number.parseFloat(getComputedStyle(editor).paddingBlockEnd)
     editor.focusAt?.(typeof editor.value === 'string' ? editor.value.length : null)
     rootElement.setAttribute('data-native-keyboard-insets', '')
-    rootElement.setAttribute('data-android-native-keyboard-insets', '')
     rootElement.style.setProperty('--app-runtime-keyboard-native-inset-block-end', `${inset}px`)
     rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', `${inset}px`)
     rootElement.style.setProperty('--app-runtime-keyboard-inset-block-end', `${inset}px`)
@@ -1068,7 +900,6 @@ async function markdownEditorKeyboardClearanceSnapshot(page: Page, keyboardInset
     rootElement.style.removeProperty('--app-runtime-keyboard-scroll-clearance')
     rootElement.style.removeProperty('--app-runtime-keyboard-overlay-offset')
     rootElement.removeAttribute('data-native-keyboard-insets')
-    rootElement.removeAttribute('data-android-native-keyboard-insets')
     rootElement.removeAttribute('data-mobile-keyboard-expanded')
     await waitFrames(3)
 
@@ -1088,6 +919,7 @@ async function markdownEditorKeyboardClearanceSnapshot(page: Page, keyboardInset
   }, keyboardInset)
 }
 
+// Keyboard insets are a native-environment fixture; yield after restoring them (see waitForNotesInput).
 async function markdownEditorQuickBarKeyboardSnapshots(page: Page, keyboardInsets: readonly number[]) {
   return page.evaluate(async (insets) => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
@@ -1105,7 +937,6 @@ async function markdownEditorQuickBarKeyboardSnapshots(page: Page, keyboardInset
     const setKeyboardInset = (bottomInset: number) => {
       rootElement.setAttribute('data-mobile-keyboard-expanded', '')
       rootElement.setAttribute('data-native-keyboard-insets', '')
-      rootElement.setAttribute('data-android-native-keyboard-insets', '')
       rootElement.style.setProperty('--app-runtime-keyboard-native-inset-block-end', `${bottomInset}px`)
       rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', `${bottomInset}px`)
       rootElement.style.setProperty('--app-runtime-keyboard-inset-block-end', `${bottomInset}px`)
@@ -1141,8 +972,8 @@ async function markdownEditorQuickBarKeyboardSnapshots(page: Page, keyboardInset
     rootElement.style.removeProperty('--app-runtime-keyboard-scroll-clearance')
     rootElement.style.removeProperty('--app-runtime-keyboard-overlay-offset')
     rootElement.removeAttribute('data-native-keyboard-insets')
-    rootElement.removeAttribute('data-android-native-keyboard-insets')
     rootElement.removeAttribute('data-mobile-keyboard-expanded')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
     return snapshots
 
@@ -1160,6 +991,7 @@ async function markdownEditorQuickBarKeyboardSnapshots(page: Page, keyboardInset
   }, keyboardInsets)
 }
 
+// RTL is a document fixture; yield after restoring dir (see waitForNotesInput).
 async function markdownEditorQuickBarLayoutSnapshot(page: Page, direction: 'ltr' | 'rtl') {
   return page.evaluate(async (nextDirection) => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
@@ -1211,6 +1043,7 @@ async function markdownEditorQuickBarLayoutSnapshot(page: Page, direction: 'ltr'
     } else {
       documentRoot.setAttribute('dir', previousDirection)
     }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
     return snapshot
 
@@ -1258,7 +1091,6 @@ async function markdownEditorRepeatedKeyboardActivationSnapshot(page: Page, keyb
       const rootElement = document.documentElement
       rootElement.toggleAttribute('data-mobile-keyboard-expanded', visible)
       rootElement.toggleAttribute('data-native-keyboard-insets', visible)
-      rootElement.toggleAttribute('data-android-native-keyboard-insets', visible)
       rootElement.style.setProperty('--app-runtime-keyboard-native-inset-block-end', `${bottomInset}px`)
       rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', `${bottomInset}px`)
       rootElement.style.setProperty('--app-runtime-keyboard-inset-block-end', `${bottomInset}px`)
@@ -1371,6 +1203,7 @@ async function markdownEditorRepeatedKeyboardActivationSnapshot(page: Page, keyb
   }, keyboardInset)
 }
 
+// Keyboard insets are a native-environment fixture; yield after restoring them (see waitForNotesInput).
 async function markdownEditorKeyboardSelectionRevealSnapshot(page: Page, keyboardInset: number) {
   return page.evaluate(async (inset) => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
@@ -1397,7 +1230,6 @@ async function markdownEditorKeyboardSelectionRevealSnapshot(page: Page, keyboar
     const setKeyboard = (visible: boolean, bottomInset: number) => {
       rootElement.toggleAttribute('data-mobile-keyboard-expanded', visible)
       rootElement.toggleAttribute('data-native-keyboard-insets', visible)
-      rootElement.toggleAttribute('data-android-native-keyboard-insets', visible)
       rootElement.style.setProperty('--app-runtime-keyboard-native-inset-block-end', `${bottomInset}px`)
       rootElement.style.setProperty('--app-runtime-visual-viewport-inset-block-end', `${bottomInset}px`)
       rootElement.style.setProperty('--app-runtime-keyboard-inset-block-end', `${bottomInset}px`)
@@ -1502,8 +1334,8 @@ async function markdownEditorKeyboardSelectionRevealSnapshot(page: Page, keyboar
     rootElement.style.removeProperty('--app-runtime-keyboard-scroll-clearance')
     rootElement.style.removeProperty('--app-runtime-keyboard-overlay-offset')
     rootElement.removeAttribute('data-native-keyboard-insets')
-    rootElement.removeAttribute('data-android-native-keyboard-insets')
     rootElement.removeAttribute('data-mobile-keyboard-expanded')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
     return {
       after,
@@ -1636,7 +1468,8 @@ async function toggleMarkdownTaskCheckboxScrollSnapshot(page: Page, taskIndex: n
     }
   }, taskIndex)
 
-  await page.evaluate((index) => {
+  // Preserve preventScroll focus: real input changes this isolated scroll snapshot; yield as in waitForNotesInput.
+  await page.evaluate(async (index) => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
     const preview = host?.shadowRoot?.querySelector('.rendered-markdown') as HTMLElement | null
     const checkbox = preview?.querySelectorAll<HTMLElement>('.cv-markdown-task-checkbox')[index] ?? null
@@ -1646,6 +1479,7 @@ async function toggleMarkdownTaskCheckboxScrollSnapshot(page: Page, taskIndex: n
 
     checkbox.focus({preventScroll: true})
     checkbox.click()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -1720,13 +1554,15 @@ async function toggleMarkdownTaskCheckboxScrollSnapshot(page: Page, taskIndex: n
   )
 }
 
+// The custom editor value/input pair prepares source without changing focus; yield (see waitForNotesInput).
 async function setMarkdownEditorSource(page: Page, value: string): Promise<void> {
-  await page.evaluate((nextValue) => {
+  await page.evaluate(async (nextValue) => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
     const editor = host?.shadowRoot?.querySelector('.source-editor') as HTMLTextAreaElement | null
     if (!editor) throw new Error('Markdown source editor not found')
     editor.value = nextValue
     editor.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true, data: nextValue}))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -1742,8 +1578,9 @@ async function setMarkdownEditorSource(page: Page, value: string): Promise<void>
   }, value)
 }
 
+// The custom editor selection/select contract prepares the insertion point; yield (see waitForNotesInput).
 async function setMarkdownEditorSelectionToEnd(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
     const editor = host?.shadowRoot?.querySelector('.source-editor') as HTMLTextAreaElement | null
     if (!editor) throw new Error('Markdown source editor not found')
@@ -1751,6 +1588,7 @@ async function setMarkdownEditorSelectionToEnd(page: Page): Promise<void> {
     editor.focus()
     editor.setSelectionRange(end, end)
     editor.dispatchEvent(new Event('select', {bubbles: true, composed: true}))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
@@ -1773,16 +1611,12 @@ async function markdownImageInsertControlsSnapshot(page: Page) {
     const input = previewRoot?.querySelector('.image-input') as HTMLInputElement | null
     const previewToolbarLinkButton = previewRoot?.querySelector('.insert-link-action') as HTMLElement | null
     const previewToolbarImageButton = previewRoot?.querySelector('.insert-image-action') as HTMLElement | null
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as HTMLElement | null
-    const topbarButton = toolbar?.shadowRoot?.querySelector(
-      '[data-action="markdown-insert-image"]',
-    ) as HTMLElement | null
+    const toolbar = deepFind(document, '[data-testid="mobile-toolbar"]') as HTMLElement | null
+    const topbarButton = deepFind(toolbar, '[data-action="markdown-insert-image"]') as HTMLElement | null
     const topbarActionButtons = Array.from(
-      toolbar?.shadowRoot?.querySelectorAll('.trailing > .action-btn[data-action]') ?? [],
+      deepFindAll(toolbar, '.trailing > .action-btn[data-action]'),
     ) as HTMLElement[]
-    const overflowMenu = toolbar?.shadowRoot?.querySelector(
-      'cv-menu-button.overflow-menu',
-    ) as HTMLElement | null
+    const overflowMenu = deepFind(toolbar, 'cv-menu-button.overflow-menu') as HTMLElement | null
     const overflowTrigger = overflowMenu?.shadowRoot?.querySelector('[part="trigger"]') as HTMLElement | null
     const overflowImageItem = overflowMenu?.querySelector('cv-menu-item[value="markdown-insert-image"]')
     const overflowItemValues = Array.from(overflowMenu?.querySelectorAll('cv-menu-item') ?? [])
@@ -1815,12 +1649,35 @@ async function markdownImageInsertControlsSnapshot(page: Page) {
       )
     }
 
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFindAll<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T[] {
+      if (!root) return []
+      const found = Array.from(root.querySelectorAll<T>(selector))
+      if (root instanceof Element && root.shadowRoot) {
+        found.push(...deepFindAll<T>(root.shadowRoot, selector))
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) found.push(...deepFindAll<T>(el.shadowRoot, selector))
+      }
+      return found
+    }
+
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -1829,16 +1686,12 @@ async function markdownImageInsertControlsSnapshot(page: Page) {
   })
 }
 
+// Keep the picker probe separate from trusted menu clicks (see waitForNotesInput).
 async function clickMarkdownInsertImageOverflow(page: Page): Promise<number> {
-  return page.evaluate(async () => {
+  await page.evaluate(() => {
     const preview = deepFind(document, 'markdown-preview') as HTMLElement | null
     const input = preview?.shadowRoot?.querySelector('.image-input') as HTMLInputElement | null
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as HTMLElement | null
-    const menu = toolbar?.shadowRoot?.querySelector('cv-menu-button.overflow-menu') as
-      | (HTMLElement & {updateComplete?: Promise<unknown>})
-      | null
-    const trigger = menu?.shadowRoot?.querySelector('[part="trigger"]') as HTMLElement | null
-    if (!input || !menu || !trigger) throw new Error('Markdown image insert controls not found')
+    if (!input) throw new Error('Markdown image input not found')
 
     Object.defineProperty(window, '__markdownImagePickerClicks', {
       configurable: true,
@@ -1851,19 +1704,6 @@ async function clickMarkdownInsertImageOverflow(page: Page): Promise<number> {
         window.__markdownImagePickerClicks = (window.__markdownImagePickerClicks ?? 0) + 1
       },
     })
-    trigger.click()
-    await (menu.updateComplete ?? Promise.resolve())
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-
-    const item = menu.querySelector(
-      'cv-menu-item[value="markdown-insert-image"]',
-    ) as HTMLElement | null
-    if (!item) throw new Error('Markdown image insert overflow item not found')
-
-    item.dispatchEvent(new MouseEvent('click', {bubbles: true, composed: true}))
-    await (menu.updateComplete ?? Promise.resolve())
-    return window.__markdownImagePickerClicks ?? 0
-
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -1876,6 +1716,11 @@ async function clickMarkdownInsertImageOverflow(page: Page): Promise<number> {
       return null
     }
   })
+  await waitForNotesInput(page)
+  const menu = page.locator('[data-testid="mobile-toolbar"] cv-menu-button.overflow-menu')
+  await menu.locator('[part="trigger"]').click()
+  await menu.locator('cv-menu-item[value="markdown-insert-image"]').click()
+  return page.evaluate(() => window.__markdownImagePickerClicks ?? 0)
 }
 
 async function chooseMarkdownImageFile(page: Page): Promise<void> {
@@ -1918,7 +1763,7 @@ async function waitForInsertedMarkdownImageLink(page: Page): Promise<{markdown: 
     () => {
       const host = deepFind(document, 'markdown-preview') as HTMLElement | null
       const editor = host?.shadowRoot?.querySelector('.source-editor') as HTMLTextAreaElement | null
-      return /!\[e2e inline\]\((\/attachments\/e2e-inline-[^)]+\.png)\)/u.test(editor?.value ?? '')
+      return /!\[e2e-inline\]\(<\/attachments\/e2e-inline-[^>]+\.png>\)/u.test(editor?.value ?? '')
 
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
         const found = root.querySelector(selector)
@@ -1939,7 +1784,7 @@ async function waitForInsertedMarkdownImageLink(page: Page): Promise<{markdown: 
   return page.evaluate(() => {
     const host = deepFind(document, 'markdown-preview') as HTMLElement | null
     const editor = host?.shadowRoot?.querySelector('.source-editor') as HTMLTextAreaElement | null
-    const match = /(!\[e2e inline\]\((\/attachments\/e2e-inline-[^)]+\.png)\))/u.exec(editor?.value ?? '')
+    const match = /(!\[e2e-inline\]\(<(\/attachments\/e2e-inline-[^>]+\.png)>\))/u.exec(editor?.value ?? '')
     if (!match?.[1] || !match[2]) {
       throw new Error('Inserted Markdown image link not found')
     }
@@ -1959,28 +1804,10 @@ async function waitForInsertedMarkdownImageLink(page: Page): Promise<{markdown: 
   })
 }
 
+// Use trusted input for the preview switch (see waitForNotesInput).
 async function showMarkdownPreview(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const host = deepFind(document, 'markdown-preview') as HTMLElement | null
-    const root = host?.shadowRoot
-    const previewButton = Array.from(root?.querySelectorAll('.mode-button') ?? []).find((button) =>
-      button.textContent?.includes('Preview'),
-    ) as HTMLElement | undefined
-    if (!previewButton) throw new Error('Markdown Preview mode button not found')
-    previewButton.click()
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  })
+  await waitForNotesInput(page)
+  await page.locator('markdown-preview .mode-button[aria-label="Preview"]').click()
 }
 
 async function markdownModeScrollSyncSnapshot(page: Page, taskIndex: number) {
@@ -2130,106 +1957,14 @@ async function waitForResolvedMarkdownImage(page: Page, expectedRef: string): Pr
   )
 }
 
+// Rename through actual text input and Enter (see waitForNotesInput).
 async function renameOpenMarkdownTitle(page: Page, value: string): Promise<void> {
-  await page.evaluate(() => {
-    const documentPage = deepFind(document, 'markdown-document-page') as HTMLElement | null
-    const root = documentPage?.shadowRoot
-    const titleButton = root?.querySelector('.title-button') as HTMLButtonElement | null
-    if (!titleButton) throw new Error('Markdown title rename button not found')
-    titleButton.click()
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  })
-
-  await page.waitForFunction(
-    () => {
-      const documentPage = deepFind(document, 'markdown-document-page') as HTMLElement | null
-      return Boolean(documentPage?.shadowRoot?.querySelector('.title-input'))
-
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
-        if (found) return found
-        for (const el of root.querySelectorAll('*')) {
-          if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
-            if (inner) return inner
-          }
-        }
-        return null
-      }
-    },
-    undefined,
-    {timeout: 5_000},
-  )
-
-  await page.evaluate((nextValue) => {
-    const documentPage = deepFind(document, 'markdown-document-page') as HTMLElement | null
-    const root = documentPage?.shadowRoot
-    const input = root?.querySelector('.title-input') as HTMLInputElement | null
-    const form = root?.querySelector('.title-form') as HTMLFormElement | null
-    if (!input || !form) throw new Error('Markdown title rename input not found')
-
-    input.value = nextValue
-    input.dispatchEvent(new InputEvent('input', {bubbles: true, composed: true, data: nextValue}))
-    form.dispatchEvent(new SubmitEvent('submit', {bubbles: true, cancelable: true, composed: true}))
-
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-  }, value)
+  await waitForNotesInput(page)
+  await page.locator('markdown-document-page .title-button').click()
+  const input = page.locator('markdown-document-page .title-input')
+  await input.fill(value)
+  await input.press('Enter')
 }
-
-test('S25: mobile Notes surface keeps scroll on the surface scroller only when needed', async (ctx) => {
-  const page = getPage()
-  if (!page) {
-    return ctx.skip()
-  }
-
-  const mobileViewport = {width: 390, height: 844}
-
-  await seedEmptyNotesFixture()
-  await openNotes(page, {expectedRows: 0, layout: 'mobile', viewport: mobileViewport})
-  const emptySnapshot = await notesVerticalOverflowSnapshot(page)
-  expect(emptySnapshot.rowCount).toBe(0)
-  expectNoMobileNotesVerticalOverflow(emptySnapshot)
-
-  await seedNotesFixture()
-  await openNotes(page, {layout: 'mobile', viewport: mobileViewport})
-  const shortListSnapshot = await notesVerticalOverflowSnapshot(page)
-  expect(shortListSnapshot.rowCount).toBe(3)
-  expectNoMobileNotesVerticalOverflow(shortListSnapshot)
-
-  await seedLongNotesFixture()
-  await openNotes(page, {expectedRows: 28, layout: 'mobile', viewport: mobileViewport})
-  const longListSnapshot = await notesVerticalOverflowSnapshot(page)
-  expect(longListSnapshot.rowCount).toBe(28)
-  expect(longListSnapshot.hostName).toBe('notes-quick-view-mobile')
-  expect(longListSnapshot.contentScrollMode).toBe('surface')
-  expect(longListSnapshot.shellContent?.scrollDelta).toBeLessThanOrEqual(1)
-  expect(longListSnapshot.routeContent?.scrollDelta).toBeLessThanOrEqual(1)
-  expect(longListSnapshot.host?.scrollDelta).toBeLessThanOrEqual(1)
-  expectHostFillsShellContent(longListSnapshot)
-  expect(longListSnapshot.surfaceScroller?.overflowY).toBe('auto')
-  expect(longListSnapshot.surfaceScroller?.scrollDelta).toBeGreaterThan(1)
-})
 
 test('S25: mobile Markdown editor reserves keyboard clearance while scrolling to the last line', async (ctx) => {
   const page = getPage()

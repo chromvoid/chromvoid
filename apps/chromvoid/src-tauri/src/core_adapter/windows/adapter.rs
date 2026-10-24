@@ -2,11 +2,11 @@ use serde_json::Value;
 
 use super::mapper::status_from_probe;
 use super::models::*;
-use crate::core_adapter::types::CoreAdapter;
+use crate::core_adapter::CoreAdapter;
 use crate::credential_provider_contract::passkey_native_request_payload;
 use crate::credential_provider_passkey::{
     dispatch_provider_rpc, ensure_local_mode, ensure_passkeys_supported, provider_policy_preflight,
-    PasskeyRuntimeError,
+    AdapterProviderCore, PasskeyRuntimeError,
 };
 
 pub struct WindowsPasskeyAdapter<'a, P = fn() -> WebAuthnCapability>
@@ -62,10 +62,11 @@ where
     }
 
     fn policy_preflight(&mut self) -> Result<(), WindowsPasskeyError> {
-        provider_policy_preflight(self.adapter).map(|_| ())
+        // Provider paths get provider commands only, never the whole adapter.
+        provider_policy_preflight(&mut AdapterProviderCore(&mut *self.adapter)).map(|_| ())
     }
 
     fn dispatch(&mut self, command: &str, data: Value) -> Result<Value, WindowsPasskeyError> {
-        dispatch_provider_rpc(self.adapter, command, data)
+        dispatch_provider_rpc(&mut AdapterProviderCore(&mut *self.adapter), command, data)
     }
 }

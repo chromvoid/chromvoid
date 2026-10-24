@@ -3,9 +3,6 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {setupMobileKeyboardTapWorkaround} from '../../src/app/bootstrap/mobile-keyboard-tap'
 import {
-  ANDROID_KEYBOARD_INSETS_EVENT,
-  ANDROID_NATIVE_KEYBOARD_INSETS_ATTR,
-  ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR,
   IOS_KEYBOARD_INSETS_EVENT,
   IOS_NATIVE_KEYBOARD_INSETS_ATTR,
   IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR,
@@ -13,10 +10,8 @@ import {
   NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR,
   NATIVE_KEYBOARD_INSETS_ATTR,
   NATIVE_SAFE_AREA_BOTTOM_ATTR,
-  applyMobileKeyboardInsetsPayload,
   applyMobileKeyboardVisibilityPayload,
   getMobileKeyboardPayloadBottomInset,
-  setupAndroidKeyboardInsetsEventListener,
   setupIOSKeyboardInsetsEventListener,
 } from 'root/app/bootstrap/mobile-keyboard-insets'
 import {
@@ -28,7 +23,6 @@ const tauriInvoke = vi.fn()
 const tauriListen = vi.fn()
 
 type WindowWithNativeKeyboardInsets = Window & {
-  __chromvoidAndroidKeyboardInsets?: unknown
   __chromvoidIosKeyboardInsets?: unknown
 }
 
@@ -58,16 +52,16 @@ function createTouchPointerEvent(
 
 describe('mobile keyboard visibility payload', () => {
   afterEach(() => {
-    delete (window as WindowWithNativeKeyboardInsets).__chromvoidAndroidKeyboardInsets
+
     delete (window as WindowWithNativeKeyboardInsets).__chromvoidIosKeyboardInsets
     document.documentElement.removeAttribute('data-mobile-keyboard-expanded')
     document.documentElement.removeAttribute(NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR)
     document.documentElement.removeAttribute(NATIVE_KEYBOARD_INSETS_ATTR)
-    document.documentElement.removeAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)
+
     document.documentElement.removeAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)
     document.documentElement.removeAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)
     document.documentElement.removeAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)
-    document.documentElement.removeAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)
+
     document.documentElement.removeAttribute(IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR)
     document.documentElement.removeAttribute('style')
     setMobileKeyboardOccluding(false)
@@ -81,73 +75,6 @@ describe('mobile keyboard visibility payload', () => {
 
     expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(true)
     expect(mobileKeyboardOccluding()).toBe(true)
-  })
-
-  it('applies android native progress insets exactly during IME animation', () => {
-    applyMobileKeyboardInsetsPayload(document.documentElement, {
-      visible: true,
-      bottomInset: 140,
-      safeAreaTopInset: 24,
-      safeAreaBottomInset: 18,
-      phase: 'progress',
-      source: 'android-native',
-    })
-
-    expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(true)
-    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
-    expect(document.documentElement.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
-    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-  })
-
-  it('applies android overlay custom events with a viewport lift', () => {
-    const cleanup = setupAndroidKeyboardInsetsEventListener(document.documentElement)
-
-    window.dispatchEvent(
-      new CustomEvent(ANDROID_KEYBOARD_INSETS_EVENT, {
-        detail: {
-          visible: true,
-          bottomInset: 188.2,
-          safeAreaTopInset: 27.7,
-          safeAreaBottomInset: 19.2,
-          phase: 'settled',
-          viewportMode: 'overlay',
-        },
-      }),
-    )
-    cleanup()
-
-    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(true)
-    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-    expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(false)
-    expect(mobileKeyboardOccluding()).toBe(true)
-  })
-
-  it('applies android native safe-area custom events when the keyboard is hidden', () => {
-    const cleanup = setupAndroidKeyboardInsetsEventListener(document.documentElement)
-    document.documentElement.setAttribute('data-visual-viewport-shrunken', '')
-    setMobileKeyboardOccluding(true)
-
-    window.dispatchEvent(
-      new CustomEvent(ANDROID_KEYBOARD_INSETS_EVENT, {
-        detail: {
-          visible: false,
-          bottomInset: 0,
-          safeAreaTopInset: 50,
-          safeAreaBottomInset: 18,
-          phase: 'settled',
-        },
-      }),
-    )
-    cleanup()
-
-    expect(document.documentElement.hasAttribute('data-mobile-keyboard-expanded')).toBe(false)
-    expect(document.documentElement.hasAttribute('data-visual-viewport-shrunken')).toBe(false)
-    expect(mobileKeyboardOccluding()).toBe(false)
-    expect(document.documentElement.hasAttribute(NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR)).toBe(true)
-    expect(document.documentElement.hasAttribute(NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
-    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
-    expect(document.documentElement.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
   })
 
   it('applies ios native-resize custom events without visual viewport lift', () => {
@@ -230,35 +157,6 @@ describe('mobile keyboard visibility payload', () => {
     expect(document.documentElement.hasAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR)).toBe(false)
     expect(document.documentElement.hasAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR)).toBe(false)
     expect(mobileKeyboardOccluding()).toBe(true)
-  })
-
-  it('treats zero android native bottom safe-area as an explicit value', () => {
-    applyMobileKeyboardInsetsPayload(document.documentElement, {
-      visible: false,
-      bottomInset: 0,
-      safeAreaTopInset: 24,
-      safeAreaBottomInset: 0,
-      phase: 'settled',
-      source: 'android-native',
-    })
-
-    expect(document.documentElement.hasAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
-  })
-
-  it('applies a pending android native inset payload when the listener starts late', () => {
-    ;(window as WindowWithNativeKeyboardInsets).__chromvoidAndroidKeyboardInsets = {
-      visible: false,
-      bottomInset: 0,
-      safeAreaTopInset: 30,
-      safeAreaBottomInset: 22,
-      phase: 'settled',
-    }
-
-    const cleanup = setupAndroidKeyboardInsetsEventListener(document.documentElement)
-    cleanup()
-
-    expect(document.documentElement.hasAttribute(ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR)).toBe(true)
   })
 
   it('applies a pending ios native-resize inset payload when the listener starts late', () => {

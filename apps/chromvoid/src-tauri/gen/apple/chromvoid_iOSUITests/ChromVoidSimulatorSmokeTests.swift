@@ -795,6 +795,25 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
         return XCTWaiter.wait(for: [expectation], timeout: timeout)
     }
 
+    /// Waits while the button exists and is disabled, then reports whether it is gone.
+    private func waitForDisabledButtonToSettle(
+        identifier: String,
+        label: String,
+        timeout: TimeInterval,
+        in app: XCUIApplication
+    ) -> Bool {
+        let query = buttonQuery(identifier: identifier, label: label, in: app)
+        // Count through queries: reading isEnabled on a bound element fails the test
+        // when the button leaves the hierarchy between snapshots.
+        let disabledButtons = query.matching(NSPredicate(format: "isEnabled == false"))
+        let predicate = NSPredicate { _, _ in
+            disabledButtons.count == 0
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: query)
+        _ = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        return query.count == 0
+    }
+
     @discardableResult
     private func requireTextField(
         identifier: String,
@@ -1284,6 +1303,18 @@ final class ChromVoidSimulatorSmokeTests: XCTestCase {
             timeout: focusTimeout,
             in: app
         ) == .completed {
+            return
+        }
+
+        // The vault KDF can outlast focusTimeout in a debug Simulator build. The submit
+        // button stays disabled while vault:unlock runs, so let an in-flight unlock
+        // finish before treating the submit as lost.
+        if waitForDisabledButtonToSettle(
+            identifier: "welcome.unlock-submit",
+            label: "Unlock Vault",
+            timeout: elementTimeout,
+            in: app
+        ) {
             return
         }
 

@@ -562,7 +562,7 @@ export class FileActionsModel {
 
   private shouldOpenFallbackViaSystem(): boolean {
     const {platform} = getRuntimeCapabilities()
-    return platform === 'macos' || platform === 'android'
+    return platform === 'macos'
   }
 
   private doesPrimaryOpenUseSystem(item: FileItemData): boolean {

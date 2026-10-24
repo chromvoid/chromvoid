@@ -166,7 +166,7 @@ export abstract class PMSearchBase extends ReatomLitElement {
 
   protected shouldRenderShortcutHint(isFocused: boolean, isSearched: number | boolean) {
     const capabilities = runtimeCapabilitiesAtom()
-    if (capabilities.mobile || capabilities.platform === 'android' || capabilities.platform === 'ios') {
+    if (capabilities.mobile || capabilities.platform === 'ios') {
       return false
     }
 

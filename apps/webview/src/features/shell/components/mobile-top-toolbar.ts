@@ -576,6 +576,7 @@ export class MobileTopToolbar extends ReatomLitElement {
         id=${this.leading === 'menu' ? 'app.navigation.menu' : nothing}
         class="action-btn"
         data-action="mobile-leading"
+        data-leading=${this.leading}
         @click=${this.onLeadingClick}
         ?disabled=${this.leading === 'back' && this.backDisabled}
         aria-label=${label}

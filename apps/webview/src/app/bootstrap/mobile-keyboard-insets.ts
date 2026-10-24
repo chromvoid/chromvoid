@@ -5,20 +5,17 @@ import {
   setMobileKeyboardOccluding,
 } from './mobile-keyboard/keyboard-occlusion.model'
 
-export const ANDROID_KEYBOARD_INSETS_EVENT = 'chromvoid:android-keyboard-insets-changed'
 export const IOS_KEYBOARD_INSETS_EVENT = 'chromvoid:ios-keyboard-insets-changed'
 export const MOBILE_KEYBOARD_BEFORE_INSETS_APPLY_EVENT = 'chromvoid:mobile-keyboard-before-insets-apply'
 export const NATIVE_KEYBOARD_INSETS_AVAILABLE_ATTR = 'data-native-keyboard-insets-available'
 export const NATIVE_KEYBOARD_INSETS_ATTR = 'data-native-keyboard-insets'
-export const ANDROID_NATIVE_KEYBOARD_INSETS_ATTR = 'data-android-native-keyboard-insets'
 export const IOS_NATIVE_KEYBOARD_INSETS_ATTR = 'data-ios-native-keyboard-insets'
 export const MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR = 'data-mobile-keyboard-native-resize'
 export const NATIVE_SAFE_AREA_BOTTOM_ATTR = 'data-native-safe-area-bottom'
-export const ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR = 'data-android-native-safe-area-bottom'
 export const IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR = 'data-ios-native-safe-area-bottom'
 
 export type MobileKeyboardInsetsPhase = 'progress' | 'settled'
-export type MobileKeyboardInsetsSource = 'android-native' | 'ios-native' | 'tauri-visibility'
+export type MobileKeyboardInsetsSource = 'ios-native' | 'tauri-visibility'
 export type MobileKeyboardViewportMode = 'overlay' | 'native-resize'
 export type MobileKeyboardInsetsPayload = {
   visible: boolean
@@ -49,7 +46,6 @@ export type MobileKeyboardBeforeInsetsApplyDetail = {
 }
 
 type WindowWithNativeKeyboardInsets = Window & {
-  __chromvoidAndroidKeyboardInsets?: unknown
   __chromvoidIosKeyboardInsets?: unknown
 }
 
@@ -70,7 +66,7 @@ const getPayloadViewportMode = (payload: MobileKeyboardInsetsPayload): MobileKey
   payload.viewportMode === 'native-resize' ? 'native-resize' : 'overlay'
 
 const isNativeKeyboardInsetsSource = (source: MobileKeyboardInsetsSource): boolean =>
-  source === 'android-native' || source === 'ios-native'
+  source === 'ios-native'
 
 const getCurrentViewportInset = (root: HTMLElement): number => {
   const currentViewportInset = Number.parseFloat(
@@ -151,7 +147,6 @@ export const applyMobileKeyboardInsetsPayload = (
   const source = getPayloadSource(payload)
   const phase = getPayloadPhase(payload)
   const viewportMode = getPayloadViewportMode(payload)
-  const usesAndroidNativeInsets = source === 'android-native'
   const usesIOSNativeInsets = source === 'ios-native'
   const usesNativeKeyboardInsets = isNativeKeyboardInsetsSource(source)
   const usesNativeResize = usesNativeKeyboardInsets && viewportMode === 'native-resize'
@@ -180,7 +175,6 @@ export const applyMobileKeyboardInsetsPayload = (
   root.toggleAttribute(MOBILE_KEYBOARD_EXPANDED_ATTR, keyboardVisible)
   setMobileKeyboardOccluding(keyboardVisible || root.hasAttribute(VISUAL_VIEWPORT_SHRUNK_ATTR))
   root.toggleAttribute(NATIVE_KEYBOARD_INSETS_ATTR, usesNativeKeyboardInsets && keyboardVisible)
-  root.toggleAttribute(ANDROID_NATIVE_KEYBOARD_INSETS_ATTR, usesAndroidNativeInsets && keyboardVisible)
   root.toggleAttribute(IOS_NATIVE_KEYBOARD_INSETS_ATTR, usesIOSNativeInsets && keyboardVisible)
   root.toggleAttribute(MOBILE_KEYBOARD_NATIVE_RESIZE_ATTR, usesNativeResize && keyboardVisible)
   root.style.setProperty('--app-runtime-keyboard-native-inset-block-end', `${bottomInset}px`)
@@ -193,10 +187,6 @@ export const applyMobileKeyboardInsetsPayload = (
   const safeAreaBottomInset = usesNativeKeyboardInsets ? getSafeAreaBottomInset(payload) : null
   if (usesNativeKeyboardInsets) {
     root.toggleAttribute(NATIVE_SAFE_AREA_BOTTOM_ATTR, safeAreaBottomInset !== null)
-    root.toggleAttribute(
-      ANDROID_NATIVE_SAFE_AREA_BOTTOM_ATTR,
-      usesAndroidNativeInsets && safeAreaBottomInset !== null,
-    )
     root.toggleAttribute(
       IOS_NATIVE_SAFE_AREA_BOTTOM_ATTR,
       usesIOSNativeInsets && safeAreaBottomInset !== null,
@@ -247,26 +237,6 @@ export const applyMobileKeyboardVisibilityPayload = (
   })
 }
 
-const normalizeAndroidKeyboardInsetsPayload = (detail: unknown): MobileKeyboardInsetsPayload | null => {
-  if (!detail || typeof detail !== 'object') return null
-
-  const record = detail as Record<string, unknown>
-  if (typeof record['visible'] !== 'boolean') return null
-
-  const phase = record['phase'] === 'progress' || record['phase'] === 'settled' ? record['phase'] : 'progress'
-  const viewportMode = record['viewportMode'] === 'native-resize' ? 'native-resize' : 'overlay'
-  return {
-    visible: record['visible'],
-    bottomInset: typeof record['bottomInset'] === 'number' ? record['bottomInset'] : null,
-    safeAreaTopInset: typeof record['safeAreaTopInset'] === 'number' ? record['safeAreaTopInset'] : null,
-    safeAreaBottomInset:
-      typeof record['safeAreaBottomInset'] === 'number' ? record['safeAreaBottomInset'] : null,
-    phase,
-    source: 'android-native',
-    viewportMode,
-  }
-}
-
 const normalizeIOSKeyboardInsetsPayload = (detail: unknown): MobileKeyboardInsetsPayload | null => {
   if (!detail || typeof detail !== 'object') return null
 
@@ -297,37 +267,10 @@ const applyIOSKeyboardInsetsPayload = (root: HTMLElement, payload: MobileKeyboar
   applyMobileKeyboardInsetsPayload(root, payload)
 }
 
-export const getAndroidKeyboardInsetsEventPayload = (event: Event): MobileKeyboardInsetsPayload | null => {
-  if (typeof CustomEvent === 'undefined') return null
-  if (!(event instanceof CustomEvent)) return null
-  return normalizeAndroidKeyboardInsetsPayload(event.detail)
-}
-
 export const getIOSKeyboardInsetsEventPayload = (event: Event): MobileKeyboardInsetsPayload | null => {
   if (typeof CustomEvent === 'undefined') return null
   if (!(event instanceof CustomEvent)) return null
   return normalizeIOSKeyboardInsetsPayload(event.detail)
-}
-
-export const setupAndroidKeyboardInsetsEventListener = (root: HTMLElement): (() => void) => {
-  const handleAndroidKeyboardInsetsEvent = (event: Event) => {
-    const payload = getAndroidKeyboardInsetsEventPayload(event)
-    if (!payload) return
-
-    applyMobileKeyboardInsetsPayload(root, payload)
-  }
-
-  const pendingPayload = normalizeAndroidKeyboardInsetsPayload(
-    (window as WindowWithNativeKeyboardInsets).__chromvoidAndroidKeyboardInsets,
-  )
-  if (pendingPayload) {
-    applyMobileKeyboardInsetsPayload(root, pendingPayload)
-  }
-
-  window.addEventListener(ANDROID_KEYBOARD_INSETS_EVENT, handleAndroidKeyboardInsetsEvent)
-  return () => {
-    window.removeEventListener(ANDROID_KEYBOARD_INSETS_EVENT, handleAndroidKeyboardInsetsEvent)
-  }
 }
 
 export const setupIOSKeyboardInsetsEventListener = (root: HTMLElement): (() => void) => {
@@ -351,11 +294,5 @@ export const setupIOSKeyboardInsetsEventListener = (root: HTMLElement): (() => v
   }
 }
 
-export const setupNativeKeyboardInsetsEventListeners = (root: HTMLElement): (() => void) => {
-  const cleanupAndroid = setupAndroidKeyboardInsetsEventListener(root)
-  const cleanupIOS = setupIOSKeyboardInsetsEventListener(root)
-  return () => {
-    cleanupAndroid()
-    cleanupIOS()
-  }
-}
+export const setupNativeKeyboardInsetsEventListeners = (root: HTMLElement): (() => void) =>
+  setupIOSKeyboardInsetsEventListener(root)

@@ -31,7 +31,10 @@ function session(
   }
 }
 
-function renderSession(value: DesktopUsbRemoteSessionPresentation): HTMLElement {
+function renderSession(
+  value: DesktopUsbRemoteSessionPresentation,
+  actions: {onRetryUsb?: () => void; onForgetUsb?: () => void} = {},
+): HTMLElement {
   const container = document.createElement('div')
   document.body.append(container)
   render(
@@ -40,6 +43,9 @@ function renderSession(value: DesktopUsbRemoteSessionPresentation): HTMLElement 
       formatLastSyncTime: () => '12:00',
       onRequestWriteLock: vi.fn(),
       onReconnectUsb: vi.fn(),
+      onRetryUsb: actions.onRetryUsb ?? vi.fn(),
+      onForgetUsb: actions.onForgetUsb ?? vi.fn(),
+      actionBusy: false,
       onUseLocal: vi.fn(),
     })}`,
     container,
@@ -91,4 +97,59 @@ describe('desktop USB Remote session renderer', () => {
     expect(container.textContent).toContain('Not connected')
     expect(container.textContent).toContain('Unavailable while disconnected')
   })
+
+  it('explains a silent phone and offers retry and forgetting as separate user actions', () => {
+    const retry = vi.fn()
+    const forget = vi.fn()
+    const container = renderSession(
+      session({stage: 'error', errorCode: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'}),
+      {onRetryUsb: retry, onForgetUsb: forget},
+    )
+    const alert = container.querySelector('[role="alert"]')
+    const buttons = Array.from(alert?.querySelectorAll<HTMLElement>('cv-button') ?? [])
+
+    expect(alert?.textContent).toContain('The phone did not answer')
+    expect(alert?.textContent).toContain('If ChromVoid was reinstalled or replaced on the phone')
+    expect(retry).not.toHaveBeenCalled()
+    expect(forget).not.toHaveBeenCalled()
+    buttons.find((button) => button.textContent?.includes('Try again'))?.click()
+    buttons.find((button) => button.textContent?.includes('Forget phone'))?.click()
+
+    expect(retry).toHaveBeenCalledOnce()
+    expect(forget).toHaveBeenCalledOnce()
+  })
+
+  it('keeps retry available without offering to forget an unknown silent phone', () => {
+    const retry = vi.fn()
+    const forget = vi.fn()
+    const container = renderSession(
+      session({stage: 'error', host: null, errorCode: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING'}),
+      {onRetryUsb: retry, onForgetUsb: forget},
+    )
+    const buttons = Array.from(container.querySelectorAll<HTMLElement>('cv-button'))
+
+    expect(container.querySelector('h2')?.textContent).toBe('Phone')
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('The phone did not answer')
+    expect(container.textContent).not.toContain('OnePlus 13')
+    expect(container.textContent).not.toContain('usb-host-1')
+    expect(container.textContent).not.toContain('Android')
+    expect(container.textContent).not.toContain('Forget phone')
+    buttons.find((button) => button.textContent?.includes('Try again'))?.click()
+
+    expect(retry).toHaveBeenCalledOnce()
+    expect(forget).not.toHaveBeenCalled()
+  })
+
+  it.each(['ERR_USB_MOBILE_HANDSHAKE_FAILED', 'ERR_USB_MOBILE_STALE_PAIRING'] as const)(
+    'preserves the existing session recovery for %s',
+    (errorCode) => {
+      const container = renderSession(session({stage: 'error', errorCode}))
+
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        'USB connection needs attention',
+      )
+      expect(container.textContent).toContain('Reconnect via USB')
+      expect(container.textContent).not.toContain('The phone did not answer')
+    },
+  )
 })

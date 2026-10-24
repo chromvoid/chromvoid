@@ -29,8 +29,8 @@ test('mobile Files add menu opens one popup and executes from touch coordinates'
       {timeout: 15_000},
     )
 
-    const topToolbar = page.locator('mobile-top-toolbar').first()
-    const dashboardHeader = page.locator('workspace-dashboard-header').first()
+    const topToolbar = page.getByTestId('mobile-toolbar').first()
+    const dashboardHeader = page.getByTestId('workspace-header').first()
     const fileList = page.locator('dashboard-file-list').first()
     await Promise.all([
       topToolbar.waitFor({state: 'attached'}),

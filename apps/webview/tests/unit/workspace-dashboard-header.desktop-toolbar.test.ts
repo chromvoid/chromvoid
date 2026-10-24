@@ -1,6 +1,7 @@
 import {atom} from '@reatom/core'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
+import {FileManagerModel} from '../../src/features/file-manager/file-manager.model'
 import {WorkspaceDashboardHeader} from '../../src/features/file-manager/components/workspace-dashboard-header'
 import {createDefaultWorkspaceDashboardHeaderFilters} from '../../src/features/file-manager/components/workspace-dashboard-header.model'
 import type {FileSearchFilterActions} from '../../src/features/file-manager/models/file-search-filters.model'
@@ -72,6 +73,7 @@ async function renderDesktopHeader(selectionMode = atom(false), filterActions: F
 
 describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     clearAppContext()
     document.querySelectorAll('workspace-dashboard-header').forEach((el) => el.remove())
   })
@@ -155,7 +157,9 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
     const setFilterValue = vi.fn()
     const activateSort = vi.fn()
     const setViewMode = vi.fn()
-    const onCreateNote = vi.fn()
+    const onCreateNote = vi
+      .spyOn(FileManagerModel.prototype, 'handleCreateMarkdownNote')
+      .mockResolvedValue(undefined)
     header.surface = 'notes'
     header.controlsModel = {
       search: {
@@ -194,7 +198,6 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
         setValue: setViewMode,
       },
     }
-    header.addEventListener('create-note', onCreateNote)
 
     const title = document.createElement('span')
     title.slot = 'title'
@@ -524,20 +527,20 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
     expect(setViewMode).toHaveBeenCalledWith('table')
   })
 
-  it('keeps desktop create action event contract through the shell toolbar', async () => {
+  it('delegates desktop create actions to the file-manager model through the shell toolbar', async () => {
     const header = await renderDesktopHeader()
-    const onCreateDir = vi.fn()
-    header.addEventListener('create-dir', onCreateDir)
+    const onCreateDir = vi.spyOn(FileManagerModel.prototype, 'handleCreateDir').mockResolvedValue(undefined)
 
     header.shadowRoot?.querySelector<HTMLElement>('[data-action="create-dir"]')?.click()
 
     expect(onCreateDir).toHaveBeenCalledTimes(1)
   })
 
-  it('exposes the desktop New Note action through the header event contract', async () => {
+  it('exposes the desktop New Note action through the file-manager model', async () => {
     const header = await renderDesktopHeader()
-    const onCreateNote = vi.fn()
-    header.addEventListener('create-note', onCreateNote)
+    const onCreateNote = vi
+      .spyOn(FileManagerModel.prototype, 'handleCreateMarkdownNote')
+      .mockResolvedValue(undefined)
 
     const action = header.shadowRoot?.querySelector<HTMLElement>('[data-action="create-note"]')
     expect(action?.textContent?.trim()).toBe('Note')
@@ -569,8 +572,9 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
   it('keeps selection mode toggle in the compact desktop toolbar', async () => {
     const selectionMode = atom(false)
     const header = await renderDesktopHeader(selectionMode)
-    const onSelectionModeRequested = vi.fn()
-    header.addEventListener('selection-mode-requested', onSelectionModeRequested)
+    const setSelectionMode = vi
+      .spyOn(FileManagerModel.prototype, 'setSelectionMode')
+      .mockImplementation(() => {})
 
     const toolbar = header.shadowRoot?.querySelector('dashboard-header')
     const center = toolbar?.querySelector('[slot="center"]')
@@ -583,8 +587,8 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
 
     toggle?.click()
 
-    expect(onSelectionModeRequested).toHaveBeenCalledTimes(1)
-    expect(onSelectionModeRequested.mock.calls[0]?.[0].detail).toEqual({enabled: true})
+    expect(setSelectionMode).toHaveBeenCalledTimes(1)
+    expect(setSelectionMode).toHaveBeenCalledWith(true)
 
     selectionMode.set(true)
     await header.updateComplete
@@ -592,18 +596,14 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
     expect(toggle?.getAttribute('pressed')).toBe('')
   })
 
-  it('renders contextual selection actions and preserves their event contracts', async () => {
+  it('renders contextual selection actions and calls their file-manager methods', async () => {
     const header = await renderDesktopHeader()
-    const listeners = {
-      move: vi.fn(),
-      download: vi.fn(),
-      delete: vi.fn(),
-      clear: vi.fn(),
+    const actions = {
+      move: vi.spyOn(FileManagerModel.prototype, 'openMoveDialogForSelectedItems').mockResolvedValue(true),
+      download: vi.spyOn(FileManagerModel.prototype, 'handleDownloadSelected').mockResolvedValue(undefined),
+      delete: vi.spyOn(FileManagerModel.prototype, 'handleDeleteSelected').mockResolvedValue(undefined),
+      clear: vi.spyOn(FileManagerModel.prototype, 'handleSelectionChange').mockImplementation(() => {}),
     }
-    header.addEventListener('move-selected', listeners.move)
-    header.addEventListener('download-selected', listeners.download)
-    header.addEventListener('delete-selected', listeners.delete)
-    header.addEventListener('clear-selection', listeners.clear)
     header.selectedCount = 3
     header.canDownloadSelection = true
     await header.updateComplete
@@ -619,16 +619,16 @@ describe('WorkspaceDashboardHeader desktop shell toolbar', () => {
     strip?.querySelector<HTMLElement>('[data-action="delete-selected"]')?.click()
     strip?.querySelector<HTMLElement>('[data-action="clear-selection"]')?.click()
 
-    expect(listeners.move).toHaveBeenCalledTimes(1)
-    expect(listeners.download).toHaveBeenCalledTimes(1)
-    expect(listeners.delete).toHaveBeenCalledTimes(1)
-    expect(listeners.clear).toHaveBeenCalledTimes(1)
+    expect(actions.move).toHaveBeenCalledTimes(1)
+    expect(actions.download).toHaveBeenCalledTimes(1)
+    expect(actions.delete).toHaveBeenCalledTimes(1)
+    expect(actions.clear).toHaveBeenCalledTimes(1)
+    expect(actions.clear).toHaveBeenCalledWith([])
   })
 
   it('disables Download for a directory-only selection', async () => {
     const header = await renderDesktopHeader()
-    const onDownload = vi.fn()
-    header.addEventListener('download-selected', onDownload)
+    const onDownload = vi.spyOn(FileManagerModel.prototype, 'handleDownloadSelected').mockResolvedValue(undefined)
     header.selectedCount = 1
     header.canDownloadSelection = false
     await header.updateComplete

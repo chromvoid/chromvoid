@@ -211,3 +211,226 @@ fn test_erase_execute_returns_stats_fields() {
         .and_then(|v| v.as_u64())
         .is_some());
 }
+
+fn storage_bytes(
+    root: &std::path::Path,
+) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    fn visit(
+        root: &std::path::Path,
+        path: &std::path::Path,
+        files: &mut std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
+    ) {
+        for entry in std::fs::read_dir(path).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                visit(root, &path, files);
+            } else {
+                files.insert(
+                    path.strip_prefix(root).unwrap().to_path_buf(),
+                    std::fs::read(path).unwrap(),
+                );
+            }
+        }
+    }
+    let mut files = std::collections::BTreeMap::new();
+    visit(root, root, &mut files);
+    files
+}
+
+#[test]
+fn canceled_erase_preserves_bytes_and_key_and_requires_new_confirmation() {
+    use chromvoid_core::crypto::keystore::Keystore;
+    for cancel_at_check in [1, 2] {
+        let (mut router, root, key) = create_test_router_with_keystore();
+        assert_rpc_ok(&router.handle(&RpcRequest::new(
+            "master:setup",
+            serde_json::json!({"master_password":MASTER_PASSWORD}),
+        )));
+        unlock_vault(&mut router, "synthetic vault password");
+        create_dir(&mut router, "cancel-preserved");
+        lock_vault(&mut router);
+        let before = storage_bytes(root.path());
+        let pepper = key.load_storage_pepper().unwrap().unwrap();
+        let review = erase_confirm(&mut router);
+        let token = review.result().unwrap()["erase_token"].as_str().unwrap();
+        let calls = std::cell::Cell::new(0);
+        let response = router.handle_erase_execute_cancellable(
+            &serde_json::json!({"erase_token":token, "master_password":MASTER_PASSWORD}),
+            &|| {
+                calls.set(calls.get() + 1);
+                calls.get() == cancel_at_check
+            },
+            &mut || panic!("Canceled erase must not start deletion"),
+        );
+        assert_rpc_error(&response, "ERASE_TOKEN_EXPIRED");
+        assert_eq!(calls.get(), cancel_at_check);
+        assert_eq!(storage_bytes(root.path()), before);
+        assert_eq!(key.load_storage_pepper().unwrap(), Some(pepper));
+        assert_rpc_error(
+            &erase_execute(&mut router, token, MASTER_PASSWORD),
+            "ERASE_TOKEN_EXPIRED",
+        );
+        let next = erase_confirm(&mut router);
+        let next_token = next.result().unwrap()["erase_token"].as_str().unwrap();
+        assert_rpc_ok(&erase_execute(&mut router, next_token, MASTER_PASSWORD));
+        assert_eq!(key.load_storage_pepper().unwrap(), None);
+        assert_rpc_error(
+            &erase_execute(&mut router, next_token, MASTER_PASSWORD),
+            "ERASE_TOKEN_EXPIRED",
+        );
+    }
+}
+
+#[test]
+fn locking_invalidates_erase_review_without_changing_storage() {
+    let (mut router, root) = create_router_with_master();
+    unlock_vault(&mut router, "synthetic vault password");
+    create_dir(&mut router, "preserved-after-lock");
+    lock_vault(&mut router);
+    let before = storage_bytes(root.path());
+    let review = erase_confirm(&mut router);
+    let token = review.result().unwrap()["erase_token"].as_str().unwrap();
+    lock_vault(&mut router);
+    assert_rpc_error(
+        &erase_execute(&mut router, token, MASTER_PASSWORD),
+        "ERASE_TOKEN_EXPIRED",
+    );
+    assert_eq!(storage_bytes(root.path()), before);
+}
+
+#[test]
+fn invalid_authorization_preserves_every_storage_artifact_and_pepper() {
+    use chromvoid_core::crypto::keystore::Keystore;
+    let (mut router, root, key) = create_test_router_with_keystore();
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "master:setup",
+        serde_json::json!({"master_password":MASTER_PASSWORD}),
+    )));
+    unlock_vault(&mut router, "synthetic vault password");
+    create_dir(&mut router, "preserved-with-wrong-password");
+    lock_vault(&mut router);
+    let before = storage_bytes(root.path());
+    let pepper = key.load_storage_pepper().unwrap().unwrap();
+    let review = erase_confirm(&mut router);
+    let token = review.result().unwrap()["erase_token"].as_str().unwrap();
+    assert_rpc_error(
+        &erase_execute(&mut router, token, "incorrect"),
+        "INVALID_MASTER_PASSWORD",
+    );
+    assert_rpc_error(
+        &erase_execute(&mut router, "different token", MASTER_PASSWORD),
+        "ERASE_TOKEN_EXPIRED",
+    );
+    assert_eq!(storage_bytes(root.path()), before);
+    assert_eq!(key.load_storage_pepper().unwrap(), Some(pepper));
+}
+
+#[test]
+fn erase_does_not_report_success_when_primary_key_deletion_fails() {
+    use chromvoid_core::crypto::keystore::{Keystore, KeystoreError};
+    struct FailingDelete(InMemoryKeystore);
+    impl Keystore for FailingDelete {
+        fn load_storage_pepper(&self) -> Result<Option<[u8; 32]>, KeystoreError> {
+            self.0.load_storage_pepper()
+        }
+        fn store_storage_pepper(&self, value: [u8; 32]) -> Result<(), KeystoreError> {
+            self.0.store_storage_pepper(value)
+        }
+        fn delete_storage_pepper(&self) -> Result<(), KeystoreError> {
+            Err(KeystoreError::Unavailable)
+        }
+    }
+    enable_fast_kdf_for_tests();
+    let root = TempDir::new().unwrap();
+    let key = Arc::new(FailingDelete(InMemoryKeystore::new()));
+    let mut router = RpcRouter::new(Storage::new(root.path()).unwrap()).with_keystore(key.clone());
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "master:setup",
+        serde_json::json!({"master_password":MASTER_PASSWORD}),
+    )));
+    unlock_vault(&mut router, "synthetic vault password");
+    create_dir(&mut router, "removed-but-key-cleanup-failed");
+    let review = erase_confirm(&mut router);
+    let token = review.result().unwrap()["erase_token"].as_str().unwrap();
+    assert_rpc_error(
+        &erase_execute(&mut router, token, MASTER_PASSWORD),
+        "KEYSTORE_UNAVAILABLE",
+    );
+    assert!(key.load_storage_pepper().unwrap().is_some());
+    assert!(Storage::new(root.path())
+        .unwrap()
+        .list_chunks()
+        .unwrap()
+        .is_empty());
+    assert!(!root.path().join("master.verify").exists());
+    assert!(!router.is_unlocked());
+    assert_rpc_error(
+        &erase_execute(&mut router, token, MASTER_PASSWORD),
+        "ERASE_TOKEN_EXPIRED",
+    );
+}
+
+#[test]
+fn cancellation_during_failed_authentication_also_invalidates_erase_token() {
+    let (mut router, root) = create_router_with_master();
+    let before = storage_bytes(root.path());
+    let review = erase_confirm(&mut router);
+    let token = review.result().unwrap()["erase_token"].as_str().unwrap();
+    let calls = std::cell::Cell::new(0);
+    let response = router.handle_erase_execute_cancellable(
+        &serde_json::json!({"erase_token":token, "master_password":"incorrect password"}),
+        &|| {
+            calls.set(calls.get() + 1);
+            calls.get() == 2
+        },
+        &mut || panic!("Canceled erase must not start deletion"),
+    );
+    assert_rpc_error(&response, "ERASE_TOKEN_EXPIRED");
+    assert_eq!(calls.get(), 2);
+    assert_rpc_error(
+        &erase_execute(&mut router, token, MASTER_PASSWORD),
+        "ERASE_TOKEN_EXPIRED",
+    );
+    assert_eq!(storage_bytes(root.path()), before);
+}
+
+#[test]
+fn failed_administrator_artifact_cleanup_still_deletes_primary_key() {
+    use chromvoid_core::crypto::keystore::Keystore;
+    use chromvoid_core::storage::test_util::{
+        fault_injecting_storage, FaultRule, StorageOperation,
+    };
+    let (mut router, root, key) = create_test_router_with_keystore();
+    assert_rpc_ok(&router.handle(&RpcRequest::new(
+        "master:setup",
+        serde_json::json!({"master_password":MASTER_PASSWORD}),
+    )));
+    unlock_vault(&mut router, "synthetic vault password");
+    create_dir(&mut router, "removed-before-cleanup-error");
+    lock_vault(&mut router);
+    drop(router);
+    let (storage, _handle) = fault_injecting_storage(
+        root.path(),
+        Some(FaultRule {
+            operation: StorageOperation::RemoveArtifact,
+            // Reset removes format and vault salt, then cleanup removes master salt.
+            fail_on: 4,
+        }),
+    )
+    .unwrap();
+    let mut router = RpcRouter::new(storage).with_keystore(key.clone());
+    let review = erase_confirm(&mut router);
+    let token = review.result().unwrap()["erase_token"].as_str().unwrap();
+    assert_rpc_error(
+        &erase_execute(&mut router, token, MASTER_PASSWORD),
+        "INTERNAL_ERROR",
+    );
+    assert!(root.path().join("master.verify").exists());
+    assert!(!root.path().join("master.salt").exists());
+    assert!(key.load_storage_pepper().unwrap().is_none());
+    assert!(Storage::new(root.path())
+        .unwrap()
+        .list_chunks()
+        .unwrap()
+        .is_empty());
+}

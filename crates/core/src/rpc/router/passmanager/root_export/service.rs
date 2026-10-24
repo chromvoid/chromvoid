@@ -11,7 +11,7 @@ pub(super) fn build_root_export(
     storage: &Storage,
     now_ms: u64,
 ) -> Result<RootExportDocument, RootExportError> {
-    let entries = entry_export::collect_exported_entries(session, storage);
+    let entries = entry_export::collect_exported_entries(session, storage)?;
     let folders = group_export::collect_folders(session);
     let folders_meta = group_export::collect_folder_metadata(session, storage)?;
     let tag_catalog = tag_export::collect_tag_catalog(session, storage, &entries)?;

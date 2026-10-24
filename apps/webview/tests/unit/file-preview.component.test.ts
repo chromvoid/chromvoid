@@ -272,7 +272,7 @@ describe('file-preview component', () => {
   })
 
   it('dims the preview and disables the native share action while share is preparing', async () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true, supports_native_share: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true, supports_native_share: true})
     Object.defineProperty(navigator, 'share', {
       configurable: true,
       writable: true,
@@ -344,7 +344,7 @@ describe('file-preview component', () => {
   })
 
   it('shows a native header share action inside Tauri even without Web Share API', async () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true, supports_native_share: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true, supports_native_share: true})
     Object.defineProperty(navigator, 'share', {
       configurable: true,
       writable: true,

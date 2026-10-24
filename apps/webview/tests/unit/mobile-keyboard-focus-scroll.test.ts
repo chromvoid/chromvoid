@@ -11,14 +11,13 @@ import {
 } from '../../src/app/bootstrap/mobile-keyboard-focus-scroll'
 import {markMobileKeyboardProgrammaticScroll} from '../../src/shared/services/mobile-keyboard-scroll-intent'
 import {
-  ANDROID_KEYBOARD_INSETS_EVENT,
   IOS_KEYBOARD_INSETS_EVENT,
   applyMobileKeyboardInsetsPayload,
 } from '../../src/app/bootstrap/mobile-keyboard-insets'
 import {createMobileKeyboardStateController} from '../../src/app/bootstrap/mobile-keyboard/keyboard-state'
 
-function dispatchAndroidKeyboardInsets(detail: Record<string, unknown>) {
-  window.dispatchEvent(new CustomEvent(ANDROID_KEYBOARD_INSETS_EVENT, {detail}))
+function applyKeyboardInsets(detail: Parameters<typeof applyMobileKeyboardInsetsPayload>[1]) {
+  applyMobileKeyboardInsetsPayload(document.documentElement, detail)
 }
 
 let cleanupCoordinator: (() => void) | null = null
@@ -33,7 +32,6 @@ function resetRootKeyboardState() {
   document.documentElement.removeAttribute('data-mobile-keyboard-expanded')
   document.documentElement.removeAttribute('data-mobile-keyboard-native-resize')
   document.documentElement.removeAttribute('data-native-keyboard-insets')
-  document.documentElement.removeAttribute('data-android-native-keyboard-insets')
   document.documentElement.removeAttribute('data-ios-native-keyboard-insets')
   document.documentElement.style.removeProperty('--app-runtime-keyboard-scroll-clearance')
   document.documentElement.style.removeProperty('--app-runtime-keyboard-overlay-offset')
@@ -527,21 +525,21 @@ describe('mobile keyboard focus scroll coordinator', () => {
       const scroller = appendFieldInScroller(input)
       vi.mocked(input.getBoundingClientRect).mockReturnValue(createDOMRect({top: 200, bottom: 240}))
       setupCoordinator()
-      dispatchAndroidKeyboardInsets({
+      applyKeyboardInsets({
         visible: true,
         bottomInset: 224,
         phase: 'settled',
-        source: 'android-native',
+        source: 'tauri-visibility',
         viewportMode: 'overlay',
       })
       input.focus()
       currentTime = 501
 
-      dispatchAndroidKeyboardInsets({
+      applyKeyboardInsets({
         visible: true,
         bottomInset: 198,
         phase: 'progress',
-        source: 'android-native',
+        source: 'tauri-visibility',
         viewportMode: 'overlay',
       })
       dispatchBeforeInput(input)
@@ -907,7 +905,7 @@ describe('mobile keyboard focus scroll coordinator', () => {
         visible: true,
         bottomInset: 240,
         phase: 'settled',
-        source: 'android-native',
+        source: 'tauri-visibility',
       })
       scroller.scrollTop = 320
       currentTime = 501
@@ -916,7 +914,7 @@ describe('mobile keyboard focus scroll coordinator', () => {
         visible: false,
         bottomInset: 0,
         phase: 'settled',
-        source: 'android-native',
+        source: 'tauri-visibility',
       })
       scroller.scrollTop = 560
       scroller.dispatchEvent(new Event('scroll'))

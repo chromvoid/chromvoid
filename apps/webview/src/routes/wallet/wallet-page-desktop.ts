@@ -49,7 +49,7 @@ export class WalletPageDesktopLayout extends WalletPageLayoutBase {
         ${this.model.loading() && !status ? this.renderLoading() : nothing}
         ${status && !status.enabled ? this.renderDisabled(status.disabled_reason ?? '') : nothing}
         ${status?.enabled && accounts.length === 0 ? this.renderOnboarding() : nothing}
-        ${status?.enabled && accounts.length > 0 ? this.renderWallet(accounts) : nothing}
+        ${status?.enabled && accounts.length > 0 ? this.renderWallet() : nothing}
         ${this.renderWalletSwitcherDialog()} ${this.renderReceiveDialog()}
       </section>
     `
@@ -143,29 +143,15 @@ export class WalletPageDesktopLayout extends WalletPageLayoutBase {
     `
   }
 
-  private renderWallet(accounts: WalletAccount[]): TemplateResult {
+  private renderWallet(): TemplateResult {
     const mode = this.model.mode()
-    const selectedNetwork = this.model.selectedAccount()?.network
     return html`
       <div class="wallet-grid">
         <aside class="card account-list" aria-label=${i18n('wallet:accounts:title')}>
           <div class="account-list-header">
             <h2>${i18n('wallet:accounts:title')}</h2>
-            ${selectedNetwork && this.model.canDeriveAccount(selectedNetwork)
-              ? html`
-                  <button
-                    class="ghost account-add-button"
-                    data-network=${selectedNetwork}
-                    @click=${this.handleDeriveAccount}
-                    ?disabled=${this.model.deriveAccountLoading()}
-                  >
-                    <cv-icon name="plus"></cv-icon>
-                    ${i18n('wallet:action:add-account')}
-                  </button>
-                `
-              : nothing}
           </div>
-          ${accounts.map((account) => this.renderAccountButton(account))}
+          ${this.model.walletAssets().map((account) => this.renderAccountButton(account))}
         </aside>
         <main class="panel">
           <div class="tabs" role="group" aria-label=${i18n('wallet:title')}>
@@ -256,6 +242,7 @@ export class WalletPageDesktopLayout extends WalletPageLayoutBase {
           <strong><bdi dir="auto">${walletAccountLabel(account)}</bdi></strong>
           <span class="meta" dir="ltr">${account.network} · ${shortenAddress(walletAccountAddress(account))}</span>
         </span>
+        <span class="meta account-balance">${this.model.displayAccountBalance(account)}</span>
       </button>
     `
   }
@@ -268,6 +255,9 @@ export class WalletPageDesktopLayout extends WalletPageLayoutBase {
     return html`
       <section class="card section">
         <h2>${i18n('wallet:overview:title')}</h2>
+        <h3>${i18n('wallet:overview:assets')}</h3>
+        ${this.renderAssetList()}
+        <h3 dir="ltr">${this.model.selectedNetworkProfile()?.label ?? account.network}</h3>
         <div class="summary-grid">
           <div class="metric">
             <span class="label">${i18n('wallet:balance:total')}</span>
@@ -304,6 +294,7 @@ export class WalletPageDesktopLayout extends WalletPageLayoutBase {
             >
               <cv-icon name="refresh-cw"></cv-icon>${i18n('wallet:action:refresh-balance')}
             </button>
+            ${this.renderAddAccountAction(account.network, 'ghost')}
           </div>
           <p class="muted">
             ${balance
@@ -448,7 +439,7 @@ export class WalletPageDesktopLayout extends WalletPageLayoutBase {
             </p>`
           : nothing}
         ${this.model.recoveryMnemonic().length > 0
-          ? renderWalletMnemonic(this.model.recoveryMnemonic())
+          ? renderWalletMnemonic(this.model.recoveryMnemonic(), this.model.recoveryMnemonicStandard())
           : nothing}
         ${this.model.recoveryPassphrase()
           ? html`<p class="account-copy">

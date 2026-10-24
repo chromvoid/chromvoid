@@ -31,18 +31,12 @@ export class RemoteMobileHostModel {
     return capabilities.mobile && capabilities.supports_network_remote
   })
 
-  readonly platform = computed<string>(() => {
-    const platform = this.hostStatus()?.platform?.trim()
-    if (platform) return platform
-    return getRuntimeCapabilities().platform === 'android' ? 'android' : 'ios'
-  })
+  // The webview hosts only on iOS; the native Android client has its own host.
+  readonly platform = computed<string>(() => this.hostStatus()?.platform?.trim() || 'ios')
 
-  readonly transports = computed<MobileHostTransportKind[]>(() => {
-    if (!this.isRuntime()) return []
-    return this.platform() === 'android'
-      ? (['wss_relay', 'usb_mobile'] satisfies MobileHostTransportKind[])
-      : (['wss_relay'] satisfies MobileHostTransportKind[])
-  })
+  readonly transports = computed<MobileHostTransportKind[]>(() =>
+    this.isRuntime() ? ['wss_relay' as const] : [],
+  )
 
   readonly pageState = computed<MobileHostPageState>(() => {
     const phase = this.pairPhase()
@@ -59,11 +53,6 @@ export class RemoteMobileHostModel {
   readonly connectedNetworkPeers = computed(
     () => this.filterConnectedPeers((peer) => peer.transport_type !== 'usb_mobile'),
     'remote.mobileHost.connectedNetworkPeers',
-  )
-
-  readonly connectedUsbPeers = computed(
-    () => this.filterConnectedPeers((peer) => peer.transport_type === 'usb_mobile'),
-    'remote.mobileHost.connectedUsbPeers',
   )
 
   readonly pairingPin = computed<string>(() => this.hostStatus()?.pairing_pin ?? '')
@@ -91,9 +80,7 @@ export class RemoteMobileHostModel {
     if (input) return input
 
     if (!this.isRuntime()) return i18n('network-pair:default-device-desktop')
-    return this.platform() === 'android'
-      ? i18n('network-pair:default-device-android')
-      : i18n('network-pair:default-device-ios')
+    return i18n('network-pair:default-device-ios')
   })
 
   applyStatus(status: MobileHostStatus): boolean {

@@ -689,7 +689,7 @@ describe('markdown-preview component', () => {
 
   it('keeps a focused source editor focused while applying a touch quick action', async () => {
     ensureDefined()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     setMobileKeyboardOccluding(true)
     const element = createElementWithState(readyState({mode: 'edit'}))
     await settle(element)
@@ -721,7 +721,7 @@ describe('markdown-preview component', () => {
 
   it('keeps a dismissed mobile keyboard hidden while applying a touch quick action', async () => {
     ensureDefined()
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     const element = createElementWithState(readyState({mode: 'edit'}))
     await settle(element)
 

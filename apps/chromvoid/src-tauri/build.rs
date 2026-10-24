@@ -1,23 +1,23 @@
-const LICENSE_PUBLIC_KEY_ENV: &str = "CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01";
-const WALLET_FLAG_ENVS: &[&str] = &["CHROMVOID_WALLET_ENABLED", "CHROMVOID_BTC_ESPLORA_URL"];
+const WALLET_FLAG_ENVS: &[&str] = &[
+    "CHROMVOID_TON_API_URL",
+    "CHROMVOID_BTC_ESPLORA_URL",
+    "CHROMVOID_BUILD_WALLET_ETHEREUM",
+    "CHROMVOID_ETH_RPC_URL",
+    "CHROMVOID_ETH_INDEXER_URL",
+    "CHROMVOID_BUILD_WALLET_SOLANA",
+    "CHROMVOID_SOL_RPC_URL",
+];
 
 fn main() {
-    println!("cargo:rerun-if-env-changed={LICENSE_PUBLIC_KEY_ENV}");
     for env in WALLET_FLAG_ENVS {
         println!("cargo:rerun-if-env-changed={env}");
     }
-    require_license_public_key_for_release();
 
     // Use ACL permissions for custom app commands (Tauri v2 capabilities).
     // Names here must match the command names used by `#[tauri::command]` (snake_case).
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "rpc_dispatch",
-            "license_activation_code_activate",
-            "license_account_cabinet_handoff",
-            "license_status",
-            "license_seat_status",
-            "license_current_seat_deactivate",
             "module_access_snapshot",
             "module_access_resolve",
             "macos_otp_import_pending",
@@ -26,8 +26,6 @@ fn main() {
             "catalog_upload_chunk",
             "catalog_upload_native_files",
             "catalog_cancel_native_upload",
-            "catalog_upload_android_shared_files",
-            "catalog_cancel_android_shared_files",
             "passmanager_upload_chunk",
             "catalog_upload_path",
             "file_stat",
@@ -103,22 +101,11 @@ fn main() {
             "get_local_device_identity",
             "mobile_notify_background",
             "mobile_notify_foreground",
-            "android_media_session_update",
-            "android_media_session_stop",
-            "android_audio_session_command",
-            "android_audio_warmup",
-            "android_video_start",
-            "android_video_stop",
             "mobile_biometric_auth",
             "credential_provider_status",
             "open_credential_provider_settings",
             "credential_provider_passkeys_list",
             "credential_provider_passkey_delete",
-            "android_passkeys_list",
-            "android_passkey_delete",
-            "android_password_save_finish",
-            "android_quick_lock_tile_status",
-            "android_request_quick_lock_tile",
             "configure_native_edge_back",
             "start_ios_host_mode",
             "stop_ios_host_mode",
@@ -181,17 +168,4 @@ fn main() {
         ]),
     ))
     .expect("tauri-build failed");
-}
-
-fn require_license_public_key_for_release() {
-    if std::env::var("PROFILE").ok().as_deref() != Some("release") {
-        return;
-    }
-
-    let value = std::env::var(LICENSE_PUBLIC_KEY_ENV).unwrap_or_default();
-    if value.trim().is_empty() {
-        panic!(
-            "missing {LICENSE_PUBLIC_KEY_ENV}: release app builds must embed the license verification public key"
-        );
-    }
 }

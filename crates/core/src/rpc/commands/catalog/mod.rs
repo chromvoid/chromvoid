@@ -1,5 +1,6 @@
 //! Catalog CRUD command handlers.
 
+mod attachment;
 mod crud;
 mod deltas;
 mod derivative;
@@ -11,12 +12,16 @@ mod notes;
 mod paged_list;
 mod trash;
 
+pub use attachment::handle_catalog_attachment_prepare;
 pub use crud::{handle_catalog_create_dir, handle_catalog_list, handle_catalog_rename};
 pub(in crate::rpc) use derivative::{
     handle_catalog_derivative_compact, handle_catalog_derivative_stats,
 };
 pub use exchange::handle_catalog_exchange;
-pub use file_links::{handle_catalog_file_links_complete, handle_catalog_file_links_resolve};
+pub use file_links::{
+    handle_catalog_document_link, handle_catalog_file_links_complete,
+    handle_catalog_file_links_resolve,
+};
 pub use metadata::handle_catalog_source_metadata;
 pub use mutate::{handle_catalog_delete, handle_catalog_move};
 pub(in crate::rpc) use mutate::{

@@ -61,6 +61,7 @@ impl MobileUsbController {
     ) -> Result<(Box<dyn RemoteTransport>, chromvoid_protocol::NoiseTransport), MobileUsbError>
     {
         let mut last_error = None;
+        let mut handshake_timeouts = 0;
         let retry_policy = connect_handshake_retry_policy();
 
         for attempt in 0..retry_policy.attempts {
@@ -129,13 +130,24 @@ impl MobileUsbController {
             {
                 Ok(Ok(result)) => Ok(result),
                 Ok(Err(error)) => Err(mobile_usb_ik_handshake_error(error)),
-                Err(_) => Err(MobileUsbError::new(
-                    MobileUsbErrorCode::HandshakeFailed,
-                    format!(
-                        "mobile USB IK handshake timed out after {:?}",
-                        retry_policy.timeout
-                    ),
-                )),
+                Err(_) => {
+                    handshake_timeouts += 1;
+                    // Every attempt must have opened a stream and timed out.
+                    // Silence is not cryptographic evidence of stale pairing
+                    // (FR-025); forgetting the phone remains the user's choice.
+                    let code = if handshake_timeouts == retry_policy.attempts {
+                        MobileUsbErrorCode::PhoneNotResponding
+                    } else {
+                        MobileUsbErrorCode::HandshakeFailed
+                    };
+                    Err(MobileUsbError::new(
+                        code,
+                        format!(
+                            "mobile USB IK handshake timed out after {:?}",
+                            retry_policy.timeout
+                        ),
+                    ))
+                }
             };
 
             match handshake_result {

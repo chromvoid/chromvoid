@@ -186,3 +186,44 @@ impl Read for CatalogBlobRangeReader {
         Ok(written)
     }
 }
+
+/// A full source with Core-owned validation, cache and zeroizing key ownership.
+/// Unlike a wire range reply, decoders may seek through this source without the router.
+pub struct CatalogSourceReader {
+    pub meta: crate::rpc::stream::RpcRangeStreamMeta,
+    reader: CatalogBlobRangeReader,
+}
+impl CatalogSourceReader {
+    pub(crate) fn new(
+        meta: crate::rpc::stream::RpcRangeStreamMeta,
+        reader: CatalogBlobRangeReader,
+    ) -> Self {
+        Self { meta, reader }
+    }
+}
+impl Read for CatalogSourceReader {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.reader.read(bytes)
+    }
+}
+impl std::io::Seek for CatalogSourceReader {
+    fn stream_position(&mut self) -> io::Result<u64> {
+        Ok(self.reader.cursor)
+    }
+    fn seek(&mut self, position: std::io::SeekFrom) -> io::Result<u64> {
+        use std::io::SeekFrom;
+        let next = match position {
+            SeekFrom::Start(offset) => i128::from(offset),
+            SeekFrom::Current(offset) => i128::from(self.reader.cursor) + i128::from(offset),
+            SeekFrom::End(offset) => i128::from(self.reader.file_size) + i128::from(offset),
+        };
+        let next = u64::try_from(next)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid source seek"))?;
+        self.reader.cursor = next;
+        self.reader.buf = None;
+        self.reader.buf_len = 0;
+        self.reader.buf_chunk_index = None;
+        self.reader.pos = 0;
+        Ok(next)
+    }
+}

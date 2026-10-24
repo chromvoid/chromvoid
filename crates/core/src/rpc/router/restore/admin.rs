@@ -34,6 +34,7 @@ fn admin_restore_v2(
         .recover_before_restore_entry()
         .map_err(RestoreCommandError::from)?;
 
+    router.clear_credential_import();
     router.session = None;
     router.wallet_auth_runtime.spend_authorizations.clear();
     router.wallet_mnemonic_drafts.clear();
@@ -64,6 +65,7 @@ fn admin_restore_stream(
         .recover_before_restore_entry()
         .map_err(RestoreCommandError::from)?;
 
+    router.clear_credential_import();
     router.session = None;
     router.wallet_auth_runtime.spend_authorizations.clear();
     router.wallet_mnemonic_drafts.clear();

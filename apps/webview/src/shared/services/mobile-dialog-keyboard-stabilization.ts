@@ -7,7 +7,6 @@ export const PASSWORD_INPUT_DIALOG_PROVISIONAL_KEYBOARD_OFFSET = 'min(42dvh, 360
 export type PasswordInputDialogKeyboardOffsetPhase = 'progress' | 'settled'
 export type PasswordInputDialogKeyboardViewportMode = 'overlay' | 'native-resize'
 export type PasswordInputDialogKeyboardOffsetSource =
-  | 'android-native'
   | 'ios-native'
   | 'tauri-visibility'
   | 'visual-viewport'
@@ -65,11 +64,7 @@ export function syncPasswordInputDialogKeyboardOffset(
       : Number.isFinite(keyboardInset) && keyboardInset > 0
         ? Math.round(keyboardInset)
         : 0
-  if (options.source === 'android-native' && options.phase === 'progress') {
-    stabilizedKeyboardInset = nextInset
-  } else {
-    stabilizedKeyboardInset = nextInset === 0 ? 0 : Math.max(stabilizedKeyboardInset, nextInset)
-  }
+  stabilizedKeyboardInset = nextInset === 0 ? 0 : Math.max(stabilizedKeyboardInset, nextInset)
   root.style.setProperty(PASSWORD_INPUT_DIALOG_KEYBOARD_OFFSET_VAR, `${stabilizedKeyboardInset}px`)
   return stabilizedKeyboardInset
 }

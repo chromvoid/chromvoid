@@ -9,7 +9,7 @@ import {
   getNotesQuickViewSortLabel,
 } from 'root/features/file-manager/components/notes-quick-view/notes-quick-view.presentation'
 import {PMGroupModel, type PMGroupMetric} from 'root/features/passmanager/components/group/group/group.model'
-import {sortDirection, sortField} from 'root/features/passmanager/components/list/sort-controls'
+import {sortDirection, sortField} from 'root/features/passmanager/components/list/sort-controls.model'
 import {getSortFieldLabel} from 'root/features/passmanager/components/list/sort-options'
 import {pmOtpQuickViewModel} from 'root/features/passmanager/components/otp-quick-view/otp-quick-view.model'
 import {getPassmanagerShowElement} from 'root/features/passmanager/models/pm-root.adapter'

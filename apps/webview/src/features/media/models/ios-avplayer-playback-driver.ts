@@ -9,8 +9,12 @@ import {getAppContext} from 'root/shared/services/app-context'
 import type {ResolvedAudioTrack} from 'root/app/navigation/navigation.types'
 import {resolveFileFormat} from 'root/utils/file-format-registry'
 import type {MediaPlaybackIntent, MediaPlaybackLoadingState, MediaPlaybackSourceKind, MediaPlaybackState} from './media-playback.model'
-import type {AudioPlaybackDriver, AudioPlaybackDriverKind, AudioSessionInput} from './audio-playback-driver'
-import {resolveAndroidTrackSourceRevision} from './android-media3-playback-driver'
+import {
+  resolveTrackSourceRevision,
+  type AudioPlaybackDriver,
+  type AudioPlaybackDriverKind,
+  type AudioSessionInput,
+} from './audio-playback-driver'
 
 type IosAvPlayerPlaybackDriverHost = {
   setDriverKind(kind: AudioPlaybackDriverKind): void
@@ -52,7 +56,7 @@ function resolveNativeTrackMimeType(track: ResolvedAudioTrack): string | undefin
 
 function toNativeTrackInput(track: ResolvedAudioTrack): NativeAudioTrackInput {
   const size = toPositiveFiniteInteger(track.size)
-  const sourceRevision = resolveAndroidTrackSourceRevision(track)
+  const sourceRevision = resolveTrackSourceRevision(track)
   const mimeType = resolveNativeTrackMimeType(track)
 
   if (!toPositiveFiniteInteger(track.id)) {

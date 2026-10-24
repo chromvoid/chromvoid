@@ -14,7 +14,6 @@ export {
   applyMobileKeyboardInsetsPayload,
   applyMobileKeyboardVisibilityPayload,
   getMobileKeyboardPayloadBottomInset,
-  setupAndroidKeyboardInsetsEventListener,
   setupIOSKeyboardInsetsEventListener,
   setupNativeKeyboardInsetsEventListeners,
   type MobileKeyboardInsetsPayload,

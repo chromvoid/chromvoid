@@ -30,13 +30,13 @@ export abstract class EnvRuntimePageSections extends EnvRuntimePageBase {
               >${readiness.denial_code ?? 'ENV_RUNTIME_UNAVAILABLE'}</code
               >
           </p>
-          ${envRuntimeModel.canManageLicense()
-                  ? html`
+          ${envRuntimeModel.canRetryAccess()
+            ? html`
                 <div class="inline-actions">
-                  <cv-button size="small" @click=${this.handleOpenLicense}> ${t('manageLicense')} </cv-button>
+                  <cv-button size="small" @click=${this.handleRetryAccess}>${t('retry')}</cv-button>
                 </div>
-                    `
-                  : nothing}
+              `
+            : nothing}
           </div>
         </div>
     `

@@ -13,8 +13,7 @@ import type {TransportLike} from '../../core/transport/transport'
 import {MockTransport} from '../../core/transport/mock/mock-transport'
 import {TauriTransport} from '../../core/transport/tauri/tauri-transport'
 import {isTauriRuntime} from '../../core/runtime/runtime'
-import {moduleAccessModel} from '../../core/pro/module-access.model'
-import {androidSystemBackModel} from '../navigation/android-system-back.model'
+import {moduleAccessModel} from '../../core/modules/module-access.model'
 import {readInitialSurface} from '../navigation/initial-surface'
 import {initAppContext, tryGetAppContext} from '../../shared/services/app-context'
 import {biometricAppGateModel} from '../../routes/biometric-app-gate/biometric-app-gate.model'
@@ -73,7 +72,6 @@ export const init = () => {
   const router = new Router(ws, state, store)
 
   initAppContext({store, ws, catalog, state, router})
-  androidSystemBackModel.registerGlobalHandler()
 
   if (!runtimeIsTauri) {
     moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
@@ -135,6 +133,14 @@ export const init = () => {
     handleMediaCatalogEvent(payload)
   })
 
+  ws.on('catalog:event:batch', (_message, payload) => {
+    const batch = payload as {events?: unknown}
+    if (!Array.isArray(batch.events)) return
+    for (const event of batch.events) {
+      handleMediaCatalogEvent(event)
+    }
+  })
+
   ws.on('vault:locked', (_message, payload) => {
     const wasOpened = state.data().StorageOpened
     state.update({StorageOpened: false})
@@ -154,9 +160,6 @@ export const init = () => {
     }
   })
   setupMediaStreamErrorDispatch(ws)
-  ws.on('android-audio-player:event', (_message, payload) => {
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent(payload)
-  })
   ws.on('native-audio-player:event', (_message, payload) => {
     mediaPlaybackModel.handleNativeAudioPlayerEvent(payload)
   })
@@ -171,10 +174,7 @@ export const init = () => {
       import('./mobile-keyboard-focus-scroll'),
       import('./pinch-zoom-prevention'),
       import('./mobile-lifecycle'),
-      import('./android-password-save-handoff'),
-      import('./android-share-files-handoff'),
-      import('./android-media-session'),
-      import('./android-audio-warmup'),
+      import('./share-files-handoff'),
     ])
       .then(
         ([
@@ -183,20 +183,14 @@ export const init = () => {
           {setupMobileKeyboardFocusScroll},
           {setupPinchZoomPrevention},
           {setupMobileLifecycle},
-          {setupAndroidPasswordSaveHandoff},
-          {setupAndroidShareFilesHandoff},
-          {setupAndroidMediaSessionBridge},
-          {setupAndroidAudioWarmup},
+          {setupShareFilesHandoff},
         ]) => {
           setupRuntimeCapabilitiesSync(ws, store, runtimeIsTauri)
           setupMobileVisualViewportSync()
           setupMobileKeyboardFocusScroll(store)
           setupPinchZoomPrevention()
           setupMobileLifecycle(ws, store)
-          setupAndroidPasswordSaveHandoff()
-          setupAndroidShareFilesHandoff()
-          setupAndroidMediaSessionBridge(ws)
-          setupAndroidAudioWarmup(ws)
+          setupShareFilesHandoff()
 
           if (runtimeIsTauri) {
             void import('./mobile-keyboard-tap')

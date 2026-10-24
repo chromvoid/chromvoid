@@ -13,7 +13,8 @@ cv-theme-provider[mode='dark'] {
   --cv-font-family-display: var(--cv-font-family-primary);
   --cv-font-family-body: var(--cv-font-family-primary);
   --cv-font-family-code:
-    'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Cascadia Mono', 'Consolas', monospace;
+    'JetBrains Mono', ui-monospace, 'SF Mono', 'SFMono-Regular', 'Menlo', 'Cascadia Mono', 'Consolas',
+    'Liberation Mono', monospace;
   --cv-duration-normal: 250ms;
   --cv-radius-sm: 4px;
   --cv-radius-md: 8px;

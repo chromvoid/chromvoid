@@ -1,0 +1,245 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -44,6 +44,7 @@
+ repository = "https://github.com/sseemayer/keepass-rs"
+
+ [features]
++bounded-import = []
+ _merge = []
+ challenge_response = [
+     "sha1",
+@@ -141,7 +142,7 @@
+ ]
+
+ [dependencies.aes]
+-version = "<0.9.3"
++version = ">=0.9.0, <0.9.3"
+
+ [dependencies.anyhow]
+ version = "1"
+--- a/src/compression.rs
++++ b/src/compression.rs
+@@ -40,6 +40,12 @@
+     fn decompress(&self, in_buffer: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+         let mut res = Vec::new();
+         let mut decoder = GzDecoder::new(in_buffer);
++        #[cfg(feature = "bounded-import")]
++        {
++            decoder.by_ref().take(crate::import_limits::MAX_EXPANDED_BYTES as u64 + 1).read_to_end(&mut res)?;
++            crate::import_limits::check_bytes(res.len(), crate::import_limits::MAX_EXPANDED_BYTES)?;
++        }
++        #[cfg(not(feature = "bounded-import"))]
+         decoder.read_to_end(&mut res)?;
+         Ok(res)
+     }
+--- a/src/crypt/kdf.rs
++++ b/src/crypt/kdf.rs
+@@ -25,6 +25,10 @@
+         &self,
+         composite_key: &GenericArray<u8, U32>,
+     ) -> Result<GenericArray<u8, U32>, CryptographyError> {
++        #[cfg(feature = "bounded-import")]
++        if self.rounds > 10_000_000 {
++            return Err(CryptographyError::ImportLimit);
++        }
+         let seed_arr = self
+             .seed
+             .as_slice()
+@@ -65,6 +69,11 @@
+         &self,
+         composite_key: &GenericArray<u8, U32>,
+     ) -> Result<GenericArray<u8, U32>, CryptographyError> {
++        #[cfg(feature = "bounded-import")]
++        if self.memory > 128 * 1024 * 1024 || self.iterations > 32 || self.parallelism > 16
++            || self.memory.saturating_mul(self.iterations) > 1024 * 1024 * 1024 {
++            return Err(CryptographyError::ImportLimit);
++        }
+         // Disable Argon2 multithreading on wasm32 targets to avoid panics on platforms without thread support.
+         let thread_mode = if cfg!(target_arch = "wasm32") {
+             argon2::ThreadMode::Sequential
+--- a/src/crypt/mod.rs
++++ b/src/crypt/mod.rs
+@@ -67,6 +67,11 @@
+ #[derive(Error, Debug)]
+ #[non_exhaustive]
+ pub enum CryptographyError {
++    /// The caller-selected database exceeds the bounded import KDF policy.
++    #[cfg(feature = "bounded-import")]
++    #[error("KDBX key derivation exceeds import limits")]
++    ImportLimit,
++
+     /// An invalid key length was provided
+     #[error(transparent)]
+     InvalidLength(#[from] InvalidLength),
+--- a/src/db/open.rs
++++ b/src/db/open.rs
+@@ -1,3 +1,5 @@
++#[cfg(feature = "bounded-import")]
++use std::io::Read;
+ use thiserror::Error;
+
+ use crate::{
+@@ -16,6 +18,12 @@
+     /// Parse a database from a std::io::Read
+     pub fn open(source: &mut dyn std::io::Read, key: DatabaseKey) -> Result<Database, DatabaseOpenError> {
+         let mut data = Vec::new();
++        #[cfg(feature = "bounded-import")]
++        {
++            source.take(crate::import_limits::MAX_INPUT_BYTES as u64 + 1).read_to_end(&mut data)?;
++            crate::import_limits::check_bytes(data.len(), crate::import_limits::MAX_INPUT_BYTES)?;
++        }
++        #[cfg(not(feature = "bounded-import"))]
+         source.read_to_end(&mut data)?;
+
+         Database::parse(data.as_ref(), key)
+@@ -23,6 +31,8 @@
+
+     /// Parse a database from a byte slice
+     pub fn parse(data: &[u8], key: DatabaseKey) -> Result<Database, DatabaseOpenError> {
++        #[cfg(feature = "bounded-import")]
++        crate::import_limits::check_bytes(data.len(), crate::import_limits::MAX_INPUT_BYTES)?;
+         let database_version = DatabaseVersion::parse(data)?;
+
+         match database_version {
+@@ -36,6 +46,12 @@
+     /// Helper function to load a database into its internal XML chunks
+     pub fn get_xml(source: &mut dyn std::io::Read, key: DatabaseKey) -> Result<Vec<u8>, DatabaseOpenError> {
+         let mut data = Vec::new();
++        #[cfg(feature = "bounded-import")]
++        {
++            source.take(crate::import_limits::MAX_INPUT_BYTES as u64 + 1).read_to_end(&mut data)?;
++            crate::import_limits::check_bytes(data.len(), crate::import_limits::MAX_INPUT_BYTES)?;
++        }
++        #[cfg(not(feature = "bounded-import"))]
+         source.read_to_end(&mut data)?;
+
+         let database_version = DatabaseVersion::parse(data.as_ref())?;
+--- a/src/format/xml_db/entry.rs
++++ b/src/format/xml_db/entry.rs
+@@ -88,7 +88,7 @@
+     ) -> Result<(), UnprotectError> {
+         target.icon = if let Some(ci) = self.custom_icon_uuid.and_then(|ci| {
+             let icon_id = crate::db::CustomIconId::from_uuid(ci.0);
+-            custom_icons.contains_key(&icon_id).then_some(icon_id)
++            (cfg!(feature = "bounded-import") || custom_icons.contains_key(&icon_id)).then_some(icon_id)
+         }) {
+             Some(crate::db::Icon::Custom(ci))
+         } else {
+--- a/src/format/xml_db/group.rs
++++ b/src/format/xml_db/group.rs
+@@ -91,7 +91,7 @@
+
+         target.icon = if let Some(ci) = self.custom_icon_uuid.and_then(|ci| {
+             let icon_id = crate::db::CustomIconId::from_uuid(ci.0);
+-            custom_icons.contains_key(&icon_id).then_some(icon_id)
++            (cfg!(feature = "bounded-import") || custom_icons.contains_key(&icon_id)).then_some(icon_id)
+         }) {
+             Some(crate::db::Icon::Custom(ci))
+         } else {
+--- a/src/format/xml_db/mod.rs
++++ b/src/format/xml_db/mod.rs
+@@ -35,6 +35,8 @@
+     header_attachments: &[Value<Vec<u8>>],
+     inner_decryptor: &mut dyn Cipher,
+ ) -> Result<crate::db::Database, ParseXmlError> {
++    #[cfg(feature = "bounded-import")]
++    crate::import_limits::check_xml(data).map_err(UnprotectError::from)?;
+     let kdbx: KeePassFile = quick_xml::de::from_reader(data)?;
+     Ok(kdbx.xml_to_db(inner_decryptor, header_attachments)?)
+ }
+@@ -94,9 +96,16 @@
+         let mut db = crate::db::Database::new_with_root_id(GroupId::from_uuid(self.root.group.uuid.0));
+
+         let mut attachments = HashMap::new();
++        #[cfg(feature = "bounded-import")]
++        let mut attachment_bytes = 0_usize;
+
+         // convert header attachments (KDBX4-style) to database attachments
+         for (i, header_attachment) in header_attachments.iter().enumerate() {
++            #[cfg(feature = "bounded-import")]
++            {
++                attachment_bytes = attachment_bytes.saturating_add(header_attachment.get().len());
++                crate::import_limits::check_bytes(attachment_bytes, crate::import_limits::MAX_EXPANDED_BYTES)?;
++            }
+             let attachment = crate::db::Attachment {
+                 id: crate::db::AttachmentId::new(i),
+                 entries: HashSet::new(),
+@@ -108,8 +117,16 @@
+         // convert XML attachments (KDBX3-style) to database attachments
+         if let Some(binaries) = self.meta.binaries.take() {
+             for binary in binaries.binaries {
+-                let id = crate::db::AttachmentId::next_free(&db);
++                let id = crate::db::AttachmentId::new(binary.id);
+                 let data = binary.xml_to_db(inner_decryptor)?;
++                #[cfg(feature = "bounded-import")]
++                {
++                    attachment_bytes = attachment_bytes.saturating_add(data.get().len());
++                    crate::import_limits::check_bytes(attachment_bytes, crate::import_limits::MAX_EXPANDED_BYTES)?;
++                    if attachments.contains_key(&id) {
++                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Duplicate KDBX attachment ID").into());
++                    }
++                }
+
+                 attachments.insert(
+                     id,
+--- /dev/null
++++ b/src/import_limits.rs
+@@ -0,0 +1,47 @@
++//! ChromVoid's opt-in bounds for importing a user-selected database.
++use std::io::{Error, ErrorKind, Result};
++
++pub(crate) const MAX_INPUT_BYTES: usize = 50 * 1024 * 1024;
++pub(crate) const MAX_EXPANDED_BYTES: usize = 32 * 1024 * 1024;
++
++pub(crate) fn check_bytes(actual: usize, maximum: usize) -> Result<()> {
++    if actual > maximum {
++        return Err(Error::new(
++            ErrorKind::InvalidData,
++            "KDBX exceeds import limits",
++        ));
++    }
++    Ok(())
++}
++
++pub(crate) fn check_xml(data: &[u8]) -> Result<()> {
++    use quick_xml::events::Event;
++    check_bytes(data.len(), MAX_EXPANDED_BYTES)?;
++    let mut reader = quick_xml::Reader::from_reader(data);
++    let mut depth = 0_usize;
++    let mut nodes = 0_usize;
++    loop {
++        match reader
++            .read_event()
++            .map_err(|error| Error::new(ErrorKind::InvalidData, error))?
++        {
++            Event::Start(_) => {
++                depth += 1;
++                nodes += 1;
++            }
++            Event::Empty(_) => nodes += 1,
++            Event::End(_) => depth = depth.saturating_sub(1),
++            Event::DocType(_) => {
++                return Err(Error::new(
++                    ErrorKind::InvalidData,
++                    "KDBX DTD is not supported",
++                ))
++            }
++            Event::Eof => break,
++            _ => {}
++        }
++        check_bytes(depth, 64)?;
++        check_bytes(nodes, 500_000)?;
++    }
++    Ok(())
++}
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,6 +1,8 @@
+ #![doc = include_str!("../README.md")]
+ #![recursion_limit = "1024"]
+
++#[cfg(feature = "bounded-import")]
++mod import_limits;
+ mod compression;
+ pub mod config;
+ pub(crate) mod crypt;

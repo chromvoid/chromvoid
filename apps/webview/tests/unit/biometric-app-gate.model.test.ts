@@ -245,7 +245,7 @@ describe('BiometricAppGateModel', () => {
   it('deduplicates biometric prompt during one foreground resume cycle', async () => {
     const {connected} = initTauriContext()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_biometric: true,
     })
@@ -315,7 +315,7 @@ describe('BiometricAppGateModel', () => {
       }),
     )
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_biometric: true,
     })
@@ -360,7 +360,7 @@ describe('BiometricAppGateModel', () => {
   it('blocks on unavailable biometric result after the gate is enabled', async () => {
     const {connected} = initTauriContext()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_biometric: true,
     })
@@ -404,7 +404,7 @@ describe('BiometricAppGateModel', () => {
   it('blocks when native biometric invoke throws', async () => {
     const {connected} = initTauriContext()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_biometric: true,
     })

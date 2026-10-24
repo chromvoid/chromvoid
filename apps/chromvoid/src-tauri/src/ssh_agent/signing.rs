@@ -1,5 +1,6 @@
 //! Key loading and signing operations for SSH agent.
 
+use chromvoid_core::crypto::ssh::rsa_private_key_from_keypair;
 use rsa::pkcs1v15;
 use signature::{SignatureEncoding, Signer};
 use ssh_key::{
@@ -87,30 +88,6 @@ fn sign_rsa(keypair: &RsaKeypair, data: &[u8], flags: u32) -> Result<Vec<u8>, St
     };
 
     encode_signature(signature)
-}
-
-fn rsa_private_key_from_keypair(keypair: &RsaKeypair) -> Result<rsa::RsaPrivateKey, String> {
-    let mut private_key = rsa::RsaPrivateKey::from_components(
-        rsa::BigUint::try_from(&keypair.public.n)
-            .map_err(|e| format!("Failed to decode RSA modulus: {e}"))?,
-        rsa::BigUint::try_from(&keypair.public.e)
-            .map_err(|e| format!("Failed to decode RSA exponent: {e}"))?,
-        rsa::BigUint::try_from(&keypair.private.d)
-            .map_err(|e| format!("Failed to decode RSA private exponent: {e}"))?,
-        vec![
-            rsa::BigUint::try_from(&keypair.private.p)
-                .map_err(|e| format!("Failed to decode RSA prime p: {e}"))?,
-            rsa::BigUint::try_from(&keypair.private.q)
-                .map_err(|e| format!("Failed to decode RSA prime q: {e}"))?,
-        ],
-    )
-    .map_err(|e| format!("Failed to reconstruct RSA private key: {e}"))?;
-
-    private_key
-        .precompute()
-        .map_err(|e| format!("Failed to precompute RSA CRT values: {e}"))?;
-
-    Ok(private_key)
 }
 
 fn resolve_rsa_hash(flags: u32) -> Result<HashAlg, String> {

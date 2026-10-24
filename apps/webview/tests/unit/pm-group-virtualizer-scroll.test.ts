@@ -4,7 +4,7 @@ import {nothing} from 'lit'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {PMGroupBase} from '../../src/features/passmanager/components/group/group/group-base'
-import {groupBy} from '../../src/features/passmanager/components/list/sort-controls'
+import {groupBy} from '../../src/features/passmanager/components/list/sort-controls.model'
 import {pmActiveRowModel} from '../../src/features/passmanager/models/pm-active-row.model'
 import {pmDeleteMotionModel} from '../../src/features/passmanager/models/pm-delete-motion.model'
 

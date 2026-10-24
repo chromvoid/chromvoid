@@ -138,12 +138,15 @@ export function getTauriInternals(): TauriInternals | undefined {
 }
 
 /** @internal exported for testing */
-export async function writeClipboardText(text: string): Promise<void> {
+export async function writeSecretClipboardText(text: string): Promise<void> {
   // Tauri v2: call clipboard plugin IPC directly — dynamic import() does not
   // work in bundled single-file builds (no runtime module loader).
+  // write_secret asks desktop clipboard managers to keep the text out of their
+  // history and keeps it off Universal Clipboard on iOS. The browser fallbacks
+  // below have no such flag.
   const tauri = getTauriInternals()
   if (tauri) {
-    await tauri.invoke('plugin:clipboard-manager|write_text', {text})
+    await tauri.invoke('plugin:clipboard-manager|write_secret', {text})
     return
   }
 
@@ -175,11 +178,12 @@ function writeClipboardTextWithExecCommand(text: string): boolean {
   return copied
 }
 
+/** Copies vault data as a secret, then wipes the clipboard (also as a secret write) after `wipeMs`. */
 export async function copyWithAutoWipe(
   text: string,
   wipeMs: number = DEFAULT_CLIPBOARD_WIPE_MS,
 ): Promise<void> {
-  await writeClipboardText(text)
+  await writeSecretClipboardText(text)
 
   const version = ++clipboardCopyVersion
   if (clipboardWipeTimer !== undefined) {
@@ -195,7 +199,7 @@ export async function copyWithAutoWipe(
 
       clipboardWipeTimer = undefined
       try {
-        await writeClipboardText('')
+        await writeSecretClipboardText('')
       } catch {
         // Ignore errors when cleaning the buffer
       }

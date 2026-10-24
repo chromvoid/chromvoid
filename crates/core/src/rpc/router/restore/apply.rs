@@ -24,6 +24,7 @@ pub(super) fn apply_restore_materials(
     storage_pepper: [u8; 32],
     batch_hint: &str,
 ) -> RestoreResult<u64> {
+    router.storage_mutation_guard.check()?;
     let written_chunk_names = write_restore_chunks(router, chunks, batch_hint)?;
     let written_artifacts = write_restore_artifacts(router, artifacts, &written_chunk_names)?;
 

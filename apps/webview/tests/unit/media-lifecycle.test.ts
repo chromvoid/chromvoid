@@ -37,16 +37,16 @@ function streamOf(...chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
   }
 }
 
-function enableAndroidNativeAudio(): void {
+function enableNativeAudio(): void {
   setRuntimeCapabilities({
-    platform: 'android',
+    platform: 'ios',
     mobile: true,
-    android_native_audio_playback_rollout_enabled: true,
+    supports_native_audio_playback: true,
   })
   runtimeModeModel.setCoreMode('local')
 }
 
-function androidAudioTrack(overrides: Partial<ResolvedAudioTrack> = {}): ResolvedAudioTrack {
+function nativeAudioTrack(overrides: Partial<ResolvedAudioTrack> = {}): ResolvedAudioTrack {
   return {
     id: 705,
     name: 'private-track-name.mp3',
@@ -198,7 +198,7 @@ describe('media lifecycle cleanup', () => {
 
   it('preserves the active audio stream source during app background cleanup when requested', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_media_stream_protocol: true,
     })
@@ -243,12 +243,12 @@ describe('media lifecycle cleanup', () => {
     expect(mediaPlaybackModel.sourceKind()).toBe('media-stream')
   })
 
-  it('releases the active generic Android native video source during app background cleanup', async () => {
+  it('releases the active native video source during app background cleanup', async () => {
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_video_playback: true,
-      supports_android_native_video: true,
+      supports_mobile_native_video_playback: true,
     })
     runtimeModeModel.setCoreMode('local')
     const prepareMediaSource = vi.fn().mockResolvedValue({
@@ -401,24 +401,24 @@ describe('media lifecycle cleanup', () => {
     expect(model.sourceKind()).toBe('none')
   })
 
-  it('stops Android native audio on vault lock cleanup', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('stops native audio on vault lock cleanup', async () => {
+    enableNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
 
     await releaseMediaSourcesForVaultLock()
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'stop',
       nativeSessionId,
     })
@@ -427,20 +427,20 @@ describe('media lifecycle cleanup', () => {
     expect(mediaPlaybackModel.nativeSessionId()).toBeNull()
   })
 
-  it('preserves Android native audio during app background cleanup', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('preserves native audio during app background cleanup', async () => {
+    enableNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    mediaPlaybackModel.handleAndroidAudioPlayerEvent({
+    mediaPlaybackModel.handleNativeAudioPlayerEvent({
       event: 'state',
       nativeSessionId,
       trackId: 705,
@@ -452,59 +452,59 @@ describe('media lifecycle cleanup', () => {
       positionMs: 0,
       durationMs: 60_000,
     })
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
 
     await releaseMediaSourcesForAppBackground({preserveAudioSession: true})
 
-    expect(sendAndroidAudioCommand).not.toHaveBeenCalled()
+    expect(sendNativeAudioCommand).not.toHaveBeenCalled()
     expect(mediaPlaybackModel.sessionKind()).toBe('audio')
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
     expect(mediaPlaybackModel.nativeSessionId()).toBe(nativeSessionId)
     expect(mediaPlaybackModel.loadingState()).toBe('loaded')
   })
 
-  it('keeps Android native audio when an inactive source is invalidated', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('keeps native audio when an inactive source is invalidated', async () => {
+    enableNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack({id: 706})], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack({id: 706})], 0)
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
 
     await releaseMediaSourcesForSourceInvalidation(999)
 
-    expect(sendAndroidAudioCommand).not.toHaveBeenCalled()
-    expect(mediaPlaybackModel.driverKind()).toBe('android-media3')
+    expect(sendNativeAudioCommand).not.toHaveBeenCalled()
+    expect(mediaPlaybackModel.driverKind()).toBe('ios-avplayer')
     expect(mediaPlaybackModel.nativeSessionId()).toBe(nativeSessionId)
   })
 
-  it('repeated Android native audio release calls are idempotent', async () => {
-    enableAndroidNativeAudio()
-    const sendAndroidAudioCommand = vi.fn().mockResolvedValue(undefined)
+  it('repeated native audio release calls are idempotent', async () => {
+    enableNativeAudio()
+    const sendNativeAudioCommand = vi.fn().mockResolvedValue(undefined)
     initAppContext(
       createMockAppContext({
         ws: {
           kind: 'tauri',
-          sendAndroidAudioCommand,
+          sendNativeAudioCommand,
         } as any,
       }),
     )
-    await mediaPlaybackModel.startAudioSession([androidAudioTrack()], 0)
+    await mediaPlaybackModel.startAudioSession([nativeAudioTrack()], 0)
     const nativeSessionId = mediaPlaybackModel.nativeSessionId()
-    sendAndroidAudioCommand.mockClear()
+    sendNativeAudioCommand.mockClear()
 
     await mediaPlaybackModel.stopSession()
     await mediaPlaybackModel.stopSession()
 
-    expect(sendAndroidAudioCommand).toHaveBeenCalledTimes(1)
-    expect(sendAndroidAudioCommand).toHaveBeenCalledWith({
+    expect(sendNativeAudioCommand).toHaveBeenCalledTimes(1)
+    expect(sendNativeAudioCommand).toHaveBeenCalledWith({
       command: 'stop',
       nativeSessionId,
     })

@@ -26,7 +26,7 @@ export class FileUploadFlow {
 
     this.dragDrop = new DragDropService({
       onFiles: async (files: FileList) => {
-        // Android/iOS native imports preserve platform metadata; desktop path tokens are picker-issued.
+        // iOS native imports preserve platform metadata; desktop path tokens are picker-issued.
         if (this.canUseNativeUpload()) return
         await this.handleFileUpload(files)
       },

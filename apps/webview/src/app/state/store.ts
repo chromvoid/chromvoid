@@ -6,15 +6,15 @@ import {beginMobileFilePickerSession} from 'root/shared/services/mobile-file-pic
 import {registerUploadedImageForDerivativePrewarm} from '../../features/media/components/image-derivative-prewarm'
 import {getRuntimeCapabilities} from '../../core/runtime/runtime-capabilities'
 import type {
-  AndroidShareImportResult,
-  AndroidSharePartialImportDecision,
-  AndroidSharedFilesHandoff,
-} from '../../features/file-manager/models/android-share-import.model'
+  SharedFilesImportResult,
+  SharePartialImportDecision,
+  SharedFilesHandoff,
+} from '../../features/file-manager/models/share-import.model'
 import {
-  logAndroidShareDiagnostic,
-  sanitizeAndroidShareDiagnosticMessage,
-  summarizeAndroidSharePayload,
-} from '../../features/file-manager/models/android-share-import.diagnostics'
+  logShareDiagnostic,
+  sanitizeShareDiagnosticMessage,
+  summarizeSharePayload,
+} from '../../features/file-manager/models/share-import.diagnostics'
 import {
   resolveLayoutMode,
   getPersistedLayoutMode,
@@ -69,7 +69,7 @@ type NativeUploadTaskCallbacks = {
 type NativeUploadBatchResult = {
   selectedCount: number
   completedCount: number
-  completed: AndroidSharePartialImportDecision['completed']
+  completed: SharePartialImportDecision['completed']
   failedCount: number
   failedMessage: string
   failedCode: string | null
@@ -132,8 +132,8 @@ function summarizeNativeUploadFiles(files: NativeUploadFile[]): Record<string, u
   }
 }
 
-function logAndroidShareStore(event: string, details: Record<string, unknown> = {}): void {
-  logAndroidShareDiagnostic('store', event, details)
+function logShareStore(event: string, details: Record<string, unknown> = {}): void {
+  logShareDiagnostic('store', event, details)
 }
 
 // Unified status dictionary aligned with i18n `status:*
@@ -1089,11 +1089,11 @@ export class Store {
   }
 
   async startSharedFilesImport(
-    payload: AndroidSharedFilesHandoff,
+    payload: SharedFilesHandoff,
     uploadId = crypto.randomUUID(),
-  ): Promise<AndroidShareImportResult> {
+  ): Promise<SharedFilesImportResult> {
     const caps = getRuntimeCapabilities()
-    logAndroidShareStore('import_requested', {
+    logShareStore('import_requested', {
       uploadId,
       wsKind: this.ws.kind,
       connected: this.ws.connected(),
@@ -1101,7 +1101,7 @@ export class Store {
       supportsShareImport: caps.supports_share_import,
       supportsNativeFileUpload: caps.supports_native_file_upload,
       hasUploadSharedFiles: typeof this.ws.uploadSharedFiles === 'function',
-      ...summarizeAndroidSharePayload(payload),
+      ...summarizeSharePayload(payload),
     })
     if (
       !caps.supports_share_import ||
@@ -1110,9 +1110,9 @@ export class Store {
       typeof this.ws.uploadSharedFiles !== 'function' ||
       this.remoteSessionState() !== 'inactive'
     ) {
-      logAndroidShareStore('import_rejected_unsupported', {
+      logShareStore('import_rejected_unsupported', {
         uploadId,
-        ...summarizeAndroidSharePayload(payload),
+        ...summarizeSharePayload(payload),
       })
       throw new Error(i18n('uploads:share-import-unsupported'))
     }
@@ -1120,14 +1120,14 @@ export class Store {
     const outcome = await wrap(
       this.runNativeUploadTaskBatch({
         uploadId,
-        diagnosticSource: 'android_share',
+        diagnosticSource: 'share',
         diagnosticSessionId: payload.sessionId,
         start: (callbacks) => this.ws.uploadSharedFiles?.('/', payload.sessionId, callbacks) ?? Promise.resolve(),
       }),
     )
 
     if (outcome.ok) {
-      logAndroidShareStore('import_batch_success', {
+      logShareStore('import_batch_success', {
         uploadId,
         selectedCount: outcome.result.selectedCount,
         completedCount: outcome.result.completedCount,
@@ -1135,18 +1135,18 @@ export class Store {
         hasAtRiskNativeImageUpload: outcome.result.hasAtRiskNativeImageUpload,
       })
       void this.catalog.refresh().then(
-        () => logAndroidShareStore('catalog_refresh_finished', {uploadId, result: 'success'}),
-        (error) => logAndroidShareStore('catalog_refresh_failed', {
+        () => logShareStore('catalog_refresh_finished', {uploadId, result: 'success'}),
+        (error) => logShareStore('catalog_refresh_failed', {
           uploadId,
-          message: sanitizeAndroidShareDiagnosticMessage(nativeUploadErrorMessage(error)),
+          message: sanitizeShareDiagnosticMessage(nativeUploadErrorMessage(error)),
         }),
       )
       navigationModel.navigateFilesPath('/', 'replace')
-      logAndroidShareStore('files_root_navigation_requested', {uploadId})
+      logShareStore('files_root_navigation_requested', {uploadId})
       if (outcome.result.selectedCount > 0) {
         this.pushNotification(
           'success',
-          i18n('uploads:android-share-imported', {
+          i18n('uploads:share-imported', {
             count: String(outcome.result.completedCount || outcome.result.selectedCount),
           }),
         )
@@ -1158,18 +1158,18 @@ export class Store {
     }
 
     if (outcome.result.completed.length > 0) {
-      logAndroidShareStore('import_batch_partial', {
+      logShareStore('import_batch_partial', {
         uploadId,
         completedCount: outcome.result.completed.length,
         failedCount: outcome.result.failedCount,
         failedCode: outcome.result.failedCode,
-        failedMessage: sanitizeAndroidShareDiagnosticMessage(outcome.result.failedMessage),
+        failedMessage: sanitizeShareDiagnosticMessage(outcome.result.failedMessage),
       })
       void this.catalog.refresh().then(
-        () => logAndroidShareStore('catalog_refresh_finished', {uploadId, result: 'partial_success'}),
-        (error) => logAndroidShareStore('catalog_refresh_failed', {
+        () => logShareStore('catalog_refresh_finished', {uploadId, result: 'partial_success'}),
+        (error) => logShareStore('catalog_refresh_failed', {
           uploadId,
-          message: sanitizeAndroidShareDiagnosticMessage(nativeUploadErrorMessage(error)),
+          message: sanitizeShareDiagnosticMessage(nativeUploadErrorMessage(error)),
         }),
       )
       return {
@@ -1184,13 +1184,13 @@ export class Store {
       }
     }
 
-    logAndroidShareStore('import_batch_failed', {
+    logShareStore('import_batch_failed', {
       uploadId,
       selectedCount: outcome.result.selectedCount,
       completedCount: outcome.result.completedCount,
       failedCount: outcome.result.failedCount,
       failedCode: outcome.result.failedCode,
-      failedMessage: sanitizeAndroidShareDiagnosticMessage(outcome.result.failedMessage),
+      failedMessage: sanitizeShareDiagnosticMessage(outcome.result.failedMessage),
     })
     this.pushNotification(
       'error',
@@ -1202,24 +1202,17 @@ export class Store {
     return {kind: 'failed'}
   }
 
-  async startAndroidSharedFilesImport(
-    payload: AndroidSharedFilesHandoff,
-    uploadId = crypto.randomUUID(),
-  ): Promise<AndroidShareImportResult> {
-    return this.startSharedFilesImport(payload, uploadId)
-  }
-
   private async runNativeUploadTaskBatch(options: {
     uploadId: string
-    diagnosticSource?: 'android_share'
+    diagnosticSource?: 'share'
     diagnosticSessionId?: string
     nativePicker?: {currentPath: string; replaceFailedBatchId?: string}
     start: (callbacks: NativeUploadTaskCallbacks) => Promise<void>
   }): Promise<NativeUploadBatchOutcome> {
     const {uploadId} = options
     const logDiagnostics = (event: string, details: Record<string, unknown> = {}) => {
-      if (options.diagnosticSource !== 'android_share') return
-      logAndroidShareStore(event, {
+      if (options.diagnosticSource !== 'share') return
+      logShareStore(event, {
         uploadId,
         sessionId: options.diagnosticSessionId ?? null,
         ...details,
@@ -1228,7 +1221,7 @@ export class Store {
     const taskIds = new Set<string>()
     const selectedFiles = new Map<string, NativeUploadFile>()
     const startTimes = new Map<string, number>()
-    const completedFiles = new Map<string, AndroidSharePartialImportDecision['completed'][number]>()
+    const completedFiles = new Map<string, SharePartialImportDecision['completed'][number]>()
     const failedFileIds = new Set<string>()
     let selectedCount = 0
     let hasAtRiskNativeImageUpload = false
@@ -1350,7 +1343,7 @@ export class Store {
       logDiagnostics('native_failed', {
         fileId: failed.fileId ?? null,
         code: failedCode,
-        message: sanitizeAndroidShareDiagnosticMessage(failedMessage),
+        message: sanitizeShareDiagnosticMessage(failedMessage),
       })
       if (failed.fileId && taskIds.has(failed.fileId)) {
         failedFileIds.add(failed.fileId)
@@ -1399,7 +1392,7 @@ export class Store {
         completedCount: completedFiles.size,
         failedCount: failedFileIds.size,
         code: failedCode,
-        message: sanitizeAndroidShareDiagnosticMessage(failedMessage),
+        message: sanitizeShareDiagnosticMessage(failedMessage),
       })
       markBatchFailed()
       return {ok: false, error, result: getResult(true)}

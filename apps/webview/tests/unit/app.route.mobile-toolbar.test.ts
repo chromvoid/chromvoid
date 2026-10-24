@@ -4,7 +4,7 @@ import {render} from 'lit'
 import {Entry, Group, ManagerRoot, filterValue, quickFilters} from '@project/passmanager'
 import {ClientCatalogNode} from '../../src/core/catalog/local-catalog/client-model'
 import {resetRuntimeCapabilities, setRuntimeCapabilities} from '../../src/core/runtime/runtime-capabilities'
-import {moduleAccessModel} from '../../src/core/pro/module-access.model'
+import {moduleAccessModel} from '../../src/core/modules/module-access.model'
 import * as bootstrap from '../../src/app/bootstrap/Initialize'
 import {navigationModel} from '../../src/app/navigation/navigation.model'
 import {FileManager} from '../../src/features/file-manager/file-manager'
@@ -18,7 +18,7 @@ import {
 import {mediaPlaybackModel} from '../../src/features/media/models/media-playback.model'
 import {PasswordManagerMobileLayout} from '../../src/features/passmanager/components/password-manager-layout/password-manager-mobile-layout'
 import {passwordManagerDesktopLayoutModel} from '../../src/features/passmanager/components/password-manager-layout/password-manager-layout.model'
-import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls'
+import {groupBy, sortDirection, sortField} from '../../src/features/passmanager/components/list/sort-controls.model'
 import {pmGroupEditModel} from '../../src/features/passmanager/components/group/group/group-edit.model'
 import {pmMobileChromeModel} from '../../src/features/passmanager/models/pm-mobile-chrome.model'
 import {pmSelectionModeModel} from '../../src/features/passmanager/models/pm-selection-mode.model'
@@ -44,7 +44,7 @@ import type {
   WalletSummary,
 } from '../../src/routes/wallet/wallet-page.types'
 
-type RouteName = 'dashboard' | 'welcome' | 'no-connection' | 'no-license'
+type RouteName = 'dashboard' | 'welcome' | 'no-connection'
 
 type HistoryEntry = {
   state: unknown
@@ -528,9 +528,12 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     setupContext()
     setRoute('dashboard')
     setWalletToolbarFixture()
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'crypto-wallet', status: 'enabled', denial_code: null},
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'crypto-wallet', status: 'enabled', denial_code: null},
+      ],
+    })
     navigationModel.navigateToSurface('wallet')
     const model = new ChromVoidAppModel()
 
@@ -608,7 +611,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     })
 
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       desktop: false,
       supports_network_remote: true,
@@ -640,25 +643,17 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     })
   })
 
-  it('localizes Pro access state copy', () => {
+  it('localizes module access state copy', () => {
     setupContext()
     setRoute('dashboard')
     setAppLang('ru')
 
     const app = createApp()
     const host = document.createElement('div')
-    render(
-      (app as any).renderModuleAccessState('remote', {
-        feature_key: 'remote',
-        status: 'locked_pro',
-        denial_code: 'PRO_REQUIRED',
-      }),
-      host,
-    )
+    render((app as any).renderModuleAccessGate({kind: 'check-failed'}), host)
 
-    expect(host.textContent).toContain('Требуется Pro-лицензия')
-    expect(host.textContent).toContain('Активируйте Pro-лицензию в настройках')
-    expect(host.textContent).toContain('Настройки')
+    expect(host.textContent).toContain('Не удалось проверить доступность')
+    expect(host.textContent).toContain('Повторить')
   })
 
   it('keeps Files add actions out of the mobile top toolbar', () => {
@@ -777,9 +772,12 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     setWalletToolbarFixture()
     moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
     await moduleAccessModel.ensureActiveCoreAccess()
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'crypto-wallet', status: 'enabled', denial_code: null},
-    ])
+    moduleAccessModel.resolution.set({
+      phase: 'resolved',
+      states: [
+        {feature_key: 'crypto-wallet', status: 'enabled', denial_code: null},
+      ],
+    })
     walletPageModel.wallets.set([
       TOOLBAR_WALLET,
       {...TOOLBAR_WALLET, wallet_id: 'wallet-toolbar-2', label: 'Travel Wallet'},
@@ -959,7 +957,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
   })
 
   it('uses the current Markdown document as the mobile toolbar context', async () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true, supports_native_share: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true, supports_native_share: true})
     Object.defineProperty(globalThis, '__TAURI_INTERNALS__', {
       configurable: true,
       writable: true,
@@ -1055,7 +1053,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
   })
 
   it('disables Markdown mobile note actions while image insertion is unavailable', () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     setupContext({
       catalogChildren: [
         createCatalogNode({
@@ -1414,7 +1412,7 @@ describe('ChromVoidApp mobile toolbar resolver', () => {
     expect(state.executeAction?.('pm-entry-copy-all')).toBe(true)
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
-        'plugin:clipboard-manager|write_text',
+        'plugin:clipboard-manager|write_secret',
         expect.objectContaining({text: expect.stringContaining('Entry Toolbar')}),
       )
     })

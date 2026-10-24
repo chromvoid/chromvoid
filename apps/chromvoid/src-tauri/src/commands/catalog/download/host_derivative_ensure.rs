@@ -1,8 +1,6 @@
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
-use serde_json::Value;
-
 use super::derivatives::{
     build_core_backed_image_derivative_stream_with_metadata_and_cancellation,
     is_display_derivative_candidate, validate_image_derivative_stream, ImageDerivativeCancellation,
@@ -11,9 +9,7 @@ use super::CatalogDownloadError;
 use crate::catalog_blocking_io::CatalogBlockingIoRuntimeState;
 use crate::commands::catalog::source_metadata::load_catalog_source_metadata;
 use crate::core_adapter::{CoreAdapter, CoreMode};
-use crate::image_preview::{
-    ImageDerivativeTier, ImagePreviewRuntimeState, DERIVATIVE_STORAGE_VERSION,
-};
+use crate::image_preview::{ImagePreviewRuntimeState, DERIVATIVE_STORAGE_VERSION};
 use crate::types::StreamOut;
 
 #[derive(Clone)]
@@ -24,50 +20,7 @@ pub(crate) struct HostDerivativeEnsureServices {
     vault_cancellation_epoch: Arc<AtomicU64>,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct HostDerivativeEnsureRequest {
-    pub(crate) node_id: u64,
-    pub(crate) source_version: u64,
-    pub(crate) tier: ImageDerivativeTier,
-    pub(crate) version: u32,
-    pub(crate) refresh_cache: bool,
-}
-
-impl HostDerivativeEnsureRequest {
-    pub(crate) fn parse(data: &Value) -> Result<Self, CatalogDownloadError> {
-        let node_id = required_u64(data, "node_id")?;
-        let source_version = required_u64(data, "source_version")?;
-        let version = data
-            .get("version")
-            .and_then(Value::as_u64)
-            .and_then(|value| u32::try_from(value).ok())
-            .ok_or_else(|| required_field_error("version"))?;
-        let tier = match data.get("tier").and_then(Value::as_str) {
-            Some("preview") => ImageDerivativeTier::DisplayPreview,
-            Some("thumbnail") => ImageDerivativeTier::Thumbnail,
-            Some(_) => {
-                return Err((
-                    "tier must be preview or thumbnail".to_string(),
-                    Some("EMPTY_PAYLOAD".to_string()),
-                ))
-            }
-            None => return Err(required_field_error("tier")),
-        };
-        let refresh_cache = match data.get("refresh_cache") {
-            Some(value) => value
-                .as_bool()
-                .ok_or_else(|| required_field_error("refresh_cache"))?,
-            None => false,
-        };
-        Ok(Self {
-            node_id,
-            source_version,
-            tier,
-            version,
-            refresh_cache,
-        })
-    }
-}
+pub(crate) use chromvoid_media_runtime::derivative::HostDerivativeEnsureRequest;
 
 impl HostDerivativeEnsureServices {
     pub(crate) fn new(
@@ -181,22 +134,10 @@ fn ensure_blocking(
     Ok(stream)
 }
 
-fn required_u64(data: &Value, field: &str) -> Result<u64, CatalogDownloadError> {
-    data.get(field)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| required_field_error(field))
-}
-
-fn required_field_error(field: &str) -> CatalogDownloadError {
-    (
-        format!("{field} is required"),
-        Some("EMPTY_PAYLOAD".to_string()),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image_preview::ImageDerivativeTier;
 
     #[test]
     fn parses_supported_derivative_ensure_request() {

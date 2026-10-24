@@ -30,7 +30,13 @@ fn restore_local_cancel(
         .map_err(RestoreCommandError::from)?;
 
     let deleted_chunks = chunk_names.len() as u64;
-    rollback_restore_local(router, &chunk_names);
+    if rollback_restore_transaction_marker(router).map_err(|error| {
+        RestoreCommandError::internal(format!("Restore cleanup failed: {error}"))
+    })? {
+        router.clear_restore_local_session();
+    } else {
+        rollback_restore_local(router, &chunk_names);
+    }
 
     Ok(serde_json::json!({
         "restore_id": active_id,
@@ -43,7 +49,23 @@ pub(in crate::rpc::router) fn rollback_restore_local(
     router: &mut RpcRouter,
     chunk_names: &HashSet<String>,
 ) {
-    let _ = rollback_restore_transaction_marker(router);
+    // Idle expiry and lifecycle cleanup can reach rollback without RPC dispatch.
+    if router.ensure_storage_mutation_allowed().is_err() {
+        return;
+    }
+    match rollback_restore_transaction_marker(router) {
+        Ok(true) => {
+            // A staging marker has not published target materials; preserve them.
+            for chunk_name in chunk_names {
+                let _ = router.storage.delete_chunk(chunk_name);
+            }
+            router.clear_restore_local_session();
+            return;
+        }
+        // Keep a failed transaction for recovery rather than erase unrelated materials.
+        Err(_) => return,
+        Ok(false) => {}
+    }
     for chunk_name in chunk_names {
         let _ = router.storage.delete_chunk(chunk_name);
     }

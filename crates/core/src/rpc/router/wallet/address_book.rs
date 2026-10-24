@@ -20,6 +20,37 @@ impl RpcRouter {
         })
     }
 
+    /// Address-first Send: every registered chain profile is asked to normalize the address, so
+    /// clients never keep their own copies of the per-network address rules.
+    pub(in crate::rpc::router) fn handle_wallet_address_detect(
+        &mut self,
+        data: &Value,
+    ) -> RpcResponse {
+        if let Some(response) = self.wallet_preflight() {
+            return response;
+        }
+        let request = match parse::<WalletAddressDetectRequest>(data) {
+            Ok(request) => request,
+            Err(error) => return error.into_rpc_response(),
+        };
+        let address = request.address.trim().to_string();
+        let mut matches: Vec<(WalletNetwork, String)> = Vec::new();
+        if !address.is_empty() {
+            for profile in self.wallet_chain_registry.profiles() {
+                if let Ok(normalized) = profile.normalize_address(&address) {
+                    matches.push((WalletNetwork::new(profile.network()), normalized));
+                }
+            }
+        }
+        let unique = (matches.len() == 1).then(|| matches[0].clone());
+        RpcResponse::success(WalletAddressDetectResponse {
+            address,
+            network: unique.as_ref().map(|(network, _)| network.clone()),
+            normalized_address: unique.map(|(_, normalized)| normalized),
+            candidates: matches.into_iter().map(|(network, _)| network).collect(),
+        })
+    }
+
     pub(in crate::rpc::router) fn handle_wallet_address_book_create(
         &mut self,
         data: &Value,

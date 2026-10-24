@@ -71,6 +71,7 @@ impl RpcRouter {
         self.clear_restore_local_session();
         self.erase_token = None;
         self.clear_vault_export();
+        self.clear_credential_import();
         self.credential_provider_runtime.clear_all();
         if self.master_key.is_some() {
             self.set_master_key(Some(new_master_password.to_string()));

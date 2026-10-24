@@ -2,8 +2,7 @@ import {atom} from '@reatom/core'
 
 import {navigationModel} from 'root/app/navigation/navigation.model'
 import type {RemoteSessionState} from 'root/app/state/store'
-import {isSshKeysEnabled} from 'root/core/config/app-feature-flags'
-import {moduleAccessModel, type ModuleAccessState} from 'root/core/pro/module-access.model'
+import {moduleAccessModel} from 'root/core/modules/module-access.model'
 import {keyboardShortcutsModel} from 'root/shared/keyboard'
 import {getAppContext} from 'root/shared/services/app-context'
 import {lockVaultFromUi} from 'root/shared/services/vault-lock'
@@ -33,47 +32,23 @@ class NavigationRailModel {
   }
 
   supportsStorage(): boolean {
-    return moduleAccessModel.isSurfaceVisible('remote-storage')
+    return moduleAccessModel.isSurfaceOffered('remote-storage')
   }
 
   supportsRemote(): boolean {
-    return moduleAccessModel.isSurfaceVisible('remote')
+    return moduleAccessModel.isSurfaceOffered('remote')
   }
 
   supportsExtensions(): boolean {
-    return moduleAccessModel.isSurfaceVisible('gateway')
+    return moduleAccessModel.isSurfaceOffered('gateway')
   }
 
   supportsPasskeys(): boolean {
     return supportsCredentialProviderPasskeysRuntime()
   }
 
-  supportsSshKeys(): boolean {
-    return isSshKeysEnabled()
-  }
-
   supportsWallet(): boolean {
-    return moduleAccessModel.isSurfaceVisible('wallet')
-  }
-
-  storageAccess(): ModuleAccessState {
-    return moduleAccessModel.featureAccess('mounted-vault')
-  }
-
-  remoteAccess(): ModuleAccessState {
-    return moduleAccessModel.featureAccess('remote')
-  }
-
-  extensionsAccess(): ModuleAccessState {
-    return moduleAccessModel.featureAccess('browser-extension')
-  }
-
-  walletAccess(): ModuleAccessState {
-    return moduleAccessModel.featureAccess('crypto-wallet')
-  }
-
-  isLocked(access: ModuleAccessState): boolean {
-    return access.status !== 'enabled'
+    return moduleAccessModel.isSurfaceOffered('wallet')
   }
 
   vaultLockShortcutLabel(): string | undefined {
@@ -176,7 +151,6 @@ class NavigationRailModel {
   }
 
   openSshKeys(): void {
-    if (!this.supportsSshKeys()) return
     navigationModel.openPassmanagerRoute({kind: 'ssh-view'})
     this.closeSidebarOnMobile()
   }

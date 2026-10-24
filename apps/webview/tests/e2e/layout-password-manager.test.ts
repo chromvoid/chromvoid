@@ -8,6 +8,7 @@ import {
 } from './utils'
 
 import type {ConsoleMessage, Page} from 'playwright'
+import type * as PMListViewportModule from '../../src/features/passmanager/models/pm-list-viewport.model'
 import type * as KeyboardStabilizationModule from '../../src/shared/services/mobile-dialog-keyboard-stabilization'
 declare global {
   var __E2E_PAGE__: Page | undefined
@@ -229,8 +230,22 @@ type PMMobileSelectionState = {
   entrySelected: boolean
 }
 
-async function deepClick(page: Page, selector: string): Promise<boolean> {
-  return page.evaluate((sel) => {
+// Chromium 149 can collect an evaluate result while Lit/Reatom flushes its final mutation.
+// Use real input for user actions; programmatic mutations below yield a frame before returning.
+async function waitForAppInput(page: Page): Promise<void> {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+}
+
+// Preserve deepFind's last connected match; Playwright checks visibility and hit targets, scrolling if needed.
+async function deepClick(
+  page: Page,
+  selector: string,
+  input: 'pointer' | 'programmatic' = 'pointer',
+): Promise<boolean> {
+  await waitForAppInput(page)
+  const handle = await page.evaluateHandle((sel) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       let match: Element | null = null
       const found = root.querySelector(selector)
@@ -248,11 +263,24 @@ async function deepClick(page: Page, selector: string): Promise<boolean> {
       return match
     }
 
-    const target = deepFind(document, sel) as HTMLElement | null
-    if (!target) return false
-    target.click()
-    return true
+    return deepFind(document, sel) as HTMLElement | null
   }, selector)
+  try {
+    const target = handle.asElement()
+    if (!target) return false
+    if (input === 'programmatic') {
+      // Explicit hidden-target fixtures retain their original click, then cross the GC boundary.
+      await target.evaluate(async (element) => {
+        element.click()
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      })
+    } else {
+      await target.click()
+    }
+    return true
+  } finally {
+    await handle.dispose()
+  }
 }
 
 type DeepMatchExpectation = {
@@ -279,9 +307,10 @@ async function waitForDeepMatch(page: Page, expectation: DeepMatchExpectation): 
   }, expectation)
 }
 
+// Keep the component event contract; yield after dispatch (see deepClick's GC boundary).
 async function dispatchDeepInput(page: Page, selector: string, value: string): Promise<void> {
   await page.evaluate(
-    ({targetSelector, nextValue}) => {
+    async ({targetSelector, nextValue}) => {
       function deepFind(root: Document | ShadowRoot, target: string): Element | null {
         const found = root.querySelector(target)
         if (found) return found
@@ -300,13 +329,15 @@ async function dispatchDeepInput(page: Page, selector: string, value: string): P
           composed: true,
         }),
       )
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     },
     {targetSelector: selector, nextValue: value},
   )
 }
 
+// Exercise form submission directly, including invalid forms; settle its updates before returning.
 async function submitDeepForm(page: Page, selector: string): Promise<void> {
-  await page.evaluate((targetSelector) => {
+  await page.evaluate(async (targetSelector) => {
     function deepFind(root: Document | ShadowRoot, target: string): Element | null {
       const found = root.querySelector(target)
       if (found) return found
@@ -321,6 +352,7 @@ async function submitDeepForm(page: Page, selector: string): Promise<void> {
     deepFind(document, targetSelector)?.dispatchEvent(
       new Event('submit', {bubbles: true, cancelable: true}),
     )
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, selector)
 }
 
@@ -343,23 +375,10 @@ async function waitForDesktopTagDrawerState(page: Page, open: boolean): Promise<
   }, open)
 }
 
+// Close through trusted input after the splash releases the app (see deepClick).
 async function closeDesktopTagDrawer(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (!element.shadowRoot) continue
-        const inner = deepFind(element.shadowRoot, selector)
-        if (inner) return inner
-      }
-      return null
-    }
-
-    const host = deepFind(document, 'pm-desktop-tag-manager-drawer') as HTMLElement | null
-    const drawer = host?.shadowRoot?.querySelector('cv-drawer') as HTMLElement | null
-    ;(drawer?.shadowRoot?.querySelector('[part="header-close"]') as HTMLElement | null)?.click()
-  })
+  await waitForAppInput(page)
+  await page.locator('pm-desktop-tag-manager-drawer cv-drawer [part="header-close"]').first().click()
 }
 
 async function getDeepRect(
@@ -534,24 +553,13 @@ async function confirmDeepDialog(page: Page): Promise<void> {
 }
 
 async function getPMMobileSelectionState(page: Page): Promise<PMMobileSelectionState> {
-  return page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      let match: Element | null = null
-      const found = root.querySelector(selector)
-      if (found instanceof Element && found.isConnected) {
-        match = found
-      }
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner instanceof Element && inner.isConnected) {
-            match = inner
-          }
-        }
-      }
-      return match
-    }
-
+  const actionIds = await page
+    .getByTestId('mobile-toolbar')
+    .locator('[data-action]:not([data-action="mobile-leading"]), cv-menu-item[value]')
+    .evaluateAll((actions) =>
+      actions.map((action) => action.getAttribute('data-action') ?? action.getAttribute('value')!),
+    )
+  return page.evaluate((actionIds) => {
     function deepQueryAll(root: Document | ShadowRoot, selector: string): Element[] {
       const matches = Array.from(root.querySelectorAll(selector))
       for (const el of root.querySelectorAll('*')) {
@@ -562,13 +570,7 @@ async function getPMMobileSelectionState(page: Page): Promise<PMMobileSelectionS
       return matches
     }
 
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as
-      | (HTMLElement & {
-          actions?: Array<{id: string}>
-        })
-      | null
     const showElement = (window as any).passmanager?.showElement?.()
-    const actionIds = Array.isArray(toolbar?.actions) ? toolbar.actions.map((action) => action.id) : []
     const selectedCount = deepQueryAll(document, '.list-item.selected').length
 
     return {
@@ -579,7 +581,7 @@ async function getPMMobileSelectionState(page: Page): Promise<PMMobileSelectionS
       actionIds,
       entrySelected: selectedCount > 0,
     }
-  })
+  }, actionIds)
 }
 
 type MenuButtonAlignment = {
@@ -652,7 +654,7 @@ async function getMobilePasswordDialogKeyboardSnapshot(page: Page): Promise<Pass
       | null
     const nativeInput = input?.shadowRoot?.querySelector('input')
     const layout = deepFind(document, 'password-manager-mobile-layout') as HTMLElement | null
-    const app = document.querySelector('chromvoid-app') as HTMLElement | null
+    const app = document.querySelector('[data-testid="app-root"]') as HTMLElement | null
 
     return {
       appRect: rectOf(app),
@@ -705,12 +707,20 @@ async function getMenuButtonAlignment(
 ): Promise<MenuButtonAlignment | null> {
   return page.evaluate(
     ({layoutSelector, menuSelector}) => {
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
+      function deepFind<T extends Element = Element>(
+        root: Document | ShadowRoot | Element | null | undefined,
+        selector: string,
+      ): T | null {
+        if (!root) return null
+        const found = root.querySelector<T>(selector)
         if (found) return found
+        if (root instanceof Element && root.shadowRoot) {
+          const inner = deepFind<T>(root.shadowRoot, selector)
+          if (inner) return inner
+        }
         for (const el of root.querySelectorAll('*')) {
           if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
+            const inner = deepFind<T>(el.shadowRoot, selector)
             if (inner) return inner
           }
         }
@@ -718,7 +728,7 @@ async function getMenuButtonAlignment(
       }
 
       const layout = deepFind(document, layoutSelector) as HTMLElement | null
-      const menu = layout?.shadowRoot?.querySelector(menuSelector) as HTMLElement | null
+      const menu = deepFind(layout, menuSelector) as HTMLElement | null
       const trigger = menu?.shadowRoot?.querySelector('[part="trigger"]') as HTMLElement | null
       const icon = menu?.querySelector('[slot="prefix"]') as HTMLElement | null
       if (!trigger || !icon) {
@@ -739,15 +749,25 @@ async function getMenuButtonAlignment(
   )
 }
 
+// Resolve the same trigger, then let Playwright perform a visible, unobstructed click.
 async function openMenuButton(page: Page, layoutSelector: string, menuSelector: string): Promise<boolean> {
-  return page.evaluate(
+  await waitForAppInput(page)
+  const handle = await page.evaluateHandle(
     ({layoutSelector, menuSelector}) => {
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
+      function deepFind<T extends Element = Element>(
+        root: Document | ShadowRoot | Element | null | undefined,
+        selector: string,
+      ): T | null {
+        if (!root) return null
+        const found = root.querySelector<T>(selector)
         if (found) return found
+        if (root instanceof Element && root.shadowRoot) {
+          const inner = deepFind<T>(root.shadowRoot, selector)
+          if (inner) return inner
+        }
         for (const el of root.querySelectorAll('*')) {
           if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
+            const inner = deepFind<T>(el.shadowRoot, selector)
             if (inner) return inner
           }
         }
@@ -755,19 +775,22 @@ async function openMenuButton(page: Page, layoutSelector: string, menuSelector: 
       }
 
       const layout = deepFind(document, layoutSelector) as HTMLElement | null
-      const menu = layout?.shadowRoot?.querySelector(menuSelector) as HTMLElement | null
+      const menu = deepFind(layout, menuSelector) as HTMLElement | null
       const trigger = menu?.shadowRoot?.querySelector(
         '[part="trigger"], [part="dropdown"]',
       ) as HTMLElement | null
-      if (!trigger) {
-        return false
-      }
-
-      trigger.click()
-      return true
+      return trigger
     },
     {layoutSelector, menuSelector},
   )
+  try {
+    const trigger = handle.asElement()
+    if (!trigger) return false
+    await trigger.click()
+    return true
+  } finally {
+    await handle.dispose()
+  }
 }
 
 async function getMenuButtonPopupRect(
@@ -777,12 +800,20 @@ async function getMenuButtonPopupRect(
 ): Promise<RectSnapshot | null> {
   return page.evaluate(
     ({layoutSelector, menuSelector}) => {
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
+      function deepFind<T extends Element = Element>(
+        root: Document | ShadowRoot | Element | null | undefined,
+        selector: string,
+      ): T | null {
+        if (!root) return null
+        const found = root.querySelector<T>(selector)
         if (found) return found
+        if (root instanceof Element && root.shadowRoot) {
+          const inner = deepFind<T>(root.shadowRoot, selector)
+          if (inner) return inner
+        }
         for (const el of root.querySelectorAll('*')) {
           if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
+            const inner = deepFind<T>(el.shadowRoot, selector)
             if (inner) return inner
           }
         }
@@ -790,7 +821,7 @@ async function getMenuButtonPopupRect(
       }
 
       const layout = deepFind(document, layoutSelector) as HTMLElement | null
-      const menu = layout?.shadowRoot?.querySelector(menuSelector) as HTMLElement | null
+      const menu = deepFind(layout, menuSelector) as HTMLElement | null
       const popup = menu?.shadowRoot?.querySelector('[part="menu"]') as HTMLElement | null
       const rect = popup?.getBoundingClientRect()
       if (!rect) {
@@ -817,12 +848,20 @@ async function getMenuButtonTriggerRect(
 ): Promise<RectSnapshot | null> {
   return page.evaluate(
     ({layoutSelector, menuSelector}) => {
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
+      function deepFind<T extends Element = Element>(
+        root: Document | ShadowRoot | Element | null | undefined,
+        selector: string,
+      ): T | null {
+        if (!root) return null
+        const found = root.querySelector<T>(selector)
         if (found) return found
+        if (root instanceof Element && root.shadowRoot) {
+          const inner = deepFind<T>(root.shadowRoot, selector)
+          if (inner) return inner
+        }
         for (const el of root.querySelectorAll('*')) {
           if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
+            const inner = deepFind<T>(el.shadowRoot, selector)
             if (inner) return inner
           }
         }
@@ -830,7 +869,7 @@ async function getMenuButtonTriggerRect(
       }
 
       const layout = deepFind(document, layoutSelector) as HTMLElement | null
-      const menu = layout?.shadowRoot?.querySelector(menuSelector) as HTMLElement | null
+      const menu = deepFind(layout, menuSelector) as HTMLElement | null
       const trigger = menu?.shadowRoot?.querySelector(
         '[part="trigger"], [part="dropdown"]',
       ) as HTMLElement | null
@@ -859,11 +898,13 @@ async function showFirstMobileLoginEntry(page: Page): Promise<string> {
     throw new Error('No login entry found for mobile entry test')
   }
 
-  await page.evaluate((id) => {
+  // Select the fixture entry directly, even when it lives in an unopened group; settle model updates.
+  await page.evaluate(async (id) => {
     const pm = (window as any).passmanager
     const entry = pm?.getCardByID?.(id)
     if (!entry) return
     pm.showElement.set(entry)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, entryId)
 
   await page.waitForFunction(
@@ -1065,12 +1106,35 @@ async function getDesktopEntryClickPoint(
 
 async function getPMMobileFabState(page: Page): Promise<PMMobileFabState> {
   return page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFindAll<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T[] {
+      if (!root) return []
+      const found = Array.from(root.querySelectorAll<T>(selector))
+      if (root instanceof Element && root.shadowRoot) {
+        found.push(...deepFindAll<T>(root.shadowRoot, selector))
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) found.push(...deepFindAll<T>(el.shadowRoot, selector))
+      }
+      return found
+    }
+
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -1120,36 +1184,33 @@ async function getPMMobileFabState(page: Page): Promise<PMMobileFabState> {
       }
     }
 
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as HTMLElement | null
-    const toolbarRoot = toolbar?.shadowRoot ?? null
-    const actions = toolbarRoot?.querySelector('.trailing') as HTMLElement | null
-    const moreMenu = toolbarRoot?.querySelector('cv-menu-button.overflow-menu') as HTMLElement | null
+    const toolbar = deepFind(document, '[data-testid="mobile-toolbar"]') as HTMLElement | null
+    const actions = deepFind(toolbar, '.trailing') as HTMLElement | null
+    const moreMenu = deepFind(toolbar, 'cv-menu-button.overflow-menu') as HTMLElement | null
     const credentialsHeader = deepFind(
       layout.shadowRoot,
-      'workspace-dashboard-header[surface="passwords"]',
+      '[data-testid="workspace-header"][data-surface="passwords"]',
     ) as HTMLElement | null
-    const credentialsHeaderRoot = credentialsHeader?.shadowRoot ?? null
-    const credentialsSortControls = credentialsHeaderRoot?.querySelector(
+    const credentialsSortControls = deepFind(
+      credentialsHeader,
       '.workspace-sort-control',
     ) as HTMLElement | null
-    const credentialsFilterControls = credentialsHeaderRoot?.querySelector(
+    const credentialsFilterControls = deepFind(
+      credentialsHeader,
       'cv-chip-group.workspace-filter-chips',
     ) as HTMLElement | null
     const slottedCredentialsFilterControls = credentialsHeader?.querySelector('pm-mobile-tag-filter-row')
     const legacyCredentialsFilterRow = deepFind(layout.shadowRoot, 'pm-mobile-tag-filter-row')
-    const credentialsManageAction = credentialsHeaderRoot?.querySelector('[data-filter-action="tags-manage"]')
+    const credentialsManageAction = deepFind(credentialsHeader, '[data-filter-action="tags-manage"]')
     const credentialsManageIcon = credentialsManageAction?.querySelector('cv-icon')
-    const credentialsFilterChips = Array.from(
-      credentialsHeaderRoot?.querySelectorAll('cv-chip.workspace-filter-chip') ?? [],
-    )
-    const directionButton = credentialsHeaderRoot?.querySelector('.direction-button') as HTMLElement | null
+    const credentialsFilterChips = Array.from(deepFindAll(credentialsHeader, 'cv-chip.workspace-filter-chip'))
+    const directionButton = deepFind(credentialsHeader, '.direction-button') as HTMLElement | null
     const credentialsSortButton = credentialsSortControls
-    const credentialsGroupRadioGroup = credentialsHeaderRoot?.querySelector(
+    const credentialsGroupRadioGroup = deepFind(
+      credentialsHeader,
       'cv-radio-group.workspace-view-switch',
     ) as {value?: string} | null
-    const headerSearchInput = credentialsHeaderRoot?.querySelector(
-      'cv-input.search-box',
-    ) as HTMLElement | null
+    const headerSearchInput = deepFind(credentialsHeader, 'cv-input.search-box') as HTMLElement | null
     const legacySearch = deepFind(layout.shadowRoot, 'pm-search-mobile') as HTMLElement | null
     const searchSortGroup = legacySearch?.shadowRoot?.querySelector(
       '.sort-group-trigger',
@@ -1180,7 +1241,7 @@ async function getPMMobileFabState(page: Page): Promise<PMMobileFabState> {
       actionsHidden: !toolbar || order.length === 0,
       fabOrder: order,
       dropdownItems,
-      hasSortGroup: Boolean(toolbarRoot?.querySelector('[data-action="pm-sort-group"]')),
+      hasSortGroup: Boolean(deepFind(toolbar, '[data-action="pm-sort-group"]')),
       hasCredentialsHeader: Boolean(credentialsHeader),
       hasCredentialsSortControls: Boolean(credentialsSortControls),
       hasCredentialsFilterControls: Boolean(credentialsFilterControls),
@@ -1216,16 +1277,16 @@ async function getPMMobileFabState(page: Page): Promise<PMMobileFabState> {
       hasSearchSortGroup: Boolean(searchSortGroup),
       searchSortGroupActive: Boolean(searchSortGroup?.classList.contains('active')),
       sortGroupSheetOpen: Boolean(sortGroupBottomSheet?.hasAttribute('open')),
-      hasCreateEntry: Boolean(toolbarRoot?.querySelector('[data-action="pm-create-entry"]')),
-      hasCreateGroup: Boolean(toolbarRoot?.querySelector('[data-action="pm-create-group"]')),
+      hasCreateEntry: Boolean(deepFind(toolbar, '[data-action="pm-create-entry"]')),
+      hasCreateGroup: Boolean(deepFind(toolbar, '[data-action="pm-create-group"]')),
       hasEntryEdit:
-        Boolean(toolbarRoot?.querySelector('[data-action="pm-entry-edit"]')) ||
+        Boolean(deepFind(toolbar, '[data-action="pm-entry-edit"]')) ||
         dropdownItems.includes('pm-entry-edit'),
       hasEntryMove:
-        Boolean(toolbarRoot?.querySelector('[data-action="pm-entry-move"]')) ||
+        Boolean(deepFind(toolbar, '[data-action="pm-entry-move"]')) ||
         dropdownItems.includes('pm-entry-move'),
       hasEntryDelete:
-        Boolean(toolbarRoot?.querySelector('[data-action="pm-entry-delete"]')) ||
+        Boolean(deepFind(toolbar, '[data-action="pm-entry-delete"]')) ||
         dropdownItems.includes('pm-entry-delete'),
       hasMore: Boolean(moreMenu),
       hasSearchComponent: Boolean(headerSearchInput),
@@ -1294,7 +1355,21 @@ async function enableAndWaitForPasswordManager(
     undefined,
     {timeout: 10_000},
   )
+  await waitForVisualViewportSync(page)
   await page.waitForTimeout(150)
+}
+
+// The passwords surface defers the runtime bootstrap (visual viewport sync, keyboard coordinator)
+// until after first paint and an idle callback, so it can land after the list is ready. Its first
+// sync writes the root viewport inset; a test that fakes keyboard geometry before that loses its
+// values to that write.
+async function waitForVisualViewportSync(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () =>
+      document.documentElement.style.getPropertyValue('--app-runtime-visual-viewport-inset-block-end') !== '',
+    undefined,
+    {timeout: 10_000},
+  )
 }
 
 test('model-owned PassManager create forms handle invalid mobile submits', async () => {
@@ -1302,9 +1377,11 @@ test('model-owned PassManager create forms handle invalid mobile submits', async
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
   await clearMockTransportLog()
 
-  const entryBaseline = await page.evaluate(() => {
+  // Model setup needs a frame before returning; see deepClick for the evaluate GC boundary.
+  const entryBaseline = await page.evaluate(async () => {
     const passmanager = (window as any).passmanager
     passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return {
       allEntries: passmanager.allEntries.length,
       rootEntries: passmanager.entriesList().length,
@@ -1312,7 +1389,8 @@ test('model-owned PassManager create forms handle invalid mobile submits', async
   })
   await expect.poll(() => deepQuerySelector(page, 'pm-entry-create-mobile'), {timeout: 10_000}).toBe(true)
 
-  const entryBoundary = await page.evaluate(() => {
+  // Keep model-owned form setup while allowing its reactive updates to finish before return.
+  const entryBoundary = await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -1336,6 +1414,7 @@ test('model-owned PassManager create forms handle invalid mobile submits', async
     const submit = create?.shadowRoot?.querySelector('#passwords\\.create\\.submit')
     create?.model?.setTitle('Validation Probe')
     create?.model?.setUsername('validation-user')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return {
       noValidate: form?.noValidate ?? false,
       nativeSubmit: submit instanceof HTMLButtonElement && submit.type === 'submit',
@@ -1421,9 +1500,11 @@ test('model-owned PassManager create forms handle invalid mobile submits', async
   expect(invalidEntry.error).not.toBe('')
   expect(invalidEntry.inlineError).toBe(invalidEntry.error)
 
-  const groupBaseline = await page.evaluate(() => {
+  // Model setup needs the same frame boundary as the entry form above.
+  const groupBaseline = await page.evaluate(async () => {
     const passmanager = (window as any).passmanager
     passmanager.showElement.set('createGroup')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return {
       allEntries: passmanager.allEntries.length,
       rootEntries: passmanager.entriesList().length,
@@ -1543,7 +1624,8 @@ test('desktop workbench uses a pixel splitter and normalizes persisted sidebar w
   })
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop`)
 
-  const initial = await page.evaluate(() => {
+  // Pointer input starts dragging and prevents focus; keep this keyboard precondition behind a frame.
+  const initial = await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -1569,6 +1651,7 @@ test('desktop workbench uses a pixel splitter and normalizes persisted sidebar w
     const separator = splitter?.shadowRoot?.querySelector('[part="separator"]') as HTMLElement | null
 
     separator?.focus()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
     return {
       hasLayout: Boolean(layout),
@@ -1652,21 +1735,29 @@ test('desktop security summary is rendered once in the compact status bar', asyn
 
   await page.waitForFunction(
     () => {
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
+      function deepFind<T extends Element = Element>(
+        root: Document | ShadowRoot | Element | null | undefined,
+        selector: string,
+      ): T | null {
+        if (!root) return null
+        const found = root.querySelector<T>(selector)
         if (found) return found
+        if (root instanceof Element && root.shadowRoot) {
+          const inner = deepFind<T>(root.shadowRoot, selector)
+          if (inner) return inner
+        }
         for (const el of root.querySelectorAll('*')) {
           if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
+            const inner = deepFind<T>(el.shadowRoot, selector)
             if (inner) return inner
           }
         }
         return null
       }
 
-      const statusBar = deepFind(document, 'status-bar') as HTMLElement | null
+      const statusBar = deepFind(document, '[data-testid="shell-status"]') as HTMLElement | null
       return Boolean(
-        statusBar?.shadowRoot?.querySelector(
+        deepFind(statusBar,
           '.status-content.status-context-summary[data-summary-context="passwords-group"]',
         ),
       )
@@ -1676,12 +1767,20 @@ test('desktop security summary is rendered once in the compact status bar', asyn
   )
 
   const placement = await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
+          const inner = deepFind<T>(el.shadowRoot, selector)
           if (inner) return inner
         }
       }
@@ -1701,10 +1800,8 @@ test('desktop security summary is rendered once in the compact status bar', asyn
     const layout = deepFind(document, 'password-manager-desktop-layout') as HTMLElement | null
     const group = layout?.shadowRoot?.querySelector('pm-group') as HTMLElement | null
     const localRail = group?.shadowRoot?.querySelector('pm-summary-rail.group-metrics-strip')
-    const statusBar = deepFind(document, 'status-bar') as HTMLElement | null
-    const statusSummary = statusBar?.shadowRoot?.querySelector(
-      '.status-content.status-context-summary',
-    ) as HTMLElement | null
+    const statusBar = deepFind(document, '[data-testid="shell-status"]') as HTMLElement | null
+    const statusSummary = deepFind(statusBar, '.status-content.status-context-summary') as HTMLElement | null
     const allSummaries = deepCollect(document, '.status-content.status-context-summary')
     return {
       summaryCount: allSummaries.length,
@@ -1744,7 +1841,7 @@ test('desktop toolbar keeps the entry action visible and secondary actions in th
       'password-manager-desktop-toolbar[slot="desktop-topbar"]',
     ) as HTMLElement | null
     const root = toolbar?.shadowRoot ?? null
-    const shellToolbar = root?.querySelector('desktop-shell-toolbar')
+    const shellToolbar = root?.querySelector('[data-testid="desktop-toolbar"]')
     const actions = root?.querySelector('.toolbar-actions')
     const rightmost = actions?.lastElementChild
 
@@ -1756,7 +1853,7 @@ test('desktop toolbar keeps the entry action visible and secondary actions in th
         .map((button) => button.dataset['action'])
         .filter((id): id is string => Boolean(id)),
       hasLegacyHeader: Boolean(
-        deepFind(document, 'workspace-dashboard-header[slot="desktop-topbar"][surface="passwords"]'),
+        deepFind(document, '[data-testid="workspace-header"][data-surface="passwords"]'),
       ),
       singleRow: shellToolbar?.hasAttribute('single-row') ?? false,
       hasRightmostActionsMenu: Boolean(rightmost?.matches('cv-menu-button.toolbar-actions-menu')),
@@ -1786,10 +1883,12 @@ test('desktop entry keeps its inspector alongside the primary content in a narro
   const entryId = await findFirstLoginEntryId(page)
   expect(entryId).not.toBeNull()
 
-  await page.evaluate((id) => {
+  // Opening the model-owned fixture needs a frame; see deepClick for the evaluate GC boundary.
+  await page.evaluate(async (id) => {
     const passmanager = (window as any).passmanager
     const entry = passmanager?.getCardByID?.(id)
     if (entry) passmanager.showElement.set(entry)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, entryId)
 
   const entry = page.locator('pm-entry').first()
@@ -1897,7 +1996,7 @@ test('desktop workbench stays compact without page overflow at supported viewpor
         const layout = deepFind(document, 'password-manager-desktop-layout') as HTMLElement | null
         const group = layout?.shadowRoot?.querySelector('pm-group') as HTMLElement | null
         const contextHeader = group?.shadowRoot?.querySelector('pm-workspace-header')
-        const statusBar = deepFind(document, 'status-bar')
+        const statusBar = deepFind(document, '[data-testid="shell-status"]')
         return Boolean(toolbar && contextHeader && statusBar)
       },
       undefined,
@@ -1946,7 +2045,7 @@ test('desktop workbench stays compact without page overflow at supported viewpor
       const sidebar = layout?.shadowRoot?.querySelector('.sidebar') as HTMLElement | null
       const group = layout?.shadowRoot?.querySelector('pm-group') as HTMLElement | null
       const contextHeader = group?.shadowRoot?.querySelector('pm-workspace-header') as HTMLElement | null
-      const statusBar = deepFind(document, 'status-bar') as HTMLElement | null
+      const statusBar = deepFind(document, '[data-testid="shell-status"]') as HTMLElement | null
       const quickFilters = toolbar?.shadowRoot?.querySelector('pm-quick-filters') as HTMLElement | null
       const quickFilterPopover = quickFilters?.shadowRoot?.querySelector('cv-popover.filters-popover')
       const sortControls = toolbar?.shadowRoot?.querySelector('pm-sort-controls') as HTMLElement | null
@@ -2006,6 +2105,7 @@ test('desktop toolbar popovers keep intrinsic content height', async () => {
   ] as const
 
   for (const selector of selectors) {
+    // Programmatic popover geometry setup/cleanup must finish on a frame before return.
     const geometry = await page.evaluate(async (targetSelector) => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
         const found = root.querySelector(selector)
@@ -2046,6 +2146,7 @@ test('desktop toolbar popovers keep intrinsic content height', async () => {
 
       popover.hide()
       await popover.updateComplete
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       return result
     }, selector)
 
@@ -2061,33 +2162,15 @@ test('desktop tag manager uses a non-modal utility drawer and persists catalog C
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop&e2eWidth=1280&e2eHeight=800`)
 
   const layoutBefore = await getDeepRect(page, 'password-manager-desktop-layout')
+  // Keep catalog fixture setup behind a frame, then open the drawer with trusted input.
   await page.evaluate(async () => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (!element.shadowRoot) continue
-        const inner = deepFind(element.shadowRoot, selector)
-        if (inner) return inner
-      }
-      return null
-    }
-
     const passmanager = (window as any).passmanager
     passmanager.credentialTags.set(['Work', 'Personal'])
-    const popover = deepFind(document, 'cv-popover.filters-popover') as
-      | (HTMLElement & {updateComplete: Promise<boolean>})
-      | null
-    if (!popover) throw new Error('Desktop tag filter popover is unavailable')
-    const trigger = popover.shadowRoot?.querySelector('[part="trigger"]') as HTMLElement | null
-    if (!trigger) throw new Error('Desktop tag filter trigger is unavailable')
-    trigger.click()
-    await popover.updateComplete
-    const manage = deepFind(document, '.tag-manage-button') as HTMLElement | null
-    if (!manage) throw new Error('Desktop tag manage action is unavailable')
-    manage.focus()
-    manage.click()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
+  await waitForAppInput(page)
+  await page.locator('cv-popover.filters-popover [part="trigger"]').click()
+  expect(await deepClick(page, '.tag-manage-button')).toBe(true)
 
   await page.waitForFunction(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -2438,28 +2521,38 @@ test('mobile group edit guards Back, discards safely, and saves from the focused
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile&e2eWidth=390`)
 
-  await page.evaluate(() => {
+  // Preserve direct fixture navigation and finish its reactive updates before return.
+  await page.evaluate(async () => {
     const passmanager = (window as any).passmanager
     const group = passmanager
       ?.entriesList?.()
       ?.find((item: any) => item?.constructor?.name === 'Group' && item.name === 'layout-fixture-group')
     if (!group) throw new Error('layout group fixture is missing')
     passmanager.showElement.set(group)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await expect.poll(() => deepQuerySelector(page, 'pm-group-mobile'), {timeout: 10_000}).toBe(true)
-  expect(await openMenuButton(page, 'mobile-top-toolbar', 'cv-menu-button.overflow-menu')).toBe(true)
+  expect(await openMenuButton(page, '[data-testid="mobile-toolbar"]', 'cv-menu-button.overflow-menu')).toBe(true)
   await expect.poll(() => deepQuerySelector(page, 'cv-menu-item[value="pm-edit-group"]')).toBe(true)
   expect(await deepClick(page, 'cv-menu-item[value="pm-edit-group"]')).toBe(true)
   await expect.poll(() => deepQuerySelector(page, 'pm-group-edit-mobile'), {timeout: 10_000}).toBe(true)
 
   const initial = await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
+    function deepFind<T extends Element = Element>(
+      root: Document | ShadowRoot | Element | null | undefined,
+      selector: string,
+    ): T | null {
+      if (!root) return null
+      const found = root.querySelector<T>(selector)
       if (found) return found
-      for (const element of root.querySelectorAll('*')) {
-        if (element.shadowRoot) {
-          const nested = deepFind(element.shadowRoot, selector)
-          if (nested) return nested
+      if (root instanceof Element && root.shadowRoot) {
+        const inner = deepFind<T>(root.shadowRoot, selector)
+        if (inner) return inner
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          const inner = deepFind<T>(el.shadowRoot, selector)
+          if (inner) return inner
         }
       }
       return null
@@ -2470,15 +2563,15 @@ test('mobile group edit guards Back, discards safely, and saves from the focused
     const name = root?.querySelector('cv-input[name="name"]') as (HTMLElement & {value?: string}) | null
     const footer = root?.querySelector('mobile-bottom-action-footer') as HTMLElement | null
     const footerRect = footer?.getBoundingClientRect()
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as (HTMLElement & {title?: string}) | null
+    const toolbar = deepFind(document, '[data-testid="mobile-toolbar"]') as HTMLElement | null
     const toolbarRect = toolbar?.getBoundingClientRect()
 
     return {
       name: name?.value ?? '',
-      toolbarTitle: toolbar?.title ?? '',
-      hasList: Boolean(root?.querySelector('.group-virtual-list, workspace-dashboard-header')),
+      toolbarTitle: deepFind(toolbar, '.title')?.textContent?.trim() ?? '',
+      hasList: Boolean(root?.querySelector('.group-virtual-list, [data-testid="workspace-header"]')),
       hasMetrics: Boolean(root?.querySelector('.group-metrics-strip')),
-      hasTabBar: Boolean(deepFind(document, 'mobile-tab-bar')),
+      hasTabBar: Boolean(deepFind(document, '[data-testid="mobile-tabs"]')),
       footerVisible:
         Boolean(footerRect?.height) &&
         Boolean(toolbarRect) &&
@@ -2528,7 +2621,7 @@ test('mobile group edit guards Back, discards safely, and saves from the focused
     .poll(() => page.evaluate(() => (window as any).passmanager?.showElement?.()?.name))
     .toBe('layout-fixture-group')
 
-  expect(await openMenuButton(page, 'mobile-top-toolbar', 'cv-menu-button.overflow-menu')).toBe(true)
+  expect(await openMenuButton(page, '[data-testid="mobile-toolbar"]', 'cv-menu-button.overflow-menu')).toBe(true)
   await expect.poll(() => deepQuerySelector(page, 'cv-menu-item[value="pm-edit-group"]')).toBe(true)
   expect(await deepClick(page, 'cv-menu-item[value="pm-edit-group"]')).toBe(true)
   await expect.poll(() => deepQuerySelector(page, 'pm-group-edit-mobile'), {timeout: 10_000}).toBe(true)
@@ -2550,14 +2643,15 @@ test('mobile group edit guards Back, discards safely, and saves from the focused
       name: 'layout-fixture-renamed',
       description: 'Updated from the focused mobile form',
     })
-  expect(await deepQuerySelector(page, 'mobile-tab-bar')).toBe(true)
+  expect(await deepQuerySelector(page, '[data-testid="mobile-tabs"]')).toBe(true)
 })
 
 test('mobile audit settlement preserves credential and group row geometry', async () => {
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile&e2eWidth=390`)
 
-  await page.evaluate(() => {
+  // Audit fixture mutation must yield a frame after updating the entry's reactive OTP state.
+  await page.evaluate(async () => {
     const root = (window as unknown as {passmanager: any}).passmanager
     let resolvePassword: (value: string | undefined) => void = () => {}
     const pendingPassword = new Promise<string | undefined>((resolve) => {
@@ -2584,6 +2678,7 @@ test('mobile audit settlement preserves credential and group row geometry', asyn
     const groupEntry = root.allEntries.find((entry: {id: string}) => entry.id === 'layout-group-login')
     if (!groupEntry) throw new Error('layout group entry is missing')
     groupEntry.otps.set([...groupEntry.otps(), {id: 'audit-pending', label: 'Audit pending'}])
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(
@@ -2593,9 +2688,11 @@ test('mobile audit settlement preserves credential and group row geometry', asyn
   )
   const pendingGeometry = await getMobileSecurityRowGeometry(page)
 
-  await page.evaluate(() => {
+  // Resolving the stub resumes app work in microtasks; finish on a frame before returning.
+  await page.evaluate(async () => {
     const runtime = window as unknown as {resolveAuditPassword?: (value: string | undefined) => void}
     runtime.resolveAuditPassword?.('abc')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(
     () => Boolean((window as unknown as {auditScanSettled?: boolean}).auditScanSettled),
@@ -2770,7 +2867,7 @@ test('mobile credentials keeps window geometry stable while grouping', async () 
     await groupHost.updateComplete
 
     const {groupBy} = await (0, eval)(
-      'import("/features/passmanager/components/list/sort-controls.ts")',
+      'import("/features/passmanager/components/list/sort-controls.model.ts")',
     )
     const {pmMobileSelectionModel} = await (0, eval)(
       'import("/features/passmanager/models/pm-mobile-selection.model.ts")',
@@ -2860,7 +2957,9 @@ test('mobile credentials keeps window geometry stable while grouping', async () 
       sameWindow: selectionWindow === initialWindow,
       selected: selectedEntry?.selectedInSelectionMode === true,
     }
+    // Selection cleanup mutates reactive state; see deepClick for the evaluate GC boundary.
     pmMobileSelectionModel.exit()
+    await nextFrame()
 
     return {anchorId, snapshots, selection}
   })
@@ -2890,18 +2989,6 @@ test('mobile selection delete confirmation stays inside viewport', async () => {
 
   const entryId = await findFirstLoginEntryId(page)
   const commandState = await page.evaluate(async (id) => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-
     const {pmMobileSelectionModel} = await (0, eval)(
       'import("/features/passmanager/models/pm-mobile-selection.model.ts")',
     )
@@ -2915,17 +3002,12 @@ test('mobile selection delete confirmation stays inside viewport', async () => {
     pmMobileSelectionModel.enterWithEntry(id)
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
-    const toolbar = deepFind(document, 'mobile-top-toolbar') as
-      | (HTMLElement & {
-          actions?: Array<{id: string}>
-        })
-      | null
-    const actionIds = Array.isArray(toolbar?.actions) ? toolbar.actions.map((action) => action.id) : []
-
+    // Exercise the command directly, then leave its dialog updates behind a frame boundary.
+    const commandResult = pmMobileChromeModel.executeCommand('pm-selection-delete')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return {
       hasEntry: true,
-      commandResult: pmMobileChromeModel.executeCommand('pm-selection-delete'),
-      actionIds,
+      commandResult,
       selectedCount: pmMobileSelectionModel.selectedCount(),
     }
   }, entryId)
@@ -3038,7 +3120,11 @@ test('mobile entry overflow actions icon stays centered in trigger', async () =>
   expect(state.hasMore).toBe(true)
   expect(state.dropdownItems).toEqual(['pm-entry-move'])
 
-  const alignment = await getMenuButtonAlignment(page, 'mobile-top-toolbar', 'cv-menu-button.overflow-menu')
+  const alignment = await getMenuButtonAlignment(
+    page,
+    '[data-testid="mobile-toolbar"]',
+    'cv-menu-button.overflow-menu',
+  )
   expect(alignment).not.toBeNull()
   expect(Math.abs(alignment!.deltaX)).toBeLessThan(1)
 })
@@ -3048,13 +3134,17 @@ test('mobile entry overflow actions menu stays inside the viewport', async () =>
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
   await showFirstMobileLoginEntry(page)
 
-  expect(await openMenuButton(page, 'mobile-top-toolbar', 'cv-menu-button.overflow-menu')).toBe(true)
+  expect(await openMenuButton(page, '[data-testid="mobile-toolbar"]', 'cv-menu-button.overflow-menu')).toBe(true)
   await page.waitForTimeout(150)
 
-  const rect = await getMenuButtonPopupRect(page, 'mobile-top-toolbar', 'cv-menu-button.overflow-menu')
+  const rect = await getMenuButtonPopupRect(
+    page,
+    '[data-testid="mobile-toolbar"]',
+    'cv-menu-button.overflow-menu',
+  )
   const triggerRect = await getMenuButtonTriggerRect(
     page,
-    'mobile-top-toolbar',
+    '[data-testid="mobile-toolbar"]',
     'cv-menu-button.overflow-menu',
   )
   const viewport = page.viewportSize()
@@ -3128,38 +3218,11 @@ test('mobile visible sort/group controls replace the legacy search trigger', asy
 
   expect(await deepClick(page, '.workspace-sort-control')).toBe(true)
   expect(await deepClick(page, 'cv-radio[data-display-mode="website"]')).toBe(true)
-  const dispatchedTagFilter = await page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-
-    const header = deepFind(document, 'workspace-dashboard-header[surface="passwords"]') as HTMLElement | null
-    const chipGroup = header?.shadowRoot?.querySelector('cv-chip-group.workspace-filter-chips')
-    if (!chipGroup) return false
-
-    chipGroup.dispatchEvent(
-      new CustomEvent('cv-input', {
-        detail: {
-          value: ['__all-tags', 'work'],
-          changedValue: 'work',
-          selected: true,
-          source: 'click',
-        },
-        bubbles: true,
-        composed: true,
-      }),
-    )
-    return true
-  })
-  expect(dispatchedTagFilter).toBe(true)
+  const tagFilter = page
+    .locator('[data-testid="workspace-header"][data-surface="passwords"]')
+    .locator('cv-chip[value="work"]')
+  await tagFilter.click()
+  expect(await tagFilter.isVisible()).toBe(true)
   expect(await deepClick(page, '[data-filter-action="tags-manage"]')).toBe(true)
   await page.waitForTimeout(150)
   state = await getPMMobileFabState(page)
@@ -3284,8 +3347,10 @@ test('mobile switches toolbar stacks by context and hides actions in create/impo
     {timeout: 10_000},
   )
 
-  await page.evaluate(() => {
+  // Context fixtures stay model-owned; yield before evaluate resolves (see deepClick).
+  await page.evaluate(async () => {
     ;(window as any).passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(
     () => (window as any).passmanager?.showElement?.() === 'createEntry',
@@ -3297,8 +3362,10 @@ test('mobile switches toolbar stacks by context and hides actions in create/impo
   state = await getPMMobileFabState(page)
   expect(state.actionsHidden).toBe(true)
 
-  await page.evaluate(() => {
+  // Context fixtures stay model-owned; yield before evaluate resolves (see deepClick).
+  await page.evaluate(async () => {
     ;(window as any).passmanager.showElement.set('createGroup')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(
     () => (window as any).passmanager?.showElement?.() === 'createGroup',
@@ -3310,8 +3377,10 @@ test('mobile switches toolbar stacks by context and hides actions in create/impo
   state = await getPMMobileFabState(page)
   expect(state.actionsHidden).toBe(true)
 
-  await page.evaluate(() => {
+  // Context fixtures stay model-owned; yield before evaluate resolves (see deepClick).
+  await page.evaluate(async () => {
     ;(window as any).passmanager.showElement.set('importDialog')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(
     () => (window as any).passmanager?.showElement?.() === 'importDialog',
@@ -3323,9 +3392,11 @@ test('mobile switches toolbar stacks by context and hides actions in create/impo
   state = await getPMMobileFabState(page)
   expect(state.actionsHidden).toBe(true)
 
-  await page.evaluate(() => {
+  // Restore the model context before returning to the driver (see deepClick).
+  await page.evaluate(async () => {
     const pm = (window as any).passmanager
     pm.showElement.set(pm)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(
     () => {
@@ -3345,8 +3416,10 @@ test('mobile create entry footer uses ios native scroll-action offset without a 
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
 
-  await page.evaluate(() => {
+  // This geometry fixture opens a model context; yield before returning (see deepClick).
+  await page.evaluate(async () => {
     ;(window as any).passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(
     () => {
@@ -3428,7 +3501,7 @@ test('app route inherits keyboard-aware active visual viewport inset', async () 
 
   const geometry = await page.evaluate(async () => {
     const root = document.documentElement
-    const app = document.querySelector('chromvoid-app') as HTMLElement | null
+    const app = document.querySelector('[data-testid="app-root"]') as HTMLElement | null
     const documentScroller = document.scrollingElement as HTMLElement | null
     if (!app || !documentScroller) return null
 
@@ -3479,6 +3552,8 @@ test('app route inherits keyboard-aware active visual viewport inset', async () 
           root.removeAttribute(name)
         }
       }
+      // Restoring root attributes can update the app too; drain that work (see deepClick).
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     }
   })
 
@@ -3551,26 +3626,10 @@ test('mobile entry password double tap opens full edit mode and focuses password
   expect(readSurface.hasPasswordValueTarget).toBe(true)
   expect(readSurface.hasPrimaryCard).toBe(true)
 
-  expect(
-    await page.evaluate(() => {
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
-        if (found) return found
-        for (const el of root.querySelectorAll('*')) {
-          if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
-            if (inner) return inner
-          }
-        }
-        return null
-      }
-
-      const target = deepFind(document, '[data-credential-edit-field="password"]') as HTMLElement | null
-      if (!target) return false
-      target.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, composed: true}))
-      return true
-    }),
-  ).toBe(true)
+  // Trusted input keeps the edit transition outside evaluate (see deepClick).
+  await waitForAppInput(page)
+  expect(await deepQuerySelector(page, '[data-credential-edit-field="password"]')).toBe(true)
+  await page.locator('[data-credential-edit-field="password"]').first().dblclick()
   await page.waitForFunction(
     () => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -3633,26 +3692,10 @@ test('mobile entry title double tap opens full edit mode and focuses title', asy
     {timeout: 10_000},
   )
 
-  expect(
-    await page.evaluate(() => {
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
-        if (found) return found
-        for (const el of root.querySelectorAll('*')) {
-          if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
-            if (inner) return inner
-          }
-        }
-        return null
-      }
-
-      const target = deepFind(document, '[data-entry-title-edit-field="title"]') as HTMLElement | null
-      if (!target) return false
-      target.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true, composed: true}))
-      return true
-    }),
-  ).toBe(true)
+  // Trusted input keeps the edit transition outside evaluate (see deepClick).
+  await waitForAppInput(page)
+  expect(await deepQuerySelector(page, '[data-entry-title-edit-field="title"]')).toBe(true)
+  await page.locator('[data-entry-title-edit-field="title"]').first().dblclick()
   await page.waitForFunction(
     () => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -3834,6 +3877,8 @@ test('mobile entry edit keeps bottom clearance when the keyboard inset is active
       } else {
         rootElement.removeAttribute('data-mobile-keyboard-expanded')
       }
+      // Restore the keyboard fixture across a frame before resolving (see deepClick).
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     }
   })
 
@@ -3856,8 +3901,10 @@ test('mobile entry create keeps the main form height stable when all Details are
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile&e2eWidth=360&e2eHeight=480`)
 
-  await page.evaluate(() => {
+  // This geometry fixture opens a model context; yield before returning (see deepClick).
+  await page.evaluate(async () => {
     ;(window as any).passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(
@@ -3881,7 +3928,8 @@ test('mobile entry create keeps the main form height stable when all Details are
     {timeout: 10_000},
   )
 
-  await page.evaluate(() => {
+  // Configure the Details fixture through its model, then drain updates (see deepClick).
+  await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -3916,6 +3964,7 @@ test('mobile entry create keeps the main form height stable when all Details are
     create.model.setNote('Recovery instructions')
     create.model.openDetailsSheet()
     create.model.openDetailsEditor('otp')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(
@@ -4000,12 +4049,15 @@ test('mobile OTP detail sheet keeps full-width fields and a compact footer witho
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile&e2eWidth=390&e2eHeight=646`)
 
-  await page.evaluate(() => {
+  // This geometry fixture opens a model context; yield before returning (see deepClick).
+  await page.evaluate(async () => {
     ;(window as any).passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await expect.poll(() => deepQuerySelector(page, 'pm-entry-create-mobile'), {timeout: 10_000}).toBe(true)
 
-  await page.evaluate(() => {
+  // Open the OTP fixture through its model, then drain updates (see deepClick).
+  await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -4027,6 +4079,7 @@ test('mobile OTP detail sheet keeps full-width fields and a compact footer witho
       | null
     create?.model?.openDetailsSheet()
     create?.model?.openDetailsEditor('otp')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await expect.poll(() => deepQuerySelector(page, '[data-detail-editor="otp"]'), {timeout: 10_000}).toBe(true)
   await page.waitForTimeout(250)
@@ -4154,12 +4207,15 @@ test('mobile Advanced OTP keeps the longest controls reachable inside a short sh
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile&e2eWidth=403&e2eHeight=321`)
 
-  await page.evaluate(() => {
+  // This geometry fixture opens a model context; yield before returning (see deepClick).
+  await page.evaluate(async () => {
     ;(window as any).passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await expect.poll(() => deepQuerySelector(page, 'pm-entry-create-mobile'), {timeout: 10_000}).toBe(true)
 
-  await page.evaluate(() => {
+  // Configure the advanced OTP fixture, then drain model updates (see deepClick).
+  await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -4187,6 +4243,7 @@ test('mobile Advanced OTP keeps the longest controls reachable inside a short sh
     create?.model?.openDetailsEditor('otp')
     create?.model?.otp.setPreset('custom')
     create?.model?.otp.actions.openAdvanced()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await expect.poll(() => deepQuerySelector(page, '.custom-controls'), {timeout: 10_000}).toBe(true)
   await page.waitForTimeout(250)
@@ -4272,10 +4329,12 @@ test('mobile entry create uses one shared tag picker and commits only on Done', 
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
 
-  await page.evaluate(() => {
+  // Seed the tag catalog and model context, then drain updates (see deepClick).
+  await page.evaluate(async () => {
     const passmanager = (window as any).passmanager
     passmanager.credentialTags.set(['Work', 'Rotate'])
     passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await page.waitForFunction(() => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -4352,7 +4411,8 @@ test('mobile entry create uses one shared tag picker and commits only on Done', 
     openSheetCount: 1,
   })
 
-  expect(await deepClick(page, '.tag-chip[data-tag-key="work"]')).toBe(true)
+  // The last match is the hidden global picker sharing the Details draft model; preserve that target.
+  expect(await deepClick(page, '.tag-chip[data-tag-key="work"]', 'programmatic')).toBe(true)
   expect(
     await page.evaluate(() => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -4393,7 +4453,8 @@ test('mobile entry create uses one shared tag picker and commits only on Done', 
   })
 
   expect(await deepClick(page, '[data-detail="tags"]')).toBe(true)
-  expect(await deepClick(page, '.tag-chip[data-tag-key="rotate"]')).toBe(true)
+  // As above, keep the hidden shared picker target instead of selecting a different visible copy.
+  expect(await deepClick(page, '.tag-chip[data-tag-key="rotate"]', 'programmatic')).toBe(true)
   expect(await deepClick(page, '[data-detail-back]')).toBe(true)
 
   const finalTags = await page.evaluate(() => {
@@ -4425,18 +4486,21 @@ test('mobile create tag sheet stays inside the overlay keyboard viewport and kee
   await page.setViewportSize({width: 390, height: 844})
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
 
-  await page.evaluate(() => {
+  // Seed the scrollable tag fixture before returning to the driver (see deepClick).
+  await page.evaluate(async () => {
     const passmanager = (window as any).passmanager
     passmanager.credentialTags.set(
       Array.from({length: 28}, (_, index) => `Tag ${String(index + 1).padStart(2, '0')}`),
     )
     passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await expect.poll(() => deepQuerySelector(page, 'pm-entry-create-mobile'), {timeout: 10_000}).toBe(true)
 
   expect(await deepClick(page, '[data-details-hub-trigger]')).toBe(true)
   expect(await deepClick(page, '[data-detail="tags"]')).toBe(true)
-  expect(await deepClick(page, '.new-tag-button')).toBe(true)
+  // The original last match is in the hidden global picker; it updates the shared tag draft.
+  expect(await deepClick(page, '.new-tag-button', 'programmatic')).toBe(true)
 
   const metrics = await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -4503,8 +4567,10 @@ test('mobile entry create keeps bottom action in flow above active keyboard inse
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=mobile`)
 
-  await page.evaluate(() => {
+  // This geometry fixture opens a model context; yield before returning (see deepClick).
+  await page.evaluate(async () => {
     ;(window as any).passmanager.showElement.set('createEntry')
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(
@@ -4547,7 +4613,7 @@ test('mobile entry create keeps bottom action in flow above active keyboard inse
     }
 
     const rootElement = document.documentElement
-    const mobileShell = deepFind(document, 'file-app-shell-mobile-layout') as HTMLElement | null
+    const mobileShell = deepFind(document, '[data-testid="shell-mobile"]') as HTMLElement | null
     const create = deepFind(document, 'pm-entry-create-mobile') as HTMLElement | null
     const createRoot = create?.shadowRoot
     const scroll = createRoot?.querySelector('.create-scroll') as HTMLElement | null
@@ -4628,6 +4694,8 @@ test('mobile entry create keeps bottom action in flow above active keyboard inse
       } else {
         mobileShell.style.removeProperty('--mobile-tab-bar-content-clearance')
       }
+      // Restore the root and shell fixture across a frame (see deepClick).
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     }
   })
 
@@ -4652,13 +4720,15 @@ test('mobile unlock password dialog uses sheet clearance without resizing the ap
   await page.waitForFunction(() => Boolean((window as any).dialogService?.showInputDialog), undefined, {
     timeout: 10_000,
   })
-  await page.evaluate(() => {
+  // The dialog service creates the fixture; yield after it queues rendering (see deepClick).
+  await page.evaluate(async () => {
     void (window as any).dialogService.showInputDialog({
       title: 'Unlock vault',
       label: 'Vault password',
       type: 'password',
       required: true,
     })
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   await page.waitForFunction(
@@ -4687,7 +4757,8 @@ test('mobile unlock password dialog uses sheet clearance without resizing the ap
   )
   await page.waitForTimeout(240)
 
-  await page.evaluate(() => {
+  // Keep the oversized dialog fixture programmatic and drain its layout work (see deepClick).
+  await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -4707,6 +4778,7 @@ test('mobile unlock password dialog uses sheet clearance without resizing the ap
     filler.style.blockSize = '960px'
     filler.textContent = 'Keyboard footer regression filler'
     body?.append(filler)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 
   const beforeKeyboard = await getMobilePasswordDialogKeyboardSnapshot(page)
@@ -4804,48 +4876,18 @@ test('mobile context selection on entry enters selection mode without bootstrap 
       throw new Error('No login entry found for mobile selection test')
     }
 
-    expect(
-      await page.evaluate((id) => {
-        function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-          const found = root.querySelector(selector)
-          if (found) return found
-          for (const el of root.querySelectorAll('*')) {
-            if (el.shadowRoot) {
-              const inner = deepFind(el.shadowRoot, selector)
-              if (inner) return inner
-            }
-          }
-          return null
-        }
-
-        const row = deepFind(document, `[data-entry-id="${id}"]`) as HTMLElement | null
-        if (!row) return false
-        row.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, composed: true, cancelable: true}))
-        return true
-      }, entryId),
-    ).toBe(true)
+    // Trusted context-menu input keeps the selection transition outside evaluate (see deepClick).
+    await waitForAppInput(page)
+    expect(await deepQuerySelector(page, `[data-entry-id="${entryId}"]`)).toBe(true)
+    await page.locator(`[data-entry-id="${entryId}"]`).first().click({button: 'right'})
+    await page
+      .getByTestId('mobile-toolbar')
+      .locator('[data-action="pm-selection-done"]')
+      .waitFor({state: 'visible', timeout: 5_000})
     await page.waitForFunction(
       () => {
-        function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-          const found = root.querySelector(selector)
-          if (found) return found
-          for (const el of root.querySelectorAll('*')) {
-            if (el.shadowRoot) {
-              const inner = deepFind(el.shadowRoot, selector)
-              if (inner) return inner
-            }
-          }
-          return null
-        }
-
-        const toolbar = deepFind(document, 'mobile-top-toolbar') as
-          | (HTMLElement & {
-              actions?: Array<{id: string}>
-            })
-          | null
-        const actionIds = Array.isArray(toolbar?.actions) ? toolbar.actions.map((action) => action.id) : []
         const selectedCount = deepQueryAll(document, '.list-item.selected').length
-        return actionIds.includes('pm-selection-done') && selectedCount === 1
+        return selectedCount === 1
 
         function deepQueryAll(root: Document | ShadowRoot, selector: string): Element[] {
           const matches = Array.from(root.querySelectorAll(selector))
@@ -4896,18 +4938,7 @@ test('mobile context selection on entry enters selection mode without bootstrap 
     })
 
     await page.waitForTimeout(300)
-    expect(
-      await page.evaluate(async () => {
-        const {pmMobileChromeModel} = await (0, eval)(
-          'import("/features/passmanager/models/pm-mobile-chrome.model.ts")',
-        )
-        // Let evaluate resolve before the command updates route state.
-        window.setTimeout(() => {
-          pmMobileChromeModel.executeCommand('pm-selection-done')
-        }, 0)
-        return true
-      }),
-    ).toBe(true)
+    expect(await deepClick(page, '[data-action="pm-selection-done"]')).toBe(true)
     await page.waitForTimeout(500)
 
     expect(await deepClick(page, '.list-item')).toBe(true)
@@ -4938,7 +4969,8 @@ test('desktop sidebar activates group and root rows from the keyboard', async ()
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop`)
 
-  const groupFocused = await page.evaluate(() => {
+  // Focus is setup for keyboard activation; a click would activate early (see deepClick).
+  const groupFocused = await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -4955,6 +4987,7 @@ test('desktop sidebar activates group and root rows from the keyboard', async ()
       tree?.shadowRoot?.querySelectorAll<HTMLElement>('.row[data-kind="group"]') ?? [],
     ).find((row) => row.querySelector('.name')?.textContent?.trim() === 'layout-fixture-group')
     groupRow?.focus()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return groupRow === tree?.shadowRoot?.activeElement
   })
   expect(groupFocused).toBe(true)
@@ -4995,7 +5028,8 @@ test('desktop sidebar activates group and root rows from the keyboard', async ()
     await pmMotionModel.whenSettled()
   })
 
-  const rootState = await page.evaluate(() => {
+  // Keep focus setup separate from the Space activation under test (see deepClick).
+  const rootState = await page.evaluate(async () => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -5010,6 +5044,7 @@ test('desktop sidebar activates group and root rows from the keyboard', async ()
     const tree = deepFind(document, 'group-tree-view') as HTMLElement | null
     const rootRow = tree?.shadowRoot?.querySelector<HTMLElement>('.row[data-kind="root"]') ?? null
     rootRow?.focus()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return {
       focused: rootRow === tree?.shadowRoot?.activeElement,
       label: rootRow?.querySelector('.name')?.textContent?.trim() ?? null,
@@ -5036,6 +5071,7 @@ test('desktop virtual list keeps entry and group rows at 48px', async () => {
     entryWithoutSubtitleTitle: `row-height-entry-plain-${suffix}`,
   }
 
+  // Seed persistent row fixtures through the model, then drain the final context update (see deepClick).
   await page.evaluate(async (target) => {
     const pm = (window as unknown as {passmanager?: unknown}).passmanager as
       | {
@@ -5105,6 +5141,7 @@ test('desktop virtual list keeps entry and group rows at 48px', async () => {
     }
 
     pm.showElement?.set?.(parentGroup)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, target)
 
   await page.waitForFunction(
@@ -5236,6 +5273,10 @@ test('desktop virtual list keeps entry and group rows at 48px', async () => {
 test('desktop first click opens a lower entry row after scrolling the virtual list', async () => {
   const page = globalThis.__E2E_PAGE__!
   await enableAndWaitForPasswordManager(page, `${BASE_URL}?layout=desktop`)
+  // The real click below must not land on the startup splash, which covers the app until it is released.
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
 
   const suffix = Date.now()
   const target = {
@@ -5244,11 +5285,11 @@ test('desktop first click opens a lower entry row after scrolling the virtual li
     entryCount: 28,
   }
 
-  await page.evaluate(async (target) => {
+  const groupId = await page.evaluate(async (target) => {
     const pm = (window as unknown as {passmanager?: unknown}).passmanager as
       | {
           load: () => Promise<void>
-          entriesList: () => Array<{name?: string}>
+          entriesList: () => Array<{id?: string; name?: string}>
           showElement?: {set?: (value: unknown) => void}
           managerSaver?: {
             secrets?: {
@@ -5295,13 +5336,19 @@ test('desktop first click opens a lower entry row after scrolling the virtual li
     await pm.load()
 
     const group = pm.entriesList().find((item) => item?.name === target.groupName)
-    if (!group) {
+    if (!group?.id) {
       throw new Error(`group ${target.groupName} was not loaded`)
     }
 
     pm.showElement?.set?.(group)
+    // Let the group render before the evaluate resolves: the bundled Chromium 149 holds the result
+    // promise only weakly, and update microtasks queued behind it can let GC collect it undelivered.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    return group.id
   }, target)
 
+  // Wait for laid-out, scrollable rows instead of `lit-virtualizer.layoutComplete`: that promise only
+  // settles after a later layout pass, so it never resolves once the list has already settled.
   await page.waitForFunction(
     (target) => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -5321,13 +5368,18 @@ test('desktop first click opens a lower entry row after scrolling the virtual li
       const group = layout?.shadowRoot?.querySelector('pm-group') as HTMLElement | null
       const virtualizer = group?.shadowRoot?.querySelector('lit-virtualizer') as HTMLElement | null
 
-      return current?.name === target.groupName && virtualizer != null
+      return (
+        current?.name === target.groupName &&
+        virtualizer != null &&
+        group?.shadowRoot?.querySelector('.entry-row') != null &&
+        virtualizer.scrollHeight > virtualizer.clientHeight
+      )
     },
     target,
     {timeout: 10_000},
   )
 
-  const scrollTop = await page.evaluate(async () => {
+  const scrollTop = await page.evaluate(async (groupId) => {
     function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
       const found = root.querySelector(selector)
       if (found) return found
@@ -5340,6 +5392,7 @@ test('desktop first click opens a lower entry row after scrolling the virtual li
       return null
     }
 
+    const waitFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     const layout = deepFind(document, 'password-manager-desktop-layout') as HTMLElement | null
     const group = layout?.shadowRoot?.querySelector('pm-group') as HTMLElement | null
     const virtualizer = group?.shadowRoot?.querySelector('lit-virtualizer') as HTMLElement | null
@@ -5347,20 +5400,30 @@ test('desktop first click opens a lower entry row after scrolling the virtual li
       throw new Error('desktop virtualizer was not found')
     }
 
-    const updateComplete = (virtualizer as HTMLElement & {updateComplete?: Promise<unknown>}).updateComplete
-    if (updateComplete) await updateComplete
-    const layoutComplete = (virtualizer as HTMLElement & {layoutComplete?: Promise<unknown>}).layoutComplete
-    if (layoutComplete) await layoutComplete
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    // An opened group first restores its remembered scroll position and overwrites any scroll made
+    // before that finishes. The restore ends by saving the position under the group's list context
+    // key (`<group id>|...`), so wait for that entry before scrolling.
+    const dynamicImport = new Function('path', 'return import(path)') as (
+      path: string,
+    ) => Promise<typeof PMListViewportModule>
+    const {pmListViewportModel} = await dynamicImport('/features/passmanager/models/pm-list-viewport.model.ts')
+    const isViewportRestored = () =>
+      Object.keys(pmListViewportModel.scrollTopByContext()).some((key) => key.startsWith(`${groupId}|`))
+    const restoreDeadline = performance.now() + 10_000
+    while (!isViewportRestored()) {
+      if (performance.now() > restoreDeadline) {
+        throw new Error(`list viewport of group ${groupId} was not restored`)
+      }
+      await waitFrame()
+    }
 
     virtualizer.scrollTop = 48 * 24
     virtualizer.dispatchEvent(new Event('scroll'))
     virtualizer.dispatchEvent(new Event('scrollend'))
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    await waitFrame()
+    await waitFrame()
     return virtualizer.scrollTop
-  })
+  }, groupId)
   expect(scrollTop).toBeGreaterThan(0)
 
   await page.waitForFunction(
@@ -5398,11 +5461,17 @@ test('desktop first click opens a lower entry row after scrolling the virtual li
       const layout = deepFind(document, 'password-manager-desktop-layout') as HTMLElement | null
       const group = layout?.shadowRoot?.querySelector('pm-group') as HTMLElement | null
       const root = group?.shadowRoot
-      if (!root) return false
+      const virtualizer = root?.querySelector('lit-virtualizer') as HTMLElement | null
+      if (!root || !virtualizer) return false
 
-      return Array.from(root.querySelectorAll('.entry-row')).some((row) =>
+      const targetRow = Array.from(root.querySelectorAll('.entry-row')).find((row) =>
         deepText(row).includes(targetTitle),
       )
+      const entryHost = targetRow?.querySelector('pm-entry-list-item') as HTMLElement | null
+      const rowRect = entryHost?.shadowRoot?.querySelector('.list-item')?.getBoundingClientRect()
+      const viewportRect = virtualizer.getBoundingClientRect()
+      // The row must be inside the scrolled viewport, not only rendered in the overscan, to take a real click.
+      return Boolean(rowRect && rowRect.top >= viewportRect.top && rowRect.bottom <= viewportRect.bottom)
     },
     target.targetTitle,
     {timeout: 10_000},
@@ -5412,56 +5481,8 @@ test('desktop first click opens a lower entry row after scrolling the virtual li
   expect(clickPoint).not.toBeNull()
   expect(clickPoint!.scrollTop).toBeGreaterThan(0)
 
-  expect(
-    await page.evaluate((targetTitle) => {
-      function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-        const found = root.querySelector(selector)
-        if (found) return found
-        for (const el of root.querySelectorAll('*')) {
-          if (el.shadowRoot) {
-            const inner = deepFind(el.shadowRoot, selector)
-            if (inner) return inner
-          }
-        }
-        return null
-      }
-
-      function deepText(node: Node | null | undefined): string {
-        if (!node) return ''
-        if (node.nodeType === Node.TEXT_NODE) {
-          return node.textContent ?? ''
-        }
-
-        let text = ''
-        if (node instanceof Element && node.shadowRoot) {
-          text += deepText(node.shadowRoot)
-        }
-
-        for (const child of Array.from(node.childNodes)) {
-          text += deepText(child)
-        }
-
-        return text
-      }
-
-      const layout = deepFind(document, 'password-manager-desktop-layout') as HTMLElement | null
-      const group = layout?.shadowRoot?.querySelector('pm-group') as HTMLElement | null
-      const root = group?.shadowRoot
-      if (!root) return false
-
-      const targetRow = Array.from(root.querySelectorAll('.entry-row')).find((row) =>
-        deepText(row).includes(targetTitle),
-      )
-      if (!(targetRow instanceof HTMLElement)) return false
-
-      const entryHost = targetRow.querySelector('pm-entry-list-item') as HTMLElement | null
-      const targetSurface = entryHost?.shadowRoot?.querySelector('.list-item') as HTMLElement | null
-      if (!targetSurface) return false
-
-      targetSurface.click()
-      return true
-    }, target.targetTitle),
-  ).toBe(true)
+  // A real click: opening the entry inside `page.evaluate` would race its result against GC in Chromium 149.
+  await page.mouse.click(clickPoint!.x, clickPoint!.y)
 
   await page.waitForFunction(
     (targetTitle) => {
@@ -5586,8 +5607,9 @@ test('desktop backspace exits nested groups even when sidebar tree row keeps foc
     {timeout: 10_000},
   )
 
+  // Place focus on an unselected sibling without activating it, then drain focus work (see deepClick).
   expect(
-    await page.evaluate((label) => {
+    await page.evaluate(async (label) => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
         const found = root.querySelector(selector)
         if (found) return found
@@ -5605,6 +5627,7 @@ test('desktop backspace exits nested groups even when sidebar tree row keeps foc
       const rows = Array.from(tree?.shadowRoot?.querySelectorAll<HTMLElement>('.row') ?? [])
       const target = rows.find((row) => row.querySelector('.name')?.textContent?.trim() === label)
       target?.focus()
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       return target === tree?.shadowRoot?.activeElement
     }, labels.sibling),
   ).toBe(true)
@@ -5622,6 +5645,7 @@ test('desktop backspace exits nested groups even when sidebar tree row keeps foc
 
   expect(await getDesktopGroupTitle()).toBe(labels.parent)
 
+  // Measure the sibling in evaluate, and activate it with trusted input (see deepClick).
   expect(
     await page.evaluate((label) => {
       function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
@@ -5640,10 +5664,15 @@ test('desktop backspace exits nested groups even when sidebar tree row keeps foc
       const tree = layout?.shadowRoot?.querySelector('group-tree-view') as HTMLElement | null
       const rows = Array.from(tree?.shadowRoot?.querySelectorAll<HTMLElement>('.row') ?? [])
       const target = rows.find((row) => row.querySelector('.name')?.textContent?.trim() === label)
-      target?.click()
       return Boolean(target)
     }, labels.sibling),
   ).toBe(true)
+  await waitForAppInput(page)
+  await page
+    .locator('password-manager-desktop-layout group-tree-view .row')
+    .filter({has: page.getByText(labels.sibling, {exact: true})})
+    .first()
+    .click()
 
   await page.waitForFunction(
     (labels) => {

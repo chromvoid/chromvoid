@@ -10,60 +10,23 @@ const SITE_GRANT_DEFAULT_TTL_SECS: u64 = 15 * 60;
 const GRANT_TTL_ERROR_CODE: &str = "INVALID_TTL";
 
 async fn browser_extension_guard<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {
-    crate::pro::guard_pro_feature_async(
-        state,
-        chromvoid_core::license::PRO_FEATURE_BROWSER_EXTENSION,
-    )
-    .await
-    .err()
-    .map(|error| match error {
-        RpcResult::Error { error, code, .. } => RpcResult::Error {
-            ok: false,
-            error,
-            code,
-        },
-        RpcResult::Success { .. } => RpcResult::Error {
-            ok: false,
-            error: "Pro license required".to_string(),
-            code: Some("PRO_REQUIRED".to_string()),
-        },
-    })
+    crate::module_access::guard_module_async(state, crate::module_access::MODULE_BROWSER_EXTENSION)
+        .await
+        .err()
+        .map(crate::module_access::denial_result)
 }
 
 fn browser_extension_guard_sync<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {
-    crate::pro::guard_pro_feature(
-        state,
-        chromvoid_core::license::PRO_FEATURE_BROWSER_EXTENSION,
-    )
-    .err()
-    .map(|error| match error {
-        RpcResult::Error { error, code, .. } => RpcResult::Error {
-            ok: false,
-            error,
-            code,
-        },
-        RpcResult::Success { .. } => RpcResult::Error {
-            ok: false,
-            error: "Pro license required".to_string(),
-            code: Some("PRO_REQUIRED".to_string()),
-        },
-    })
+    crate::module_access::guard_module(state, crate::module_access::MODULE_BROWSER_EXTENSION)
+        .err()
+        .map(crate::module_access::denial_result)
 }
 
 fn env_runtime_guard_sync<T>(state: &tauri::State<'_, AppState>) -> Option<RpcResult<T>> {
-    if let Err(error) = crate::pro::guard_pro_feature(state, "env-runtime") {
-        return Some(match error {
-            RpcResult::Error { error, code, .. } => RpcResult::Error {
-                ok: false,
-                error,
-                code,
-            },
-            RpcResult::Success { .. } => RpcResult::Error {
-                ok: false,
-                error: "Pro license required".to_string(),
-                code: Some("PRO_REQUIRED".to_string()),
-            },
-        });
+    if let Err(error) =
+        crate::module_access::guard_module(state, crate::module_access::MODULE_ENV_RUNTIME)
+    {
+        return Some(crate::module_access::denial_result(error));
     }
 
     match state.adapter.lock() {

@@ -6,6 +6,7 @@ mod bridge;
 #[cfg(test)]
 mod credential_provider_spec;
 pub mod edge_swipe;
+pub(crate) mod external_url;
 pub mod idle_timer;
 pub mod keyboard;
 pub mod native_bridge;

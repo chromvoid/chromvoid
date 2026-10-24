@@ -11,10 +11,8 @@ import {dialogService} from 'root/shared/services/dialog'
 import {toast} from 'root/shared/services/toast-manager'
 
 import type {WelcomeSharedModel} from './welcome-shared.model'
-import {
-  openWelcomeMasterRekeyDialog,
-  type WelcomeMasterRekeyDialogResult,
-} from './welcome-master-rekey-dialog'
+import {openWelcomeMasterRekeyDialog} from './welcome-master-rekey-dialog'
+import type {WelcomeMasterRekeyDialogResult} from './welcome-master-rekey-dialog.model'
 
 type RpcOk<T> = {ok: true; result: T}
 type RpcErr = {ok: false; error: string; code?: string | null}
@@ -92,7 +90,6 @@ export class WelcomeToolsModel {
   readonly storePath!: ReturnType<typeof computed<string>>
   readonly supportsStorageRootSelection!: ReturnType<typeof computed<boolean>>
   readonly supportsMobileBackupRestore!: ReturnType<typeof computed<boolean>>
-  readonly supportsAndroidSafBackupRestore!: ReturnType<typeof computed<boolean>>
   readonly backupProgress = atom<BackupProgressEvent | null>(null)
   readonly restoreProgress = atom<RestoreProgressEvent | null>(null)
   readonly masterRekeyInProgress = atom(false)
@@ -143,7 +140,6 @@ export class WelcomeToolsModel {
     this.supportsMobileBackupRestore = computed<boolean>(
       () => isTauriRuntime() && getRuntimeCapabilities().supports_mobile_backup_restore,
     )
-    this.supportsAndroidSafBackupRestore = this.supportsMobileBackupRestore
     this.deviceUtilitiesSubmitDisabled = computed<boolean>(() => {
       if (this.shared.busy() || this.masterRekeyInProgress()) return true
 

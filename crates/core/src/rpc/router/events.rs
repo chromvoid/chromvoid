@@ -37,10 +37,13 @@ impl RouterEventQueue {
             return;
         }
 
-        let payloads: Vec<_> = catalog_events
+        let mut payloads: Vec<_> = catalog_events
             .into_iter()
             .map(|(shard_id, delta)| catalog_event_payload(shard_id, delta))
             .collect();
+        // Snapshot-only changes can coexist with persisted deltas in one save.
+        // Refresh the committed manifest even when some deltas were published.
+        payloads.push(serde_json::json!({"type": "invalidate"}));
         enqueue_catalog_event_payloads(&mut self.events, payloads);
         self.push_update_state();
     }

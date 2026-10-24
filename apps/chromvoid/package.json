@@ -1,7 +1,7 @@
 {
   "name": "@chromvoid/desktop",
   "private": true,
-  "version": "1.0.8",
+  "version": "2.0.0",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -26,24 +26,10 @@
     "ios:deploy:device": "bun run ios:build -- --build-number 1 && node ./scripts/install-ios-release-ipa.mjs",
     "ios:deploy:device:launch": "bun run ios:build -- --build-number 1 && node ./scripts/install-ios-release-ipa.mjs --launch",
     "ios:deploy:release:ipa": "bun run ios:build:release:ipa && node ./scripts/install-ios-release-ipa.mjs --launch",
-    "android": "node ./scripts/run-tauri-android.mjs",
-    "android:dev": "CHROMVOID_ANDROID_DEV_BUILD=1 node ./scripts/run-tauri-android.mjs",
     "android:usb-smoke": "cargo run --manifest-path src-tauri/Cargo.toml --features mobile-usb-smoke --bin mobile-usb-smoke --",
-    "android:adb-bridge": "node ./scripts/open-android-adb-bridge.mjs",
-    "android:adb-wifi": "node ./scripts/android-adb-wifi-target.mjs",
-    "android:remote-adb": "CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/run-tauri-android.mjs",
-    "android:dev:remote-adb": "CHROMVOID_ANDROID_DEV_BUILD=1 CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/run-tauri-android.mjs",
-    "android:init": "tauri android init",
-    "android:build:release:apk": "node ./scripts/run-tauri-android-release-build.mjs --apk --signing-profile sideload --abi-profile universal",
-    "android:build:release:aab": "node ./scripts/run-tauri-android-release-build.mjs --aab --signing-profile upload --abi-profile arm64",
-    "android:install:release:apk": "node ./scripts/install-android-release-apk.mjs",
-    "android:install:release:apk:remote-adb": "CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/install-android-release-apk.mjs",
-    "android:deploy:release:apk": "node ./scripts/run-tauri-android-release-build.mjs --apk --signing-profile sideload --abi-profile universal && node ./scripts/install-android-release-apk.mjs --launch",
-    "android:deploy:release:apk:wifi": "node ./scripts/run-tauri-android-release-build.mjs --apk --signing-profile sideload --abi-profile universal && CHROMVOID_USE_ADB_WIFI=1 node ./scripts/install-android-release-apk.mjs --launch",
-    "android:deploy:release:apk:remote-adb": "node ./scripts/run-tauri-android-release-build.mjs --apk --signing-profile sideload --abi-profile universal && CHROMVOID_USE_ADB_TUNNEL=1 node ./scripts/install-android-release-apk.mjs --launch",
     "test:e2e": "bunx vitest run --config ./vitest.e2e.config.ts"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.11.4"
+    "@tauri-apps/cli": "2.12.3"
   }
 }

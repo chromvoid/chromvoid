@@ -1,0 +1,329 @@
+name: ChromVoidAir
+options:
+  minimumXcodeGenVersion: 2.46.0
+  deploymentTarget:
+    iOS: '17.0'
+  createIntermediateGroups: true
+configs:
+  Fixture: debug
+  Release: release
+packages:
+  AirPresentation:
+    path: Packages/AirPresentation
+  ChromVoidBridge:
+    path: Packages/ChromVoidBridge
+settings:
+  base:
+    ARCHS: arm64
+    AIR_RUST_VARIANT: ios-arm64
+    'AIR_RUST_VARIANT[sdk=iphonesimulator*]': ios-arm64-simulator
+    SWIFT_VERSION: '6.0'
+    SWIFT_STRICT_CONCURRENCY: complete
+    IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    TARGETED_DEVICE_FAMILY: '1,2'
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: NO
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+  configs:
+    Fixture:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: '$(inherited) DEBUG AIR_FIXTURE'
+targets:
+  ChromVoidAir: &nativeApplication
+    type: application
+    platform: iOS
+    sources: [App]
+    preBuildScripts:
+      - name: Verify Rust artifact mode
+        script: '"$SRCROOT/scripts/verify-artifacts.sh" "$CONFIGURATION"'
+        inputFiles:
+          - $(SRCROOT)/scripts/verify-artifacts.sh
+          - $(SRCROOT)/Packages/ChromVoidBridge/.artifacts/mode
+          - $(SRCROOT)/Packages/ChromVoidBridge/.artifacts/AirFFIFFI.xcframework/$(AIR_RUST_VARIANT)/AirFFIFFI.framework/PrivacyInfo.xcprivacy
+          - $(SRCROOT)/Packages/ChromVoidBridge/Resources/AirFFIFFI/PrivacyInfo.xcprivacy
+        basedOnDependencyAnalysis: false
+    info:
+      path: Configuration/Info.plist
+      properties:
+        CFBundleDisplayName: $(AIR_DISPLAY_NAME)
+        AirProviderAppGroup: group.$(PRODUCT_BUNDLE_IDENTIFIER).provider
+        ASCredentialProviderExtensionCapabilities:
+          ProvidesPasswords: true
+          ProvidesPasskeys: true
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.chromvoid.iosair.import.1pux
+            UTTypeDescription: 1Password Unencrypted Export
+            UTTypeConformsTo: [public.data, public.zip-archive]
+            UTTypeReferenceURL: https://support.1password.com/1pux-format/
+            UTTypeTagSpecification:
+              public.filename-extension: [1pux]
+          - UTTypeIdentifier: com.chromvoid.iosair.import.kdbx
+            UTTypeDescription: KeePass Database
+            UTTypeConformsTo: [public.data]
+            UTTypeReferenceURL: https://keepass.info/help/kb/kdbx.html
+            UTTypeTagSpecification:
+              public.filename-extension: [kdbx]
+        LSRequiresIPhoneOS: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSPhotoLibraryAddUsageDescription: Save only the images and videos you choose to export from your vault to Photos.
+        NSCameraUsageDescription: Scan a setup QR code, or take a photo to add to your vault.
+        NSPhotoLibraryUsageDescription: Read the originals of the photos and videos you choose, so their camera and location details are kept in your vault.
+        NSFaceIDUsageDescription: Confirm your identity to enter the app. Your vault still requires its own password.
+        UILaunchStoryboardName: LaunchScreen
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: Configuration/NativeProviderHost.entitlements
+      properties:
+        com.apple.developer.authentication-services.autofill-credential-provider: true
+        com.apple.security.application-groups:
+          - group.$(PRODUCT_BUNDLE_IDENTIFIER).provider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev
+        AIR_DISPLAY_NAME: ChromVoid Air
+      configs:
+        Fixture:
+          PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.fixture
+    dependencies:
+      - package: AirPresentation
+      - target: AirCredentialProviderExtension
+  ChromVoidAirTestHost:
+    <<: *nativeApplication
+    dependencies:
+      - package: AirPresentation
+    sources:
+      - path: App
+        excludes: [ChromVoidAirApp.swift]
+      - path: Tests/UIHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.tests
+        AIR_DISPLAY_NAME: Air UI Tests
+      configs:
+        Fixture:
+          PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.tests.fixture
+  BridgeTestHost:
+    type: application
+    platform: iOS
+    sources: [Tests/BridgeHost, App/Assets.xcassets]
+    info:
+      path: Configuration/BridgeHost-Info.plist
+      properties:
+        CFBundleDisplayName: Air Bridge Tests
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        AirProviderAppGroup: group.$(PRODUCT_BUNDLE_IDENTIFIER).provider
+        LSRequiresIPhoneOS: true
+    entitlements:
+      path: Configuration/ProviderHost.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.$(PRODUCT_BUNDLE_IDENTIFIER).provider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.bridge-host
+      configs:
+        Fixture:
+          PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.bridge-host.fixture
+    dependencies:
+      - package: ChromVoidBridge
+  BridgeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/Bridge
+      - path: Tests/Access
+      - path: Tests/Credentials
+      - path: Tests/Files
+      - path: Tests/Media
+      - path: Tests/Wallet
+      - path: Tests/Fixtures/file-export.mp4
+        buildPhase: resources
+      - path: docs/wire-fixtures.json
+        buildPhase: resources
+      # An explicit group keeps the checkout's directory name out of project.pbxproj; without it
+      # createIntermediateGroups names a group after the repository root.
+      - path: ../../crates/core/tests/passmanager_domain_rpc/fixtures/1password-credentials.1pux
+        group: Tests/Fixtures
+        buildPhase: resources
+      - path: ../../crates/core/tests/passmanager_domain_rpc/fixtures/keepass-4.kdbx
+        group: Tests/Fixtures
+        buildPhase: resources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.bridge-tests
+    dependencies:
+      - target: BridgeTestHost
+      - package: ChromVoidBridge
+      - package: AirPresentation
+      - package: ChromVoidBridge
+        product: AirCredentialProvider
+  UpdateTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/Update]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.update-tests
+    dependencies:
+      - target: BridgeTestHost
+      - package: ChromVoidBridge
+  AirUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests/UI]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.ui-tests
+    dependencies:
+      - target: ChromVoidAirTestHost
+  ProviderFeasibility:
+    type: application
+    platform: iOS
+    preBuildScripts:
+      - name: Verify fixture artifacts
+        script: '"$SRCROOT/scripts/verify-artifacts.sh" "$CONFIGURATION"'
+        inputFiles:
+          - $(SRCROOT)/scripts/verify-artifacts.sh
+          - $(SRCROOT)/Packages/ChromVoidBridge/.artifacts/mode
+          - $(SRCROOT)/Packages/ChromVoidBridge/.artifacts/AirFFIFFI.xcframework/$(AIR_RUST_VARIANT)/AirFFIFFI.framework/PrivacyInfo.xcprivacy
+          - $(SRCROOT)/Packages/ChromVoidBridge/Resources/AirFFIFFI/PrivacyInfo.xcprivacy
+        basedOnDependencyAnalysis: false
+    sources:
+      - path: Tests/ProviderHarness/App
+      - path: App/LaunchScreen.storyboard
+      - path: App/Assets.xcassets
+    info:
+      path: Configuration/ProviderHarness-Info.plist
+      properties:
+        CFBundleDisplayName: Air Provider Probe
+        LSRequiresIPhoneOS: true
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchStoryboardName: LaunchScreen
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.provider-harness
+    entitlements:
+      path: Configuration/ProviderProbe.entitlements
+      properties:
+        com.apple.developer.authentication-services.autofill-credential-provider: true
+    dependencies:
+      - package: ChromVoidBridge
+      - target: ProviderProbe
+  AirCredentialProviderExtension:
+    type: app-extension
+    platform: iOS
+    sources: [Extensions/CredentialProvider, App/Assets.xcassets]
+    info:
+      path: Configuration/CredentialProvider-Info.plist
+      properties:
+        CFBundleDisplayName: ChromVoid Air
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        AirProviderHostBundle: $(AIR_PROVIDER_HOST_BUNDLE)
+        AirProviderAppGroup: group.$(AIR_PROVIDER_HOST_BUNDLE).provider
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.authentication-services-credential-provider-ui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).CredentialProviderViewController
+          NSExtensionAttributes:
+            ASCredentialProviderExtensionCapabilities:
+              ProvidesPasswords: true
+              ProvidesPasskeys: true
+              ProvidesOneTimeCodes: false
+              ShowsConfigurationUI: true
+    entitlements:
+      path: Configuration/CredentialProvider.entitlements
+      properties:
+        com.apple.developer.authentication-services.autofill-credential-provider: true
+        com.apple.security.application-groups:
+          - group.$(AIR_PROVIDER_HOST_BUNDLE).provider
+    settings:
+      base:
+        AIR_PROVIDER_HOST_BUNDLE: com.chromvoid.iosair.dev
+        PRODUCT_BUNDLE_IDENTIFIER: $(AIR_PROVIDER_HOST_BUNDLE).provider
+        APPLICATION_EXTENSION_API_ONLY: YES
+      configs:
+        Fixture:
+          AIR_PROVIDER_HOST_BUNDLE: com.chromvoid.iosair.dev.fixture
+    dependencies:
+      - package: ChromVoidBridge
+        product: AirCredentialProvider
+  ProviderProbe:
+    type: app-extension
+    platform: iOS
+    sources: [Tests/ProviderHarness/Extension]
+    info:
+      path: Configuration/ProviderProbe-Info.plist
+      properties:
+        CFBundleDisplayName: Air Provider Probe
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.authentication-services-credential-provider-ui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ProviderProbeController
+          NSExtensionAttributes:
+            ASCredentialProviderExtensionCapabilities:
+              ProvidesPasswords: true
+    entitlements:
+      path: Configuration/ProviderProbe.entitlements
+      properties:
+        com.apple.developer.authentication-services.autofill-credential-provider: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromvoid.iosair.dev.provider-harness.provider
+        APPLICATION_EXTENSION_API_ONLY: YES
+
+schemes:
+  ChromVoidAir:
+    build:
+      targets:
+        ChromVoidAir: all
+        ChromVoidAirTestHost: [test]
+        BridgeTestHost: [test]
+        BridgeTests: [test]
+        AirUITests: [test]
+    run:
+      config: Fixture
+    test:
+      config: Fixture
+      targets: [BridgeTests, AirUITests]
+    archive:
+      config: Release
+
+  AirUpdateVerification:
+    build:
+      targets:
+        BridgeTestHost: [test]
+        UpdateTests: [test]
+    test:
+      config: Fixture
+      targets: [UpdateTests]
+
+  ProviderFeasibility:
+    build:
+      targets:
+        ProviderFeasibility: all
+    run:
+      config: Fixture

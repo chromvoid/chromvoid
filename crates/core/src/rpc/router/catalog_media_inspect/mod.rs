@@ -106,26 +106,7 @@ pub(in crate::rpc::router) fn inspect_catalog_media(
         inspection_complete: false,
     };
 
-    let media_inspection = inspect_catalog_media_snapshot(&snapshot, || false);
-    let (media_info, media_inspected_revision) = match media_inspection {
-        Ok(media_info) => {
-            let media_inspected_revision = if media_info.is_some() || inspection_candidate {
-                source_revision
-            } else {
-                0
-            };
-            (media_info, media_inspected_revision)
-        }
-        Err(error) => {
-            tracing::warn!(
-                "perf:media_inspection event=failed command=catalog:media:inspect node_id={} source_revision={} error={:?}",
-                node_id,
-                source_revision,
-                error
-            );
-            (None, 0)
-        }
-    };
+    let (media_info, media_inspected_revision) = snapshot.inspect_metadata(|| false);
 
     router.commit_catalog_media_inspect(&snapshot, media_info, media_inspected_revision)
 }
@@ -154,6 +135,33 @@ pub struct CatalogMediaInspectSnapshot {
     pub media_inspected_revision: u64,
     pub inspection_candidate: bool,
     pub inspection_complete: bool,
+}
+
+impl CatalogMediaInspectSnapshot {
+    /// Shared cached/unsupported/decode-failure policy for synchronous and split callers.
+    /// Callers still own cancellation admission and must not commit a revoked result.
+    pub fn inspect_metadata<F: Fn() -> bool>(
+        &self,
+        is_cancelled: F,
+    ) -> (Option<CatalogMediaInfo>, u64) {
+        if self.inspection_complete {
+            return (self.media_info.clone(), self.media_inspected_revision);
+        }
+        match inspect_catalog_media_snapshot(self, is_cancelled) {
+            Ok(media_info) => {
+                let revision = if media_info.is_some() || self.inspection_candidate {
+                    self.source_revision
+                } else {
+                    0
+                };
+                (media_info, revision)
+            }
+            Err(error) => {
+                tracing::warn!("perf:media_inspection event=failed command=catalog:media:inspect node_id={} source_revision={} error={:?}", self.node_id, self.source_revision, error);
+                (None, 0)
+            }
+        }
+    }
 }
 
 struct CancellableCatalogMediaByteReader<'a, F>

@@ -3,7 +3,7 @@ import {
   type UiComponentWarmupTask,
 } from 'root/app/bootstrap/surface-component-loader'
 import {SURFACE_IDS, type SurfaceId} from 'root/app/navigation/navigation.types'
-import {moduleAccessModel} from 'root/core/pro/module-access.model'
+import {moduleAccessModel} from 'root/core/modules/module-access.model'
 import {getPassmanagerExtendedWarmupTask} from 'root/features/passmanager/models/pm-component-loader.model'
 import {subscribeAfterInitial} from 'root/shared/services/subscribed-signal'
 
@@ -42,8 +42,7 @@ function shouldDeferTask(task: UiComponentWarmupTask): boolean {
   const surface = getTaskSurface(task)
   if (!surface) return false
 
-  const access = moduleAccessModel.surfaceAccess(surface)
-  return Boolean(access && access.status !== 'enabled')
+  return !moduleAccessModel.canOpenSurface(surface)
 }
 
 function enqueueTask(task: UiComponentWarmupTask): void {

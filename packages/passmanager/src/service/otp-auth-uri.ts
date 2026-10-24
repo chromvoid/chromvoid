@@ -40,6 +40,7 @@ const MAX_URI_LENGTH = 16 * 1024
 const MAX_SECRET_LENGTH = 4096
 const MAX_LABEL_LENGTH = 256
 const SECURITY_PARAMETERS = new Set(['secret', 'algorithm', 'encoding', 'digits', 'period', 'counter'])
+const URI_SCHEME_PATTERN = /^([a-z][a-z\d+.-]*):/iu
 
 function error(code: OtpAuthUriParseErrorCode, message: string): OtpAuthUriParseResult {
   return {ok: false, code, message}
@@ -82,6 +83,37 @@ function normalizedParameters(uri: URL): Map<string, string[]> {
 
 function parameter(parameters: Map<string, string[]>, key: string): string | null {
   return parameters.get(key)?.[0] ?? null
+}
+
+function parseUri(input: string): URL | OtpAuthUriParseResult {
+  const schemeMatch = URI_SCHEME_PATTERN.exec(input)
+  if (!schemeMatch) {
+    return error('invalid_uri', 'Failed to parse OTP URI')
+  }
+  if (schemeMatch[1]?.toLowerCase() !== 'otpauth') {
+    return error('unsupported_scheme', 'OTP URI must use otpauth://')
+  }
+
+  const suffix = input.slice(schemeMatch[0].length)
+  if (!suffix.startsWith('//')) {
+    return error('invalid_uri', 'Failed to parse OTP URI')
+  }
+
+  const authorityAndPath = suffix.slice(2)
+  const authorityEnd = authorityAndPath.search(/[/?#]/u)
+  const authority = authorityEnd === -1 ? authorityAndPath : authorityAndPath.slice(0, authorityEnd)
+  if (!authority) {
+    return error('invalid_authority', 'OTP URI must contain a type authority')
+  }
+
+  try {
+    // Android WebView versions disagree on whether a custom URL scheme has a
+    // hostname. Parse the already-validated otpauth suffix through a standard
+    // hierarchical scheme so `totp` / `hotp` remains the authority everywhere.
+    return new URL(`https:${suffix}`)
+  } catch {
+    return error('invalid_uri', 'Failed to parse OTP URI')
+  }
 }
 
 function readLabel(
@@ -128,16 +160,9 @@ export function parseOtpAuthUri(raw: string, fallbackLabel?: string): OtpAuthUri
     return error('uri_too_long', 'OTP URI is too long')
   }
 
-  let uri: URL
-  try {
-    uri = new URL(input)
-  } catch {
-    return error('invalid_uri', 'Failed to parse OTP URI')
-  }
-
-  if (uri.protocol !== 'otpauth:') {
-    return error('unsupported_scheme', 'OTP URI must use otpauth://')
-  }
+  const parsedUri = parseUri(input)
+  if (!(parsedUri instanceof URL)) return parsedUri
+  const uri = parsedUri
   if (uri.username || uri.password || uri.port) {
     return error('invalid_authority', 'OTP URI must not contain user info or a port')
   }

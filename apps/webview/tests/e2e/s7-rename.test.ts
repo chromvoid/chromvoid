@@ -14,6 +14,7 @@ test('S7: Rename the folder', async () => {
   const initialName = createUniqueName('e2e-rs')
   const renamedName = createUniqueName('e2e-rt')
 
+  // Keep direct catalog API coverage; yield a frame after updates so Chromium cannot collect evaluate's result.
   const created = await page.evaluate(
     async (sourceName) => {
       const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
@@ -24,13 +25,16 @@ test('S7: Rename the folder', async () => {
       if (!ctx.catalog.api.createDir) {
         throw new Error('catalog create API is unavailable')
       }
-      return ctx.catalog.api.createDir(sourceName)
+      const created = await ctx.catalog.api.createDir(sourceName)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      return created
     },
     initialName,
   )
   expect(created.nodeId).toEqual(expect.any(Number))
   await waitForCatalogItem(page, initialName, {path: '/'})
 
+  // Apply the same frame boundary after the direct rename API call.
   await page.evaluate(
     async ({nodeId, targetName}) => {
       const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
@@ -42,6 +46,7 @@ test('S7: Rename the folder', async () => {
         throw new Error('catalog rename API is unavailable')
       }
       await ctx.catalog.api.rename(nodeId, targetName)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     },
     {nodeId: created.nodeId, targetName: renamedName},
   )

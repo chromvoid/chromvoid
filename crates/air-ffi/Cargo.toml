@@ -1,0 +1,62 @@
+[package]
+name = "chromvoid-air-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[features]
+default = []
+fixture = []
+bindgen = ["uniffi/cli"]
+schema = ["chromvoid-core/mobile-schema", "dep:schemars", "dep:syn"]
+
+[dependencies]
+chromvoid-core = { path = "../core" }
+chromvoid-client-runtime = { path = "../client-runtime" }
+chromvoid-network-runtime = { path = "../network-runtime" }
+chromvoid-protocol = { path = "../protocol", features = ["async-transport"] }
+zeroize.workspace = true
+uniffi = { version = "=0.32.0", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread", "io-util"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+schemars = { version = "=1.2.1", optional = true }
+syn = { version = "2", features = ["full", "visit"], optional = true }
+blake3.workspace = true
+tracing = "0.1"
+
+[build-dependencies]
+blake3.workspace = true
+
+[[bin]]
+name = "air-bindgen"
+path = "src/bin/bindgen.rs"
+required-features = ["bindgen"]
+
+[[bin]]
+name = "air-schema"
+path = "src/bin/schema.rs"
+required-features = ["schema"]
+
+[dev-dependencies]
+tempfile.workspace = true
+chromvoid-android-runtime = { path = "../android-runtime" }
+chromvoid-client-runtime = { path = "../client-runtime", features = ["test-support"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+core-foundation = "=0.10.1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+chromvoid-android-runtime = { path = "../android-runtime" }
+chromvoid-media-runtime = { path = "../media-runtime" }
+jni = "0.21"
+ndk-context = "0.1"

@@ -20,7 +20,7 @@ use super::cancel::rollback_restore_local;
 /// Reject a restore unless storage holds no chunks and no salt, mirroring
 /// `admin:restore`. This is the gate that prevents an unauthenticated caller
 /// from writing chunks into — and thereby corrupting — an existing vault.
-fn require_blank_storage_for_restore(router: &RpcRouter) -> RestoreResult<()> {
+pub(super) fn require_blank_storage_for_restore(router: &RpcRouter) -> RestoreResult<()> {
     let existing_chunks = router.storage.list_chunks().map_err(|error| {
         RestoreCommandError::internal(format!("Failed to check storage state: {error}"))
     })?;
@@ -45,7 +45,11 @@ fn restore_local_start(
     data: &serde_json::Value,
 ) -> RestoreResult<serde_json::Value> {
     let _backup_path = required_str(data, "backup_path")?;
+    let restore_id = start_local_restore(router)?;
+    Ok(serde_json::json!({ "restore_id": restore_id, "expected_chunks": 0 }))
+}
 
+pub(super) fn start_local_restore(router: &mut RpcRouter) -> RestoreResult<String> {
     router
         .recover_before_restore_entry()
         .map_err(RestoreCommandError::from)?;
@@ -91,10 +95,7 @@ fn restore_local_start(
         total_chunks: None,
     });
 
-    Ok(serde_json::json!({
-        "restore_id": restore_id,
-        "expected_chunks": 0,
-    }))
+    Ok(restore_id)
 }
 
 pub(in crate::rpc::router::restore) fn handle_restore_local_upload_pack(
@@ -102,16 +103,17 @@ pub(in crate::rpc::router::restore) fn handle_restore_local_upload_pack(
     data: &serde_json::Value,
     stream: Option<RpcInputStream>,
 ) -> RpcReply {
-    match restore_local_upload_pack(router, data, stream) {
+    match restore_local_upload_pack(router, data, stream, &|| false) {
         Ok(result) => RpcReply::Json(RpcResponse::success(result)),
         Err(error) => RpcReply::Json(error.into_rpc_response()),
     }
 }
 
-fn restore_local_upload_pack(
+pub(super) fn restore_local_upload_pack(
     router: &mut RpcRouter,
     data: &serde_json::Value,
     stream: Option<RpcInputStream>,
+    cancel_requested: &dyn Fn() -> bool,
 ) -> RestoreResult<serde_json::Value> {
     let restore_id = required_str(data, "restore_id")?;
     let manifest_value = required_value(data, "manifest")?;
@@ -136,6 +138,21 @@ fn restore_local_upload_pack(
         None => return Err(RestoreCommandError::no_stream()),
     };
 
+    // Journal every owned destination before any batch file can be published.
+    // Recovery can then clean a partially committed batch after IO failure or process death.
+    let marker = RestoreTransactionPayload::new(
+        RestoreTransactionKind::Local,
+        restore_id,
+        manifest.chunks.iter().map(|chunk| chunk.name.clone()),
+        Vec::<RestoreStorageArtifact>::new(),
+    );
+    write_restore_transaction(
+        &router.storage,
+        crate::durable_tx::DurableTxPhase::Staging,
+        &marker,
+    )
+    .map_err(RestoreCommandError::failed_to_update_restore_transaction)?;
+
     let upload_started_at = std::time::Instant::now();
     let mut reader = stream.into_reader();
     let mut chunk_batch = router
@@ -143,6 +160,10 @@ fn restore_local_upload_pack(
         .begin_chunk_write_batch("restore-local-upload-pack");
 
     for (index, chunk) in manifest.chunks.iter().enumerate() {
+        if cancel_requested() {
+            chunk_batch.rollback_temps();
+            return Err(RestoreCommandError::cancelled());
+        }
         let buffer = match read_exact_limited(
             &mut *reader,
             chunk.size,
@@ -182,6 +203,10 @@ fn restore_local_upload_pack(
         }
     }
 
+    if cancel_requested() {
+        chunk_batch.rollback_temps();
+        return Err(RestoreCommandError::cancelled());
+    }
     let batch_outcome = match chunk_batch.commit() {
         Ok(outcome) => outcome,
         Err(error) => {

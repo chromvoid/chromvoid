@@ -7,16 +7,15 @@ vi.mock('../../src/core/transport/tauri/ipc', () => ({
 }))
 
 import {
+  MODULE_KEYS,
   moduleAccessModel,
-  PRO_FEATURE_KEYS,
   type ModuleAccessState,
-} from '../../src/core/pro/module-access.model'
+} from '../../src/core/modules/module-access.model'
 import {
   resetRuntimeCapabilities,
   setRuntimeCapabilities,
 } from '../../src/core/runtime/runtime-capabilities'
 
-const originalWindowEnv = window.env
 const originalTauriInternals = (globalThis as {__TAURI_INTERNALS__?: unknown}).__TAURI_INTERNALS__
 
 function enableTauriRuntime(): void {
@@ -34,22 +33,30 @@ function deferred<T>() {
   return {promise, resolve}
 }
 
-const LOCKED_PRO_STATES: ModuleAccessState[] = [
-  {feature_key: 'remote', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-  {feature_key: 'browser-extension', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-  {feature_key: 'mounted-vault', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-  {feature_key: 'credential-provider', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-  {feature_key: 'ssh-agent', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-  {feature_key: 'env-runtime', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
-  {feature_key: 'crypto-wallet', status: 'unsupported', denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM'},
-  {feature_key: 'emergency-access', status: 'unsupported', denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM'},
-]
+function resolveStates(states: ModuleAccessState[]): void {
+  moduleAccessModel.resolution.set({phase: 'resolved', states})
+}
+
+const ENABLED_STATES: ModuleAccessState[] = MODULE_KEYS.map((feature) => ({
+  feature_key: feature,
+  status: 'enabled',
+  denial_code: null,
+}))
+
+const DESKTOP_CAPABILITIES = {
+  platform: 'macos',
+  desktop: true,
+  supports_network_remote: true,
+  supports_volume: true,
+  supports_gateway: true,
+  supports_autofill: true,
+}
 
 afterEach(() => {
-  window.env = originalWindowEnv
   moduleAccessModel.reset()
   resetRuntimeCapabilities()
   tauriInvoke.mockReset()
+  vi.restoreAllMocks()
   if (originalTauriInternals === undefined) {
     Reflect.deleteProperty(globalThis, '__TAURI_INTERNALS__')
   } else {
@@ -60,87 +67,59 @@ afterEach(() => {
   }
 })
 
-describe('moduleAccessModel runtime support overlay', () => {
-  it('keeps external Pro enabled in the backward-compatible fallback', () => {
-    expect(moduleAccessModel.supportsExternalPro()).toBe(true)
+describe('moduleAccessModel availability', () => {
+  it('knows nothing is enabled before the active Core answers, apart from what the runtime rules out', () => {
+    setRuntimeCapabilities(DESKTOP_CAPABILITIES)
+
+    expect(moduleAccessModel.featureAccess('remote')).toBeNull()
+    expect(moduleAccessModel.isFeatureEnabled('remote')).toBe(false)
+    expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'checking'})
+    expect(moduleAccessModel.canOpenSurface('remote')).toBe(false)
+    expect(moduleAccessModel.isSurfaceOffered('remote')).toBe(true)
+    expect(moduleAccessModel.featureAccess('emergency-access')).toEqual({
+      feature_key: 'emergency-access',
+      status: 'unsupported',
+      denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM',
+    })
   })
 
-  it('hides every Pro feature and skips all license IPC when the distribution disables Pro', async () => {
-    Object.defineProperty(globalThis, '__TAURI_INTERNALS__', {
-      configurable: true,
-      value: {invoke: vi.fn()},
-    })
-    moduleAccessModel.rawStates.set(LOCKED_PRO_STATES)
+  it('opens every surface the Core enables', () => {
+    setRuntimeCapabilities(DESKTOP_CAPABILITIES)
+    resolveStates(ENABLED_STATES)
+
+    for (const surface of ['remote', 'gateway', 'remote-storage', 'wallet'] as const) {
+      expect(moduleAccessModel.surfaceGate(surface)).toEqual({kind: 'open'})
+      expect(moduleAccessModel.isSurfaceOffered(surface)).toBe(true)
+    }
+    expect(moduleAccessModel.surfaceGate('files')).toEqual({kind: 'open'})
+  })
+
+  it('does not offer surfaces the platform cannot run, whatever the Core says', () => {
     setRuntimeCapabilities({
       platform: 'ios',
-      mobile: true,
-      supports_external_pro: false,
-      supports_network_remote: true,
-      supports_autofill: true,
-    })
-
-    for (const feature of PRO_FEATURE_KEYS) {
-      expect(moduleAccessModel.featureAccess(feature)).toMatchObject({
-        status: 'unsupported',
-        denial_code: 'FEATURE_UNAVAILABLE_IN_DISTRIBUTION',
-      })
-    }
-    expect(moduleAccessModel.isSurfaceVisible('remote')).toBe(false)
-    expect(moduleAccessModel.isSurfaceVisible('wallet')).toBe(false)
-
-    await expect(moduleAccessModel.refresh()).resolves.toBeUndefined()
-    await expect(moduleAccessModel.activateWithActivationCode('activation-code')).resolves.toBe(false)
-    await expect(moduleAccessModel.createLicenseCabinetHandoff()).resolves.toBeNull()
-    await expect(moduleAccessModel.refreshLicenseSeatStatus()).resolves.toBe(false)
-    await expect(moduleAccessModel.releaseCurrentSeat()).resolves.toBe(false)
-
-    expect(tauriInvoke).not.toHaveBeenCalled()
-    expect(moduleAccessModel.entitlement()).toBeNull()
-    expect(moduleAccessModel.licenseSeatStatus()).toBeNull()
-  })
-
-  it('keeps only Remote visible on mobile when storage and gateway are unsupported', () => {
-    moduleAccessModel.rawStates.set(LOCKED_PRO_STATES)
-    setRuntimeCapabilities({
-      platform: 'android',
       mobile: true,
       supports_network_remote: true,
       supports_volume: false,
       supports_gateway: false,
     })
+    resolveStates(ENABLED_STATES)
 
-    expect(moduleAccessModel.featureAccess('remote').status).toBe('locked_pro')
-    expect(moduleAccessModel.featureAccess('mounted-vault').status).toBe('unsupported')
-    expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('unsupported')
-    expect(moduleAccessModel.featureAccess('env-runtime').status).toBe('unsupported')
-    expect(moduleAccessModel.isSurfaceVisible('remote')).toBe(true)
-    expect(moduleAccessModel.isSurfaceVisible('remote-storage')).toBe(false)
-    expect(moduleAccessModel.isSurfaceVisible('gateway')).toBe(false)
-  })
-
-  it('keeps desktop storage and extensions visible as locked when runtime supports them', () => {
-    moduleAccessModel.rawStates.set(LOCKED_PRO_STATES)
-    setRuntimeCapabilities({
-      platform: 'macos',
-      desktop: true,
-      supports_network_remote: true,
-      supports_volume: true,
-      supports_gateway: true,
+    expect(moduleAccessModel.featureAccess('remote')?.status).toBe('enabled')
+    expect(moduleAccessModel.featureAccess('mounted-vault')).toMatchObject({
+      status: 'unsupported',
+      denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM',
     })
-
-    expect(moduleAccessModel.featureAccess('mounted-vault').status).toBe('locked_pro')
-    expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('locked_pro')
-    expect(moduleAccessModel.featureAccess('env-runtime').status).toBe('locked_pro')
-    expect(moduleAccessModel.isSurfaceVisible('remote-storage')).toBe(true)
-    expect(moduleAccessModel.isSurfaceVisible('gateway')).toBe(true)
+    expect(moduleAccessModel.featureAccess('browser-extension')?.status).toBe('unsupported')
+    expect(moduleAccessModel.featureAccess('env-runtime')?.status).toBe('unsupported')
+    expect(moduleAccessModel.isSurfaceOffered('remote')).toBe(true)
+    expect(moduleAccessModel.isSurfaceOffered('remote-storage')).toBe(false)
+    expect(moduleAccessModel.isSurfaceOffered('gateway')).toBe(false)
+    expect(moduleAccessModel.preferredSurfaceFallback()).toBe('remote')
   })
 
   it('keeps Env Runtime unsupported on non-macOS desktop platforms', () => {
-    moduleAccessModel.rawStates.set(LOCKED_PRO_STATES)
-    setRuntimeCapabilities({
-      platform: 'windows',
-      desktop: true,
-    })
+    setRuntimeCapabilities({platform: 'windows', desktop: true})
+    resolveStates(ENABLED_STATES)
 
     expect(moduleAccessModel.featureAccess('env-runtime')).toMatchObject({
       status: 'unsupported',
@@ -148,88 +127,53 @@ describe('moduleAccessModel runtime support overlay', () => {
     })
   })
 
-  it('shows wallet as a locked Pro surface when Core reports wallet support', () => {
-    moduleAccessModel.rawStates.set([
-      {feature_key: 'crypto-wallet', status: 'locked_pro', denial_code: 'PRO_REQUIRED'},
+  it('does not offer a surface the release has disabled', () => {
+    setRuntimeCapabilities(DESKTOP_CAPABILITIES)
+    resolveStates([
+      {feature_key: 'remote', status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
+      {feature_key: 'crypto-wallet', status: 'enabled', denial_code: null},
     ])
 
-    expect(moduleAccessModel.featureAccess('crypto-wallet').status).toBe('locked_pro')
-    expect(moduleAccessModel.isSurfaceVisible('wallet')).toBe(true)
-    expect(moduleAccessModel.canOpenSurface('wallet')).toBe(false)
+    expect(moduleAccessModel.surfaceGate('remote')).toEqual({
+      kind: 'unavailable',
+      access: {feature_key: 'remote', status: 'disabled_by_rollout', denial_code: 'FEATURE_DISABLED_BY_ROLLOUT'},
+    })
+    expect(moduleAccessModel.isSurfaceOffered('remote')).toBe(false)
+    expect(moduleAccessModel.preferredSurfaceFallback()).toBe('files')
+    expect(moduleAccessModel.isSurfaceOffered('wallet')).toBe(true)
   })
 
-  it('hides wallet when Core reports wallet support is unavailable', () => {
-    moduleAccessModel.rawStates.set([
-      {
-        feature_key: 'crypto-wallet',
-        status: 'unsupported',
-        denial_code: 'FEATURE_UNSUPPORTED_ON_PLATFORM',
-      },
+  it('does not offer wallet when the active Core cannot run it', () => {
+    resolveStates([
+      {feature_key: 'crypto-wallet', status: 'unsupported', denial_code: 'REMOTE_CORE_UNSUPPORTED'},
     ])
 
-    expect(moduleAccessModel.featureAccess('crypto-wallet').status).toBe('unsupported')
-    expect(moduleAccessModel.isSurfaceVisible('wallet')).toBe(false)
+    expect(moduleAccessModel.featureAccess('crypto-wallet')?.denial_code).toBe('REMOTE_CORE_UNSUPPORTED')
+    expect(moduleAccessModel.isSurfaceOffered('wallet')).toBe(false)
     expect(moduleAccessModel.canOpenSurface('wallet')).toBe(false)
   })
 
   it('recomputes effective access when runtime capabilities change', () => {
-    moduleAccessModel.rawStates.set(LOCKED_PRO_STATES)
-    setRuntimeCapabilities({
-      platform: 'macos',
-      desktop: true,
-      supports_gateway: true,
-    })
+    setRuntimeCapabilities({platform: 'macos', desktop: true, supports_gateway: true})
+    resolveStates(ENABLED_STATES)
+    expect(moduleAccessModel.featureAccess('browser-extension')?.status).toBe('enabled')
 
-    expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('locked_pro')
-
-    setRuntimeCapabilities({
-      platform: 'android',
-      mobile: true,
-      supports_gateway: false,
-    })
-
-    expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('unsupported')
+    setRuntimeCapabilities({platform: 'ios', mobile: true, supports_gateway: false})
+    expect(moduleAccessModel.featureAccess('browser-extension')?.status).toBe('unsupported')
   })
 
-  it('keeps production non-Tauri entitlement uncertainty fail-closed', async () => {
-    window.env = 'prod'
-    setRuntimeCapabilities({
-      platform: 'macos',
-      desktop: true,
-      supports_network_remote: true,
-      supports_volume: true,
-      supports_gateway: true,
-      supports_autofill: true,
-    })
+  it('lets a non-Tauri runtime use every module its capabilities support without a dev flag', async () => {
+    setRuntimeCapabilities({...DESKTOP_CAPABILITIES, supports_volume: false})
 
     moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
-    await moduleAccessModel.refresh()
+    await moduleAccessModel.ensureActiveCoreAccess()
 
-    expect(moduleAccessModel.featureAccess('remote').status).toBe('entitlement_unavailable')
-    expect(moduleAccessModel.featureAccess('mounted-vault').status).toBe('entitlement_unavailable')
-    expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('entitlement_unavailable')
-    expect(moduleAccessModel.canOpenSurface('remote')).toBe(false)
-    expect(moduleAccessModel.canOpenSurface('remote-storage')).toBe(false)
-  })
-
-  it('keeps the non-Tauri bypass explicit to dev runtime', async () => {
-    window.env = 'dev'
-    setRuntimeCapabilities({
-      platform: 'macos',
-      desktop: true,
-      supports_network_remote: true,
-      supports_volume: true,
-      supports_gateway: true,
-      supports_autofill: true,
-    })
-
-    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
-    await moduleAccessModel.refresh()
-
-    expect(moduleAccessModel.featureAccess('remote').status).toBe('enabled')
-    expect(moduleAccessModel.featureAccess('mounted-vault').status).toBe('enabled')
-    expect(moduleAccessModel.featureAccess('browser-extension').status).toBe('enabled')
+    expect(tauriInvoke).not.toHaveBeenCalled()
     expect(moduleAccessModel.canOpenSurface('remote')).toBe(true)
+    expect(moduleAccessModel.canOpenSurface('gateway')).toBe(true)
+    expect(moduleAccessModel.isFeatureEnabled('credential-provider')).toBe(true)
+    expect(moduleAccessModel.featureAccess('mounted-vault')?.status).toBe('unsupported')
+    expect(moduleAccessModel.canOpenSurface('wallet')).toBe(false)
   })
 })
 
@@ -242,15 +186,8 @@ describe('moduleAccessModel active Core lifecycle', () => {
   const enabledRemoteStates: ModuleAccessState[] = [
     {feature_key: 'remote', status: 'enabled', denial_code: null},
   ]
-  const remoteEntitlement = {
-    licensed: true,
-    plan: 'pro' as const,
-    feature_keys: ['remote'] as const,
-    source_core: 'remote_host' as const,
-    build_policy: 'enforce' as const,
-  }
 
-  it('stays fail-closed without license IPC until the active remote Core is ready', async () => {
+  it('waits without IPC until the active remote Core is ready', async () => {
     enableTauriRuntime()
     moduleAccessModel.setActiveCoreContext(remoteContext, 'pending')
 
@@ -258,16 +195,14 @@ describe('moduleAccessModel active Core lifecycle', () => {
     await moduleAccessModel.ensureActiveCoreAccess()
 
     expect(tauriInvoke).not.toHaveBeenCalled()
-    expect(moduleAccessModel.featureAccess('remote').status).toBe('entitlement_unavailable')
+    expect(moduleAccessModel.featureAccess('remote')).toBeNull()
   })
 
   it('resolves a ready remote Core once and coalesces concurrent ensure calls', async () => {
     enableTauriRuntime()
     const access = deferred<{ok: true; result: ModuleAccessState[]}>()
-    const entitlement = deferred<{ok: true; result: typeof remoteEntitlement}>()
     tauriInvoke.mockImplementation((command: string) => {
       if (command === 'module_access_snapshot') return access.promise
-      if (command === 'license_status') return entitlement.promise
       throw new Error(`unexpected command: ${command}`)
     })
     moduleAccessModel.setActiveCoreContext(remoteContext, 'ready')
@@ -276,21 +211,69 @@ describe('moduleAccessModel active Core lifecycle', () => {
     const second = moduleAccessModel.ensureActiveCoreAccess()
 
     expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'checking'})
-    expect(tauriInvoke).toHaveBeenCalledTimes(2)
+    expect(tauriInvoke).toHaveBeenCalledTimes(1)
     access.resolve({ok: true, result: enabledRemoteStates})
-    entitlement.resolve({ok: true, result: remoteEntitlement})
     await Promise.all([first, second])
 
     expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'open'})
     await moduleAccessModel.ensureActiveCoreAccess()
-    expect(tauriInvoke).toHaveBeenCalledTimes(2)
+    expect(tauriInvoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a failed snapshot as a neutral, retryable state and never as enabled', async () => {
+    enableTauriRuntime()
+    tauriInvoke.mockResolvedValueOnce({ok: false, error: 'core unavailable'})
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
+
+    await moduleAccessModel.ensureActiveCoreAccess()
+
+    expect(moduleAccessModel.resolution()).toEqual({phase: 'failed', error: 'core unavailable'})
+    expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'check-failed'})
+    expect(moduleAccessModel.isFeatureEnabled('remote')).toBe(false)
+    expect(moduleAccessModel.isSurfaceOffered('remote')).toBe(true)
+
+    tauriInvoke.mockResolvedValueOnce({ok: true, result: enabledRemoteStates})
+    await moduleAccessModel.refresh()
+
+    expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'open'})
+  })
+
+  it('treats a thrown IPC error as a failed check', async () => {
+    enableTauriRuntime()
+    setRuntimeCapabilities(DESKTOP_CAPABILITIES)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    tauriInvoke.mockRejectedValueOnce(new Error('ipc closed'))
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
+
+    await moduleAccessModel.ensureActiveCoreAccess()
+
+    expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'check-failed'})
+    expect(moduleAccessModel.featureGate('credential-provider')).toEqual({kind: 'check-failed'})
+  })
+
+  it('ignores snapshot entries with unknown module keys or statuses', async () => {
+    enableTauriRuntime()
+    tauriInvoke.mockResolvedValueOnce({
+      ok: true,
+      result: [
+        {feature_key: 'remote', status: 'locked', denial_code: 'SOMETHING_ELSE'},
+        {feature_key: 'teleport', status: 'enabled', denial_code: null},
+        {feature_key: 'crypto-wallet', status: 'enabled', denial_code: null},
+      ],
+    })
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'ready')
+
+    await moduleAccessModel.ensureActiveCoreAccess()
+
+    expect(moduleAccessModel.featureAccess('remote')).toBeNull()
+    expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'check-failed'})
+    expect(moduleAccessModel.surfaceGate('wallet')).toEqual({kind: 'open'})
   })
 
   it('forces a same-context retry without reusing an in-flight result', async () => {
     enableTauriRuntime()
     tauriInvoke.mockImplementation(async (command: string) => {
       if (command === 'module_access_snapshot') return {ok: true, result: enabledRemoteStates}
-      if (command === 'license_status') return {ok: true, result: remoteEntitlement}
       throw new Error(`unexpected command: ${command}`)
     })
     moduleAccessModel.setActiveCoreContext(remoteContext, 'ready')
@@ -299,16 +282,13 @@ describe('moduleAccessModel active Core lifecycle', () => {
     await moduleAccessModel.refresh()
 
     expect(tauriInvoke.mock.calls.filter(([command]) => command === 'module_access_snapshot')).toHaveLength(2)
-    expect(tauriInvoke.mock.calls.filter(([command]) => command === 'license_status')).toHaveLength(2)
   })
 
   it('ignores a stale result after the active Core changes', async () => {
     enableTauriRuntime()
     const oldAccess = deferred<{ok: true; result: ModuleAccessState[]}>()
-    const oldEntitlement = deferred<{ok: true; result: typeof remoteEntitlement}>()
     tauriInvoke.mockImplementation((command: string) => {
       if (command === 'module_access_snapshot') return oldAccess.promise
-      if (command === 'license_status') return oldEntitlement.promise
       throw new Error(`unexpected command: ${command}`)
     })
     moduleAccessModel.setActiveCoreContext(remoteContext, 'ready')
@@ -316,54 +296,17 @@ describe('moduleAccessModel active Core lifecycle', () => {
 
     moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'pending')
     oldAccess.resolve({ok: true, result: enabledRemoteStates})
-    oldEntitlement.resolve({ok: true, result: remoteEntitlement})
     await staleResolution
 
     expect(moduleAccessModel.activeCoreContext()).toEqual({sourceCore: 'local'})
     expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'checking'})
-    expect(moduleAccessModel.entitlement()).toBeNull()
-    expect(moduleAccessModel.featureAccess('remote').status).toBe('entitlement_unavailable')
-  })
-
-  it('fails closed when license metadata comes from a different Core', async () => {
-    enableTauriRuntime()
-    tauriInvoke.mockImplementation(async (command: string) => {
-      if (command === 'module_access_snapshot') return {ok: true, result: enabledRemoteStates}
-      if (command === 'license_status') {
-        return {ok: true, result: {...remoteEntitlement, source_core: 'local'}}
-      }
-      throw new Error(`unexpected command: ${command}`)
-    })
-    moduleAccessModel.setActiveCoreContext(remoteContext, 'ready')
-
-    await moduleAccessModel.ensureActiveCoreAccess()
-
-    expect(moduleAccessModel.featureAccess('remote').status).toBe('entitlement_unavailable')
-    expect(moduleAccessModel.surfaceGate('remote')).toMatchObject({kind: 'blocked'})
-    expect(moduleAccessModel.error()).toContain('License source mismatch')
-  })
-
-  it('keeps an authoritative access snapshot when license metadata is unavailable', async () => {
-    enableTauriRuntime()
-    tauriInvoke.mockImplementation(async (command: string) => {
-      if (command === 'module_access_snapshot') return {ok: true, result: enabledRemoteStates}
-      if (command === 'license_status') return {ok: false, error: 'metadata unavailable'}
-      throw new Error(`unexpected command: ${command}`)
-    })
-    moduleAccessModel.setActiveCoreContext(remoteContext, 'ready')
-
-    await moduleAccessModel.ensureActiveCoreAccess()
-
-    expect(moduleAccessModel.featureAccess('remote').status).toBe('enabled')
-    expect(moduleAccessModel.surfaceGate('remote')).toEqual({kind: 'open'})
-    expect(moduleAccessModel.error()).toBe('metadata unavailable')
+    expect(moduleAccessModel.featureAccess('remote')).toBeNull()
   })
 
   it('creates a new revision when the same peer without a generation relocks and unlocks', async () => {
     enableTauriRuntime()
     tauriInvoke.mockImplementation(async (command: string) => {
       if (command === 'module_access_snapshot') return {ok: true, result: enabledRemoteStates}
-      if (command === 'license_status') return {ok: true, result: remoteEntitlement}
       throw new Error(`unexpected command: ${command}`)
     })
     const contextWithoutGeneration = {...remoteContext, transportSessionGeneration: null}

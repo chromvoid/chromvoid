@@ -57,13 +57,26 @@ impl RpcRouter {
                 .enabled_profile(account.network(), &config)
                 .map_err(WalletCommandError::from)?;
             let amount_unit = profile.amount_unit().to_string();
+            let mut allocated_addresses = Vec::new();
+            for wallet_account in load_accounts(session, storage, Some(account.wallet_id()))? {
+                if wallet_account.network() == account.network() {
+                    allocated_addresses.extend(load_account_addresses(
+                        session,
+                        storage,
+                        wallet_account.wallet_id(),
+                        wallet_account.account_id(),
+                    )?);
+                }
+            }
             let task = profile
                 .split_history_task(crate::wallet::WalletHistoryInput {
                     account: account.clone(),
+                    allocated_addresses,
                     limit: request
                         .limit
                         .unwrap_or(DEFAULT_HISTORY_LIMIT)
                         .clamp(1, MAX_HISTORY_LIMIT),
+                    now: now_ms(),
                 })
                 .map_err(WalletCommandError::from)?
                 .ok_or_else(|| {
@@ -248,6 +261,8 @@ fn history_matches_entry(
 }
 
 fn history_tx_ref(account_id: &str, tx_hash: &str) -> String {
+    // The `ton-` prefix predates multi-chain history; it is an opaque journal key shared by every
+    // network so existing TON entries keep matching.
     format!(
         "ton-history-{}",
         hash_hex(&[account_id.as_bytes(), tx_hash.as_bytes()])

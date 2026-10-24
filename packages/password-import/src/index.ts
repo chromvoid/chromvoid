@@ -1,34 +1,11 @@
+export type {ImportProgress} from './types.js'
+export {CredentialImportService} from './credential-import-service.js'
 export type {
-  ImportResult,
-  ImportedEntry,
-  ImportedFolder,
-  ImportedIcon,
-  Conflict,
-  ConflictResolution,
-  ImportProgress,
-  ExistingEntryInfo,
-  UrlMatch,
-  UrlRule,
-} from './types.js'
-
-export {
-  IMPORT_LIMITS,
-  ImportValidationError,
-  assertFileSize,
-  assertEntriesLimit,
-  assertTextMaxLen,
-} from './validation.js'
-export type {ImportValidationCode} from './validation.js'
-
-export {detectConflicts, generateUniqueName, resolveConflictsAutoRename} from './conflicts.js'
-
-export {mapAndSaveEntry, overwriteEntry, ImportOrchestrator} from './mapper.js'
-export type {CatalogOperations} from './mapper.js'
-
-export {parseKeePass, KeePassParseError} from './parsers/keepass.js'
-export {parseCSV} from './parsers/csv.js'
-export {parseBitwardenJson} from './parsers/bitwarden.js'
-export {parse1Password1PUX} from './parsers/1password.js'
+  CredentialImportRpc,
+  ImportCommand,
+  ImportReview,
+  ImportTransferProgress,
+} from './credential-import-service.js'
 
 export {
   MOBILE_FILE_PICKER_LIFECYCLE_END_EVENT,
@@ -39,4 +16,4 @@ export {
 export type {MobileFilePickerLifecycleStartDetail} from './ui/mobile-file-picker-lifecycle.js'
 
 export {ImportDialog} from './ui/import-dialog.js'
-export {setImportCatalogOps, setExistingEntriesMap} from './ui/import-dialog-state.js'
+export {setCredentialImportService} from './ui/import-dialog-state.js'

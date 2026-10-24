@@ -6,6 +6,7 @@ use super::backend::{
     AndroidAoaBackendError, AndroidAoaDeviceInfo, AndroidAoaEndpointHandle, AndroidAoaUsbBackend,
 };
 use super::protocol::{negotiate_accessory_mode, AndroidAoaIdentity};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,8 +37,7 @@ pub(super) fn detect_blocking(
     identity: &AndroidAoaIdentity,
 ) -> Result<Vec<MobileUsbDetectCandidate>, MobileUsbError> {
     let devices = backend.list_devices().map_err(map_scan_backend_error)?;
-    Ok(devices
-        .iter()
+    Ok(unique_devices(&devices)
         .map(|device| MobileUsbDetectCandidate {
             scan: scan_result_from_device(device, identity),
             accessory_mode: is_accessory_mode(device),
@@ -187,9 +187,14 @@ fn device_debug_label(device: &AndroidAoaDeviceInfo) -> String {
     )
 }
 
+// libusb can repeat a device during accessory reenumeration. Keep its first entry.
+fn unique_devices(devices: &[AndroidAoaDeviceInfo]) -> impl Iterator<Item = &AndroidAoaDeviceInfo> {
+    let mut seen = HashSet::new();
+    devices.iter().filter(move |device| seen.insert(&device.id))
+}
+
 fn accessory_devices(devices: &[AndroidAoaDeviceInfo]) -> Vec<AndroidAoaDeviceInfo> {
-    devices
-        .iter()
+    unique_devices(devices)
         .filter(|device| is_accessory_mode(device))
         .cloned()
         .collect()

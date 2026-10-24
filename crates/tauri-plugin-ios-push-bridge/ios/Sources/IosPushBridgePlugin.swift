@@ -179,6 +179,6 @@ final class IosPushBridgePlugin: Plugin {
 }
 
 @_cdecl("init_plugin_ios_push_bridge")
-func initPluginIosPushBridge() -> Plugin {
+public func initPluginIosPushBridge() -> Plugin {
   return IosPushBridgePlugin()
 }

@@ -9,13 +9,11 @@ import {clearAppContext, createMockAppContext, initAppContext} from '../../src/s
 const {
   downloadPassmanagerJsonMock,
   notifySuccessMock,
-  setExistingEntriesMapMock,
-  setImportCatalogOpsMock,
+  setCredentialImportServiceMock,
 } = vi.hoisted(() => ({
   downloadPassmanagerJsonMock: vi.fn(),
   notifySuccessMock: vi.fn(),
-  setExistingEntriesMapMock: vi.fn(),
-  setImportCatalogOpsMock: vi.fn(),
+  setCredentialImportServiceMock: vi.fn(),
 }))
 
 vi.mock('../../src/features/passmanager/service/passmanager-json-download', () => ({
@@ -23,8 +21,7 @@ vi.mock('../../src/features/passmanager/service/passmanager-json-download', () =
 }))
 
 vi.mock('@chromvoid/password-import/ui/import-dialog-state', () => ({
-  setExistingEntriesMap: (...args: unknown[]) => setExistingEntriesMapMock(...args),
-  setImportCatalogOps: (...args: unknown[]) => setImportCatalogOpsMock(...args),
+  setCredentialImportService: (...args: unknown[]) => setCredentialImportServiceMock(...args),
 }))
 
 vi.mock('@project/passmanager/notify', () => ({
@@ -99,8 +96,7 @@ describe('PassmanagerMaintenanceModel', () => {
     downloadPassmanagerJsonMock.mockReset()
     downloadPassmanagerJsonMock.mockResolvedValue(true)
     notifySuccessMock.mockReset()
-    setExistingEntriesMapMock.mockReset()
-    setImportCatalogOpsMock.mockReset()
+    setCredentialImportServiceMock.mockReset()
     passmanagerMaintenanceModel.importDialogOpen.set(false)
     passmanagerMaintenanceModel.importCompletedSuccessfully.set(false)
     passmanagerMaintenanceModel.busyAction.set(null)
@@ -118,7 +114,7 @@ describe('PassmanagerMaintenanceModel', () => {
     vi.restoreAllMocks()
   })
 
-  it('prepares import catalog operations before opening the Settings import dialog', async () => {
+  it('prepares the Core import service before opening the Settings import dialog', async () => {
     const ensureSpy = vi
       .spyOn(pmComponentLoaderModel, 'ensureExtendedComponents')
       .mockResolvedValue(undefined)
@@ -126,11 +122,22 @@ describe('PassmanagerMaintenanceModel', () => {
     await passmanagerMaintenanceModel.openSettingsImportDialog()
 
     expect(catalog.refreshSilent).toHaveBeenCalledTimes(1)
-    expect(setImportCatalogOpsMock).toHaveBeenCalledTimes(1)
-    expect(setExistingEntriesMapMock).toHaveBeenCalledTimes(1)
+    expect(setCredentialImportServiceMock).toHaveBeenCalledTimes(1)
     expect(ensureSpy).toHaveBeenCalledTimes(1)
     expect(passmanagerMaintenanceModel.importDialogOpen()).toBe(true)
     expect(passmanagerMaintenanceModel.busyAction()).toBeNull()
+  })
+
+  it('does not reopen or reconnect import after the vault changes during component loading', async () => {
+    let finish!: () => void
+    const loading = new Promise<void>((resolve) => { finish = resolve })
+    vi.spyOn(pmComponentLoaderModel, 'ensureExtendedComponents').mockReturnValue(loading)
+    const opening = passmanagerMaintenanceModel.openSettingsImportDialog()
+    passmanagerMaintenanceModel.disposeImport()
+    finish()
+    await opening
+    expect(passmanagerMaintenanceModel.importDialogOpen()).toBe(false)
+    expect(setCredentialImportServiceMock.mock.calls).toEqual([[null]])
   })
 
   it('exports through the mounted root when Passwords is mounted', async () => {

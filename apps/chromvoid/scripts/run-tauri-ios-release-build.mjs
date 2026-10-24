@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import {spawn, spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
@@ -12,11 +11,6 @@ const appRoot = path.resolve(scriptDir, '..')
 const repoRoot = path.resolve(appRoot, '..', '..')
 loadWalletEnvFromRoot(repoRoot)
 const forwardedArgs = process.argv.slice(2)
-const licensePublicKeyEnv = 'CHROMVOID_LICENSE_PUBLIC_KEY_ED25519_2026_01'
-const licensePublicKeyFiles = [
-  path.join(appRoot, 'src-tauri', 'gen', 'apple', '.license-public-key'),
-  path.join(appRoot, 'src-tauri', 'gen', 'android', '.license-public-key'),
-]
 const appleBuildDir = path.join(appRoot, 'src-tauri', 'gen', 'apple', 'build')
 const appStoreArchive = path.join(appleBuildDir, 'chromvoid_iOS.xcarchive')
 const appStoreArchiveInfo = path.join(appStoreArchive, 'Info.plist')
@@ -83,8 +77,6 @@ const generatedBuildFiles = [
   path.join(appRoot, 'src-tauri', 'gen', 'apple', 'chromvoid_ShareExtension', 'Info.plist'),
   path.join(appRoot, 'src-tauri', 'gen', 'apple', 'chromvoid_macos', 'Info.plist'),
 ]
-const cargoLockFile = path.join(appRoot, 'src-tauri', 'Cargo.lock')
-const vendoredPluginsDir = path.join(appRoot, 'src-tauri', 'vendor')
 const localTauriBinary = path.join(
   appRoot,
   'node_modules',
@@ -96,35 +88,6 @@ const tauriBinary = fs.existsSync(localTauriBinary) ? localTauriBinary : 'tauri'
 function fail(message) {
   console.error(`[tauri-ios-release] ${message}`)
   process.exit(1)
-}
-
-function decodeBase64OrBase64Url(value) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=')
-  return Buffer.from(padded, 'base64')
-}
-
-function resolveLicensePublicKey() {
-  const envValue = process.env[licensePublicKeyEnv]?.trim()
-  const filePath = licensePublicKeyFiles.find((candidate) => fs.existsSync(candidate))
-  const fileValue = filePath ? fs.readFileSync(filePath, 'utf8').trim() : ''
-  const value = envValue || fileValue
-  if (!value) {
-    fail(
-      `Missing ${licensePublicKeyEnv}. Set it in the environment or write the base64/base64url Ed25519 public key to ${licensePublicKeyFiles[0]}.`,
-    )
-  }
-
-  const bytes = decodeBase64OrBase64Url(value)
-  if (bytes.length !== 32) {
-    fail(`${licensePublicKeyEnv} must decode to a 32-byte Ed25519 public key, got ${bytes.length} bytes.`)
-  }
-
-  if (!envValue && filePath) {
-    console.log(`[tauri-ios-release] Using license public key from ${filePath}`)
-  }
-
-  return value
 }
 
 function collectIpas(dir) {
@@ -153,50 +116,12 @@ function removeStaleIpas() {
   }
 }
 
-function unzip(ipaPath, args) {
-  const result = spawnSync('unzip', args, {
-    cwd: appRoot,
-    maxBuffer: 256 * 1024 * 1024,
-  })
-  if (result.status !== 0) {
-    const detail =
-      result.stderr?.toString().trim() || result.stdout?.toString().trim() || `unzip failed for ${ipaPath}`
-    fail(detail)
-  }
-  return result.stdout
-}
-
-function assertIpaEmbedsLicensePublicKey(ipaPath, licensePublicKey) {
-  const entries = unzip(ipaPath, ['-Z1', ipaPath])
-    .toString('utf8')
-    .split(/\r?\n/)
-    .filter((entry) => /^Payload\/[^/]+\.app\/[^/]+$/.test(entry))
-
-  if (entries.length === 0) {
-    fail(`No app executable candidate found in ${ipaPath}`)
-  }
-
-  const keyBytes = Buffer.from(licensePublicKey)
-  for (const entry of entries) {
-    const binary = unzip(ipaPath, ['-p', ipaPath, entry])
-    if (binary.includes(keyBytes)) {
-      return
-    }
-  }
-
-  fail(`${ipaPath} was built without ${licensePublicKeyEnv}`)
-}
-
-function verifyReleaseIpas(licensePublicKey) {
+function verifyReleaseIpas() {
   const ipas = collectIpas(appleBuildDir)
   if (ipas.length === 0) {
     fail(`No release IPA found under ${appleBuildDir}`)
   }
-
-  for (const ipa of ipas) {
-    assertIpaEmbedsLicensePublicKey(ipa, licensePublicKey)
-  }
-  console.log(`[tauri-ios-release] Verified ${ipas.length} release IPA(s) embed ${licensePublicKeyEnv}`)
+  console.log(`[tauri-ios-release] Found ${ipas.length} release IPA(s)`)
 }
 
 function hasExportMethod(args) {
@@ -240,94 +165,6 @@ function requestsAppStoreConnectExport(args) {
 
   const methodIndex = args.indexOf('--export-method')
   return methodIndex !== -1 && args[methodIndex + 1] === 'app-store-connect'
-}
-
-function readLockedTauriVersion() {
-  const lockFile = fs.readFileSync(cargoLockFile, 'utf8')
-  const match = lockFile.match(/\[\[package\]\]\s+name = "tauri"\s+version = "([^"]+)"/m)
-  if (!match) {
-    fail(`Failed to read the locked Tauri version from ${cargoLockFile}`)
-  }
-  return match[1]
-}
-
-function findLockedTauriIosApiPath() {
-  const tauriVersion = readLockedTauriVersion()
-  const cargoHome = process.env.CARGO_HOME
-    ? path.resolve(process.env.CARGO_HOME)
-    : path.join(os.homedir(), '.cargo')
-  const registrySourcesDir = path.join(cargoHome, 'registry', 'src')
-  if (!fs.existsSync(registrySourcesDir)) {
-    return null
-  }
-
-  for (const registryDir of fs.readdirSync(registrySourcesDir, {withFileTypes: true})) {
-    if (!registryDir.isDirectory()) {
-      continue
-    }
-    const packagePath = path.join(
-      registrySourcesDir,
-      registryDir.name,
-      `tauri-${tauriVersion}`,
-      'mobile',
-      'ios-api',
-    )
-    if (fs.existsSync(path.join(packagePath, 'Package.resolved'))) {
-      return packagePath
-    }
-  }
-
-  return null
-}
-
-function snapshotVendoredIosBuildState() {
-  if (!fs.existsSync(vendoredPluginsDir)) {
-    return []
-  }
-
-  const states = []
-  for (const plugin of fs.readdirSync(vendoredPluginsDir, {withFileTypes: true})) {
-    if (!plugin.isDirectory() || !plugin.name.startsWith('tauri-plugin-')) {
-      continue
-    }
-
-    const pluginDir = path.join(vendoredPluginsDir, plugin.name)
-    const iosDir = path.join(pluginDir, 'ios')
-    const packageFile = path.join(iosDir, 'Package.swift')
-    if (
-      !fs.existsSync(packageFile) ||
-      !fs.readFileSync(packageFile, 'utf8').includes('../.tauri/tauri-api')
-    ) {
-      continue
-    }
-
-    const resolvedFile = path.join(iosDir, 'Package.resolved')
-    const tauriDir = path.join(pluginDir, '.tauri')
-    states.push({
-      resolvedFile,
-      resolvedContents: fs.existsSync(resolvedFile) ? fs.readFileSync(resolvedFile) : null,
-      tauriDir,
-      tauriDirExisted: fs.existsSync(tauriDir),
-    })
-  }
-  return states
-}
-
-function prepareVendoredIosPackageResolutions(states) {
-  const tauriIosApiPath = findLockedTauriIosApiPath()
-  if (!tauriIosApiPath) {
-    fail(
-      'Locked Tauri iOS API package is missing from the Cargo registry cache. Run cargo fetch before the release build.',
-    )
-  }
-
-  const resolvedContents = fs.readFileSync(path.join(tauriIosApiPath, 'Package.resolved'))
-  for (const state of states) {
-    fs.writeFileSync(state.resolvedFile, resolvedContents)
-  }
-  console.log(
-    `[tauri-ios-release] Prepared SwiftPM resolution for ${states.length} vendored iOS plugin package(s)`,
-  )
 }
 
 function readAppStoreTeamId() {
@@ -382,7 +219,7 @@ function resignAppStoreArchive() {
         '--timestamp=none',
         target.bundle,
       ],
-      {cwd: appRoot, env: childEnv, stdio: 'inherit'},
+      {cwd: appRoot, env: process.env, stdio: 'inherit'},
     )
     if (result.status !== 0) {
       fail(`Failed to sign ${target.bundle}`)
@@ -411,7 +248,7 @@ function exportFreshAppStoreArchive(buildStartedAt) {
       '-exportOptionsPlist',
       appStoreExportOptions,
     ],
-    {cwd: appRoot, env: childEnv, stdio: 'inherit'},
+    {cwd: appRoot, env: process.env, stdio: 'inherit'},
   )
   return result.status === 0
 }
@@ -421,17 +258,9 @@ const metadataOnly =
   forwardedArgs.includes('--help') ||
   forwardedArgs.includes('-V') ||
   forwardedArgs.includes('--version')
-const licensePublicKey = metadataOnly ? null : resolveLicensePublicKey()
-const childEnv = licensePublicKey
-  ? {
-      ...process.env,
-      [licensePublicKeyEnv]: licensePublicKey,
-    }
-  : process.env
 const generatedBuildFileContents = metadataOnly
   ? new Map()
   : new Map(generatedBuildFiles.map((filePath) => [filePath, fs.readFileSync(filePath)]))
-const vendoredIosBuildState = metadataOnly ? [] : snapshotVendoredIosBuildState()
 let generatedBuildFilesRestored = false
 
 function restoreGeneratedBuildFiles() {
@@ -440,16 +269,6 @@ function restoreGeneratedBuildFiles() {
   }
   for (const [filePath, contents] of generatedBuildFileContents) {
     fs.writeFileSync(filePath, contents)
-  }
-  for (const state of vendoredIosBuildState) {
-    if (state.resolvedContents === null) {
-      fs.rmSync(state.resolvedFile, {force: true})
-    } else {
-      fs.writeFileSync(state.resolvedFile, state.resolvedContents)
-    }
-    if (!state.tauriDirExisted) {
-      fs.rmSync(state.tauriDir, {force: true, recursive: true})
-    }
   }
   generatedBuildFilesRestored = true
 }
@@ -467,13 +286,12 @@ if (buildNumber !== null) {
 args.push(...tauriForwardedArgs)
 
 if (!metadataOnly) {
-  prepareVendoredIosPackageResolutions(vendoredIosBuildState)
   removeStaleIpas()
 }
 const buildStartedAt = Date.now()
 const child = spawn(tauriBinary, args, {
   cwd: appRoot,
-  env: childEnv,
+  env: process.env,
   stdio: 'inherit',
 })
 
@@ -496,7 +314,7 @@ child.on('exit', (code, signal) => {
     fs.statSync(appStoreArchiveInfo).mtimeMs >= buildStartedAt
   ) {
     if (exportFreshAppStoreArchive(buildStartedAt)) {
-      verifyReleaseIpas(licensePublicKey)
+      verifyReleaseIpas()
       process.exit(0)
     }
     process.exit(code || 1)
@@ -507,7 +325,7 @@ child.on('exit', (code, signal) => {
   }
 
   if (!metadataOnly) {
-    verifyReleaseIpas(licensePublicKey)
+    verifyReleaseIpas()
   }
   process.exit(0)
 })

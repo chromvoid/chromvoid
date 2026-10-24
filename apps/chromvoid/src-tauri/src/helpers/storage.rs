@@ -1,7 +1,8 @@
-use std::io::Write;
-use std::path::Path;
+pub(crate) use chromvoid_core::storage::atomic_file::{
+    write_bytes_atomic, write_json_pretty_atomic,
+};
 
-use serde::de::DeserializeOwned;
+pub(crate) use chromvoid_core::storage::json_file::{read_json_or_default, read_optional_json};
 use tauri::Emitter;
 
 use crate::core_adapter::CoreAdapter;
@@ -59,82 +60,6 @@ pub(crate) fn save_storage_root(
         storage_root: storage_root.to_string_lossy().to_string(),
     };
     write_json_pretty_atomic(&cfg_path, &cfg)
-}
-
-pub(crate) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-
-    let mut temp = tempfile::Builder::new()
-        .prefix(".chromvoid-write-")
-        .suffix(".tmp")
-        .tempfile_in(parent)
-        .map_err(|e| format!("create temp file: {e}"))?;
-    temp.write_all(bytes)
-        .map_err(|e| format!("write temp file: {e}"))?;
-    temp.as_file_mut()
-        .sync_all()
-        .map_err(|e| format!("sync temp file: {e}"))?;
-    temp.persist(path)
-        .map_err(|e| format!("replace target: {}", e.error))?;
-    sync_parent_dir_best_effort(parent);
-    Ok(())
-}
-
-pub(crate) fn write_json_pretty_atomic<T: serde::Serialize>(
-    path: &Path,
-    value: &T,
-) -> Result<(), String> {
-    let json = serde_json::to_vec_pretty(value).map_err(|e| format!("serialize: {e}"))?;
-    write_bytes_atomic(path, &json)
-}
-
-#[cfg(unix)]
-fn sync_parent_dir_best_effort(parent: &Path) {
-    if let Err(error) = std::fs::File::open(parent).and_then(|dir| dir.sync_all()) {
-        tracing::debug!(
-            "storage: failed to sync parent directory {}: {error}",
-            parent.display()
-        );
-    }
-}
-
-#[cfg(not(unix))]
-fn sync_parent_dir_best_effort(_parent: &Path) {}
-
-pub(crate) fn read_json_or_default<T>(path: &Path, context: &str) -> T
-where
-    T: DeserializeOwned + Default,
-{
-    read_optional_json(path, context).unwrap_or_default()
-}
-
-pub(crate) fn read_optional_json<T>(path: &Path, context: &str) -> Option<T>
-where
-    T: DeserializeOwned,
-{
-    let contents = match std::fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(error) => {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!("{context}: failed to read JSON {}: {error}", path.display());
-            }
-            return None;
-        }
-    };
-
-    match serde_json::from_str(&contents) {
-        Ok(value) => Some(value),
-        Err(error) => {
-            tracing::warn!(
-                "{context}: failed to parse JSON {}: {error}",
-                path.display()
-            );
-            None
-        }
-    }
 }
 
 pub(crate) fn emit_basic_state(

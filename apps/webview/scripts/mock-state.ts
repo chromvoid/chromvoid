@@ -1,5 +1,6 @@
+import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
-import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises'
 
 type MockNode = {
   id: number
@@ -220,7 +221,10 @@ export async function readPersistedStateText(stateFile: string): Promise<string 
 
 export async function writePersistedStateText(stateDir: string, stateFile: string, body: string): Promise<void> {
   await mkdir(stateDir, {recursive: true})
-  await writeFile(stateFile, body)
+  // Replace atomically: an in-place write truncates first, so a concurrent read can see an empty file.
+  const tempFile = `${stateFile}.${randomUUID()}.tmp`
+  await writeFile(tempFile, body)
+  await rename(tempFile, stateFile)
 }
 
 export async function deletePersistedState(stateFile: string): Promise<void> {

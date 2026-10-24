@@ -2,11 +2,11 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import {i18n} from '../../src/i18n'
 import {
-  openWelcomeMasterRekeyDialog,
   WelcomeMasterRekeyDialogModel,
-  WelcomeMasterRekeyForm,
   type WelcomeMasterRekeyDialogResult,
-} from '../../src/routes/welcome/welcome-master-rekey-dialog'
+} from '../../src/routes/welcome/welcome-master-rekey-dialog.model'
+import {openWelcomeMasterRekeyDialog} from '../../src/routes/welcome/welcome-master-rekey-dialog'
+import {WelcomeMasterRekeyForm} from '../../src/routes/welcome/welcome-master-rekey-form'
 import {dialogService} from '../../src/shared/services/dialog-service'
 
 async function settle(element?: {updateComplete?: Promise<unknown>} | null): Promise<void> {

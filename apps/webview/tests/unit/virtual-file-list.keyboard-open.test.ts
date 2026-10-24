@@ -69,8 +69,8 @@ describe('virtual-file-list keyboard open shortcut', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
-  it('does not map Android desktop open-external shortcuts', () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true})
+  it('does not map desktop open-external shortcuts on mobile', () => {
+    setRuntimeCapabilities({platform: 'ios', mobile: true})
     const emitItemAction = vi.fn()
     const handlers = createHandlers(emitItemAction)
 

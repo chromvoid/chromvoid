@@ -23,6 +23,7 @@ pub enum CatalogFileReplaceConflictMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogListItem {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub node_id: u64,
@@ -63,6 +64,7 @@ pub struct CatalogListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogFolderSort {
     pub by: String,
     pub direction: String,
@@ -71,6 +73,7 @@ pub struct CatalogFolderSort {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogFolderFilter {
     #[serde(default)]
     pub query: Option<String>,
@@ -91,6 +94,7 @@ fn default_folder_path() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogFolderPageRequest {
     #[serde(default = "default_folder_path")]
     pub path: String,
@@ -120,6 +124,7 @@ pub struct CatalogFolderBatchRequest {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogFolderFilterCounts {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub all: u64,
@@ -132,6 +137,7 @@ pub struct CatalogFolderFilterCounts {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogFolderPageResponse {
     pub current_path: String,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
@@ -223,6 +229,7 @@ pub struct CatalogFileLinksResolveRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CatalogFileLinkItem {
@@ -274,6 +281,7 @@ pub struct CatalogFileLinksResolveResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct NodeCreatedResponse {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub node_id: u64,
@@ -283,6 +291,7 @@ pub struct NodeCreatedResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct UploadResponse {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub node_id: u64,
@@ -310,6 +319,7 @@ pub struct UploadResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct CatalogFileReplaceResponse {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub node_id: u64,
@@ -433,6 +443,7 @@ pub struct DownloadResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 pub struct SourceMetadataResponse {
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub node_id: u64,
@@ -472,4 +483,59 @@ pub struct DerivativeProtectedRevision {
     pub node_id: u64,
     #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
     pub source_revision: u64,
+}
+
+/// Resolves a document link against the current catalog, using the source identity
+/// for relative paths. No document body is read and no catalog mutation occurs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct CatalogDocumentLinkRequest {
+    #[cfg_attr(feature = "ts-bindings", ts(type = "number"))]
+    pub source_node_id: u64,
+    pub path: String,
+    pub kind: CatalogDocumentLinkKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub enum CatalogDocumentLinkKind {
+    File,
+    Note,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub enum CatalogDocumentLinkResponse {
+    Found { item: CatalogFileLinkItem },
+    Missing,
+    Ambiguous,
+}
+
+/// Prepares directories and a fresh name, without reserving or writing the image.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct CatalogAttachmentRequest {
+    pub folder_path: String,
+    pub file_name: String,
+    pub mime_type: String,
+}
+
+/// Use create-only upload, then insert Markdown only after its confirmed completion.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-bindings", derive(TS))]
+#[cfg_attr(feature = "ts-bindings", ts(export))]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
+pub struct CatalogAttachmentResponse {
+    pub parent_path: String,
+    pub name: String,
+    pub mime_type: String,
+    pub path: String,
+    pub markdown: String,
 }

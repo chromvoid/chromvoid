@@ -2,7 +2,6 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {PMEntryCreateModel} from '../../src/features/passmanager/components/card/entry-create/entry-create.model'
 import {configurePMEntryOtpDraftPreviewPort} from '../../src/features/passmanager/components/card/entry-otp-create/entry-otp-create.model'
-import type {AndroidPasswordSavePrefill} from '../../src/features/passmanager/models/android-password-save-prefill'
 import {dialogService} from '../../src/shared/services/dialog-service'
 
 function deferred<T>() {
@@ -882,25 +881,5 @@ describe('PMEntryCreateModel', () => {
     expect('ssh' in model).toBe(false)
     expect('setUseSsh' in model).toBe(false)
     expect('requestSshGeneration' in model).toBe(false)
-  })
-
-  it('applies Android password save prefill into the create form', () => {
-    const model = new PMEntryCreateModel()
-    const prefill: AndroidPasswordSavePrefill = {
-      token: 'token-1',
-      title: 'github.com',
-      username: 'alice@example.com',
-      password: 'pw-123',
-      urls: 'https://github.com/login',
-    }
-
-    model.applyPrefill(prefill)
-
-    expect(model.title()).toBe('github.com')
-    expect(model.username()).toBe('alice@example.com')
-    expect(model.password()).toBe('pw-123')
-    expect(model.websiteEditor.primaryValue()).toBe('https://github.com/login')
-    expect(model.isEditingPassword()).toBe(true)
-    expect(model.dirty()).toBe(true)
   })
 })

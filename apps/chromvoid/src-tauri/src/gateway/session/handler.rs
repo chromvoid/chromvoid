@@ -12,8 +12,8 @@ use crate::core_adapter::CoreAdapter;
 
 use super::super::handshake::check_capability;
 use super::super::protocol::{
-    append_full_upload_stream_chunk, error_codes, frame_continuation, frame_from_event,
-    frame_from_heartbeat, frame_from_rpc_response, frame_stream_meta_response,
+    append_full_upload_stream_chunk, apply_upload_stream_response, error_codes, frame_continuation,
+    frame_from_event, frame_from_heartbeat, frame_from_rpc_response, frame_stream_meta_response,
     parse_upload_stream_metadata, upload_stream_chunk_data, validate_timestamp, AntiReplay, Frame,
     FrameType,
 };
@@ -315,21 +315,16 @@ pub(in crate::gateway) async fn handle_extension_session(
               }
             }
 
-            let pro_denied: Option<String> = {
+            let module_denied: Option<String> = {
               let state = app_handle.state::<crate::AppState>();
-              crate::pro::guard_pro_feature_async(
+              crate::module_access::guard_module_async(
                 &state,
-                chromvoid_core::license::PRO_FEATURE_BROWSER_EXTENSION,
-              ).await.err().map(|error| match error {
-                crate::types::RpcResult::Error { error, code, .. } => {
-                  format!("{}: {}", code.unwrap_or_else(|| "PRO_REQUIRED".to_string()), error)
-                }
-                crate::types::RpcResult::Success { .. } => "PRO_REQUIRED: Pro license required".to_string(),
-              })
+                crate::module_access::MODULE_BROWSER_EXTENSION,
+              ).await.err().map(crate::module_access::denial_reason)
             };
-            if let Some(reason) = pro_denied {
+            if let Some(reason) = module_denied {
               debug!(
-                "[gateway] pro access denied for extension_id={ext_id}, command={}: {reason}",
+                "[gateway] browser-extension module unavailable for extension_id={ext_id}, command={}: {reason}",
                 req.command
               );
               try_send_request_error!(
@@ -511,7 +506,9 @@ pub(in crate::gateway) async fn handle_extension_session(
                   continue;
                 }
               };
-              let stream_size = upload_metadata.size;
+              let end_offset = upload_metadata.end_offset;
+              let mut upload_data = req.data.clone();
+              let mut final_response = None;
               let mut offset = upload_metadata.offset;
               let command = req.command.clone();
 
@@ -558,10 +555,10 @@ pub(in crate::gateway) async fn handle_extension_session(
 
                 // Build per-chunk RpcRequest for the adapter.
                 let chunk_data = match upload_stream_chunk_data(
-                  &req.data,
+                  &upload_data,
                   offset,
                   chunk_len,
-                  stream_size,
+                  end_offset,
                   is_final_chunk,
                 ) {
                   Ok(chunk_data) => chunk_data,
@@ -572,6 +569,11 @@ pub(in crate::gateway) async fn handle_extension_session(
                     break;
                   }
                 };
+                // A completed data frame already supplied Core's result; empty EOF
+                // only closes this wire request and must not start another upload.
+                if is_final_chunk && chunk_len == 0 && final_response.is_some() {
+                  break;
+                }
                 let chunk_req = RpcRequest {
                   v: chromvoid_core::rpc::types::PROTOCOL_VERSION,
                   command: command.clone(),
@@ -614,20 +616,21 @@ pub(in crate::gateway) async fn handle_extension_session(
                   }
                 }
 
-                // Check for chunk-level error from adapter.
-                if let RpcReply::Json(ref resp) = reply.0 {
-                  if !resp.is_ok() {
-                    // Send error response and abort stream.
-                    let err_frame = frame_from_rpc_response(stream_msg_id, resp);
-                    let _ = send_encrypted_frame!(transport, write, err_frame);
-                    stream_ok = false;
-                    break;
-                  }
+                let response = match reply.0 {
+                  RpcReply::Json(response) => apply_upload_stream_response(&mut upload_data, response),
+                  _ => RpcResponse::error("unexpected streaming response for upload", Some("STREAM_UNEXPECTED")),
+                };
+                if !response.is_ok() {
+                  let err_frame = frame_from_rpc_response(stream_msg_id, &response);
+                  let _ = send_encrypted_frame!(transport, write, err_frame);
+                  stream_ok = false;
+                  break;
                 }
 
                 offset += chunk_len;
 
                 // Last chunk: continuation flag cleared.
+                final_response = Some(response);
                 if is_final_chunk {
                   break;
                 }
@@ -654,9 +657,7 @@ pub(in crate::gateway) async fn handle_extension_session(
 
               if stream_ok {
                 // Send final success response.
-                let success_resp = chromvoid_core::rpc::types::RpcResponse::success(
-                  serde_json::json!({ "uploaded": offset })
-                );
+                let Some(success_resp) = final_response else { break; };
                 let resp_frame = frame_from_rpc_response(stream_msg_id, &success_resp);
                 if send_encrypted_frame!(transport, write, resp_frame).is_err() {
                   break;

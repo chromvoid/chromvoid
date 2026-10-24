@@ -261,7 +261,10 @@ pub async fn start_host_mode(
         }
         let _ = runtime_clone.clear_responder_task_if_current(responder_generation);
     });
-    if let Err(error) = runtime.store_responder_task(responder_generation, responder_handle) {
+    if let Err(error) = runtime.store_responder_task(
+        responder_generation,
+        responder_handle.inner().abort_handle(),
+    ) {
         let _ = runtime.set_status(|state| {
             state.phase = IosHostPhase::Error;
             state.error = Some(error.clone());
@@ -541,7 +544,7 @@ mod tests {
         let generation = runtime.begin_responder_task().expect("begin responder");
         let handle = tauri::async_runtime::spawn(std::future::pending::<()>());
         runtime
-            .store_responder_task(generation, handle)
+            .store_responder_task(generation, handle.inner().abort_handle())
             .expect("store responder");
 
         let status = shutdown_host_mode_for_app_exit(runtime.clone(), acceptor_runtime)
@@ -550,5 +553,11 @@ mod tests {
 
         assert_eq!(status.phase, IosHostPhase::Idle);
         assert!(!runtime.is_responder_generation_current(generation));
+        let tauri::async_runtime::JoinHandle::Tokio(task) = handle;
+        assert!(tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .expect("app exit must stop the responder")
+            .expect_err("responder must be cancelled")
+            .is_cancelled());
     }
 }

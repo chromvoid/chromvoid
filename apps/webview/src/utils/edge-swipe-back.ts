@@ -1,6 +1,6 @@
 /**
  * Logical inline-start edge-back gesture with an acknowledged iOS native path
- * and a touch fallback for Android/web.
+ * and a touch fallback for other runtimes.
  */
 
 import type {TextDirection} from '@project/i18n'

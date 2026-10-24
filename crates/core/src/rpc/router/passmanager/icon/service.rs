@@ -5,16 +5,14 @@ use super::parse_icon_ref_sha;
 use super::request::{IconGetManyRequest, IconGetRequest, IconPutRequest, IconSetMetaRequest};
 use super::store::{ensure_icons_dir_exists_uow, load_icon_index, stage_save_icon_index};
 use super::types::{
-    IconGetManyResult, IconGetResult, IconIndexRecord, IconListItem, IconListResult, IconPutResult,
+    IconGetManyResult, IconGetResult, IconListItem, IconListResult, IconPutResult,
     PASSMANAGER_ICONS_DIR,
 };
-use crate::crypto::sha256_hex;
 use crate::rpc::router::domain_uow::DomainUnitOfWork;
 use crate::rpc::router::passmanager::error::PassmanagerCommandError;
 use crate::rpc::router::passmanager::file_store::{
     read_file_bytes_by_path, stage_file_bytes_at_path,
 };
-use crate::rpc::router::passmanager::path::now_unix_ms;
 use crate::storage::Storage;
 use crate::vault::VaultSession;
 
@@ -25,92 +23,31 @@ pub(super) fn put_icon(
     request: IconPutRequest,
     normalized: NormalizedIconPayload,
 ) -> Result<IconPutResult, PassmanagerCommandError> {
-    let digest = sha256_hex(&normalized.bytes);
-    let icon_ref = format!("sha256:{digest}");
-    let now = now_unix_ms();
-    let payload_len = normalized.bytes.len() as u64;
-    let background_color = request.background_color;
-
     ensure_icons_dir_exists_uow(uow)?;
-
     let mut index = load_icon_index(session, storage)?;
-
-    if let Some(existing_idx) = index.icons.iter().position(|item| item.sha256 == digest) {
-        let (mime_type, width, height, bytes, result_background_color) = {
-            let existing = &mut index.icons[existing_idx];
-            existing.updated_at = now;
-            if existing.mime_type.is_empty() {
-                existing.mime_type = normalized.mime_type.clone();
-            }
-            if existing.ext.is_empty() {
-                existing.ext = normalized.ext.clone();
-            }
-            if existing.width == 0 {
-                existing.width = normalized.width;
-            }
-            if existing.height == 0 {
-                existing.height = normalized.height;
-            }
-            if existing.bytes == 0 {
-                existing.bytes = payload_len;
-            }
-            if let Some(background_color) = background_color.clone() {
-                existing.background_color = Some(background_color);
-            }
-            (
-                existing.mime_type.clone(),
-                existing.width,
-                existing.height,
-                existing.bytes,
-                existing.background_color.clone(),
-            )
-        };
-
-        stage_save_icon_index(uow, &index)?;
-
-        return Ok(IconPutResult {
-            icon_ref,
-            mime_type,
-            width,
-            height,
-            bytes,
-            background_color: result_background_color,
-        });
+    let (record, inserted) =
+        super::index::upsert(&mut index, &normalized, request.background_color);
+    if inserted {
+        let filename = format!("{}.{}", record.sha256, record.ext);
+        let asset_path = format!("{PASSMANAGER_ICONS_DIR}/{filename}");
+        if uow.catalog().find_by_path(&asset_path).is_none() {
+            stage_file_bytes_at_path(
+                uow,
+                PASSMANAGER_ICONS_DIR,
+                &filename,
+                &normalized.bytes,
+                &normalized.mime_type,
+            )?;
+        }
     }
-
-    let filename = format!("{}.{}", digest, normalized.ext);
-    let asset_path = format!("{PASSMANAGER_ICONS_DIR}/{filename}");
-    if uow.catalog().find_by_path(&asset_path).is_none() {
-        stage_file_bytes_at_path(
-            uow,
-            PASSMANAGER_ICONS_DIR,
-            &filename,
-            &normalized.bytes,
-            &normalized.mime_type,
-        )?;
-    }
-
-    index.icons.push(IconIndexRecord {
-        sha256: digest,
-        mime_type: normalized.mime_type.clone(),
-        ext: normalized.ext.clone(),
-        width: normalized.width,
-        height: normalized.height,
-        bytes: payload_len,
-        background_color: background_color.clone(),
-        created_at: now,
-        updated_at: now,
-    });
-
     stage_save_icon_index(uow, &index)?;
-
     Ok(IconPutResult {
-        icon_ref,
-        mime_type: normalized.mime_type,
-        width: normalized.width,
-        height: normalized.height,
-        bytes: payload_len,
-        background_color,
+        icon_ref: format!("sha256:{}", record.sha256),
+        mime_type: record.mime_type,
+        width: record.width,
+        height: record.height,
+        bytes: record.bytes,
+        background_color: record.background_color,
     })
 }
 

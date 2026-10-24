@@ -2,8 +2,6 @@ import type {RpcResult} from '@chromvoid/scheme'
 import {isSuccess} from '@chromvoid/scheme'
 
 import type {
-  AndroidAudioCommand,
-  AndroidAudioCommandResult,
   HostPathSaveTargetOptions,
   HostPathTokenGrant,
   NativeAudioCommand,
@@ -29,10 +27,10 @@ import type {
 } from '../../catalog/catalog'
 import {normalizeFileMediaInfo} from '../../catalog/media-info'
 import {
-  androidShareDiagnosticErrorCode,
-  androidShareDiagnosticErrorMessage,
-  logAndroidShareDiagnostic,
-} from '../../../features/file-manager/models/android-share-import.diagnostics'
+  shareDiagnosticErrorCode,
+  shareDiagnosticErrorMessage,
+  logShareDiagnostic,
+} from '../../../features/file-manager/models/share-import.diagnostics'
 import {tauriInvoke, tauriListen} from './ipc'
 
 type UploadProgressPayload = {
@@ -239,8 +237,6 @@ type ImagePhotoGpsDiagnosticPayload = {
   rustExifStatus?: string | null
   xmp_status?: string | null
   xmpStatus?: string | null
-  android_status?: string | null
-  androidStatus?: string | null
   import_provenance_status?: string | null
   importProvenanceStatus?: string | null
 }
@@ -312,8 +308,8 @@ function safeUnlisten(unlisten: (() => void) | undefined, context: string): void
   }
 }
 
-function logAndroidShareTransport(event: string, details: Record<string, unknown> = {}): void {
-  logAndroidShareDiagnostic('transport', event, details)
+function logShareTransport(event: string, details: Record<string, unknown> = {}): void {
+  logShareDiagnostic('transport', event, details)
 }
 
 function requireNumber(value: unknown, message: string): number {
@@ -406,7 +402,6 @@ function normalizeImagePhotoGpsDiagnostic(
     status: optionalString(payload.status) ?? 'unknown',
     rustExifStatus: optionalString(payload.rustExifStatus ?? payload.rust_exif_status),
     xmpStatus: optionalString(payload.xmpStatus ?? payload.xmp_status),
-    androidStatus: optionalString(payload.androidStatus ?? payload.android_status),
     importProvenanceStatus: optionalString(
       payload.importProvenanceStatus ?? payload.import_provenance_status,
     ),
@@ -451,6 +446,7 @@ export async function uploadFileViaTauri(
   target: number | {parentPath?: string; name: string},
   file: File,
   opts?: {
+    createOnly?: boolean
     chunkSize?: number
     name?: string
     type?: string
@@ -473,6 +469,7 @@ export async function uploadFileViaTauri(
     const payload: Record<string, unknown> = {
       offset,
       chunk: bytes,
+      ...(opts?.createOnly ? {createOnly: true} : {}),
     }
     if (nodeId !== undefined) {
       payload['nodeId'] = nodeId
@@ -655,7 +652,7 @@ export async function uploadSharedFilesViaTauri(
     'catalog_upload_shared_files',
     opts,
     async (uploadId, readChunkSize) => {
-      logAndroidShareTransport('invoke_start', {
+      logShareTransport('invoke_start', {
         uploadId,
         shareSessionId: sharedSessionId,
         readChunkSize: readChunkSize ?? null,
@@ -668,13 +665,13 @@ export async function uploadSharedFilesViaTauri(
           readChunkSize,
         })
         unwrapRpcResult(response, 'catalog_upload_shared_files failed')
-        logAndroidShareTransport('invoke_finished', {uploadId, shareSessionId: sharedSessionId})
+        logShareTransport('invoke_finished', {uploadId, shareSessionId: sharedSessionId})
       } catch (error) {
-        logAndroidShareTransport('invoke_failed', {
+        logShareTransport('invoke_failed', {
           uploadId,
           shareSessionId: sharedSessionId,
-          code: androidShareDiagnosticErrorCode(error),
-          message: androidShareDiagnosticErrorMessage(error),
+          code: shareDiagnosticErrorCode(error),
+          message: shareDiagnosticErrorMessage(error),
         })
         throw error
       }
@@ -682,23 +679,11 @@ export async function uploadSharedFilesViaTauri(
   )
 }
 
-export async function uploadAndroidSharedFilesViaTauri(
-  parentPath: string,
-  shareSessionId: string,
-  opts?: NativeUploadOptions,
-): Promise<void> {
-  return uploadSharedFilesViaTauri(parentPath, shareSessionId, opts)
-}
-
 export async function cancelSharedFilesViaTauri(sharedSessionId: string): Promise<void> {
   const response = await tauriInvoke<RpcResult<unknown>>('catalog_cancel_shared_files', {
     sharedSessionId,
   })
   unwrapRpcResult(response, 'catalog_cancel_shared_files failed')
-}
-
-export async function cancelAndroidSharedFilesViaTauri(shareSessionId: string): Promise<void> {
-  return cancelSharedFilesViaTauri(shareSessionId)
 }
 
 export async function startNativeOtpQrScanViaTauri(scanId: string): Promise<void> {
@@ -1285,18 +1270,6 @@ export async function releaseMediaSourceViaTauri(source: PreparedVideoSource): P
   unwrapRpcResult(response, 'release_media_source failed')
 }
 
-export async function sendAndroidAudioCommandViaTauri(
-  command: AndroidAudioCommand,
-): Promise<AndroidAudioCommandResult> {
-  const response = await tauriInvoke<RpcResult<AndroidAudioCommandResult>>(
-    'android_audio_session_command',
-    {
-      args: command,
-    },
-  )
-  return unwrapRpcResult(response, 'android_audio_session_command failed')
-}
-
 export async function sendNativeAudioCommandViaTauri(
   command: NativeAudioCommand,
 ): Promise<NativeAudioCommandResult> {
@@ -1307,12 +1280,6 @@ export async function sendNativeAudioCommandViaTauri(
     },
   )
   return unwrapRpcResult(response, 'native_audio_session_command failed')
-}
-
-export async function warmupAndroidAudioViaTauri(): Promise<boolean> {
-  const response = await tauriInvoke<RpcResult<{accepted?: boolean}>>('android_audio_warmup')
-  const result = unwrapRpcResult(response, 'android_audio_warmup failed')
-  return Boolean(result.accepted)
 }
 
 export async function downloadFilePathViaTauri(

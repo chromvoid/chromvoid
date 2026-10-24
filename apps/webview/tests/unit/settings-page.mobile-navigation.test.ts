@@ -81,7 +81,7 @@ describe('Settings page mobile navigation and transient UI', () => {
   beforeEach(() => {
     resetRuntimeCapabilities()
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       desktop: false,
       supports_autofill: true,
@@ -91,7 +91,6 @@ describe('Settings page mobile navigation and transient UI', () => {
     setLang('en')
     settingsPageModel.settings.set({...DEFAULT_SESSION_SETTINGS})
     settingsPageModel.credentialProviderSelected.set(null)
-    settingsPageModel.androidQuickLockTileStatus.set(null)
     settingsPageModel.failedPreference.set(null)
     passmanagerMaintenanceModel.importDialogOpen.set(false)
     passmanagerMaintenanceModel.busyAction.set(null)
@@ -124,24 +123,19 @@ describe('Settings page mobile navigation and transient UI', () => {
     expect(root.querySelector('[data-settings-route="autofill"]')).toBeNull()
   })
 
-  it('hides external Pro settings and canonicalizes a direct License route', async () => {
+  it('offers AutoFill settings whenever the platform supports autofill', async () => {
     setRuntimeCapabilities({
       platform: 'ios',
       mobile: true,
       desktop: false,
       supports_autofill: true,
-      supports_external_pro: false,
     })
-    const navigateSpy = vi.spyOn(navigationModel, 'navigateToSettingsRoute')
 
-    const {layout, root} = await renderMobileSettings({kind: 'license'})
+    const {layout, root} = await renderMobileSettings({kind: 'autofill'})
     await flushLayout(layout)
 
-    expect(navigationModel.settingsRoute()).toEqual({kind: 'overview'})
-    expect(navigateSpy).toHaveBeenCalledWith({kind: 'overview'}, 'replace')
-    expect(root.querySelector('[data-settings-route="license"]')).toBeNull()
-    expect(root.querySelector('[data-settings-route="autofill"]')).toBeNull()
-    expect(root.querySelector('.license-input')).toBeNull()
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'autofill'})
+    expect(root.querySelector('#settings-mobile-heading')?.textContent).toBe('Credential Provider / Autofill')
   })
 
   it('restores focus to the source row after an unsupported Autofill redirect', async () => {
@@ -325,16 +319,16 @@ describe('Settings page mobile navigation and transient UI', () => {
 
   it('moves focus to the detail heading and returns it to the originating overview row', async () => {
     const {layout, root} = await renderMobileSettings()
-    const origin = root.querySelector<HTMLButtonElement>('[data-settings-route="license"]')
+    const origin = root.querySelector<HTMLButtonElement>('[data-settings-route="files"]')
 
     origin?.click()
     await flushLayout(layout)
-    expect(navigationModel.settingsRoute()).toEqual({kind: 'license'})
+    expect(navigationModel.settingsRoute()).toEqual({kind: 'files'})
     expect(root.activeElement).toBe(root.querySelector('#settings-mobile-heading'))
 
     expect(navigationModel.goBackFromUi()).toBe(true)
     await flushLayout(layout)
     expect(navigationModel.settingsRoute()).toEqual({kind: 'overview'})
-    expect(root.activeElement).toBe(root.querySelector('[data-settings-route="license"]'))
+    expect(root.activeElement).toBe(root.querySelector('[data-settings-route="files"]'))
   })
 })

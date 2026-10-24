@@ -38,20 +38,12 @@ pub(crate) async fn backup_local_create(
     };
 
     let adapter = state.adapter.clone();
-    let android_saf_picker_runtime = state.android_saf_picker_runtime.clone();
     let vault_background_io_runtime = state.vault_background_io_runtime.clone();
     let cancel_requested_bg = vault_background_io_runtime.begin_backup_run();
 
     let out = vault_background_io_runtime
         .spawn_blocking(move || {
-            backup_local_create_inner(
-                app,
-                adapter,
-                master_password,
-                target,
-                cancel_requested_bg,
-                android_saf_picker_runtime,
-            )
+            backup_local_create_inner(app, adapter, master_password, target, cancel_requested_bg)
         })
         .await;
 
@@ -76,8 +68,6 @@ fn backup_local_create_inner(
     master_password: String,
     target: BackupTarget,
     cancel_requested: Arc<AtomicBool>,
-    #[cfg_attr(not(target_os = "android"), allow(unused_variables))]
-    android_saf_picker_runtime: Arc<crate::mobile::android::AndroidSafPickerRuntimeState>,
 ) -> RpcResult<BackupLocalCreated> {
     let operation_started_at = std::time::Instant::now();
 
@@ -153,7 +143,7 @@ fn backup_local_create_inner(
         },
     );
 
-    let mut sink = match create_backup_sink(target, &backup_id, &android_saf_picker_runtime) {
+    let mut sink = match create_backup_sink(target, &backup_id) {
         Ok(sink) => sink,
         Err(error) => {
             let code = if error.to_ascii_lowercase().contains("cancel") {
@@ -688,19 +678,13 @@ impl Drop for BackupMasterKeyGuard {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(target_os = "android"))]
     use std::io::Cursor;
-    #[cfg(not(target_os = "android"))]
     use std::sync::atomic::AtomicBool;
-    #[cfg(not(target_os = "android"))]
     use std::sync::{Arc, Mutex};
 
-    #[cfg(not(target_os = "android"))]
     use chromvoid_core::rpc::stream::{RpcOutputStream, RpcStreamMeta};
-    #[cfg(not(target_os = "android"))]
     use chromvoid_core::rpc::{RpcInputStream, RpcReply};
     use serde_json::json;
-    #[cfg(not(target_os = "android"))]
     use tempfile::TempDir;
 
     use super::*;
@@ -784,7 +768,6 @@ mod tests {
         assert_eq!(error, "Invalid backup master_verify");
     }
 
-    #[cfg(not(target_os = "android"))]
     #[test]
     fn backup_local_create_sets_master_key_before_start_and_clears_it_afterwards() {
         let app = tauri::test::mock_app();
@@ -801,7 +784,6 @@ mod tests {
             "test-master-password".to_string(),
             BackupTarget::Path(target_dir.path().to_path_buf()),
             Arc::new(AtomicBool::new(false)),
-            Arc::new(crate::mobile::android::AndroidSafPickerRuntimeState::new()),
         );
 
         match result {
@@ -829,7 +811,6 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_os = "android"))]
     #[derive(Default)]
     struct ScriptedBackupAdapterState {
         master_key: Option<String>,
@@ -837,12 +818,10 @@ mod tests {
         commands: Vec<String>,
     }
 
-    #[cfg(not(target_os = "android"))]
     struct ScriptedBackupAdapter {
         shared: Arc<Mutex<ScriptedBackupAdapterState>>,
     }
 
-    #[cfg(not(target_os = "android"))]
     impl CoreAdapter for ScriptedBackupAdapter {
         fn mode(&self) -> crate::core_adapter::CoreMode {
             crate::core_adapter::CoreMode::Local

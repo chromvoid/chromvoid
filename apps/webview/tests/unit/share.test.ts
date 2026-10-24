@@ -225,7 +225,7 @@ describe('shareFile', () => {
   })
 
   it('treats native-share-capable Tauri as share-capable without Web Share API and routes share through IPC', async () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true, supports_native_share: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true, supports_native_share: true})
     Object.defineProperty(navigator, 'share', {
       configurable: true,
       writable: true,
@@ -264,7 +264,7 @@ describe('shareFile', () => {
   })
 
   it('infers markdown MIME for native Tauri share when metadata is missing or generic', async () => {
-    setRuntimeCapabilities({platform: 'android', mobile: true, supports_native_share: true})
+    setRuntimeCapabilities({platform: 'ios', mobile: true, supports_native_share: true})
     Object.defineProperty(globalThis, '__TAURI_INTERNALS__', {
       configurable: true,
       writable: true,

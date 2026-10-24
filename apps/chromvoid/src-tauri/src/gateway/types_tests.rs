@@ -215,3 +215,25 @@ fn grant_store_gc_removes_expired() {
     assert_eq!(store.action_grants.len(), 1);
     assert!(store.action_grants.contains_key("g_new"));
 }
+
+#[test]
+fn credential_import_resources_require_catalog_write_permission() {
+    assert_eq!(
+        classify_command("passmanager:import:limits"),
+        CommandCategory::ReadOnly
+    );
+    for command in ["start", "append", "review", "commit", "cancel"] {
+        assert_eq!(
+            classify_command(&format!("passmanager:import:{command}")),
+            CommandCategory::CatalogWrite
+        );
+    }
+}
+
+#[test]
+fn attachment_preparation_requires_catalog_write_permission() {
+    assert_eq!(
+        classify_command("catalog:attachment:prepare"),
+        CommandCategory::CatalogWrite
+    );
+}

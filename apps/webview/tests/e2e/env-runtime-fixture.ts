@@ -1,8 +1,8 @@
 import type {Page} from 'playwright'
 
 import type * as NavigationModelModule from '../../src/app/navigation/navigation.model'
-import type {ModuleAccessState} from '../../src/core/pro/module-access.model'
-import type * as ModuleAccessModelModule from '../../src/core/pro/module-access.model'
+import type {ModuleAccessState} from '../../src/core/modules/module-access.model'
+import type * as ModuleAccessModelModule from '../../src/core/modules/module-access.model'
 import type * as RuntimeCapabilitiesModule from '../../src/core/runtime/runtime-capabilities'
 import type {
   AgentRunMetadata,
@@ -266,6 +266,8 @@ export function createEnvRuntimeFixtureSeed(
   }
 }
 
+// Runtime access and route setup are fixture mutations. Yield a frame before evaluate returns so
+// Chromium 149 cannot collect the result promise during Lit/Reatom microtask updates.
 export async function openEnvRuntimeFixture(
   page: Page,
   seed = createEnvRuntimeFixtureSeed(),
@@ -288,7 +290,7 @@ export async function openEnvRuntimeFixture(
       '/core/runtime/runtime-capabilities.ts',
     )) as typeof RuntimeCapabilitiesModule
     const {moduleAccessModel} = (await dynamicImport(
-      '/core/pro/module-access.model.ts',
+      '/core/modules/module-access.model.ts',
     )) as typeof ModuleAccessModelModule
     const {navigationModel} = (await dynamicImport(
       '/app/navigation/navigation.model.ts',
@@ -301,8 +303,9 @@ export async function openEnvRuntimeFixture(
       supports_native_path_io: true,
       supports_gateway: true,
     })
-    moduleAccessModel.rawStates.set([access])
+    moduleAccessModel.resolution.set({phase: 'resolved', states: [access]})
     navigationModel.openPassmanagerRoute({kind: 'env-runtime-view'})
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, seed.access)
 
   await waitForDeepSelector(page, 'pm-env-runtime-page')
@@ -685,41 +688,16 @@ export async function getDeepControlValue(page: Page, selector: string): Promise
   }, selector)
 }
 
-export async function deepClick(
-  page: Page,
-  selector: string,
-  options: {focus?: boolean} = {},
-): Promise<void> {
-  const clicked = await page.evaluate(
-    ({target, shouldFocus}) => {
-      function find(root: Document | ShadowRoot, nestedSelector: string): Element | null {
-        const found = root.querySelector(nestedSelector)
-        if (found) return found
-        for (const child of root.querySelectorAll('*')) {
-          if (child.shadowRoot) {
-            const nested = find(child.shadowRoot, nestedSelector)
-            if (nested) return nested
-          }
-        }
-        return null
-      }
-      const element = find(document, target) as HTMLElement | null
-      if (!element) return false
-      const interactionTarget = element.shadowRoot?.querySelector<HTMLElement>(
-        '[part="base"], [part="trigger"], [part="tab"], button, [role="tab"]',
-      )
-      if (shouldFocus) {
-        const focusTarget =
-          interactionTarget ??
-          element.shadowRoot?.querySelector<HTMLElement>('input, textarea, [tabindex]')
-        ;(focusTarget ?? element).focus()
-      }
-      ;(interactionTarget ?? element).click()
-      return true
-    },
-    {target: selector, shouldFocus: options.focus ?? false},
-  )
-  if (!clicked) throw new Error(`Deep click target not found: ${selector}`)
+async function waitForEnvRuntimeInput(page: Page): Promise<void> {
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
+  })
+}
+
+// Preserve the fixture's first deep match while Playwright scrolls and hit-tests the control.
+export async function deepClick(page: Page, selector: string): Promise<void> {
+  await waitForEnvRuntimeInput(page)
+  await page.locator(selector).first().click()
 }
 
 export async function deepFill(
@@ -828,6 +806,7 @@ export async function getEnvRuntimeBridgeListenerState(
   })
 }
 
+// Teardown uses the fixture route directly; yield as in openEnvRuntimeFixture.
 export async function leaveEnvRuntimeFixture(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const dynamicImport = new Function('path', 'return import(path)') as (path: string) => Promise<unknown>
@@ -835,6 +814,7 @@ export async function leaveEnvRuntimeFixture(page: Page): Promise<void> {
       '/app/navigation/navigation.model.ts',
     )) as typeof NavigationModelModule
     navigationModel.openPassmanagerRoute({kind: 'root'})
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
   await waitForDeepSelectorAbsent(page, 'pm-env-runtime-page')
 }
@@ -854,14 +834,16 @@ export async function setRevealFailure(
   }, failure)
 }
 
+// Native callback injection is not user input; settle its model changes across the fixture frame boundary.
 export async function emitEnvRuntimeEvent(page: Page, event: string, payload: unknown): Promise<void> {
   await page.evaluate(
-    ({eventName, eventPayload}) => {
+    async ({eventName, eventPayload}) => {
       const api = (
         window as unknown as {__ENV_RUNTIME_E2E__?: {emit(name: string, value: unknown): void}}
       ).__ENV_RUNTIME_E2E__
       if (!api) throw new Error('Env Runtime bridge is not installed')
       api.emit(eventName, eventPayload)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     },
     {eventName: event, eventPayload: payload},
   )

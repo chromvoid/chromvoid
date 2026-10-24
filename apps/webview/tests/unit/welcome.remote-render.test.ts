@@ -576,6 +576,60 @@ describe('welcome remote panels', () => {
     )
   })
 
+  it('explains a silent saved phone and wires both explicit recovery actions', async () => {
+    setRuntimeCapabilities({desktop: true, supports_mobile_usb_remote: true})
+    const model = new WelcomeSetupModel()
+    model.setupStep.set('remote-connect')
+    model.remote.view.set('usb-mobile')
+    model.remote.usb.status.set({
+      transport_family: 'usb_mobile',
+      available_transports: ['usb_mobile'],
+      selected_transport: null,
+      session_state: 'error',
+      fallback_allowed: false,
+      active_host: null,
+      paired_hosts: [],
+      pairing_approval: null,
+      in_flight: null,
+      error_code: 'ERR_USB_MOBILE_PHONE_NOT_RESPONDING',
+    })
+    model.remote.usb.pairedHosts.set([
+      {
+        host_id: 'usb-host-1',
+        label: 'Pixel 9',
+        platform: 'android',
+        bridge_kind: 'android_aoa',
+        pairing_state: 'paired',
+        last_seen: null,
+      },
+    ])
+    const retry = vi.spyOn(model.remote, 'dispatchDesktopUsbAction').mockResolvedValue(true)
+    vi.spyOn(model.remote.usb, 'silentPhoneRecoveryHostId').mockReturnValue('usb-host-1')
+    const forget = vi.spyOn(model.remote, 'removeUsbPairedHost').mockResolvedValue(true)
+    const remote = await getDesktopRemote(await mountSection(model))
+    const primary = remote.shadowRoot?.querySelector<HTMLElement>('[data-usb-primary-action]')
+    const remove = remote.shadowRoot?.querySelector<HTMLElement>(
+      '.task-panel [data-usb-remove-host-id="usb-host-1"]',
+    )
+
+    expect(remote.shadowRoot?.querySelector('#remote-preauth-usb-task-title')?.textContent).toContain(
+      'The phone did not answer',
+    )
+    expect(remote.shadowRoot?.querySelector('.task-description')?.textContent).toContain(
+      'Open ChromVoid on your phone and try again. If ChromVoid was reinstalled or replaced on the phone, forget this phone and pair it again.',
+    )
+    expect(primary?.textContent).toContain('Try again')
+    expect(remove?.textContent).toContain('Forget phone')
+    expect(retry).not.toHaveBeenCalled()
+    expect(forget).not.toHaveBeenCalled()
+
+    primary?.click()
+    remove?.click()
+
+    expect(retry).toHaveBeenCalledOnce()
+    expect(forget).toHaveBeenCalledWith('usb-host-1')
+  })
+
   it('keeps confirmed removal for a healthy saved USB pairing inside Technical details', async () => {
     setRuntimeCapabilities({desktop: true, supports_mobile_usb_remote: true})
     const model = new WelcomeSetupModel()

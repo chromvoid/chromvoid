@@ -1,4 +1,5 @@
 //! Group metadata subsystem for PassManager: thin RPC adapters over typed services.
+pub(super) mod navigation;
 
 mod meta_store;
 mod request;

@@ -9,6 +9,11 @@ export type WalletSummary = {
   mnemonic_standard: string
   supported_networks: Array<WalletNetwork>
   bitcoin_discovery_pending?: boolean | null
+  /**
+   * Restored account-based networks (Ethereum, Solana) still awaiting used-account discovery
+   * via `wallet:balance:get { discover_addresses: true }`; absent once every network is done.
+   */
+  account_discovery_pending?: Array<WalletNetwork> | null
   created_at: number
   updated_at: number
 }

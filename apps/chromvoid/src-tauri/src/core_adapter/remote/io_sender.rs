@@ -2,7 +2,7 @@ use chromvoid_core::rpc::types::RpcRequest;
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::core_adapter::types::{RemoteCancelGroup, RemoteJsonSender, RemoteRpcPriority};
+use crate::core_adapter::{RemoteCancelGroup, RemoteJsonSender, RemoteRpcPriority};
 
 /// Abstraction over remote I/O request senders.
 #[derive(Clone)]

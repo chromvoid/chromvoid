@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialProviderStatusResponse {
@@ -17,6 +18,7 @@ pub struct CredentialProviderStatusResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialProviderPasskeysLiteStatus {
@@ -26,6 +28,7 @@ pub struct CredentialProviderPasskeysLiteStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialProviderPasskeysLiteStatusMatrix {
@@ -36,6 +39,7 @@ pub struct CredentialProviderPasskeysLiteStatusMatrix {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialProviderCapability {
@@ -48,6 +52,7 @@ pub struct CredentialProviderCapability {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialProviderCapabilityMatrix {
@@ -58,6 +63,7 @@ pub struct CredentialProviderCapabilityMatrix {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialProviderCommandErrorMap {
@@ -86,6 +92,7 @@ pub struct CredentialProviderCommandErrorMap {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialProviderSessionResponse {
@@ -95,6 +102,7 @@ pub struct CredentialProviderSessionResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialCandidate {
@@ -114,6 +122,7 @@ pub struct CredentialCandidate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialOtpOption {
@@ -125,6 +134,7 @@ pub struct CredentialOtpOption {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialSecret {
@@ -137,6 +147,7 @@ pub struct CredentialSecret {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialOneTimeCode {
@@ -148,6 +159,7 @@ pub struct CredentialOneTimeCode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "mobile-schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-bindings", derive(TS))]
 #[cfg_attr(feature = "ts-bindings", ts(export))]
 pub struct CredentialProviderPasskeyCommandResponse {

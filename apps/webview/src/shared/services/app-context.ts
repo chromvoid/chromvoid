@@ -136,7 +136,8 @@ export function createMockAppContext(overrides?: Partial<AppContext>): AppContex
     router: {
       route,
       isLoading,
-    } satisfies Pick<Router, 'route' | 'isLoading'> as Router,
+      beginWelcomeUnlock: () => () => {},
+    } satisfies Pick<Router, 'route' | 'isLoading' | 'beginWelcomeUnlock'> as Router,
     ...overrides,
   }
 }

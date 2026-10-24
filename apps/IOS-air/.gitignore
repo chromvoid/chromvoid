@@ -1,0 +1,5 @@
+.build/
+Packages/ChromVoidBridge/.build/
+Packages/ChromVoidBridge/.artifacts/
+**/xcuserdata/
+*.xcuserstate

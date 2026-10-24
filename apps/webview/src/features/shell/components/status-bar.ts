@@ -6,9 +6,9 @@ import {i18n} from 'root/i18n'
 import {getAppContext} from 'root/shared/services/app-context'
 import {hostContentContainStyles, sharedStyles} from 'root/shared/ui/shared-styles'
 import {
-  androidShareImportModel,
-  type AndroidSharePendingLockedSummary,
-} from 'root/features/file-manager/models/android-share-import.model'
+  shareImportModel,
+  type SharePendingLockedSummary,
+} from 'root/features/file-manager/models/share-import.model'
 import {MediaMiniPlayer} from 'root/features/media/components/media-mini-player'
 import {mediaPlaybackModel} from 'root/features/media/models/media-playback.model'
 import {statusBarSummaryModel, type StatusBarContextItem} from '../models/status-bar-summary.model'
@@ -340,11 +340,11 @@ export class StatusBar extends ReatomLitElement {
     `
   }
 
-  private renderAndroidSharePending(summary: AndroidSharePendingLockedSummary | null) {
+  private renderSharePending(summary: SharePendingLockedSummary | null) {
     if (!summary) return nothing
 
-    const label = i18n('statusbar:android-share-pending', {count: String(summary.fileCount)})
-    const tooltip = i18n('statusbar:android-share-pending:detail', {
+    const label = i18n('statusbar:share-pending', {count: String(summary.fileCount)})
+    const tooltip = i18n('statusbar:share-pending:detail', {
       count: String(summary.fileCount),
       unknown: String(summary.unknownSizes),
     })
@@ -407,12 +407,12 @@ export class StatusBar extends ReatomLitElement {
   protected render() {
     const store = getAppContext().store
     const remoteSessionState = store.remoteSessionState()
-    const androidShareSummary = androidShareImportModel.pendingLockedSummary()
+    const shareSummary = shareImportModel.pendingLockedSummary()
     const selectedCount = store.selectedNodeIds().length
     const lastError = store.lastErrorMessage()
     const mediaVisible = mediaPlaybackModel.miniControlsVisible()
     const summary = statusBarSummaryModel.current()
-    const hasOperationalIndicators = remoteSessionState !== 'inactive' || Boolean(androidShareSummary)
+    const hasOperationalIndicators = remoteSessionState !== 'inactive' || Boolean(shareSummary)
     const hasContent =
       hasOperationalIndicators || selectedCount > 0 || Boolean(lastError) || mediaVisible || Boolean(summary)
 
@@ -437,7 +437,7 @@ export class StatusBar extends ReatomLitElement {
               aria-live=${hasOperationalIndicators ? 'polite' : nothing}
             >
               ${this.renderRemoteConnectionStatus(remoteSessionState)}
-              ${this.renderAndroidSharePending(androidShareSummary)}
+              ${this.renderSharePending(shareSummary)}
             </div>
             <div class="status-context-items status-context-start">
               ${summary ? this.renderContextItems(summary.startItems) : nothing}

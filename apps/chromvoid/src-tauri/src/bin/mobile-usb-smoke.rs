@@ -49,7 +49,9 @@ struct Args {
     adb_path: String,
     adb_serial: Option<String>,
     android_package: String,
+    android_activity: String,
     skip_android_prepare: bool,
+    await_approval: bool,
     secret_store: SecretStoreKind,
     pair_pin: Option<String>,
     node_id: Option<u64>,
@@ -102,6 +104,9 @@ struct ConnectSummary {
     vault_unlocked: bool,
     capabilities_response: RpcResponse,
     vault_status_response: RpcResponse,
+    /// With --await-approval: the phone's person allowed the session and its vault answered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approved_vault_read: Option<RpcResponse>,
 }
 
 #[derive(Serialize)]
@@ -411,6 +416,7 @@ async fn run() -> Result<(), String> {
                 args.host_id.as_deref(),
                 args.timeout,
                 android_prepare,
+                args.await_approval,
             )
             .await?;
             print_json(&summary)
@@ -611,11 +617,12 @@ async fn connect_smoke(
     host_id: Option<&str>,
     timeout: Duration,
     android_prepare: Option<AndroidEndpointPrepare<'_>>,
+    await_approval: bool,
 ) -> Result<ConnectSummary, String> {
     let session =
         open_smoke_session(bridge, store, secrets, host_id, timeout, android_prepare).await?;
     let record = session.record;
-    let handle = session.handle;
+    let mut handle = session.handle;
     let capabilities_response = run_json_rpc(&handle.req_tx, "core:capabilities", timeout).await?;
     if !capabilities_response.is_ok() {
         handle.task_handle.abort();
@@ -632,6 +639,33 @@ async fn connect_smoke(
             describe_rpc_error(&vault_status_response)
         ));
     }
+    let approved_vault_read = if await_approval {
+        // The phone's person allows the session; the phone says so once its vault is open.
+        let confirmed = tokio::time::timeout(timeout, async {
+            while let Some(event) = handle.evt_rx.recv().await {
+                if let RemoteIoEvent::Frame(frame) = event {
+                    let command = serde_json::from_slice::<RpcRequest>(&frame.payload)
+                        .map(|request| request.command)
+                        .unwrap_or_default();
+                    if command == "mobile_usb:host_unlock_confirmed" {
+                        return true;
+                    }
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or(false);
+        if !confirmed {
+            handle.task_handle.abort();
+            return Err("the phone never confirmed the session".to_string());
+        }
+        let read = run_json_rpc(&handle.req_tx, "passmanager:root:export", timeout).await?;
+        let _ = run_json_rpc(&handle.req_tx, "mobile_usb:session_disconnect", timeout).await;
+        Some(read)
+    } else {
+        None
+    };
     handle.task_handle.abort();
 
     Ok(ConnectSummary {
@@ -644,6 +678,7 @@ async fn connect_smoke(
         vault_unlocked: vault_is_unlocked(&vault_status_response),
         capabilities_response,
         vault_status_response,
+        approved_vault_read,
     })
 }
 
@@ -967,11 +1002,16 @@ async fn pair_smoke(
     android_prepare: Option<AndroidEndpointPrepare<'_>>,
     pair_pin: Option<&str>,
 ) -> Result<PairSummary, String> {
+    // A phone draws a new PIN for every attempt, so without --pair-pin the PIN is read from
+    // stdin once the phone has shown it.
     let pair_pin = pair_pin
         .map(str::trim)
         .filter(|pin| !pin.is_empty())
-        .ok_or("pair requires --pair-pin PIN from the Android approval screen")?;
-    if !is_six_digit_pin(pair_pin) {
+        .map(str::to_string);
+    if pair_pin
+        .as_deref()
+        .is_some_and(|pin| !is_six_digit_pin(pin))
+    {
         return Err("--pair-pin must contain exactly 6 digits".to_string());
     }
 
@@ -1050,8 +1090,12 @@ async fn pair_smoke(
     if approval_challenge.host_pubkey_hex != remote_hello.peer_pubkey_hex {
         return Err("Android approval challenge pubkey does not match pairing hello".to_string());
     }
+    let pair_pin = match pair_pin {
+        Some(pin) => pin,
+        None => read_pair_pin_from_stdin(&approval_challenge.peer_fingerprint)?,
+    };
     let proof_hex = pairing_approval_proof_hex(
-        pair_pin,
+        &pair_pin,
         &approval_challenge.attempt_id,
         &approval_challenge.salt_hex,
         &local_hello.peer_pubkey_hex,
@@ -1260,6 +1304,21 @@ fn pin_to_psk(pin: &str) -> [u8; 32] {
     psk
 }
 
+fn read_pair_pin_from_stdin(fingerprint: &str) -> Result<String, String> {
+    eprintln!(
+        "mobile-usb-smoke: the phone shows a PIN for this desktop (key {fingerprint}); enter it:"
+    );
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|error| format!("read PIN from stdin: {error}"))?;
+    let pin = line.trim().replace(' ', "");
+    if !is_six_digit_pin(&pin) {
+        return Err("the PIN must contain exactly 6 digits".to_string());
+    }
+    Ok(pin)
+}
+
 fn is_six_digit_pin(pin: &str) -> bool {
     pin.len() == 6 && pin.bytes().all(|byte| byte.is_ascii_digit())
 }
@@ -1380,7 +1439,9 @@ fn parse_args() -> Result<Args, String> {
         .ok()
         .filter(|value| !value.trim().is_empty());
     let mut android_package = "com.chromvoid.app.dev".to_string();
+    let mut android_activity = "com.chromvoid.app.MainActivity".to_string();
     let mut skip_android_prepare = false;
+    let mut await_approval = false;
     let mut secret_store = SecretStoreKind::File;
     let mut pair_pin = env::var("CHROMVOID_MOBILE_USB_PAIR_PIN")
         .ok()
@@ -1440,6 +1501,13 @@ fn parse_args() -> Result<Args, String> {
                     return Err("--secret-store requires file or keyring".to_string());
                 };
                 secret_store = parse_secret_store_kind(&value)?;
+            }
+            "--await-approval" => await_approval = true,
+            "--android-activity" => {
+                let Some(value) = iter.next() else {
+                    return Err("--android-activity requires a class name".to_string());
+                };
+                android_activity = value;
             }
             "--pair-pin" => {
                 let Some(value) = iter.next() else {
@@ -1561,7 +1629,9 @@ fn parse_args() -> Result<Args, String> {
         adb_path,
         adb_serial,
         android_package,
+        android_activity,
         skip_android_prepare,
+        await_approval,
         secret_store,
         pair_pin,
         node_id,
@@ -1652,7 +1722,7 @@ fn start_android_activity(args: &Args) -> Result<(), String> {
         eprintln!("mobile-usb-smoke: adb target not found; skipping Android activity start");
         return Ok(());
     };
-    let activity = format!("{}/com.chromvoid.app.MainActivity", args.android_package);
+    let activity = format!("{}/{}", args.android_package, args.android_activity);
     let start_output = ProcessCommand::new(&args.adb_path)
         .args(["-s", &serial, "shell", "am", "start", "-W", "-n", &activity])
         .output()
@@ -1819,7 +1889,7 @@ fn init_tracing() {
 }
 
 fn usage() -> String {
-    "usage: mobile-usb-smoke [scan|list-paired|pair|connect|remote-lock|reconnect-loop|stream-perf] [--storage-root PATH] [--host-id HOST_ID] [--timeout-secs N] [--cycles N] [--adb PATH] [--adb-serial SERIAL] [--android-package PACKAGE] [--secret-store file|keyring] [--pair-pin PIN] [--node-id ID] [--source-revision REV] [--range-offset BYTES] [--range-length BYTES] [--skip-android-prepare]"
+    "usage: mobile-usb-smoke [scan|list-paired|pair|connect|remote-lock|reconnect-loop|stream-perf] [--storage-root PATH] [--host-id HOST_ID] [--timeout-secs N] [--cycles N] [--adb PATH] [--adb-serial SERIAL] [--android-package PACKAGE] [--android-activity CLASS] [--secret-store file|keyring] [--pair-pin PIN] [--node-id ID] [--source-revision REV] [--range-offset BYTES] [--range-length BYTES] [--skip-android-prepare] [--await-approval]"
         .to_string()
 }
 

@@ -17,7 +17,7 @@ pub(super) fn stage_entry(
     vault_key: &[u8; KEY_SIZE],
     entry_obj: &Map<String, Value>,
     chunks: &mut Vec<PlannedChunk>,
-) -> Result<(), RootImportError> {
+) -> Result<bool, RootImportError> {
     let title = entry_title(entry_obj)?;
     let folder_path = entry_folder_path(entry_obj)?;
     let pm_parent = super::super::path::map_entry_group_path_to_passmanager_path(Some(folder_path))
@@ -66,6 +66,12 @@ pub(super) fn stage_entry(
     let mut meta = Map::new();
     meta.insert("id".to_string(), Value::String(out_entry_id));
     meta.insert("title".to_string(), Value::String(title.to_string()));
+    if let Some(source) = entry_obj
+        .get("import_source")
+        .or_else(|| entry_obj.get("importSource"))
+    {
+        meta.insert("import_source".into(), source.clone());
+    }
     meta.insert(
         "entry_type".to_string(),
         Value::String(entry_type.to_string()),
@@ -99,7 +105,8 @@ pub(super) fn stage_entry(
             meta.insert("payment_card".to_string(), payment_card);
         }
     } else {
-        for key in ["username", "urls"] {
+        // Preserve the same website aliases and legacy rule objects accepted by the reader.
+        for key in ["username", "urls", "url_rules", "urlRules"] {
             if let Some(value) = entry_obj.get(key) {
                 meta.insert(key.to_string(), value.clone());
             }
@@ -153,5 +160,5 @@ pub(super) fn stage_entry(
         "application/json",
         chunks,
     )
-    .map(|_| ())
+    .map(|_| existing_node_id.is_some())
 }

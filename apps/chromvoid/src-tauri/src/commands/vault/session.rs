@@ -44,17 +44,12 @@ pub(crate) async fn set_session_settings(
     )
     .await;
 
-    let unlocked = sync_ios_idle_timer_after_session_settings(
+    sync_ios_idle_timer_after_session_settings(
         app.clone(),
         state.adapter.clone(),
         state.vault_background_io_runtime.clone(),
     )
     .await;
-    crate::commands::vault::sync_android_vault_quick_lock_with_unlocked(
-        &app,
-        &state,
-        unlocked.unwrap_or(false),
-    );
 
     Ok(rpc_ok(settings))
 }

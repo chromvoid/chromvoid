@@ -53,17 +53,17 @@ class RuntimeModeModel {
     false,
     'runtime.nativeMediaStreamDisabledForRuntimeSession',
   )
-  readonly androidNativeVideoDisabledForRuntimeSession = atom(
+  readonly nativeVideoDisabledForRuntimeSession = atom(
     false,
-    'runtime.androidNativeVideoDisabledForRuntimeSession',
+    'runtime.nativeVideoDisabledForRuntimeSession',
   )
-  readonly androidNativeAudioDisabledForRuntimeSession = atom(
+  readonly nativeAudioDisabledForRuntimeSession = atom(
     false,
-    'runtime.androidNativeAudioDisabledForRuntimeSession',
+    'runtime.nativeAudioDisabledForRuntimeSession',
   )
-  readonly androidNativeAudioDisabledReasonForRuntimeSession = atom<string | null>(
+  readonly nativeAudioDisabledReasonForRuntimeSession = atom<string | null>(
     null,
-    'runtime.androidNativeAudioDisabledReasonForRuntimeSession',
+    'runtime.nativeAudioDisabledReasonForRuntimeSession',
   )
   readonly remoteCoreFeatures = atom<readonly string[]>([], 'runtime.remoteCoreFeatures')
   readonly transportSessionGeneration = atom<number | null>(null, 'runtime.transportSessionGeneration')
@@ -94,14 +94,6 @@ class RuntimeModeModel {
 
   readonly supportsNativeAudioPlayback = computed<boolean>(() =>
     Boolean(runtimeCapabilitiesAtom().supports_native_audio_playback),
-  )
-
-  readonly supportsAndroidNativeVideo = computed<boolean>(() =>
-    Boolean(runtimeCapabilitiesAtom().supports_android_native_video),
-  )
-
-  readonly androidNativeAudioRolloutEnabled = computed<boolean>(() =>
-    Boolean(runtimeCapabilitiesAtom().android_native_audio_playback_rollout_enabled),
   )
 
   readonly localCoreMode = computed<boolean>(() => this.coreMode() === 'local')
@@ -154,7 +146,7 @@ class RuntimeModeModel {
       this.supportsDesktopNativeVideoPlayback() &&
       desktopNativeVideoProbeAllows(mediaProbes) &&
       (this.localCoreMode() || this.remoteCoreMode()) &&
-      !this.androidNativeVideoDisabledForRuntimeSession()
+      !this.nativeVideoDisabledForRuntimeSession()
     )
   })
 
@@ -164,20 +156,12 @@ class RuntimeModeModel {
     return (
       capabilities.mobile &&
       this.supportsNativeVideoPlayback() &&
-      (this.supportsMobileNativeVideoPlayback() || this.supportsAndroidNativeVideo()) &&
+      this.supportsMobileNativeVideoPlayback() &&
       mobileNativeVideoProbeAllows(mediaProbes) &&
       (this.localCoreMode() || this.remoteCoreMode()) &&
-      !this.androidNativeVideoDisabledForRuntimeSession()
+      !this.nativeVideoDisabledForRuntimeSession()
     )
   })
-
-  readonly androidNativeVideoAvailable = computed<boolean>(
-    () =>
-      (this.supportsAndroidNativeVideo() || this.supportsMobileNativeVideoPlayback()) &&
-      mobileNativeVideoProbeAllows(runtimeMediaProbeStateAtom()) &&
-      (this.localCoreMode() || this.remoteCoreMode()) &&
-      !this.androidNativeVideoDisabledForRuntimeSession(),
-  )
 
   readonly nativeVideoPlaybackAvailable = computed<boolean>(() => {
     const capabilities = runtimeCapabilitiesAtom()
@@ -191,7 +175,7 @@ class RuntimeModeModel {
       this.supportsNativeVideoPlayback() &&
       nativeProbeAllowed &&
       (this.localCoreMode() || this.remoteCoreMode()) &&
-      !this.androidNativeVideoDisabledForRuntimeSession()
+      !this.nativeVideoDisabledForRuntimeSession()
     )
   })
 
@@ -199,19 +183,8 @@ class RuntimeModeModel {
     () =>
       this.supportsNativeAudioPlayback() &&
       (this.localCoreMode() || this.remoteCoreMode()) &&
-      !this.androidNativeAudioDisabledForRuntimeSession(),
+      !this.nativeAudioDisabledForRuntimeSession(),
   )
-
-  readonly androidNativeAudioAvailable = computed<boolean>(() => {
-    const capabilities = runtimeCapabilitiesAtom()
-    return (
-      capabilities.platform === 'android' &&
-      capabilities.mobile &&
-      this.androidNativeAudioRolloutEnabled() &&
-      (this.localCoreMode() || this.remoteCoreMode()) &&
-      !this.androidNativeAudioDisabledForRuntimeSession()
-    )
-  })
 
   setCoreMode(
     mode: unknown,
@@ -273,19 +246,9 @@ class RuntimeModeModel {
     return this.mobileNativeVideoSourceAvailable()
   }
 
-  canUseAndroidNativeVideo(options: NativeMediaStreamOptions = {}): boolean {
-    if (options.transportKind && options.transportKind !== 'tauri') return false
-    return this.androidNativeVideoAvailable()
-  }
-
   canUseNativeVideoPlayback(options: NativeMediaStreamOptions = {}): boolean {
     if (options.transportKind && options.transportKind !== 'tauri') return false
     return this.nativeVideoPlaybackAvailable()
-  }
-
-  canUseAndroidNativeAudio(options: NativeMediaStreamOptions = {}): boolean {
-    if (options.transportKind && options.transportKind !== 'tauri') return false
-    return this.androidNativeAudioAvailable()
   }
 
   canUseNativeAudioPlayback(options: NativeMediaStreamOptions = {}): boolean {
@@ -301,26 +264,22 @@ class RuntimeModeModel {
     this.nativeMediaStreamDisabledForRuntimeSession.set(false)
   }
 
-  disableAndroidNativeVideoForRuntimeSession(): void {
-    this.androidNativeVideoDisabledForRuntimeSession.set(true)
+  disableNativeVideoForRuntimeSession(): void {
+    this.nativeVideoDisabledForRuntimeSession.set(true)
   }
 
-  resetAndroidNativeVideoForRuntimeSession(): void {
-    this.androidNativeVideoDisabledForRuntimeSession.set(false)
-  }
-
-  disableAndroidNativeAudioForRuntimeSession(reason: string | null = 'runtime_failure'): void {
-    this.androidNativeAudioDisabledForRuntimeSession.set(true)
-    this.androidNativeAudioDisabledReasonForRuntimeSession.set(reason)
+  resetNativeVideoForRuntimeSession(): void {
+    this.nativeVideoDisabledForRuntimeSession.set(false)
   }
 
   disableNativeAudioPlaybackForRuntimeSession(reason: string | null = 'runtime_failure'): void {
-    this.disableAndroidNativeAudioForRuntimeSession(reason)
+    this.nativeAudioDisabledForRuntimeSession.set(true)
+    this.nativeAudioDisabledReasonForRuntimeSession.set(reason)
   }
 
-  resetAndroidNativeAudioForRuntimeSession(): void {
-    this.androidNativeAudioDisabledForRuntimeSession.set(false)
-    this.androidNativeAudioDisabledReasonForRuntimeSession.set(null)
+  resetNativeAudioPlaybackForRuntimeSession(): void {
+    this.nativeAudioDisabledForRuntimeSession.set(false)
+    this.nativeAudioDisabledReasonForRuntimeSession.set(null)
   }
 
   handleTransportDisconnect(): void {
@@ -328,8 +287,8 @@ class RuntimeModeModel {
     this.remoteCoreFeatures.set([])
     this.transportSessionGeneration.set(null)
     this.resetNativeMediaStreamForRuntimeSession()
-    this.resetAndroidNativeVideoForRuntimeSession()
-    this.resetAndroidNativeAudioForRuntimeSession()
+    this.resetNativeVideoForRuntimeSession()
+    this.resetNativeAudioPlaybackForRuntimeSession()
   }
 }
 

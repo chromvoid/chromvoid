@@ -316,3 +316,29 @@ fn test_version_increments() {
     manager.create_dir("/", "dir2").expect("should create");
     assert_eq!(manager.version(), 2);
 }
+
+#[test]
+fn rename_directory_keeps_nested_nodes_addressable_by_identity() {
+    let mut manager = CatalogManager::new();
+    let parent = manager.create_dir("/", "old").unwrap();
+    let nested = manager.create_dir("/old", "nested").unwrap();
+    let file = manager
+        .create_file("/old/nested", "note.txt", 4, None)
+        .unwrap();
+    manager.rename(parent, "новое").unwrap();
+    assert_eq!(manager.get_path(nested).as_deref(), Some("/новое/nested"));
+    assert_eq!(
+        manager.get_path(file).as_deref(),
+        Some("/новое/nested/note.txt")
+    );
+    assert!(manager.find_by_id_mut(file).is_some());
+    assert!(manager.find_by_path("/old/nested/note.txt").is_none());
+    manager.rename(file, "updated.txt").unwrap();
+    assert_eq!(
+        manager
+            .find_by_path("/новое/nested/updated.txt")
+            .unwrap()
+            .node_id,
+        file
+    );
+}

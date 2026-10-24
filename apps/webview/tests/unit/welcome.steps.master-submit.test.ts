@@ -24,9 +24,7 @@ const remoteModelMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../../src/routes/welcome/welcome-rpc', async () => {
-  const actual = await vi.importActual<typeof WelcomeRpcModule>(
-    '../../src/routes/welcome/welcome-rpc',
-  )
+  const actual = await vi.importActual<typeof WelcomeRpcModule>('../../src/routes/welcome/welcome-rpc')
 
   return {
     ...actual,
@@ -36,9 +34,7 @@ vi.mock('../../src/routes/welcome/welcome-rpc', async () => {
 })
 
 vi.mock('../../src/routes/remote/remote.model', async () => {
-  const actual = await vi.importActual<typeof RemoteModelModule>(
-    '../../src/routes/remote/remote.model',
-  )
+  const actual = await vi.importActual<typeof RemoteModelModule>('../../src/routes/remote/remote.model')
 
   return {
     ...actual,
@@ -48,9 +44,7 @@ vi.mock('../../src/routes/remote/remote.model', async () => {
 })
 
 vi.mock('../../src/core/runtime/runtime', async () => {
-  const actual = await vi.importActual<typeof RuntimeModule>(
-    '../../src/core/runtime/runtime',
-  )
+  const actual = await vi.importActual<typeof RuntimeModule>('../../src/core/runtime/runtime')
 
   return {
     ...actual,
@@ -162,6 +156,7 @@ describe('welcome create-master submit', () => {
     clearAppContext()
     resetRuntimeCapabilities()
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   it('requests submit on Enter in confirm input', async () => {
@@ -315,7 +310,7 @@ describe('welcome create-master submit', () => {
   })
 
   it('creates first-run mobile storage without invoking desktop mode commands', async () => {
-    setRuntimeCapabilities({platform: 'android', desktop: false, mobile: true})
+    setRuntimeCapabilities({platform: 'ios', desktop: false, mobile: true})
     remoteModelMocks.getModeStatus.mockRejectedValueOnce(new Error('Command mode_status not found'))
 
     await model.submitMasterSetup()
@@ -357,7 +352,7 @@ describe('welcome create-master submit', () => {
     expect(model.shared.errorText()).toBeNull()
   })
 
-  it('exposes unlock pending state until the vault RPC settles', async () => {
+  it('exposes unlock pending state through the vault RPC and success feedback', async () => {
     prepareLockedVault()
     let resolveUnlock: (() => void) | undefined
     welcomeRpcMocks.tauriRpc.mockImplementationOnce(
@@ -388,15 +383,124 @@ describe('welcome create-master submit', () => {
 
     expect(model.unlockInProgress()).toBe(false)
     expect(model.shared.busy()).toBe(false)
-    expect(model.icon.state()).toBe('active')
+    expect(model.icon.state()).toBe('opened')
   })
 
-  it('preserves the masked password and separates technical errors from field validation', async () => {
+  it('finishes the signal before opening and starts navigation 150 ms after opened', async () => {
+    vi.useFakeTimers()
+    prepareLockedVault()
+    let finishSignal: (() => void) | undefined
+    const finish = vi.spyOn(model.icon, 'finishDerivation').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSignal = resolve
+        }),
+    )
+    const opened = vi.spyOn(model.icon, 'opened')
+    const unlock = model.submitUnlock()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(finish).toHaveBeenCalledTimes(1)
+    expect(opened).not.toHaveBeenCalled()
+    expect(stateUpdate).not.toHaveBeenCalled()
+    expect(model.shared.busy()).toBe(true)
+
+    finishSignal?.()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(opened).toHaveBeenCalledTimes(1)
+    expect(model.icon.state()).toBe('opened')
+    expect(stateUpdate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(149)
+    expect(stateUpdate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    await unlock
+
+    expect(stateUpdate).toHaveBeenCalledWith({StorageOpened: true})
+    expect(finish.mock.invocationCallOrder[0]).toBeLessThan(opened.mock.invocationCallOrder[0]!)
+    expect(opened.mock.invocationCallOrder[0]).toBeLessThan(stateUpdate.mock.invocationCallOrder[0]!)
+    expect(model.shared.busy()).toBe(false)
+  })
+
+  it.each([
+    ['an empty vault', {entries: []}],
+    ['a populated vault', {entries: ['one', 'two']}],
+  ])('opens with the same sequence for %s', async (_label, contents) => {
+    vi.useFakeTimers()
+    prepareLockedVault()
+    welcomeRpcMocks.tauriRpc.mockResolvedValueOnce(contents)
+    const finish = vi.spyOn(model.icon, 'finishDerivation').mockResolvedValue()
+    const opened = vi.spyOn(model.icon, 'opened')
+    const unlock = model.submitUnlock()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(finish).toHaveBeenCalledTimes(1)
+    expect(opened).toHaveBeenCalledTimes(1)
+    expect(stateUpdate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(150)
+    await unlock
+    expect(stateUpdate).toHaveBeenCalledWith({StorageOpened: true})
+  })
+
+  it('stops derivation on a vault error before waiting for repair confirmation', async () => {
+    prepareLockedVault()
+    welcomeRpcMocks.tauriRpc.mockImplementation(async (command: string) => {
+      if (command === 'vault:unlock') throw new RpcError('repair required', 'CATALOG_REPAIR_REQUIRED')
+      if (command === 'vault:repair:diagnose') {
+        return {repair_id: 'repair-1', lossy_requires_confirm: true, issues: []}
+      }
+      return undefined
+    })
+    let cancelRepair: ((confirmed: boolean) => void) | undefined
+    vi.spyOn(dialogService, 'showConfirmDialog').mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          cancelRepair = resolve
+        }),
+    )
+    const finish = vi.spyOn(model.icon, 'finishDerivation')
+    const opened = vi.spyOn(model.icon, 'opened')
+    const unlock = model.submitUnlock()
+    await vi.waitFor(() => expect(cancelRepair).toBeDefined())
+
+    expect(model.icon.state()).toBe('idle')
+    expect(model.shared.busy()).toBe(true)
+    expect(finish).not.toHaveBeenCalled()
+    expect(opened).not.toHaveBeenCalled()
+    cancelRepair?.(false)
+    await unlock
+    expect(stateUpdate).not.toHaveBeenCalled()
+  })
+
+  it('does not navigate after the welcome route disconnects during signal completion', async () => {
+    prepareLockedVault()
+    let finishSignal: (() => void) | undefined
+    vi.spyOn(model.icon, 'finishDerivation').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSignal = resolve
+        }),
+    )
+    const opened = vi.spyOn(model.icon, 'opened')
+    const unlock = model.submitUnlock()
+    await vi.waitFor(() => expect(finishSignal).toBeDefined())
+
+    model.disconnect()
+    finishSignal?.()
+    await unlock
+
+    expect(model.icon.state()).toBe('idle')
+    expect(opened).not.toHaveBeenCalled()
+    expect(stateUpdate).not.toHaveBeenCalled()
+    expect(model.shared.busy()).toBe(false)
+  })
+
+  it.each([
+    new RpcError('keystore unavailable', 'KEYSTORE_UNAVAILABLE'),
+    new Error('Transport disconnected'),
+  ])('preserves the masked password and returns any technical error to idle: %s', async (error) => {
     prepareLockedVault()
     model.unlockPassword.set('vault-password')
-    welcomeRpcMocks.tauriRpc.mockRejectedValueOnce(
-      new RpcError('keystore unavailable', 'KEYSTORE_UNAVAILABLE'),
-    )
+    welcomeRpcMocks.tauriRpc.mockRejectedValueOnce(error)
 
     await model.submitUnlock()
 
@@ -489,9 +593,7 @@ describe('welcome create-master submit', () => {
 
     nativeInput?.focus()
     expect(unlockInput?.shadowRoot?.activeElement).toBe(nativeInput)
-    nativeInput?.dispatchEvent(
-      new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}),
-    )
+    nativeInput?.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true}))
 
     await vi.waitFor(() => {
       expect(submitSpy).toHaveBeenCalledTimes(1)
@@ -589,10 +691,7 @@ describe('welcome create-master submit', () => {
 
     await model.submitUnlock()
 
-    expect(welcomeRpcMocks.tauriRpc).not.toHaveBeenCalledWith(
-      'vault:repair:apply',
-      expect.anything(),
-    )
+    expect(welcomeRpcMocks.tauriRpc).not.toHaveBeenCalledWith('vault:repair:apply', expect.anything())
     expect(stateUpdate).not.toHaveBeenCalledWith({StorageOpened: true})
     expect(model.unlockPassword()).toBe('vault-password')
     expect(model.unlockInProgress()).toBe(false)
@@ -624,10 +723,12 @@ describe('welcome create-master submit', () => {
   it('ignores stale password strength completions', async () => {
     section.remove()
     welcomeRpcMocks.estimatePasswordStrength.mockReset()
-    let resolveFirst: ((value: {score: number; feedback: {warning: string; suggestions: string[]}}) => void) | null =
-      null
-    let resolveSecond: ((value: {score: number; feedback: {warning: string; suggestions: string[]}}) => void) | null =
-      null
+    let resolveFirst:
+      | ((value: {score: number; feedback: {warning: string; suggestions: string[]}}) => void)
+      | null = null
+    let resolveSecond:
+      | ((value: {score: number; feedback: {warning: string; suggestions: string[]}}) => void)
+      | null = null
 
     welcomeRpcMocks.estimatePasswordStrength
       .mockReturnValueOnce(
@@ -641,12 +742,8 @@ describe('welcome create-master submit', () => {
         }),
       )
 
-    model.handleMasterPasswordInput(
-      new CustomEvent('cv-input', {detail: {value: 'first password value'}}),
-    )
-    model.handleMasterPasswordInput(
-      new CustomEvent('cv-input', {detail: {value: 'second password value'}}),
-    )
+    model.handleMasterPasswordInput(new CustomEvent('cv-input', {detail: {value: 'first password value'}}))
+    model.handleMasterPasswordInput(new CustomEvent('cv-input', {detail: {value: 'second password value'}}))
 
     resolveSecond?.({score: 4, feedback: {warning: '', suggestions: ['second']}})
     await settle()

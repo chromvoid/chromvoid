@@ -9,27 +9,31 @@ pub mod evm;
 mod ids;
 mod records;
 mod registry;
+mod root;
+pub mod rotation_mnemonic;
 #[cfg(test)]
 mod secret_hygiene_tests;
+mod slip10;
+pub mod solana;
 mod summary;
 mod telemetry;
 pub mod ton;
 pub mod ton_mnemonic;
-pub mod ton_v2;
 
 pub use chain::{
     WalletAddressDeriveInput, WalletAddressDeriveOutput, WalletBalanceInput, WalletBalanceOutput,
     WalletBalanceTask, WalletChainProfile, WalletConfirmInput, WalletConfirmOutput,
     WalletHdAccountMaterializeInput, WalletHistoryInput, WalletHistoryOutput, WalletHistoryTask,
-    WalletHistoryTransaction, WalletImportedAccountMaterializeInput, WalletPrepareInput,
-    WalletPrepareOutput, WalletProfileAccountMaterialization, WalletRefreshInput,
-    WalletRefreshOutput, WalletRuntimeConfig, WalletSignInput, WalletSignedArtifact,
+    WalletHistoryTransaction, WalletImportedAccountMaterializeInput, WalletKeyRotationInput,
+    WalletKeyRotationOutput, WalletPrepareInput, WalletPrepareOutput,
+    WalletProfileAccountMaterialization, WalletRefreshInput, WalletRefreshOutput,
+    WalletRuntimeConfig, WalletSecretReconcileInput, WalletSignInput, WalletSignedArtifact,
     WalletSubmitInput, WalletSubmitOutput,
 };
 pub use constants::{
     BIP39_ENGLISH_WORDLIST, BIP39_MNEMONIC_STANDARD, MNEMONIC_DRAFT_TTL_MS, MULTICHAIN_WALLET_MODE,
-    PREPARATION_TTL_MS, TON_NATIVE_MNEMONIC_STANDARD, TON_ONLY_WALLET_MODE,
-    WALLET_BALANCE_CACHE_SCHEMA_VERSION, WALLET_ROOT, WALLET_SCHEMA_VERSION,
+    PREPARATION_TTL_MS, ROTATION_MNEMONIC_STANDARD, TON_NATIVE_MNEMONIC_STANDARD,
+    TON_ONLY_WALLET_MODE, WALLET_BALANCE_CACHE_SCHEMA_VERSION, WALLET_ROOT, WALLET_SCHEMA_VERSION,
 };
 pub use error::{WalletChainError, WalletChainErrorCode};
 pub use ids::{
@@ -37,13 +41,15 @@ pub use ids::{
     new_preparation_id, new_secret_id, new_tx_ref, new_wallet_id, now_ms, parse_hex,
 };
 pub use records::{
-    AllocatedAddressV1, BroadcastArtifactV1, BroadcastArtifactV2, BroadcastSubmitAttemptV1,
-    HdRootMaterial, HdRootRecoveryMaterialV2, PreparationRecordV1, PreparationStateV1,
+    rotation_anchor_entropy_hex, AllocatedAddressV1, BroadcastArtifactV1, BroadcastArtifactV2,
+    BroadcastSubmitAttemptV1, HdRootRecoveryMaterialV2, PreparationRecordV1, PreparationStateV1,
     PreparedIntentV1, SecretBlobV1, SecretPayloadV1, WalletBalanceCacheV1, WalletIndexV1,
     WalletMetaV1, WalletOperationIdempotencyRecordV1, WalletProviderObservationOutcomeV1,
     WalletProviderObservationV1, WalletReconciliationEvidenceV1, WalletTxStatus,
 };
 pub use registry::WalletChainRegistry;
+pub(crate) use root::derived_account_meta;
+pub use root::{AccountScheme, TonSigningState, WalletRoot};
 pub use summary::account_summary_from_meta;
 pub use telemetry::{
     NoopWalletTelemetrySink, WalletTelemetryEvent, WalletTelemetryMetric, WalletTelemetrySink,

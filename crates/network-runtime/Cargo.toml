@@ -1,0 +1,33 @@
+[package]
+name = "chromvoid-network-runtime"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+description = "Shared network runtime for native and Tauri ChromVoid clients"
+
+[dependencies]
+chromvoid-core = { path = "../core" }
+base64.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+hex = "0.4"
+rand = "0.8"
+snow = "0.10"
+uuid = { version = "1", features = ["v4", "serde"] }
+chromvoid-protocol = { path = "../protocol", features = ["async-transport"] }
+serde.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["net", "time", "rt", "io-util"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+async-trait = "0.1"
+url = "2"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { version = "1", features = ["macros", "rt", "io-util"] }

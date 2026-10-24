@@ -126,11 +126,19 @@ pub(in crate::rpc::router) fn recover_pending_upload_session(
     upload_tx_store(&router.storage, &vault_key, catalog_committed).recover_participant()
 }
 
-pub(super) fn abort_pending_upload_session(router: &mut RpcRouter) -> UploadResult<bool> {
+pub(super) fn abort_pending_upload_session(
+    router: &mut RpcRouter,
+    expected_node_id: Option<u64>,
+) -> UploadResult<bool> {
     let context = UploadVaultContext::require(router)?;
     let Some(transaction) = read_pending_upload_transaction(router, &context)? else {
         return Ok(false);
     };
+    if expected_node_id.is_some_and(|node_id| node_id != transaction.node_id) {
+        return Err(UploadCommandError::node_not_found(
+            "Upload session not found",
+        ));
+    }
     cleanup_upload_marker(router, &context, &transaction, false)?;
     Ok(true)
 }

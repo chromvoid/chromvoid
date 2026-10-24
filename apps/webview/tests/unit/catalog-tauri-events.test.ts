@@ -1,10 +1,12 @@
-import {describe, expect, it} from 'vitest'
+import {describe, expect, it, vi} from 'vitest'
+
+import {atom} from '@reatom/core'
 
 import {CatalogService} from '../../src/core/catalog/catalog'
 import {CatalogMirror} from '../../src/core/catalog/local-catalog/catalog-mirror'
 import {CatalogEventType} from '../../src/core/catalog/local-catalog/types'
 import type {TransportEventHandler, TransportLike} from '../../src/core/transport/transport'
-import {applyManifestFixture, catalogDir, catalogFile} from './helpers/catalog-manifest'
+import {applyManifestFixture, catalogDir, catalogFile, catalogManifest} from './helpers/catalog-manifest'
 
 function passmanagerRoot() {
   return [
@@ -39,6 +41,7 @@ function createTauriCatalog(downloadText = '{"title":"Cached"}') {
   return {
     catalog: new CatalogService(ws),
     handlers,
+    ws,
   }
 }
 
@@ -155,6 +158,82 @@ describe('CatalogMirror delete subtree', () => {
 })
 
 describe('CatalogService (tauri) catalog:event deltas', () => {
+  it.each(['catalog:event', 'catalog:event:batch'] as const)(
+    'keeps a create push delivered before an older manifest response through %s',
+    async (eventName) => {
+      vi.useFakeTimers()
+      try {
+        const {catalog, handlers, ws} = createTauriCatalog()
+        ws.connected = atom(true)
+        applyManifestFixture(catalog.catalog, [])
+        const file = catalogFile({id: 31, name: 'from-phone.md', size: 6})
+        let resolveManifest!: (value: unknown) => void
+        const staleManifest = new Promise<unknown>((resolve) => {
+          resolveManifest = resolve
+        })
+        const sendCatalog = vi
+          .fn()
+          .mockReturnValueOnce(staleManifest)
+          .mockResolvedValue({ok: true, result: catalogManifest([file], {rootVersion: 2})})
+        ws.sendCatalog = sendCatalog
+
+        const refresh = catalog.refreshSilent()
+        expect(sendCatalog).toHaveBeenCalledWith('catalog:sync:manifest', {})
+        const event = {
+          type: 'create',
+          shard_id: '',
+          node_id: file.i,
+          version: 2,
+          delta: {seq: 2, ts: 100, path: '/', op: {type: 'create', node: file}},
+        }
+        for (const handler of handlers.get(eventName) ?? []) {
+          handler(null, eventName === 'catalog:event:batch' ? {events: [event]} : event)
+        }
+        expect(catalog.catalog.findByPath('/from-phone.md')?.nodeId).toBe(file.i)
+
+        resolveManifest({ok: true, result: catalogManifest([])})
+        await refresh
+        expect(catalog.catalog.findByPath('/from-phone.md')?.nodeId).toBe(file.i)
+
+        await vi.advanceTimersByTimeAsync(150)
+        expect(sendCatalog).toHaveBeenCalledTimes(2)
+        expect(catalog.catalog.findByPath('/from-phone.md')?.nodeId).toBe(file.i)
+        expect(catalog.catalog.getFolderState('/')?.version).toBe(2)
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  it.each([
+    catalogDir({id: 32, name: 'from-phone', children: []}),
+    catalogFile({id: 33, name: 'upload.md', size: 6}),
+  ])('refreshes root entry $n after a catalog invalidation push', async (entry) => {
+    vi.useFakeTimers()
+    try {
+      const {catalog, handlers, ws} = createTauriCatalog()
+      ws.connected = atom(true)
+      applyManifestFixture(catalog.catalog, [])
+      const sendCatalog = vi.fn().mockResolvedValue({
+        ok: true,
+        result: catalogManifest([entry], {rootVersion: 2}),
+      })
+      ws.sendCatalog = sendCatalog
+
+      for (const handler of handlers.get('catalog:event') ?? []) {
+        handler(null, {type: 'invalidate'})
+      }
+      expect(sendCatalog).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(150)
+      expect(sendCatalog).toHaveBeenCalledOnce()
+      expect(sendCatalog).toHaveBeenCalledWith('catalog:sync:manifest', {})
+      expect(catalog.catalog.findByPath('/' + entry.n)?.nodeId).toBe(entry.i)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('applies delete delta directly to the mirror', () => {
     const handlers = new Map<string, TransportEventHandler[]>()
     const ws = {

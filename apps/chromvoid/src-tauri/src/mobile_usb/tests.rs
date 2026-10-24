@@ -40,6 +40,8 @@ use super::{
     MobileUsbPairingHello,
 };
 
+#[cfg(desktop)]
+mod android_air_host;
 mod controller_connect;
 mod controller_detect;
 mod controller_pairing;

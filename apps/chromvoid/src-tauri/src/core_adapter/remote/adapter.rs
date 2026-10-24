@@ -5,10 +5,10 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use zeroize::Zeroize;
 
-use crate::core_adapter::types::{
+use crate::core_adapter::DeferredReply;
+use crate::core_adapter::{
     ConnectionState, CoreAdapter, CoreMode, RemoteHost, RemoteJsonClientHandle, RemoteRpcPriority,
 };
-use crate::core_adapter::DeferredReply;
 use crate::remote_data_plane::RemotePeerFeatures;
 
 use super::io_sender::IoSender;

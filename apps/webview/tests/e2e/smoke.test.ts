@@ -10,7 +10,7 @@ test('Main page renders and contains chromvoid-app', async () => {
   // Vite dev server at http://localhost:4400 (root=src)
   await page.goto('http://localhost:4400/index.html')
 
-  const app = await page.$('chromvoid-app')
+  const app = await page.$('[data-testid="app-root"]')
   expect(app).toBeTruthy()
 
   const loading = await page.$('#loading-native')

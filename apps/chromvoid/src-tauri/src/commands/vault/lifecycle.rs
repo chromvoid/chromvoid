@@ -206,22 +206,19 @@ pub(crate) async fn storage_set_root(
     }
     info!("storage_set_root: resolved path = {}", root.display());
 
-    let new_adapter = match prepare_storage_root_adapter(
-        state.catalog_blocking_io_runtime.clone(),
-        root.clone(),
-        state.license_root.clone(),
-    )
-    .await
-    {
-        Ok(adapter) => adapter,
-        Err((error, code)) => {
-            return Ok(RpcResult::Error {
-                ok: false,
-                error,
-                code,
-            });
-        }
-    };
+    let new_adapter =
+        match prepare_storage_root_adapter(state.catalog_blocking_io_runtime.clone(), root.clone())
+            .await
+        {
+            Ok(adapter) => adapter,
+            Err((error, code)) => {
+                return Ok(RpcResult::Error {
+                    ok: false,
+                    error,
+                    code,
+                });
+            }
+        };
 
     let adapter = state.adapter.clone();
     let storage_root_state = state.storage_root.clone();
@@ -301,10 +298,9 @@ async fn prepare_storage_root_adapter(
         crate::catalog_blocking_io::CatalogBlockingIoRuntimeState,
     >,
     root: std::path::PathBuf,
-    license_root: std::path::PathBuf,
 ) -> Result<LocalCoreAdapter, (String, Option<String>)> {
     match catalog_blocking_io_runtime
-        .spawn_blocking(move || prepare_storage_root_adapter_blocking(root, license_root))
+        .spawn_blocking(move || prepare_storage_root_adapter_blocking(root))
         .await
     {
         Ok(result) => result,
@@ -314,7 +310,6 @@ async fn prepare_storage_root_adapter(
 
 fn prepare_storage_root_adapter_blocking(
     root: std::path::PathBuf,
-    license_root: std::path::PathBuf,
 ) -> Result<LocalCoreAdapter, (String, Option<String>)> {
     if let Err(e) = std::fs::create_dir_all(&root) {
         tracing::error!(
@@ -329,11 +324,7 @@ fn prepare_storage_root_adapter_blocking(
     }
     info!("storage_set_root: directory created successfully");
 
-    match LocalCoreAdapter::new_with_license_store(
-        root.clone(),
-        license_root,
-        crate::pro::current_build_policy(),
-    ) {
+    match LocalCoreAdapter::new(root.clone()) {
         Ok(adapter) => {
             info!(
                 "storage_set_root: LocalCoreAdapter created for path = {}",

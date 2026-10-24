@@ -21,8 +21,6 @@ use crate::types::*;
 const AUDIO_ARTWORK_RANGE_LIMIT_MESSAGE: &str = "audio artwork metadata range budget exceeded";
 const REMOTE_DERIVATIVE_ENSURE_COMMAND: &str = "catalog:derivative:ensure";
 const REMOTE_DERIVATIVE_STALE_CODE: &str = "ERR_MEDIA_STREAM_STALE";
-const DISPLAY_PREVIEW_MAX_OUTPUT_BYTES: u64 = 32 * 1024 * 1024;
-const THUMBNAIL_MAX_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Clone)]
 pub(crate) struct ImageDerivativeCancellation {
@@ -70,50 +68,13 @@ fn check_image_derivative_cancellation(
     cancellation.map_or(Ok(()), ImageDerivativeCancellation::check)
 }
 
-fn derivative_output_limit(tier: crate::image_preview::ImageDerivativeTier) -> u64 {
-    match tier {
-        crate::image_preview::ImageDerivativeTier::DisplayPreview => {
-            DISPLAY_PREVIEW_MAX_OUTPUT_BYTES
-        }
-        crate::image_preview::ImageDerivativeTier::Thumbnail => THUMBNAIL_MAX_OUTPUT_BYTES,
-    }
-}
-
+pub(super) use chromvoid_media_runtime::derivative::derivative_output_name;
+use chromvoid_media_runtime::derivative::{derivative_output_limit, validate_derivative_output};
 fn validate_image_derivative_meta(
     meta: &RpcStreamMeta,
     tier: crate::image_preview::ImageDerivativeTier,
 ) -> Result<(), CatalogDownloadError> {
-    if meta.size == 0 {
-        return Err((
-            "Image derivative stream is empty".to_string(),
-            Some("INTERNAL".to_string()),
-        ));
-    }
-    if meta.size > derivative_output_limit(tier) {
-        return Err((
-            "Image derivative exceeds the bounded output size".to_string(),
-            Some("PAYLOAD_TOO_LARGE".to_string()),
-        ));
-    }
-    let mime_type = meta
-        .mime_type
-        .split(';')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if !matches!(
-        mime_type.as_str(),
-        crate::image_preview::JPEG_PREVIEW_MIME
-            | crate::image_preview::PNG_PREVIEW_MIME
-            | crate::image_preview::WEBP_PREVIEW_MIME
-    ) {
-        return Err((
-            "Image derivative has an unsupported MIME type".to_string(),
-            Some("UNSUPPORTED".to_string()),
-        ));
-    }
-    Ok(())
+    validate_derivative_output(meta.size, &meta.mime_type, tier)
 }
 
 pub(crate) fn validate_image_derivative_stream(
@@ -174,24 +135,6 @@ fn stream_out_from_derivative_reply(
             );
             Ok(stream)
         }
-    }
-}
-
-pub(super) fn derivative_output_name(
-    stream_name: &str,
-    display_name_hint: &str,
-    extension: &str,
-) -> String {
-    let source = if stream_name.trim().is_empty() {
-        display_name_hint.trim()
-    } else {
-        stream_name.trim()
-    };
-
-    match source.rsplit_once('.') {
-        Some((stem, _)) if !stem.is_empty() => format!("{stem}.{extension}"),
-        _ if source.is_empty() => format!("preview.{extension}"),
-        _ => format!("{source}.{extension}"),
     }
 }
 

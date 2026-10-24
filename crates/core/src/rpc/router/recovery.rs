@@ -140,6 +140,12 @@ impl RpcRouter {
     }
 
     pub(super) fn recover_before_restore_entry(&mut self) -> RecoveryResult<()> {
+        self.storage_mutation_guard
+            .check()
+            .map_err(|error| RecoveryError {
+                message: error.to_string(),
+                code: Some(error.code().to_owned()),
+            })?;
         super::restore::recover_restore_transaction(self)
             .map_err(RecoveryError::restore_transaction_failed)
     }

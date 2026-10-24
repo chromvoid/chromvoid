@@ -91,10 +91,6 @@ export const appRouteStyles = [
       display: none;
     }
 
-    no-license {
-      text-align: center;
-    }
-
     .route-content {
       block-size: 100%;
       min-block-size: 0;
@@ -151,7 +147,7 @@ export const appRouteStyles = [
       line-height: 1.4;
     }
 
-    .pro-access-state {
+    .module-access-state {
       min-block-size: 100%;
       display: grid;
       place-content: center;
@@ -162,32 +158,32 @@ export const appRouteStyles = [
       color: var(--cv-color-text);
     }
 
-    .pro-access-state cv-icon {
+    .module-access-state cv-icon {
       font-size: 32px;
       color: var(--cv-color-accent);
     }
 
-    .pro-access-state h1 {
+    .module-access-state h1 {
       margin: 0;
       font-size: var(--cv-font-size-xl);
       line-height: 1.2;
     }
 
-    .pro-access-state p {
+    .module-access-state p {
       max-inline-size: 42rem;
       margin: 0;
       color: var(--cv-color-text-muted);
       line-height: 1.5;
     }
 
-    .pro-access-state__actions {
+    .module-access-state__actions {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
       gap: var(--cv-space-2);
     }
 
-    .pro-access-state__button {
+    .module-access-state__button {
       min-block-size: 40px;
       padding-inline: var(--cv-space-4);
       border: 0;
@@ -197,12 +193,6 @@ export const appRouteStyles = [
       font: inherit;
       font-weight: var(--cv-font-weight-semibold);
       cursor: pointer;
-    }
-
-    .pro-access-state__button--secondary {
-      background: var(--cv-color-surface-2);
-      color: var(--cv-color-text);
-      box-shadow: inset 0 0 0 1px var(--cv-color-border);
     }
   `,
 ]

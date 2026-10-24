@@ -634,7 +634,7 @@ describe('PMEntryMobile', () => {
 
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
-        'plugin:clipboard-manager|write_text',
+        'plugin:clipboard-manager|write_secret',
         expect.objectContaining({text: 'mobile-loaded-secret'}),
       )
     })
@@ -870,11 +870,11 @@ describe('PMEntryMobile', () => {
 
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
-        'plugin:clipboard-manager|write_text',
+        'plugin:clipboard-manager|write_secret',
         expect.objectContaining({text: 'andry_diego@mail.ru'}),
       )
       expect(invoke).toHaveBeenCalledWith(
-        'plugin:clipboard-manager|write_text',
+        'plugin:clipboard-manager|write_secret',
         expect.objectContaining({text: 'secret'}),
       )
     })
@@ -1571,7 +1571,7 @@ describe('PMEntryMobile', () => {
       expect(copyButton?.hasAttribute('copying')).toBe(true)
       expect(copyButton?.getAttribute('status')).toBe('idle')
       expect(invoke).toHaveBeenCalledWith(
-        'plugin:clipboard-manager|write_text',
+        'plugin:clipboard-manager|write_secret',
         expect.objectContaining({text: 'Personal note'}),
       )
 
@@ -2721,7 +2721,7 @@ describe('PMEntryMobile', () => {
     const entry = createEntry([{match: 'base_domain', value: 'https://1ccloud.ru'}])
     ;(entry as Entry & {addOTP: typeof addOTP}).addOTP = addOTP
     setRuntimeCapabilities({
-      platform: 'android',
+      platform: 'ios',
       mobile: true,
       supports_native_otp_qr_scan: true,
     })

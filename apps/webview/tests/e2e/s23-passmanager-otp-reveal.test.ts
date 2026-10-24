@@ -41,6 +41,8 @@ async function enablePasswordManager(page: Page): Promise<void> {
   await page.waitForTimeout(300)
 }
 
+// Chromium 149 weakly retains evaluate's result promise: let fixture-triggered Lit/Reatom updates
+// finish in a frame before returning. User actions below use Playwright input outside evaluate.
 async function createEntryWithOtp(
   page: Page,
   params: {entryTitle: string; otpLabel: string; period: number},
@@ -122,6 +124,7 @@ async function createEntryWithOtp(
       if (!otps.length) throw new Error('target entry has no OTP after ' + maxAttempts + ' attempts')
 
       pm.showElement.set(target)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     },
     {...params, testStartTime},
   )
@@ -230,8 +233,9 @@ async function clearCapturedCalls(page: Page): Promise<void> {
   })
 }
 
+// Synthetic catalog noise has no user-input equivalent; settle it as in createEntryWithOtp.
 async function emitCatalogMirrorNoise(page: Page, repeats: number): Promise<void> {
-  await page.evaluate((count) => {
+  await page.evaluate(async (count) => {
     const win = window as any
     const mirror = win.catalog?.catalog
     if (!mirror || typeof mirror.applyEvent !== 'function') {
@@ -249,6 +253,7 @@ async function emitCatalogMirrorNoise(page: Page, repeats: number): Promise<void
           metadata: {},
         })
       }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       return
     }
     const rootNode = typeof mirror.findByPath === 'function' ? mirror.findByPath('/') : undefined
@@ -262,27 +267,19 @@ async function emitCatalogMirrorNoise(page: Page, repeats: number): Promise<void
         metadata: {},
       })
     }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   }, repeats)
 }
 
+// Keep the click outside evaluate's result lifetime (see createEntryWithOtp).
 async function clickReveal(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    function deepFind(root: Document | ShadowRoot, selector: string): Element | null {
-      const found = root.querySelector(selector)
-      if (found) return found
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) {
-          const inner = deepFind(el.shadowRoot, selector)
-          if (inner) return inner
-        }
-      }
-      return null
-    }
-
-    const toggle = deepFind(document, '.totp-card') as HTMLElement | null
-    toggle?.click()
-    return Boolean(toggle)
+  await page.waitForFunction(() => !document.documentElement.hasAttribute('loading'), undefined, {
+    timeout: 10_000,
   })
+  const toggle = page.locator('.totp-card').first()
+  if ((await toggle.count()) === 0) return false
+  await toggle.click()
+  return true
 }
 
 test('S23: OTP reveal uses passmanager:otp:generate with otp_id and renders code', async (ctx) => {
@@ -438,7 +435,7 @@ test('S23: Remove OTP from entry uses passmanager:otp:removeSecret with otp_id o
   await waitForOtpItem(page)
   await installOtpCapture(page)
 
-  // Remove OTP via the gateway (domain-ID contract)
+  // Preserve the domain-ID transport contract; settle its mutation as in createEntryWithOtp.
   const removeResult = await page.evaluate(async (title: string) => {
     const win = window as any
     const pm = win.passmanager
@@ -467,6 +464,7 @@ test('S23: Remove OTP from entry uses passmanager:otp:removeSecret with otp_id o
     const removeCalls = calls.filter((c: any) => c.command === 'passmanager:otp:removeSecret')
     const lastRemove = removeCalls.length > 0 ? removeCalls[removeCalls.length - 1] : null
 
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return {
       ok: res?.ok,
       otpId: otp.id,
@@ -501,7 +499,7 @@ test('S23: Add OTP to existing entry uses passmanager:otp:setSecret with otp_id 
 
   await installOtpCapture(page)
 
-  // Create entry without OTP, then add OTP metadata via entry:save, then setSecret
+  // Preserve the domain-ID transport sequence; settle its mutations as in createEntryWithOtp.
   const addResult = await page.evaluate(
     async (params: {title: string; otpId: string; otpLabel: string}) => {
       const win = window as any
@@ -566,6 +564,7 @@ test('S23: Add OTP to existing entry uses passmanager:otp:setSecret with otp_id 
       const setCalls = calls.filter((c: any) => c.command === 'passmanager:otp:setSecret')
       const lastSet = setCalls.length > 0 ? setCalls[setCalls.length - 1] : null
 
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       return {
         saveOk: saveRes?.ok,
         setOk: setRes?.ok,

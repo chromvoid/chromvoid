@@ -2,7 +2,9 @@ use super::adapter::{run_host_adapter_task, LazyHostRpcAdapter};
 use super::frame_from_rpc_response;
 use crate::remote_data_plane::{send_encrypted_frame_typed, RemoteIoFailure, RemoteIoResult};
 use crate::remote_stream_lifecycle::StreamLifecycleTracker;
-use crate::rpc_transport_protocol::{append_full_upload_stream_chunk, upload_stream_chunk_data};
+use crate::rpc_transport_protocol::{
+    append_full_upload_stream_chunk, apply_upload_stream_response, upload_stream_chunk_data,
+};
 use chromvoid_core::rpc::types::{RpcRequest, RpcResponse, PROTOCOL_VERSION};
 use chromvoid_core::rpc::{RpcInputStream, RpcReply};
 use chromvoid_protocol::{Frame, NoiseTransport, RemoteTransport};
@@ -106,15 +108,16 @@ pub(super) async fn handle_host_upload_continuation(
             Ok(true)
         }
         HostIncomingUploadMode::Chunked {
-            stream_size,
+            end_offset,
             offset,
+            last_response,
         } => {
             let chunk_len = frame.payload.len() as u64;
             let chunk_data = match upload_stream_chunk_data(
                 &upload.req.data,
                 *offset,
                 chunk_len,
-                *stream_size,
+                *end_offset,
                 is_final_chunk,
             ) {
                 Ok(chunk_data) => chunk_data,
@@ -148,20 +151,31 @@ pub(super) async fn handle_host_upload_continuation(
                 transport_features: upload.req.transport_features.clone(),
             };
             let chunk_payload = frame.payload;
-            match run_host_adapter_task(
-                adapter,
-                "mobile acceptor upload stream chunk",
-                move |adapter| {
-                    adapter.handle_with_stream(
-                        &chunk_req,
-                        Some(RpcInputStream::from_bytes(chunk_payload)),
-                    )
-                },
-            )
-            .await
-            .map_err(RemoteIoFailure::data_plane_error)?
-            {
+            // Core may commit when total_size is reached in the last data frame.
+            // The transport's empty EOF acknowledges that result, not another Core write.
+            let cached = if is_final_chunk && chunk_len == 0 {
+                last_response.take()
+            } else {
+                None
+            };
+            let reply = match cached {
+                Some(response) => RpcReply::Json(response),
+                None => run_host_adapter_task(
+                    adapter,
+                    "mobile acceptor upload stream chunk",
+                    move |adapter| {
+                        adapter.handle_with_stream(
+                            &chunk_req,
+                            Some(RpcInputStream::from_bytes(chunk_payload)),
+                        )
+                    },
+                )
+                .await
+                .map_err(RemoteIoFailure::data_plane_error)?,
+            };
+            let response = match reply {
                 RpcReply::Json(resp) => {
+                    let resp = apply_upload_stream_response(&mut upload.req.data, resp);
                     if !resp.is_ok() {
                         let _ = send_encrypted_frame_typed(
                             transport,
@@ -183,6 +197,7 @@ pub(super) async fn handle_host_upload_continuation(
                             "host upload stream aborted peer_id={peer_id}"
                         )));
                     }
+                    resp
                 }
                 RpcReply::Stream(_) | RpcReply::RangeStream(_) => {
                     let err = RpcResponse::Error {
@@ -210,15 +225,14 @@ pub(super) async fn handle_host_upload_continuation(
                         "host upload stream aborted peer_id={peer_id}"
                     )));
                 }
-            }
+            };
 
             *offset += chunk_len;
             if is_final_chunk {
-                let success = RpcResponse::success(serde_json::json!({"uploaded": *offset}));
                 send_encrypted_frame_typed(
                     transport,
                     noise,
-                    frame_from_rpc_response(upload.message_id, &success),
+                    frame_from_rpc_response(upload.message_id, &response),
                 )
                 .await?;
                 let snapshot = upload.lifecycle.finish();
@@ -234,14 +248,21 @@ pub(super) async fn handle_host_upload_continuation(
                 return Ok(true);
             }
 
+            *last_response = Some(response);
             Ok(false)
         }
     }
 }
 
 pub(super) enum HostIncomingUploadMode {
-    Full { body: Vec<u8> },
-    Chunked { stream_size: u64, offset: u64 },
+    Full {
+        body: Vec<u8>,
+    },
+    Chunked {
+        end_offset: u64,
+        offset: u64,
+        last_response: Option<RpcResponse>,
+    },
 }
 
 pub(super) struct HostIncomingUpload {

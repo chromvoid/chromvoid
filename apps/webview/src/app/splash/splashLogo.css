@@ -6,51 +6,12 @@
   position: fixed;
   inset: 0;
   z-index: var(--cv-z-overlay, 1000);
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: var(--splash-screen-background-gradient);
-  text-align: center;
-}
-
-#loading-native[data-splash-mode='web'].loading-screen::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--splash-grid-background);
-  background-size: 56px 56px;
-  -webkit-mask-image: var(--splash-grid-mask);
-  mask-image: var(--splash-grid-mask);
-  opacity: 0.22;
-  pointer-events: none;
+  display: block;
+  background: var(--cv-color-bg);
 }
 
 #loading-native[data-splash-state='exiting'][data-splash-mode='web'] {
   animation: splash-screen-exit var(--cv-duration-normal) var(--cv-easing-decelerate) both;
-}
-
-.splash-logo {
-  position: relative;
-  width: clamp(300px, 38vmin, 420px);
-  aspect-ratio: 1;
-  contain: strict;
-  isolation: isolate;
-}
-
-.splash-logo__image {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  opacity: 0.96;
-  filter: none;
-  animation:
-    splash-logo-static-enter 320ms var(--cv-easing-decelerate, ease-out) both,
-    splash-logo-filter-intro 1.45s var(--cv-easing-decelerate, ease-out) both;
 }
 
 :root:not([loading]) #loading-native {
@@ -58,42 +19,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #loading-native[data-splash-mode='web'].loading-screen,
-  #loading-native[data-splash-state='exiting'],
-  .splash-logo__image {
-    animation-duration: 1ms;
-    transition-duration: 1ms;
-  }
-}
-
-@keyframes splash-logo-static-enter {
-  from {
-    opacity: 0.84;
-    transform: scale(0.988);
-  }
-
-  to {
-    opacity: 0.96;
-    transform: scale(1);
-  }
-}
-
-@keyframes splash-logo-filter-intro {
-  0%,
-  18% {
-    filter: none;
-  }
-
-  48% {
-    filter: hue-rotate(-42deg) saturate(1.08) brightness(1.01) contrast(1.01);
-  }
-
-  78% {
-    filter: hue-rotate(-58deg) saturate(1.13) brightness(1.04) contrast(1.018);
-  }
-
-  100% {
-    filter: hue-rotate(-68deg) saturate(1.16) brightness(1.06) contrast(1.022);
+  #loading-native[data-splash-state='exiting'][data-splash-mode='web'] {
+    animation-duration: var(--cv-duration-fast);
   }
 }
 

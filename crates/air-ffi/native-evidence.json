@@ -1,0 +1,228 @@
+{
+  "_comment": "A command is natively available only with a device test that proves it. air-schema refuses a command Core does not declare, the bridge does not admit, or whose evidence file is missing. Add a command in the same change as its evidence.",
+  "android": {
+    "catalog:attachment:prepare": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/DocumentRouteInstrumentationTest.kt"
+    ],
+    "catalog:createDir": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/FilesRouteInstrumentationTest.kt"
+    ],
+    "catalog:delete": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/FilesRouteInstrumentationTest.kt"
+    ],
+    "catalog:document:resolve-link": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/DocumentRouteInstrumentationTest.kt"
+    ],
+    "catalog:folder:list": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/FilesRouteInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/FileTransferInstrumentationTest.kt"
+    ],
+    "catalog:move": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/FilesRouteInstrumentationTest.kt"
+    ],
+    "catalog:rename": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/FilesRouteInstrumentationTest.kt"
+    ],
+    "catalog:source:metadata": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/FileTransferInstrumentationTest.kt"
+    ],
+    "master:rekey": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/LockedUtilitiesInstrumentationTest.kt"
+    ],
+    "master:setup": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/FirstRunInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/VaultAccessInstrumentationTest.kt"
+    ],
+    "passkeys:delete": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/PasskeysInstrumentationTest.kt"
+    ],
+    "passkeys:list": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/PasskeysInstrumentationTest.kt"
+    ],
+    "passmanager:entry:create": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CredentialTransferInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CatalogRouteInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CredentialFormInstrumentationTest.kt"
+    ],
+    "passmanager:entry:delete": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/DeleteRouteInstrumentationTest.kt"
+    ],
+    "passmanager:entry:detail": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CatalogRouteInstrumentationTest.kt"
+    ],
+    "passmanager:entry:page": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CredentialTransferInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CatalogRouteInstrumentationTest.kt"
+    ],
+    "passmanager:entry:update": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CredentialFormInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/GroupRouteInstrumentationTest.kt"
+    ],
+    "passmanager:entry:websites:read": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WebsitesRouteInstrumentationTest.kt"
+    ],
+    "passmanager:entry:websites:update": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WebsitesRouteInstrumentationTest.kt"
+    ],
+    "passmanager:entry:websites:validate": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WebsitesRouteInstrumentationTest.kt"
+    ],
+    "passmanager:group:delete": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/GroupRouteInstrumentationTest.kt"
+    ],
+    "passmanager:group:ensure": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/GroupRouteInstrumentationTest.kt"
+    ],
+    "passmanager:group:page": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/GroupRouteInstrumentationTest.kt"
+    ],
+    "passmanager:group:rename": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/GroupRouteInstrumentationTest.kt"
+    ],
+    "passmanager:icon:getMany": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/TransferRouteInstrumentationTest.kt"
+    ],
+    "passmanager:otp:parseUri": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CameraScanInstrumentationTest.kt"
+    ],
+    "passmanager:otp:record:code": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CodesRouteInstrumentationTest.kt"
+    ],
+    "passmanager:otp:record:delete": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CodesRouteInstrumentationTest.kt"
+    ],
+    "passmanager:otp:record:list": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CodesRouteInstrumentationTest.kt"
+    ],
+    "passmanager:otp:record:save": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CodesRouteInstrumentationTest.kt"
+    ],
+    "passmanager:password:generate": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CredentialFormInstrumentationTest.kt"
+    ],
+    "passmanager:root:import": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CredentialTransferInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/TransferRouteInstrumentationTest.kt"
+    ],
+    "passmanager:secret:read": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CopyRevealInstrumentationTest.kt"
+    ],
+    "passmanager:secret:save": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/CredentialFormInstrumentationTest.kt"
+    ],
+    "passmanager:securityAudit:page": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/ArrangeAndAuditInstrumentationTest.kt"
+    ],
+    "passmanager:ssh:key:delete": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/SshRouteInstrumentationTest.kt"
+    ],
+    "passmanager:ssh:key:edit": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/SshRouteInstrumentationTest.kt"
+    ],
+    "passmanager:ssh:key:export": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/SshRouteInstrumentationTest.kt"
+    ],
+    "passmanager:ssh:key:import": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/SshRouteInstrumentationTest.kt"
+    ],
+    "passmanager:ssh:keygen": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/SshRouteInstrumentationTest.kt"
+    ],
+    "passmanager:ssh:page": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/SshRouteInstrumentationTest.kt"
+    ],
+    "passmanager:tag:delete": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/TagRouteInstrumentationTest.kt"
+    ],
+    "passmanager:tag:page": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/TagRouteInstrumentationTest.kt"
+    ],
+    "passmanager:tag:save": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/TagRouteInstrumentationTest.kt"
+    ],
+    "vault:rekey": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/SettingsPersistenceInstrumentationTest.kt"
+    ],
+    "vault:status": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/VaultAccessInstrumentationTest.kt"
+    ],
+    "vault:unlock": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/VaultAccessInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/ShellPrivacyInstrumentationTest.kt"
+    ],
+    "wallet:accounts:derive": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRouteInstrumentationTest.kt"
+    ],
+    "wallet:accounts:list": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRouteInstrumentationTest.kt"
+    ],
+    "wallet:address:detect": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletSendInstrumentationTest.kt"
+    ],
+    "wallet:addressBook:create": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRecoveryInstrumentationTest.kt"
+    ],
+    "wallet:addressBook:delete": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRecoveryInstrumentationTest.kt"
+    ],
+    "wallet:addressBook:list": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRecoveryInstrumentationTest.kt"
+    ],
+    "wallet:addressBook:update": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRecoveryInstrumentationTest.kt"
+    ],
+    "wallet:addresses:derive": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRouteInstrumentationTest.kt"
+    ],
+    "wallet:backup:export": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRecoveryInstrumentationTest.kt"
+    ],
+    "wallet:balance:get": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRouteInstrumentationTest.kt"
+    ],
+    "wallet:hd:create": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRouteInstrumentationTest.kt"
+    ],
+    "wallet:hd:generateMnemonic": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRouteInstrumentationTest.kt"
+    ],
+    "wallet:import:create": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletHistoryInstrumentationTest.kt"
+    ],
+    "wallet:list": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRouteInstrumentationTest.kt"
+    ],
+    "wallet:status": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRouteInstrumentationTest.kt"
+    ],
+    "wallet:ton:rotateKey": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletRecoveryInstrumentationTest.kt"
+    ],
+    "wallet:transaction:cancel": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletSendInstrumentationTest.kt"
+    ],
+    "wallet:transaction:confirm": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletSendInstrumentationTest.kt"
+    ],
+    "wallet:transaction:prepare": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletSendInstrumentationTest.kt"
+    ],
+    "wallet:transaction:quote": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletSendInstrumentationTest.kt"
+    ],
+    "wallet:transaction:rebroadcast": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletSendInstrumentationTest.kt"
+    ],
+    "wallet:transactions:list": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletSendInstrumentationTest.kt",
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletHistoryInstrumentationTest.kt"
+    ],
+    "wallet:transactions:refresh": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletHistoryInstrumentationTest.kt"
+    ],
+    "wallet:transactions:sync": [
+      "apps/Android-air/app/src/androidTest/kotlin/com/chromvoid/air/WalletHistoryInstrumentationTest.kt"
+    ]
+  },
+  "apple": {}
+}

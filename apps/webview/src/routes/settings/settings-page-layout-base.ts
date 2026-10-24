@@ -21,7 +21,6 @@ export abstract class SettingsPageLayoutBase extends ReatomLitElement {
   handleEvent(event: Event): void {
     if (event.type === 'focus' || (event.type === 'visibilitychange' && document.visibilityState === 'visible')) {
       void this.model.refreshCredentialProviderStatus()
-      void this.model.refreshAndroidQuickLockTileStatus()
       void this.model.refreshSshAgentStatus()
     }
   }

@@ -16,7 +16,7 @@ import {subscribeToSignalChanges} from 'root/shared/services/subscribed-signal'
 import {getPassmanagerRoot, passmanagerRoot} from 'root/features/passmanager/models/pm-root.adapter'
 import {passmanagerNavigationController} from 'root/features/passmanager/passmanager-navigation.controller'
 import {PMEntryOtpCreateModel} from '../card/entry-otp-create/entry-otp-create.model'
-import {PMEntryWebsiteEditorModel} from '../card/entry-website-editor'
+import {PMEntryWebsiteEditorModel} from '../card/entry-website-editor/entry-website-editor.model'
 
 export type PendingOtpImportMetadata = {
   pending_id: string

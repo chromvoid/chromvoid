@@ -788,3 +788,63 @@ fn test_vault_backed_passkey_delete_survives_fresh_router_unlock() {
         Some(0)
     );
 }
+
+#[test]
+fn passkey_registration_is_durable_without_an_extra_save() {
+    let (mut router, directory, keystore) = create_test_router_with_keystore();
+    let password = "synthetic-passkey-persistence";
+    assert_rpc_ok(&unlock_vault(&mut router, password));
+    for request in [passkey_create_request(), second_passkey_create_request()] {
+        assert_rpc_ok(&call(
+            &mut router,
+            "credential_provider:passkey:create",
+            request,
+        ));
+    }
+    let before = call(&mut router, "passkeys:list", serde_json::json!({}));
+    assert_rpc_ok(&before);
+    assert_eq!(
+        before.result().unwrap()["passkeys"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    drop(router);
+
+    let storage = Storage::new(directory.path()).expect("reopen storage");
+    let mut router = chromvoid_core::rpc::RpcRouter::new(storage).with_keystore(keystore);
+    assert_rpc_ok(&unlock_vault(&mut router, password));
+    let after = call(&mut router, "passkeys:list", serde_json::json!({}));
+    assert_rpc_ok(&after);
+    assert_eq!(
+        after.result().unwrap()["passkeys"],
+        before.result().unwrap()["passkeys"]
+    );
+}
+
+#[test]
+fn passkey_commit_emits_only_safe_domain_invalidation() {
+    let (mut router, _root) = create_test_router();
+    assert_rpc_ok(&unlock_vault(&mut router, "passkey events"));
+    assert_rpc_ok(&call(
+        &mut router,
+        "catalog:subscribe",
+        serde_json::json!({}),
+    ));
+    router.take_events();
+    assert_rpc_ok(&call(
+        &mut router,
+        "credential_provider:passkey:create",
+        passkey_create_request(),
+    ));
+    let events = router.take_events();
+    assert!(!events.is_empty());
+    for event in events {
+        assert_eq!(event["command"], "update:state");
+        let data = event["data"].as_object().unwrap();
+        assert_eq!(data.len(), 2);
+        assert!(data["TS"].is_u64());
+        assert_eq!(data["serial_num"], "local");
+    }
+}

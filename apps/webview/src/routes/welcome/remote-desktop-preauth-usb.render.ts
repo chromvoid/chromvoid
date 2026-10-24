@@ -80,6 +80,10 @@ function taskHeading(model: WelcomeSetupModel): TemplateResult {
   } else if (recoveryAction === 'continue_read_only') {
     title = i18n('remote:desktop-usb-ready-title')
     description = i18n('remote:usb-mobile-recovery-read-only')
+  } else if (recoveryAction === 'retry_or_repair') {
+    title = i18n('remote:usb-mobile-phone-not-responding-title')
+    description = i18n('remote:usb-mobile-phone-not-responding-description')
+    tone = 'danger'
   } else if (recoveryAction === 'remove_and_repair') {
     title = i18n('remote:preauth-usb-recovery')
     description = i18n('remote:usb-mobile-detected-broken')
@@ -431,6 +435,17 @@ export function renderDesktopPreauthUsb(
                     @click=${actions.onPrimary}
                     >${primaryLabel(model)}</cv-button
                   >
+                  ${presentation.secondaryRecoveryCta?.action.kind === 'remove'
+                    ? html`
+                        <cv-button
+                          variant="danger"
+                          data-usb-remove-host-id=${presentation.secondaryRecoveryCta.action.hostId}
+                          ?disabled=${actionBusy}
+                          @click=${actions.onRemoveHost}
+                          >${presentation.secondaryRecoveryCta.label}</cv-button
+                        >
+                      `
+                    : nothing}
                 </div>
               `
             : nothing}

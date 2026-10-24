@@ -502,3 +502,219 @@ fn browser_extension_xx_msg1_is_accepted() {
         "server should accept browser extension XX msg1"
     );
 }
+
+#[test]
+fn credential_mutations_respect_readonly_and_sensitive_grants() {
+    use crate::gateway::types::AllowedCommands;
+    let cfg = NamedTempFile::new().expect("tempfile");
+    let mut state = GatewayState::load_or_default(cfg.path().to_path_buf());
+    let extension = "ssh-exchange-test";
+    let mut policy = state.get_or_create_policy(extension);
+    policy.allowed_commands = AllowedCommands::ReadOnly;
+    policy.require_site_grant = false;
+    policy.require_action_grant = false;
+    state.set_policy(policy.clone());
+    for command in [
+        "passmanager:ssh:keygen",
+        "passmanager:ssh:key:edit",
+        "passmanager:entry:websites:update",
+        "passmanager:ssh:key:import",
+        "passmanager:ssh:key:export",
+    ] {
+        let (result, _) =
+            capability::check_capability(&mut state, extension, command, None, None, None);
+        assert_eq!(
+            result.unwrap_err(),
+            format!("command '{}' not allowed by read-only policy", command)
+        );
+    }
+    policy.allowed_commands = AllowedCommands::All;
+    policy.require_action_grant = true;
+    state.set_policy(policy);
+    let command = "passmanager:ssh:key:export";
+    let (denied, _) =
+        capability::check_capability(&mut state, extension, command, None, None, None);
+    assert_eq!(
+        denied.unwrap_err(),
+        "action grant required for sensitive command"
+    );
+    let now = now_ms();
+    state.grant_store_mut(extension).action_grants.insert(
+        "ssh-export".into(),
+        ActionGrant {
+            grant_id: "ssh-export".into(),
+            extension_id: extension.into(),
+            command: command.into(),
+            node_id: None,
+            created_at_ms: now,
+            expires_at_ms: now + 60_000,
+            consumed: false,
+        },
+    );
+    let (allowed, _) = capability::check_capability(
+        &mut state,
+        extension,
+        command,
+        Some("ssh-export"),
+        None,
+        None,
+    );
+    assert!(allowed.is_ok());
+    let (reused, _) = capability::check_capability(
+        &mut state,
+        extension,
+        command,
+        Some("ssh-export"),
+        None,
+        None,
+    );
+    assert_eq!(reused.unwrap_err(), "invalid or expired action grant");
+}
+
+#[test]
+fn passmanager_readonly_policy_denies_mutations_but_allows_metadata_navigation() {
+    use crate::gateway::types::AllowedCommands;
+    let cfg = NamedTempFile::new().expect("tempfile");
+    let mut state = GatewayState::load_or_default(cfg.path().to_path_buf());
+    let extension = "credential-policy-test";
+    let mut policy = state.get_or_create_policy(extension);
+    policy.allowed_commands = AllowedCommands::ReadOnly;
+    policy.require_action_grant = false;
+    policy.require_site_grant = false;
+    state.set_policy(policy);
+    for command in [
+        "passmanager:entry:create",
+        "passmanager:entry:save",
+        "passmanager:entry:update",
+        "passmanager:entry:delete",
+        "passmanager:entry:move",
+        "passmanager:entry:rename",
+        "passmanager:secret:save",
+        "passmanager:secret:delete",
+        "passmanager:tag:save",
+        "passmanager:tag:delete",
+        "passmanager:tags:setCatalog",
+        "passmanager:group:rename",
+        "passmanager:group:ensure",
+        "passmanager:group:setMeta",
+        "passmanager:group:delete",
+        "passmanager:root:import",
+        "passmanager:icon:put",
+        "passmanager:icon:setMeta",
+        "passmanager:icon:gc",
+        "passmanager:securityAudit:set",
+        "passmanager:otp:setSecret",
+        "passmanager:otp:removeSecret",
+        "passmanager:otp:renameSecret",
+        "passmanager:otp:record:save",
+        "passmanager:otp:record:delete",
+        "passmanager:otp:record:code",
+        "passmanager:root:export",
+    ] {
+        let (result, _) =
+            capability::check_capability(&mut state, extension, command, None, None, None);
+        assert_eq!(
+            result,
+            Err(format!(
+                "command '{}' not allowed by read-only policy",
+                command
+            )),
+            "{command}"
+        );
+    }
+    for command in [
+        "passmanager:entry:page",
+        "passmanager:entry:detail",
+        "passmanager:entry:websites:read",
+        "passmanager:entry:websites:validate",
+        "passmanager:root:import:preview",
+        "passmanager:group:page",
+        "passmanager:tag:page",
+        "passmanager:otp:record:list",
+        "passmanager:securityAudit:page",
+        "passmanager:ssh:page",
+    ] {
+        let (result, _) =
+            capability::check_capability(&mut state, extension, command, None, None, None);
+        assert!(
+            result.is_ok(),
+            "Metadata navigation must remain available: {command}"
+        );
+    }
+}
+
+#[test]
+fn passmanager_secret_outputs_require_site_and_single_use_action_grants() {
+    for command in ["passmanager:otp:record:code", "passmanager:root:export"] {
+        let cfg = NamedTempFile::new().expect("tempfile");
+        let mut state = GatewayState::load_or_default(cfg.path().to_path_buf());
+        let extension = "credential-secret-output-test";
+        let origin = "https://example.com";
+        let (denied, _) =
+            capability::check_capability(&mut state, extension, command, None, None, None);
+        assert_eq!(
+            denied,
+            Err("origin required for sensitive command".into()),
+            "{command}"
+        );
+        let now = now_ms();
+        state.grant_store_mut(extension).action_grants.insert(
+            "action".into(),
+            ActionGrant {
+                grant_id: "action".into(),
+                extension_id: extension.into(),
+                command: command.into(),
+                node_id: None,
+                created_at_ms: now,
+                expires_at_ms: now + 60_000,
+                consumed: false,
+            },
+        );
+        let (denied, _) = capability::check_capability(
+            &mut state,
+            extension,
+            command,
+            Some("action"),
+            Some(origin),
+            None,
+        );
+        assert_eq!(denied, Err(format!("no site grant for origin '{origin}'")));
+        state.grant_store_mut(extension).site_grants.insert(
+            origin.into(),
+            SiteGrant {
+                grant_id: "site".into(),
+                extension_id: extension.into(),
+                origin: origin.into(),
+                created_at_ms: now,
+                expires_at_ms: now + 60_000,
+            },
+        );
+        let (missing_action, _) =
+            capability::check_capability(&mut state, extension, command, None, Some(origin), None);
+        assert_eq!(
+            missing_action,
+            Err("action grant required for sensitive command".into())
+        );
+        let (allowed, _) = capability::check_capability(
+            &mut state,
+            extension,
+            command,
+            Some("action"),
+            Some(origin),
+            None,
+        );
+        assert!(
+            allowed.is_ok(),
+            "Site denial must not consume the valid action grant"
+        );
+        let (reused, _) = capability::check_capability(
+            &mut state,
+            extension,
+            command,
+            Some("action"),
+            Some(origin),
+            None,
+        );
+        assert_eq!(reused, Err("invalid or expired action grant".into()));
+    }
+}

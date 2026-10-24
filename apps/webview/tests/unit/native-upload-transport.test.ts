@@ -1,9 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 
 import {
-  cancelAndroidSharedFilesViaTauri,
   cancelSharedFilesViaTauri,
-  uploadAndroidSharedFilesViaTauri,
   uploadSharedFilesViaTauri,
 } from '../../src/core/transport/tauri/tauri-binary-ops'
 
@@ -190,23 +188,6 @@ describe('Tauri shared native upload transport', () => {
 
     await expect(cancelSharedFilesViaTauri('missing-session')).rejects.toMatchObject({
       code: 'ANDROID_SHARE_SESSION_NOT_FOUND',
-    })
-  })
-
-  it('keeps Android shared files transport aliases wired to the neutral helpers', async () => {
-    tauriInvoke.mockResolvedValue({ok: true, result: null})
-
-    await uploadAndroidSharedFilesViaTauri('/', 'share-session-1', {uploadId: 'upload-1'})
-    await cancelAndroidSharedFilesViaTauri('share-session-1')
-
-    expect(tauriInvoke).toHaveBeenCalledWith('catalog_upload_shared_files', {
-      parentPath: '/',
-      uploadId: 'upload-1',
-      sharedSessionId: 'share-session-1',
-      readChunkSize: undefined,
-    })
-    expect(tauriInvoke).toHaveBeenCalledWith('catalog_cancel_shared_files', {
-      sharedSessionId: 'share-session-1',
     })
   })
 })

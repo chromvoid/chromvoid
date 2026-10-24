@@ -28,8 +28,6 @@ pub(crate) fn handle_lock_transition_with_reason(
     lock_reason: &str,
 ) {
     if was_unlocked && !now_unlocked {
-        #[cfg(target_os = "android")]
-        stop_mobile_usb_host_sessions_for_vault_lock();
         #[cfg(desktop)]
         {
             let usb_teardown_reason = if lock_reason == "system_sleep" {
@@ -44,13 +42,6 @@ pub(crate) fn handle_lock_transition_with_reason(
             );
         }
         crate::commands::vault::release_mobile_native_sessions(app, state, lock_reason);
-        let invalidated = crate::mobile::android::invalidate_all_password_save_requests(
-            &state.android_password_save_runtime,
-            "vault_lock",
-        );
-        if invalidated > 0 {
-            crate::mobile::android::notify_password_save_review_result(None, "dismissed", false);
-        }
         #[cfg(desktop)]
         {
             // Active processes keep running after lock, but all unresolved
@@ -99,8 +90,6 @@ pub(crate) fn handle_lock_transition_with_reason(
         let _ = crate::commands::catalog::purge_catalog_preview_cache_for_app(app, "vault-lock");
         let _ = app.emit("vault:locked", serde_json::json!({"reason": lock_reason}));
     } else if !was_unlocked && now_unlocked {
-        #[cfg(target_os = "android")]
-        state.mobile_acceptor_runtime.notify_vault_unlocked();
         #[cfg(desktop)]
         {
             match state.volume_manager.lock() {
@@ -132,20 +121,6 @@ pub(crate) fn handle_lock_transition_with_reason(
         }
         // Sync credential identities to ASCredentialIdentityStore on vault unlock
         crate::credential_provider_bridge::on_vault_unlocked(app);
-    }
-
-    crate::commands::vault::sync_android_vault_quick_lock_with_unlocked(app, state, now_unlocked);
-}
-
-#[cfg(target_os = "android")]
-pub(crate) fn stop_mobile_usb_host_sessions_for_vault_lock() {
-    let stopped_sessions = crate::mobile::android::shared_android_usb_accessory_runtime()
-        .stop_all_sessions(crate::mobile::android::AndroidMobileUsbHostStopReason::VaultLocked);
-    if stopped_sessions > 0 {
-        tracing::info!(
-            stopped_sessions,
-            "vault lock transition: stopped active mobile USB host sessions"
-        );
     }
 }
 

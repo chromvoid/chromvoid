@@ -4,6 +4,11 @@ mod cancel;
 mod commit;
 mod material;
 mod models;
+mod prepared;
+pub use prepared::{
+    LocalRestoreArtifact, LocalRestoreInput, LocalRestorePreview, PreparedLocalRestore,
+    MAX_RESTORE_APPEND_BYTES,
+};
 mod session;
 mod validate;
 mod validation;

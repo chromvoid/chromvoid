@@ -21,7 +21,6 @@ export const GUIDANCE_PRESENTATION_IDS = [
 export const GUIDANCE_PLATFORM_IDS = [
   'desktop',
   'mobile',
-  'android',
   'ios',
   'macos',
   'windows',

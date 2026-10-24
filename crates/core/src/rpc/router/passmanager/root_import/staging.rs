@@ -33,16 +33,44 @@ pub(super) fn build_root_import_plan(
     }
 
     let mut chunks = Vec::new();
+    let icon_files = super::super::icon::plan_import_assets(
+        session,
+        storage,
+        payload.icons,
+        payload.should_clear_existing,
+    )
+    .map_err(RootImportError::from_passmanager_command_error)?;
+    if !icon_files.is_empty() {
+        let directory = super::super::icon::PASSMANAGER_ICONS_DIR;
+        ensure_dir_path(&mut catalog, directory)?;
+        for file in icon_files {
+            super::catalog_staging::stage_file_bytes(
+                &mut catalog,
+                &vault_key,
+                directory,
+                &file.name,
+                &file.bytes,
+                &file.mime_type,
+                &mut chunks,
+            )?;
+        }
+    }
+    let mut created_entry_count = 0;
+    let mut updated_entry_count = 0;
     for entry in payload.entries {
         let entry_obj = super::parser::entry_object(entry)?;
-        stage_entry(
+        if stage_entry(
             session,
             storage,
             &mut catalog,
             &vault_key,
             entry_obj,
             &mut chunks,
-        )?;
+        )? {
+            updated_entry_count += 1;
+        } else {
+            created_entry_count += 1;
+        }
     }
 
     let imported_ssh_keys =
@@ -83,12 +111,15 @@ pub(super) fn build_root_import_plan(
         &mut chunks,
     )?;
 
-    stage_imported_group_meta(
-        &mut catalog,
-        &vault_key,
-        &payload.imported_group_meta,
-        &mut chunks,
-    )?;
+    let group_meta = if payload.should_clear_existing || payload.imported_group_meta.is_empty() {
+        payload.imported_group_meta
+    } else {
+        let mut existing = super::super::group::load_group_meta_map_typed(session, storage)
+            .map_err(RootImportError::from_passmanager_command_error)?;
+        existing.extend(payload.imported_group_meta);
+        existing
+    };
+    stage_imported_group_meta(&mut catalog, &vault_key, &group_meta, &mut chunks)?;
 
     let imported_entry_tags = tags::extract_entry_tags(payload.entries);
     let mut tag_catalogs = vec![payload.imported_tags, imported_entry_tags];
@@ -117,6 +148,9 @@ pub(super) fn build_root_import_plan(
     )?;
 
     Ok(RootImportPlan {
+        created_entry_count,
+        updated_entry_count,
+        imported_ssh_key_count: imported_ssh_keys.len(),
         catalog,
         chunks,
         legacy_ssh_cleanup_node_ids,

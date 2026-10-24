@@ -19,8 +19,8 @@ impl RpcRouter {
         file_streams::handle_upload(self, data, stream)
     }
 
-    pub(super) fn handle_catalog_upload_abort(&mut self) -> RpcResponse {
-        file_streams::handle_abort_upload(self)
+    pub(super) fn handle_catalog_upload_abort(&mut self, data: &serde_json::Value) -> RpcResponse {
+        file_streams::handle_abort_upload(self, data)
     }
 
     pub(super) fn handle_catalog_download_stream(&self, data: &serde_json::Value) -> RpcReply {

@@ -1,11 +1,8 @@
 import {atom, wrap} from '@reatom/core'
 
 import type {
-  AndroidAudioCommand,
-  AndroidAudioCommandResult,
   HostPathSaveTargetOptions,
   HostPathTokenGrant,
-  AndroidAudioPlayerEvent,
   ImagePhotoMetadata,
   MediaStreamErrorEvent,
   NativeAudioCommand,
@@ -44,8 +41,8 @@ import {
   type RuntimeModeSwitchResult,
 } from '../../runtime/runtime-mode.model'
 import {dispatchTauriCatalogCommand} from './tauri-catalog-command-dispatcher'
-import {moduleAccessModel} from '../../pro/module-access.model'
-import {activeCoreAccessContextFromMode} from '../../pro/active-core-access-context'
+import {moduleAccessModel} from '../../modules/module-access.model'
+import {activeCoreAccessContextFromMode} from '../../modules/active-core-access-context'
 import {
   downloadFilePathViaTauri,
   downloadFileViaTauri,
@@ -63,19 +60,15 @@ import {
   releaseMediaSourceViaTauri,
   releaseMediaStreamViaTauri,
   releasePreviewFileViaTauri,
-  cancelAndroidSharedFilesViaTauri,
   cancelNativeOtpQrScanViaTauri,
   cancelSharedFilesViaTauri,
-  sendAndroidAudioCommandViaTauri,
   sendNativeAudioCommandViaTauri,
   startNativeOtpQrScanViaTauri,
   thumbnailImageViaTauri,
-  uploadAndroidSharedFilesViaTauri,
   uploadSharedFilesViaTauri,
   uploadFilePathViaTauri,
   uploadFileViaTauri,
   uploadNativeFilesViaTauri,
-  warmupAndroidAudioViaTauri,
   writeSecretViaTauri,
 } from './tauri-binary-ops'
 import type {RpcCmdData, RpcCmdName, RpcCmdResult} from './tauri-rpc-types'
@@ -208,21 +201,6 @@ export class TauriTransport implements TransportLike {
           ),
         )
         this.unlisten.push(
-          await tauriListen('android-media-session:action', (payload) =>
-            this.emit('android-media-session:action', payload),
-          ),
-        )
-        this.unlisten.push(
-          await tauriListen('android-video-player:event', (payload) =>
-            this.emit('android-video-player:event', payload),
-          ),
-        )
-        this.unlisten.push(
-          await tauriListen<AndroidAudioPlayerEvent>('android-audio-player:event', (payload) =>
-            this.emit('android-audio-player:event', payload),
-          ),
-        )
-        this.unlisten.push(
           await tauriListen<NativeAudioPlayerEvent>('native-audio-player:event', (payload) =>
             this.emit('native-audio-player:event', payload),
           ),
@@ -251,9 +229,6 @@ export class TauriTransport implements TransportLike {
             'media-stream:error',
             'ssh-agent:sign-request',
             'ssh-agent:sign-request-expired',
-            'android-media-session:action',
-            'android-video-player:event',
-            'android-audio-player:event',
             'native-audio-player:event',
             'mode:changed',
           ],
@@ -296,6 +271,7 @@ export class TauriTransport implements TransportLike {
 
         this.connected.set(true)
       } catch (error) {
+        this.releaseListeners()
         console.warn('[dashboard][tauri] connect(): failed', error)
         this.lastError.set(error instanceof Error ? error.message : String(error))
         this.connected.set(false)
@@ -306,6 +282,15 @@ export class TauriTransport implements TransportLike {
   }
 
   disconnect(): void {
+    this.releaseListeners()
+    setRuntimeCapabilities(null)
+    runtimeModeModel.handleTransportDisconnect()
+    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'pending')
+    this.connected.set(false)
+    this.connecting.set(false)
+  }
+
+  private releaseListeners(): void {
     for (const unlisten of this.unlisten) {
       try {
         unlisten()
@@ -315,11 +300,6 @@ export class TauriTransport implements TransportLike {
     }
 
     this.unlisten = []
-    setRuntimeCapabilities(null)
-    runtimeModeModel.handleTransportDisconnect()
-    moduleAccessModel.setActiveCoreContext({sourceCore: 'local'}, 'pending')
-    this.connected.set(false)
-    this.connecting.set(false)
   }
 
   on(event: string, handler: TransportEventHandler): void {
@@ -402,7 +382,7 @@ export class TauriTransport implements TransportLike {
     if (!isSuccess(response)) {
       const message = response.error || 'RPC error'
       const code = response.code ? ` (${response.code})` : ''
-      throw new Error(`${message}${code}`)
+      throw Object.assign(new Error(`${message}${code}`), {code: response.code})
     }
 
     const out = response.result
@@ -435,7 +415,7 @@ export class TauriTransport implements TransportLike {
     if (!isSuccess(response)) {
       const message = response.error || 'RPC error'
       const code = response.code ? ` (${response.code})` : ''
-      throw new Error(`${message}${code}`)
+      throw Object.assign(new Error(`${message}${code}`), {code: response.code})
     }
 
     const out = response.result
@@ -498,6 +478,7 @@ export class TauriTransport implements TransportLike {
     target: number | {parentPath?: string; name: string},
     file: File,
     opts?: {
+      createOnly?: boolean
       chunkSize?: number
       name?: string
       type?: string
@@ -539,20 +520,8 @@ export class TauriTransport implements TransportLike {
     return uploadSharedFilesViaTauri(parentPath, sharedSessionId, opts)
   }
 
-  async uploadAndroidSharedFiles(
-    parentPath: string,
-    shareSessionId: string,
-    opts?: NativeUploadOptions,
-  ): Promise<void> {
-    return uploadAndroidSharedFilesViaTauri(parentPath, shareSessionId, opts)
-  }
-
   async cancelSharedFiles(sharedSessionId: string): Promise<void> {
     return cancelSharedFilesViaTauri(sharedSessionId)
-  }
-
-  async cancelAndroidSharedFiles(shareSessionId: string): Promise<void> {
-    return cancelAndroidSharedFilesViaTauri(shareSessionId)
   }
 
   async startNativeOtpQrScan(scanId: string): Promise<void> {
@@ -667,17 +636,10 @@ export class TauriTransport implements TransportLike {
     return releaseMediaSourceViaTauri(source)
   }
 
-  async sendAndroidAudioCommand(command: AndroidAudioCommand): Promise<AndroidAudioCommandResult> {
-    return sendAndroidAudioCommandViaTauri(command)
-  }
-
   async sendNativeAudioCommand(command: NativeAudioCommand): Promise<NativeAudioCommandResult> {
     return sendNativeAudioCommandViaTauri(command)
   }
 
-  async warmupAndroidAudio(): Promise<boolean> {
-    return warmupAndroidAudioViaTauri()
-  }
 
   async pickDownloadTarget(options: HostPathSaveTargetOptions): Promise<HostPathTokenGrant | null> {
     return pickDownloadTargetViaTauri(options)

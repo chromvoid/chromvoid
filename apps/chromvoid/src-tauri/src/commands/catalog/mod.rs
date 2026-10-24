@@ -30,12 +30,9 @@ pub(crate) use file_ops::write_text_file;
 pub(crate) use secret::{catalog_secret_read, catalog_secret_write_chunk};
 #[cfg(desktop)]
 pub(crate) use upload::catalog_upload_path;
-#[cfg(target_os = "android")]
-pub(crate) use upload::catalog_upload_request_data;
 #[cfg(mobile)]
 pub(crate) use upload::{
-    catalog_cancel_android_shared_files, catalog_cancel_native_upload, catalog_cancel_shared_files,
-    catalog_list_shared_files, catalog_upload_android_shared_files, catalog_upload_native_files,
-    catalog_upload_shared_files,
+    catalog_cancel_native_upload, catalog_cancel_shared_files, catalog_list_shared_files,
+    catalog_upload_native_files, catalog_upload_shared_files,
 };
 pub(crate) use upload::{catalog_file_replace, catalog_upload_chunk};

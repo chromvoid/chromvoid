@@ -1,8 +1,5 @@
 use crate::rpc::types::WalletAccountMeta;
-use crate::wallet::{
-    AllocatedAddressV1, WalletChainError, WalletProfileAccountMaterialization,
-    MULTICHAIN_WALLET_MODE,
-};
+use crate::wallet::{AllocatedAddressV1, WalletChainError, WalletProfileAccountMaterialization};
 
 use super::account::{bitcoin_account_index, bitcoin_derived_account, DerivedAddress};
 use super::constants::BITCOIN_ADDRESS_GAP;
@@ -28,7 +25,6 @@ pub(super) fn discover_hd_account_with_xpub(
         Some(account),
         account.wallet_id().to_string(),
         account.network().clone(),
-        Some(MULTICHAIN_WALLET_MODE.to_string()),
         account_index,
         discovered.next_receive_index,
         discovered.next_change_index,
@@ -59,10 +55,27 @@ fn discover_account_addresses(
 ) -> Result<AccountDiscovery, WalletChainError> {
     let receive = discover_chain(provider, account_xpub, account_id, account_index, 0, now)?;
     let change = discover_chain(provider, account_xpub, account_id, account_index, 1, now)?;
-    let current_receive = receive.last_used.clone();
-    let next_receive_index = receive.next_index;
-    let next_change_index = change.next_index;
     let mut addresses = receive.addresses;
+    let next_change_index = change.next_index;
+    // An account nobody has paid yet still needs an address to show: allocate index 0 here so
+    // clients never see "no address yet" after a restore either.
+    let (current_receive, next_receive_index) = match receive.last_used {
+        Some(used) => (Some(used), receive.next_index),
+        None => {
+            let first = derive_address_from_account_xpub(account_xpub, account_index, 0, 0)?;
+            addresses.push(AllocatedAddressV1 {
+                account_id: account_id.to_string(),
+                purpose: "receive".to_string(),
+                index: 0,
+                address: first.address.clone(),
+                public_key: first.public_key.clone(),
+                derivation_path: first.derivation_path.clone(),
+                created_at: now,
+                last_observed_at: None,
+            });
+            (Some(first), 1)
+        }
+    };
     addresses.extend(change.addresses);
     Ok(AccountDiscovery {
         addresses,
